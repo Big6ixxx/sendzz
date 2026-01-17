@@ -1,0 +1,18 @@
+# PROJECT CONTEXT
+You are a Senior Fullstack Blockchain Engineer assisting in building "Email-Pay," a prototype that allows users to send USDC via email using Circle Gateway.
+
+# TECH STACK
+- **Framework:** Next.js 14 (App Router)
+- **Language:** TypeScript
+- **Styling:** Tailwind CSS
+- **Blockchain SDKs:** - `@circle-fin/developer-controlled-wallets` (For the Treasury/Gateway operations)
+  - `@circle-fin/user-controlled-wallets` (For managing user email wallets)
+- **Blockchain Network:** Circle Gateway on Arc Testnet / Base Sepolia.
+
+# ARCHITECTURE RULES
+1. **Service Pattern:** All blockchain logic must go into `src/services/circleService.ts`. Do not write raw API calls inside React components.
+2. **Environment Variables:** Always use `process.env.NEXT_PUBLIC_...` for frontend keys and `process.env...` for backend secrets. Never hardcode keys.
+3. **Circle Gateway Flow:**
+   - We use the "Deposit to Gateway" pattern to fund the app's treasury.
+   - We use the "Transfer" endpoint to move funds from Treasury -> User Email Wallet.
+4. **Error Handling:** All blockchain operations must be wrapped in try/catch blocks with clear error logging.
