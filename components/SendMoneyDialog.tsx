@@ -10,9 +10,10 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Loader2, Mail, RefreshCw, Send, Sparkles } from 'lucide-react';
+import { Loader2, Mail, Plus, RefreshCw, Send, Sparkles } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { AddContactDialog } from './AddContactDialog';
 
 interface SendMoneyDialogProps {
   open: boolean;
@@ -33,6 +34,10 @@ export function SendMoneyDialog({
   const [step, setStep] = useState<'form' | 'success'>('form');
   const [result, setResult] = useState<{ claimRequired: boolean } | null>(null);
 
+  // New Contact
+  const [showAddContact, setShowAddContact] = useState(false);
+  const [newContactEmail, setNewContactEmail] = useState('');
+
   // Contacts
   const [contacts, setContacts] = useState<
     { id: string; name: string; email: string }[]
@@ -41,14 +46,24 @@ export function SendMoneyDialog({
 
   useEffect(() => {
     if (open) {
-      fetch('/api/contacts')
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.contacts) setContacts(data.contacts);
-        })
-        .catch(console.error);
+      fetchContacts();
     }
   }, [open]);
+
+  const fetchContacts = () => {
+    fetch('/api/contacts')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.contacts) setContacts(data.contacts);
+      })
+      .catch(console.error);
+  };
+
+  const handleContactAdded = (contact: { email: string }) => {
+    fetchContacts();
+    setEmail(contact.email);
+    setShowAddContact(false);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -92,7 +107,7 @@ export function SendMoneyDialog({
       toast.error(error instanceof Error ? error.message : 'Failed to send');
     }
     setLoading(false);
-  };;
+  };
 
   const handleClose = () => {
     onOpenChange(false);
@@ -104,6 +119,7 @@ export function SendMoneyDialog({
       setCurrency('USD');
       setNote('');
       setResult(null);
+      setNewContactEmail('');
     }, 200);
   };
 
@@ -155,7 +171,7 @@ export function SendMoneyDialog({
                       autoComplete="off"
                     />
                     {/* Contacts Dropdown */}
-                    {showContacts && contacts.length > 0 && (
+                    {showContacts && (
                       <div className="absolute top-full left-0 right-0 mt-1 bg-popover border rounded-md shadow-md z-50 max-h-[200px] overflow-auto">
                         {contacts
                           .filter(
@@ -190,6 +206,23 @@ export function SendMoneyDialog({
                               </div>
                             </button>
                           ))}
+
+                        {/* Add Contact Option */}
+                        <button
+                          type="button"
+                          className="w-full text-left px-4 py-2 hover:bg-muted flex items-center gap-2 text-blue-600 border-t"
+                          onMouseDown={(e) => {
+                            e.preventDefault(); // Prevent input blur
+                            setNewContactEmail(email); // Pre-fill email
+                            setShowAddContact(true);
+                            setShowContacts(false);
+                          }}
+                        >
+                          <Plus className="w-4 h-4" />
+                          <span className="text-sm font-medium">
+                            Add new contact
+                          </span>
+                        </button>
                       </div>
                     )}
                   </div>
@@ -332,6 +365,13 @@ export function SendMoneyDialog({
           </div>
         )}
       </DialogContent>
+
+      <AddContactDialog
+        open={showAddContact}
+        onOpenChange={setShowAddContact}
+        onContactAdded={handleContactAdded}
+        defaultEmail={newContactEmail}
+      />
     </Dialog>
   );
 }

@@ -105,6 +105,30 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
+        {/* Contacts */}
+        <Card className="border-2">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <User className="w-5 h-5" />
+              Contacts
+            </CardTitle>
+            <CardDescription>
+              Manage your saved recipients for quick transfers
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex items-center justify-between">
+            <div>
+              <p className="font-semibold">My Contacts</p>
+              <p className="text-sm text-muted-foreground">
+                View and manage your address book
+              </p>
+            </div>
+            <Link href="/contacts">
+              <Button variant="outline">Manage Contacts</Button>
+            </Link>
+          </CardContent>
+        </Card>
+
         {/* Security */}
         <Card className="border-2">
           <CardHeader>

@@ -94,8 +94,8 @@ export default async function LandingPage() {
             </div>
             <h3 className="text-xl font-bold mb-3">Email-Based Transfers</h3>
             <p className="text-muted-foreground">
-              Send USDC to any email address. Recipients don't need a crypto
-              wallet - they sign in with just their email.
+              Send USDC to any email address. Recipients don&apos;t need a
+              crypto wallet - they sign in with just their email.
             </p>
           </div>
 

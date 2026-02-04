@@ -9,20 +9,11 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Loader2, Plus, Search, Trash2, User, Users } from 'lucide-react';
+import { Loader2, Plus, Search, Trash2, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { AddContactDialog } from './AddContactDialog';
 
 interface Contact {
   id: string;
@@ -37,11 +28,6 @@ export function ContactList() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
-
-  // New Contact Form
-  const [newName, setNewName] = useState('');
-  const [newEmail, setNewEmail] = useState('');
-  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     fetchContacts();
@@ -61,40 +47,20 @@ export function ContactList() {
     }
   };
 
-  const handleAddContact = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newName || !newEmail) return;
-
-    setSaving(true);
-    try {
-      const res = await fetch('/api/contacts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newName, email: newEmail }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to add contact');
-      }
-
-      setContacts(
-        [...contacts, data.contact].sort((a, b) =>
-          a.name.localeCompare(b.name),
-        ),
-      );
-      setOpen(false);
-      setNewName('');
-      setNewEmail('');
-      toast.success('Contact added!');
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : 'Failed to add contact',
-      );
-    }
-    setSaving(false);
-  };
+  const handleContactAdded = (contact: { name: string; email: string }) => {
+    setContacts(
+      [
+        ...contacts,
+        {
+          ...contact,
+          id: 'temp-' + Date.now(),
+          created_at: new Date().toISOString(),
+        },
+      ].sort((a, b) => a.name.localeCompare(b.name)),
+    );
+    // Re-fetch to get real ID
+    fetchContacts();
+  };;
 
   const handleDeleteContact = async (id: string, name: string) => {
     try {
@@ -128,57 +94,15 @@ export function ContactList() {
             </CardTitle>
             <CardDescription>Manage your saved recipients</CardDescription>
           </div>
-          <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-              <Button size="sm" className="gap-2">
-                <Plus className="w-4 h-4" />
-                Add
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Add New Contact</DialogTitle>
-                <DialogDescription>
-                  Save a recipient for quick transfers.
-                </DialogDescription>
-              </DialogHeader>
-              <form onSubmit={handleAddContact} className="space-y-4 mt-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Name</Label>
-                  <Input
-                    id="name"
-                    placeholder="Alice Smith"
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="alice@example.com"
-                      className="pl-10"
-                      value={newEmail}
-                      onChange={(e) => setNewEmail(e.target.value)}
-                      required
-                    />
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button type="submit" disabled={saving}>
-                    {saving && (
-                      <Loader2 className="mr-2 w-4 h-4 animate-spin" />
-                    )}
-                    Save Contact
-                  </Button>
-                </DialogFooter>
-              </form>
-            </DialogContent>
-          </Dialog>
+          <Button size="sm" className="gap-2" onClick={() => setOpen(true)}>
+            <Plus className="w-4 h-4" />
+            Add
+          </Button>
+          <AddContactDialog
+            open={open}
+            onOpenChange={setOpen}
+            onContactAdded={handleContactAdded}
+          />
         </div>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
