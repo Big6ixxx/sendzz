@@ -48,7 +48,39 @@ export default function ClaimPage() {
       return;
     }
 
-    // Check if user is logged in
+    // 1. Fetch transfer preview to validate token and get details
+    try {
+      const res = await fetch('/api/transfer/claim/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        if (res.status === 404 || data.error?.includes('expired')) {
+          setStatus('expired');
+          setError('This transfer link has expired or already been claimed.');
+        } else {
+          setStatus('error');
+          setError(data.error || 'Invalid transfer link');
+        }
+        return;
+      }
+
+      setTransferInfo({
+        amount: data.amount.toString(),
+        senderEmail: data.senderEmail || 'Someone',
+        note: data.note,
+      });
+    } catch (err) {
+      console.error(err);
+      setStatus('error');
+      setError('Failed to verify transfer link');
+      return;
+    }
+
+    // 2. Check if user is logged in
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -58,10 +90,7 @@ export default function ClaimPage() {
       return;
     }
 
-    // For now, we'll show the claim button
-    // In a real scenario, you might want to verify the token first
     setStatus('ready');
-    // TODO: Could add an API endpoint to preview transfer info before claiming
   }, [token, supabase]);
 
   useEffect(() => {
@@ -110,18 +139,33 @@ export default function ClaimPage() {
     }
   };
 
-  const handleLogin = () => {
-    // Redirect to login with return URL
-    router.push(
-      `/login?redirect=${encodeURIComponent(`/claim?token=${token}`)}`,
-    );
-  };
+  const email = searchParams.get('email');
+  const amount = searchParams.get('amount');
 
-  const formatAmount = (amount: string) => {
+  const handleLogin = () => {
+    // Redirect to login with return URL and email hint
+    // Construct the full return URL with params so they persist
+    const returnUrl = `/claim?token=${token}${amount ? `&amount=${amount}` : ''}${
+      email ? `&email=${encodeURIComponent(email)}` : ''
+    }`;
+
+    let loginUrl = `/login?redirect=${encodeURIComponent(returnUrl)}`;
+    if (email) {
+      loginUrl += `&email=${encodeURIComponent(email)}`;
+    }
+
+    router.push(loginUrl);
+  };;
+
+  const formatRawAmount = (amt: string) => {
     return new Intl.NumberFormat('en-US', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
-    }).format(parseFloat(amount));
+    }).format(parseFloat(amt));
+  };
+
+  const formatAmount = (amt: string) => {
+    return formatRawAmount(amt);
   };
 
   if (!mounted) {
@@ -187,7 +231,21 @@ export default function ClaimPage() {
                   <p className="text-sm text-green-600 font-medium mb-1">
                     Amount to receive
                   </p>
-                  <p className="text-3xl font-black text-green-700">USDC</p>
+                  <p className="text-3xl font-black text-green-700">
+                    {transferInfo?.amount
+                      ? `$${formatRawAmount(transferInfo.amount)}`
+                      : amount
+                        ? `$${formatRawAmount(amount)}`
+                        : 'USDC'}
+                  </p>
+                  {(transferInfo?.amount || amount) && (
+                    <p className="text-sm text-green-600/80 mt-1">
+                      ≈ ₦
+                      {(
+                        parseFloat(transferInfo?.amount || amount || '0') * 1500
+                      ).toLocaleString()}
+                    </p>
+                  )}
                 </div>
                 <Button
                   onClick={handleClaim}

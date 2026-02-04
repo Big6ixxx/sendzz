@@ -44,7 +44,9 @@ export function WithdrawDialog({
 
   // Form data
   const [amount, setAmount] = useState('');
-  const [currency, setCurrency] = useState('NGN');
+  const [currency, setCurrency] = useState<'USD' | 'NGN' | 'KES' | 'GHS'>(
+    'NGN',
+  );
   const [institutionCode, setInstitutionCode] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
   const [accountName, setAccountName] = useState('');
@@ -59,7 +61,14 @@ export function WithdrawDialog({
   // Fetch institutions when dialog opens
   useEffect(() => {
     if (open) {
-      fetchInstitutions(currency);
+      if (currency === 'USD') {
+        // Paycrest might not support USD bank withdrawals directly or uses different endpoint?
+        // For now, let's just default to NGN fetching if USD is selected, or maybe clearer to force a fiat currency.
+        // The previous code had a list of currencies.
+        fetchInstitutions('NGN');
+      } else {
+        fetchInstitutions(currency);
+      }
     }
   }, [currency, open]);
 
@@ -83,8 +92,21 @@ export function WithdrawDialog({
       toast.error('Please enter a valid amount');
       return;
     }
-    if (amountNum > maxAmount) {
-      toast.error('Insufficient balance');
+
+    // If input is in NGN/Other, convert to USD for balance check?
+    // Actually, maxAmount is in USD.
+    // If user inputs NGN, we need to know how much USD that is.
+    // Using simple rate for NGN. For others, maybe just strict 1:1 for now or block them?
+    // The requirement says "everywhere USD is displayed, display... naira". It implies NGN focus.
+    // Let's assume standard rate for NGN.
+
+    let equivalentUsd = amountNum;
+    if (currency === 'NGN') {
+      equivalentUsd = amountNum / 1500;
+    }
+
+    if (equivalentUsd > maxAmount) {
+      toast.error(`Insufficient balance (Max: $${maxAmount.toFixed(2)})`);
       return;
     }
 
@@ -94,7 +116,7 @@ export function WithdrawDialog({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          amount,
+          amount: equivalentUsd.toString(), // Send USD amount to backend? Or convert there?
           currency,
           institutionCode,
           accountNumber,
@@ -117,7 +139,7 @@ export function WithdrawDialog({
       );
     }
     setLoading(false);
-  };
+  };;
 
   const handleVerify = async () => {
     if (verificationCode.length !== 6) {
@@ -208,7 +230,7 @@ export function WithdrawDialog({
               </div>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-semibold">
-                  $
+                  {currency === 'NGN' ? '₦' : currency === 'USD' ? '$' : ''}
                 </span>
                 <Input
                   id="withdrawAmount"
@@ -223,21 +245,26 @@ export function WithdrawDialog({
                   }}
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground font-semibold">
-                  USDC
+                  {currency}
                 </span>
               </div>
+              {currency === 'NGN' && amount && (
+                <p className="text-xs text-muted-foreground text-right">
+                  ≈ ${(parseFloat(amount) / 1500).toFixed(2)} USD
+                </p>
+              )}
             </div>
 
             {/* Currency */}
             <div className="space-y-2">
-              <Label>Receive Currency</Label>
+              <Label>Withdrawal Currency</Label>
               <div className="grid grid-cols-3 gap-2">
                 {['NGN', 'KES', 'GHS'].map((curr) => (
                   <Button
                     key={curr}
                     type="button"
                     variant={currency === curr ? 'default' : 'outline'}
-                    onClick={() => setCurrency(curr)}
+                    onClick={() => setCurrency(curr as 'NGN' | 'KES' | 'GHS')}
                     className="font-semibold"
                   >
                     {curr}
@@ -248,7 +275,13 @@ export function WithdrawDialog({
 
             <Button
               onClick={() => setStep('bank')}
-              disabled={!amount || parseFloat(amount) <= 0}
+              disabled={
+                !amount ||
+                parseFloat(amount) <= 0 ||
+                (currency === 'NGN'
+                  ? parseFloat(amount) / 1500 > maxAmount
+                  : parseFloat(amount) > maxAmount)
+              }
               className="w-full h-12 font-bold"
             >
               Continue

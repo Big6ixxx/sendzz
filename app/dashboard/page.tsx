@@ -3,6 +3,7 @@ import {
   findUserById,
   getAllUserTransfers,
   getBalance,
+  getDepositsByUser,
   getWithdrawalsByUser,
 } from '@/server/repositories';
 import { redirect } from 'next/navigation';
@@ -19,12 +20,14 @@ export default async function DashboardPage() {
   }
 
   // Fetch data in parallel
-  const [profile, balance, transfers, withdrawals] = await Promise.all([
-    findUserById(user.id),
-    getBalance(user.id),
-    getAllUserTransfers(user.id, 10),
-    getWithdrawalsByUser(user.id, 5),
-  ]);
+  const [profile, balance, transfers, withdrawals, deposits] =
+    await Promise.all([
+      findUserById(user.id),
+      getBalance(user.id),
+      getAllUserTransfers(user.id, 10),
+      getWithdrawalsByUser(user.id, 5),
+      getDepositsByUser(user.id, 5),
+    ]);
 
   // Combine and format transactions
   const recentTransactions = [
@@ -46,6 +49,15 @@ export default async function DashboardPage() {
       status: w.status,
       counterparty: `Bank ${w.bank_account_masked}`,
       createdAt: w.created_at,
+    })),
+    ...deposits.map((d) => ({
+      id: d.id,
+      type: 'deposit',
+      amount: Number(d.amount_usdc),
+      asset: 'USDC' as const,
+      status: d.status,
+      counterparty: 'Sendzz Deposit',
+      createdAt: d.created_at,
     })),
   ]
     .sort(

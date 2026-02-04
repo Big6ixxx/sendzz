@@ -29,6 +29,7 @@ export type { BalanceInfo } from './balanceRepository';
 export {
   cancelTransfer,
   createTransfer,
+  executeClaimTransferAtomic,
   expireOldTransfers,
   findPendingClaimsForEmail,
   findTransferByClaimTokenHash,
@@ -37,7 +38,7 @@ export {
   getTransfersByRecipient,
   getTransfersBySender,
   markTransferClaimed,
-  markTransferCompleted
+  markTransferCompleted,
 } from './transferRepository';
 export type { CreateTransferParams } from './transferRepository';
 
@@ -75,4 +76,12 @@ export {
   logOtpAttempt
 } from './otpLogRepository';
 export type { OtpLogEntry } from './otpLogRepository';
+
+// Deposit
+export {
+  createDeposit,
+  getDepositsByUser,
+  updateDepositStatus
+} from './depositRepository';
+export type { CreateDepositParams } from './depositRepository';
 

@@ -93,11 +93,16 @@ export async function POST(request: Request) {
       );
     }
 
-    // Mark OTP as used
-    await supabaseAdmin
+    // Delete the used OTP record
+    const { error: deleteError } = await supabaseAdmin
       .from('auth_otp')
-      .update({ used: true })
+      .delete()
       .eq('id', otpRecord.id);
+
+    if (deleteError) {
+      console.error('[Auth] Failed to delete used OTP:', deleteError);
+      // Continue anyway as the user is verified
+    }
 
     // Check if user exists in Supabase Auth
     const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers();

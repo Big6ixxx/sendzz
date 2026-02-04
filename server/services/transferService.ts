@@ -22,11 +22,11 @@ import {
   createTransfer,
   creditBalance,
   debitBalance,
+  executeClaimTransferAtomic,
   findTransferByClaimTokenHash,
   findUserByEmail,
+  findUserById,
   getBalance,
-  markTransferClaimed,
-  markTransferCompleted,
 } from '@/server/repositories';
 
 export interface SendTransferInput {
@@ -150,7 +150,9 @@ export async function sendTransfer(
 
     // Send claim email to recipient
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-    const claimUrl = `${baseUrl}/claim/${claimToken}`;
+    const claimUrl = `${baseUrl}/claim/${claimToken}?email=${encodeURIComponent(
+      recipientEmail,
+    )}&amount=${amount}`;
 
     await sendEmail({
       to: recipientEmail,
@@ -177,6 +179,54 @@ export interface ClaimTransferResult {
   success: boolean;
   amount?: number;
   error?: string;
+}
+
+export interface PreviewTransferResult {
+  success: boolean;
+  amount?: number;
+  senderEmail?: string;
+  note?: string;
+  error?: string;
+}
+
+/**
+ * Preview a pending transfer info before claiming
+ */
+export async function previewTransfer(
+  token: string,
+): Promise<PreviewTransferResult> {
+  // Hash the token to look up
+  const tokenHash = hashToken(token);
+
+  // Find the pending transfer
+  const transfer = await findTransferByClaimTokenHash(tokenHash);
+  if (!transfer) {
+    return { success: false, error: 'Invalid or expired claim link' };
+  }
+
+  // Verify token matches
+  if (!verifyToken(token, transfer.claim_token_hash!)) {
+    return { success: false, error: 'Invalid claim token' };
+  }
+
+  // Check expiry
+  if (isExpired(transfer.expires_at)) {
+    return { success: false, error: 'Claim link has expired' };
+  }
+
+  if (transfer.status !== 'pending_claim') {
+    return { success: false, error: 'Transfer already claimed or cancelled' };
+  }
+
+  // Fetch sender info
+  const sender = await findUserById(transfer.sender_id);
+
+  return {
+    success: true,
+    amount: Number(transfer.amount),
+    note: transfer.note || undefined,
+    senderEmail: sender?.email || 'Someone',
+  };
 }
 
 /**
@@ -214,20 +264,13 @@ export async function claimTransfer(
     };
   }
 
-  // Mark transfer as claimed and set recipient
-  const claimed = await markTransferClaimed(transfer.id, claimantId);
-  if (!claimed) {
-    return { success: false, error: 'Failed to claim transfer' };
-  }
+  // Execute atomic claim transaction
+  const result = await executeClaimTransferAtomic(transfer.id, claimantId);
 
-  // Credit the claimant's balance
-  const credited = await creditBalance(claimantId, Number(transfer.amount));
-  if (!credited) {
-    return { success: false, error: 'Failed to credit balance' };
+  if (!result.success) {
+    // Check for specific error messages from RPC if needed
+    return { success: false, error: 'Failed to process claim transaction' };
   }
-
-  // Mark transfer as completed
-  await markTransferCompleted(transfer.id);
 
   // Audit log
   await createAuditLog({

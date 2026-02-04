@@ -268,3 +268,25 @@ export async function expireOldTransfers(): Promise<number> {
   }
   return data?.length || 0;
 }
+/**
+ * Execute atomic claim transaction (RPC)
+ */
+export async function executeClaimTransferAtomic(
+  transferId: string,
+  claimantId: string,
+): Promise<{ success: boolean; amount?: number; error?: unknown }> {
+  const supabase = createAdminClient();
+
+  // @ts-expect-error - RPC not yet in generated types
+  const { data, error } = await supabase.rpc('claim_transfer_atomic', {
+    p_transfer_id: transferId,
+    p_claimant_id: claimantId,
+  });
+
+  if (error) {
+    console.error('[TransferRepo] atomic claim error:', error);
+    return { success: false, error };
+  }
+
+  return { success: true, amount: data };
+}

@@ -63,8 +63,26 @@ export async function creditBalance(
     .single();
 
   if (!currentBalance) {
-    console.error('[BalanceRepo] creditBalance: user balance not found');
-    return false;
+    // Balance record missing? Create it with the credit amount
+    console.warn(
+      '[BalanceRepo] creditBalance: user balance not found. Creating new record.',
+    );
+    const { error: insertError } = await supabase.from('balances').insert({
+      user_id: userId,
+      asset: 'USDC',
+      available_balance: amount,
+      locked_balance: 0,
+    });
+
+    if (insertError) {
+      console.error(
+        '[BalanceRepo] creditBalance: failed to create balance record:',
+        insertError,
+      );
+      return false;
+    }
+
+    return true;
   }
 
   const newBalance = Number(currentBalance.available_balance) + amount;

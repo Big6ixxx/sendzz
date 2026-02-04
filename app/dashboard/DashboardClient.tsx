@@ -1,5 +1,6 @@
 'use client';
 
+import { DepositDialog } from '@/components/DepositDialog';
 import { ReceiveDialog } from '@/components/ReceiveDialog';
 import { SendMoneyDialog } from '@/components/SendMoneyDialog';
 import { Badge } from '@/components/ui/badge';
@@ -20,6 +21,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Separator } from '@/components/ui/separator';
 import { WithdrawDialog } from '@/components/WithdrawDialog';
+import { convertUsdToNgn, formatCurrency } from '@/lib/currency';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import {
   ArrowDownLeft,
@@ -72,6 +74,7 @@ export function DashboardClient({
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
   const [withdrawDialogOpen, setWithdrawDialogOpen] = useState(false);
   const [receiveDialogOpen, setReceiveDialogOpen] = useState(false);
+  const [depositDialogOpen, setDepositDialogOpen] = useState(false);
   const router = useRouter();
   const supabase = getSupabaseBrowserClient();
 
@@ -86,11 +89,8 @@ export function DashboardClient({
     toast.success('Email copied to clipboard');
   };
 
-  const formatAmount = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(amount);
+  const formatAmount = (amount: number, currency: 'USD' | 'NGN' = 'USD') => {
+    return formatCurrency(amount, currency);
   };
 
   const formatDate = (dateStr: string) => {
@@ -201,26 +201,29 @@ export function DashboardClient({
         <Card className="border-2 shadow-xl bg-linear-to-br from-blue-600 to-violet-600 text-white animate-slide-in-up">
           <CardContent className="pt-6">
             <div className="space-y-4">
-              <div>
-                <p className="text-blue-100 text-sm font-medium">
-                  Available Balance
-                </p>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-4xl font-black">
-                    {formatAmount(balance.available)}
-                  </span>
-                  <span className="text-xl font-semibold text-blue-100">
-                    USDC
-                  </span>
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="text-sm font-medium text-blue-100 mb-1">
+                    Total Balance
+                  </p>
+                  <h2 className="text-4xl font-bold mb-1">
+                    {formatAmount(balance.available, 'USD')}
+                  </h2>
+                  <p className="text-blue-200 text-sm">
+                    ≈ {formatAmount(convertUsdToNgn(balance.available), 'NGN')}
+                  </p>
+                </div>
+                <div className="bg-white/10 rounded-lg p-3 backdrop-blur-sm self-start">
+                  <Wallet className="w-6 h-6" />
                 </div>
               </div>
 
               {balance.locked > 0 && (
-                <div className="flex items-center gap-2 text-sm text-blue-100">
-                  <Wallet className="w-4 h-4" />
+                <div className="mt-4 pt-4 border-t border-white/20 flex items-center gap-2 text-sm text-blue-100">
+                  <div className="w-2 h-2 rounded-full bg-yellow-400" />
                   <span>
-                    {formatAmount(balance.locked)} USDC locked in pending
-                    transactions
+                    Locked: {formatAmount(balance.locked, 'USD')} (
+                    {formatAmount(convertUsdToNgn(balance.locked), 'NGN')})
                   </span>
                 </div>
               )}
@@ -243,6 +246,7 @@ export function DashboardClient({
                 <Button
                   variant="outline"
                   className="h-12 w-12 bg-white/20 hover:bg-white/30 text-white border-white/30"
+                  onClick={() => setDepositDialogOpen(true)}
                 >
                   <Plus className="h-5 w-5" />
                 </Button>
@@ -313,7 +317,7 @@ export function DashboardClient({
                   No transactions yet
                 </p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Send money to get started!
+                  Make a deposit to get started!
                 </p>
               </div>
             ) : (
@@ -342,13 +346,19 @@ export function DashboardClient({
                       </div>
                       <div className="text-right">
                         <p
-                          className={`font-bold ${tx.type === 'received' ? 'text-green-600' : ''}`}
+                          className={`font-bold ${
+                            tx.type === 'received' || tx.type === 'deposit'
+                              ? 'text-green-600'
+                              : ''
+                          }`}
                         >
-                          {tx.type === 'received' ? '+' : '-'}
-                          {formatAmount(tx.amount)}
+                          {tx.type === 'received' || tx.type === 'deposit'
+                            ? '+'
+                            : '-'}
+                          {formatAmount(tx.amount, 'USD')}
                         </p>
-                        <p className="text-sm text-muted-foreground">
-                          {tx.asset}
+                        <p className="text-xs text-muted-foreground">
+                          ≈ {formatAmount(convertUsdToNgn(tx.amount), 'NGN')}
                         </p>
                       </div>
                     </div>
@@ -376,6 +386,10 @@ export function DashboardClient({
         open={receiveDialogOpen}
         onOpenChange={setReceiveDialogOpen}
         email={user.email}
+      />
+      <DepositDialog
+        open={depositDialogOpen}
+        onOpenChange={setDepositDialogOpen}
       />
     </div>
   );

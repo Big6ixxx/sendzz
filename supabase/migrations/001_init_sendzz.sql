@@ -540,15 +540,5 @@ using (false)
 with check (false);
 
 -- =========================================
--- OPTIONAL: SERVICE ROLE ACCESS (recommended)
--- =========================================
--- Supabase service_role bypasses RLS automatically.
--- Ensure backend uses SUPABASE_SERVICE_ROLE_KEY for:
--- - webhook processing
--- - claiming transfers
--- - updating balances
--- - updating withdrawal statuses
-
--- =========================================
 -- DONE
 -- =========================================

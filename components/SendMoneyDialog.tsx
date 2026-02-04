@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Loader2, Mail, Send, Sparkles } from 'lucide-react';
+import { Loader2, Mail, RefreshCw, Send, Sparkles } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -27,6 +27,7 @@ export function SendMoneyDialog({
 }: SendMoneyDialogProps) {
   const [email, setEmail] = useState('');
   const [amount, setAmount] = useState('');
+  const [currency, setCurrency] = useState<'USD' | 'NGN'>('USD');
   const [note, setNote] = useState('');
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<'form' | 'success'>('form');
@@ -57,7 +58,11 @@ export function SendMoneyDialog({
       toast.error('Please enter a valid amount');
       return;
     }
-    if (amountNum > maxAmount) {
+
+    // Convert to USD for validation and sending
+    const usdAmount = currency === 'NGN' ? amountNum / 1500 : amountNum;
+
+    if (usdAmount > maxAmount) {
       toast.error('Insufficient balance');
       return;
     }
@@ -69,7 +74,7 @@ export function SendMoneyDialog({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           recipientEmail: email,
-          amount: amount,
+          amount: usdAmount.toString(),
           note: note || undefined,
         }),
       });
@@ -87,7 +92,7 @@ export function SendMoneyDialog({
       toast.error(error instanceof Error ? error.message : 'Failed to send');
     }
     setLoading(false);
-  };
+  };;
 
   const handleClose = () => {
     onOpenChange(false);
@@ -96,6 +101,7 @@ export function SendMoneyDialog({
       setStep('form');
       setEmail('');
       setAmount('');
+      setCurrency('USD');
       setNote('');
       setResult(null);
     }, 200);
@@ -193,14 +199,32 @@ export function SendMoneyDialog({
               {/* Amount */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Label htmlFor="amount">Amount</Label>
-                  <span className="text-sm text-muted-foreground">
-                    Max: {formatAmount(maxAmount)} USDC
-                  </span>
+                  <Label htmlFor="amount">Amount ({currency})</Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                    onClick={() => {
+                      const newCurrency = currency === 'USD' ? 'NGN' : 'USD';
+                      setCurrency(newCurrency);
+                      setAmount(''); // Reset to avoid confusion or we could convert
+                    }}
+                  >
+                    <RefreshCw className="w-3 h-3 mr-1" />
+                    Switch to {currency === 'USD' ? 'NGN' : 'USD'}
+                  </Button>
                 </div>
+                <div className="flex justify-between text-sm text-muted-foreground mb-1">
+                  <span>Max: {formatAmount(maxAmount)} USD</span>
+                  {currency === 'NGN' && (
+                    <span>≈ ₦{(maxAmount * 1500).toLocaleString()}</span>
+                  )}
+                </div>
+
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-semibold">
-                    $
+                    {currency === 'NGN' ? '₦' : '$'}
                   </span>
                   <Input
                     id="amount"
@@ -217,24 +241,44 @@ export function SendMoneyDialog({
                     disabled={loading}
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground font-semibold">
-                    USDC
+                    {currency}
                   </span>
                 </div>
+                {currency === 'NGN' && amount && (
+                  <p className="text-xs text-muted-foreground text-right mt-1">
+                    ≈ ${(parseFloat(amount) / 1500).toFixed(2)} USD
+                  </p>
+                )}
+
                 {/* Quick amounts */}
-                <div className="flex gap-2">
-                  {[10, 25, 50, 100].map((quickAmount) => (
-                    <Button
-                      key={quickAmount}
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="flex-1"
-                      onClick={() => setAmount(quickAmount.toString())}
-                      disabled={quickAmount > maxAmount || loading}
-                    >
-                      ${quickAmount}
-                    </Button>
-                  ))}
+                <div className="flex gap-2 mt-2">
+                  {[5, 10, 25, 50, 100].map((baseAmount) => {
+                    const chipAmount =
+                      currency === 'NGN' ? baseAmount * 1500 : baseAmount;
+                    const displayAmount =
+                      currency === 'NGN'
+                        ? `₦${chipAmount.toLocaleString()}`
+                        : `$${chipAmount}`;
+
+                    // Check max balance in USD
+                    const equivalentUsd =
+                      currency === 'NGN' ? chipAmount / 1500 : chipAmount;
+                    const isDisabled = equivalentUsd > maxAmount || loading;
+
+                    return (
+                      <Button
+                        key={baseAmount}
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="flex-1"
+                        onClick={() => setAmount(chipAmount.toString())}
+                        disabled={isDisabled}
+                      >
+                        {displayAmount}
+                      </Button>
+                    );
+                  })}
                 </div>
               </div>
 
