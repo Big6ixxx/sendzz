@@ -1,180 +1,183 @@
-'use client';
-import React, { useState, useEffect } from 'react';
-import TransactionHistory from './components/TransactionHistory';
-import WithdrawModal from './components/WithdrawModal';
-import { createBrowserClient } from '@supabase/ssr';
-import { useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import { createClient } from '@/lib/supabase/server';
+import {
+  ArrowRight,
+  Banknote,
+  DollarSign,
+  Globe,
+  Mail,
+  Shield,
+  Sparkles,
+  Zap,
+} from 'lucide-react';
+import Link from 'next/link';
+import { redirect } from 'next/navigation';
 
-export default function SendzzDashboard() {
-  const router = useRouter();
-  const [email, setEmail] = useState('');
-  const [amount, setAmount] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
-  const [authChecking, setAuthChecking] = useState(true);
+export default async function LandingPage() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-
-  useEffect(() => {
-    const checkUser = async () => {
-      setAuthChecking(true);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        setUserEmail(user.email ?? null);
-      } else {
-        setUserEmail(null);
-      }
-      setAuthChecking(false);
-    };
-    checkUser();
-  }, [supabase]);
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    window.location.href = '/login';
-  };
-
-  const handleSend = async () => {
-    if (!userEmail) return alert("❌ Session Error: Please login again.");
-    setLoading(true);
-    try {
-      const response = await fetch('/api/send-usdc', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, amount }),
-        credentials: 'include', 
-      });
-      if (response.status === 401) throw new Error("Unauthorized: Your session expired.");
-      const data = await response.json();
-      if (data.success) {
-        alert("💸 Sendzz Successful!");
-        window.location.reload();
-      } else {
-        alert("Error: " + data.error);
-      }
-    } catch (err: any) {
-      alert(err.message || "Connection failed.");
-    } finally {
-      setLoading(false);
-    }
-  };
+  // If logged in, redirect to dashboard
+  if (user) {
+    redirect('/dashboard');
+  }
 
   return (
-    <main className="min-h-screen bg-[#F8FAFC] text-slate-900 p-4 md:p-8">
-      <div className="max-w-6xl mx-auto">
-        
-        {/* TOP NAV */}
-        <nav className="flex justify-between items-center mb-12 bg-white p-4 rounded-3xl border border-slate-200 shadow-sm">
-          <div className="flex items-center gap-2">
-            <div className="bg-blue-600 p-2 rounded-lg shadow-lg shadow-blue-100">
-              <span className="text-white font-black text-xl italic leading-none">S</span>
-            </div>
-            <h1 className="text-2xl font-black tracking-tighter text-blue-600">SENDZZ</h1>
-          </div>
-          
+    <main className="min-h-screen bg-linear-to-br from-blue-50 via-white to-violet-50">
+      {/* Header */}
+      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-lg border-b">
+        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            {/* WITHDRAW BUTTON - NOW ALWAYS RENDERED BUT DISABLED IF NO AUTH */}
-            <button 
-                onClick={() => userEmail ? setIsWithdrawOpen(true) : alert("Please login to withdraw")}
-                className={`px-4 py-2 rounded-full font-bold text-sm transition-all ${userEmail ? 'bg-blue-600 text-white shadow-md hover:bg-blue-700' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
-            >
-                Withdraw to Bank
-            </button>
-
-            {authChecking ? (
-                <div className="h-8 w-20 bg-slate-50 animate-pulse rounded-full"></div>
-            ) : userEmail ? (
-              <div className="flex items-center gap-3">
-                <div className="hidden md:flex flex-col items-end">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Active Wallet</span>
-                    <span className="text-xs font-bold text-blue-600 italic">{userEmail}</span>
-                </div>
-                <button onClick={handleLogout} className="bg-slate-900 text-white px-5 py-2 rounded-full font-bold text-sm hover:bg-black transition-all">Logout</button>
-              </div>
-            ) : (
-              <button onClick={() => router.push('/login')} className="bg-blue-600 text-white px-6 py-2 rounded-full font-bold text-sm hover:bg-blue-700 transition-all shadow-md shadow-blue-100">Login</button>
-            )}
-          </div>
-        </nav>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          
-          {/* LEFT COLUMN: SEND MONEY */}
-          <div className="lg:col-span-1">
-            <div className="bg-white rounded-[32px] p-8 shadow-sm border border-slate-200">
-              <h2 className="text-xl font-bold mb-6 flex items-center gap-2">Send USDC <span className="text-blue-600 italic">📤</span></h2>
-              
-              {!userEmail && !authChecking ? (
-                <div className="p-6 bg-blue-50 rounded-2xl border border-blue-100 text-center">
-                    <p className="text-sm font-medium text-blue-800 mb-4">Your session has expired. Please log in to start sending.</p>
-                    <button onClick={() => router.push('/login')} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold shadow-lg shadow-blue-100">Login to Sendzz</button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                    <div className="group">
-                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Recipient</label>
-                        <input 
-                            type="email" placeholder="hello@recipient.com"
-                            className="w-full mt-1 px-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all group-hover:bg-white"
-                            value={email} onChange={(e) => setEmail(e.target.value)}
-                        />
-                    </div>
-                    <div className="group">
-                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Amount</label>
-                        <div className="relative">
-                            <input 
-                                type="number" placeholder="0.00"
-                                className="w-full mt-1 px-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all group-hover:bg-white"
-                                value={amount} onChange={(e) => setAmount(e.target.value)}
-                            />
-                            <span className="absolute right-4 top-5 font-bold text-slate-400 italic">USDC</span>
-                        </div>
-                    </div>
-                    <button 
-                        disabled={loading || !userEmail}
-                        onClick={handleSend}
-                        className={`w-full font-bold py-4 rounded-2xl shadow-lg transition-all active:scale-95 flex justify-center items-center gap-2 ${loading || !userEmail ? 'bg-slate-100 text-slate-400' : 'bg-blue-600 text-white shadow-blue-100 hover:bg-blue-700'}`}
-                    >
-                        {loading ? 'Processing...' : 'Send via Sendzz'}
-                    </button>
-                </div>
-              )}
+            <div className="w-10 h-10 bg-linear-to-br from-blue-600 to-violet-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-200/50">
+              <Sparkles className="w-5 h-5 text-white" />
             </div>
+            <span className="text-xl font-black tracking-tight bg-linear-to-r from-blue-600 to-violet-600 bg-clip-text text-transparent">
+              SENDZZ
+            </span>
           </div>
-
-          {/* RIGHT COLUMN: HISTORY */}
-          <div className="lg:col-span-2 space-y-8">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="bg-blue-600 rounded-[32px] p-8 text-white shadow-xl shadow-blue-100 relative overflow-hidden">
-                <p className="text-blue-100 text-sm font-medium mb-1 italic opacity-80">Universal Balance</p>
-                <h3 className="text-3xl font-black italic underline decoration-blue-300 underline-offset-8">READY TO CLAIM</h3>
-                <div className="absolute -right-6 -bottom-6 opacity-10 text-9xl font-black italic">S</div>
-              </div>
-              <div className="bg-white rounded-[32px] p-8 border border-slate-200 shadow-sm flex flex-col justify-center relative overflow-hidden">
-                <p className="text-slate-400 text-sm font-medium mb-1 italic">Identity Status</p>
-                <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2 italic">
-                  <span className={`h-2 w-2 rounded-full ${userEmail ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
-                  {userEmail ? 'Authenticated' : 'Offline'}
-                </h3>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-[32px] p-8 border border-slate-200 shadow-sm">
-              <TransactionHistory />
-            </div>
-          </div>
-
+          <Link href="/login">
+            <Button className="font-bold bg-linear-to-r from-blue-600 to-violet-600">
+              Get Started
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          </Link>
         </div>
-      </div>
+      </header>
 
-      <WithdrawModal 
-        isOpen={isWithdrawOpen} 
-        onClose={() => setIsWithdrawOpen(false)} 
-      />
+      {/* Hero */}
+      <section className="max-w-6xl mx-auto px-4 py-20 md:py-32">
+        <div className="text-center max-w-3xl mx-auto">
+          <div className="inline-flex items-center gap-2 bg-blue-100 text-blue-700 px-4 py-2 rounded-full text-sm font-semibold mb-6">
+            <Zap className="w-4 h-4" />
+            Instant • Borderless • Payments
+          </div>
+          <h1 className="text-4xl md:text-6xl font-black tracking-tight mb-6">
+            Send Money to{' '}
+            <span className="bg-linear-to-r from-blue-600 to-violet-600 bg-clip-text text-transparent">
+              Any Email
+            </span>{' '}
+            Instantly
+          </h1>
+          <p className="text-lg md:text-xl text-muted-foreground mb-8 max-w-2xl mx-auto">
+            Transfer USDC to anyone using just their email address. No wallet
+            needed. Withdraw directly to your bank account.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <Link href="/login">
+              <Button
+                size="lg"
+                className="h-14 px-8 text-lg font-bold bg-linear-to-r from-blue-600 to-violet-600 shadow-xl hover:shadow-2xl transition-all"
+              >
+                <Mail className="mr-2 h-5 w-5" />
+                Start Sending
+              </Button>
+            </Link>
+            <Button
+              size="lg"
+              variant="outline"
+              className="h-14 px-8 text-lg font-bold"
+            >
+              Learn More
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      {/* Features */}
+      <section className="max-w-6xl mx-auto px-4 py-16">
+        <div className="grid md:grid-cols-3 gap-8">
+          <div className="bg-white rounded-2xl p-8 border-2 shadow-lg hover:shadow-xl transition-shadow">
+            <div className="w-14 h-14 bg-blue-100 rounded-2xl flex items-center justify-center mb-6">
+              <Mail className="w-7 h-7 text-blue-600" />
+            </div>
+            <h3 className="text-xl font-bold mb-3">Email-Based Transfers</h3>
+            <p className="text-muted-foreground">
+              Send USDC to any email address. Recipients don't need a crypto
+              wallet - they sign in with just their email.
+            </p>
+          </div>
+
+          <div className="bg-white rounded-2xl p-8 border-2 shadow-lg hover:shadow-xl transition-shadow">
+            <div className="w-14 h-14 bg-green-100 rounded-2xl flex items-center justify-center mb-6">
+              <DollarSign className="w-7 h-7 text-green-600" />
+            </div>
+            <h3 className="text-xl font-bold mb-3">Stablecoin Powered</h3>
+            <p className="text-muted-foreground">
+              All transfers are in USDC - a stablecoin pegged to the US Dollar.
+              No volatility, no surprises.
+            </p>
+          </div>
+
+          <div className="bg-white rounded-2xl p-8 border-2 shadow-lg hover:shadow-xl transition-shadow">
+            <div className="w-14 h-14 bg-violet-100 rounded-2xl flex items-center justify-center mb-6">
+              <Banknote className="w-7 h-7 text-violet-600" />
+            </div>
+            <h3 className="text-xl font-bold mb-3">Withdraw to Bank</h3>
+            <p className="text-muted-foreground">
+              Cash out directly to your bank account in NGN, KES, GHS, and more
+              currencies. Fast and secure.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Trust Section */}
+      <section className="max-w-6xl mx-auto px-4 py-16">
+        <div className="bg-linear-to-br from-blue-600 to-violet-600 rounded-3xl p-8 md:p-12 text-white text-center">
+          <div className="flex justify-center gap-4 mb-6">
+            <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+              <Shield className="w-6 h-6" />
+            </div>
+            <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+              <Globe className="w-6 h-6" />
+            </div>
+            <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+              <Zap className="w-6 h-6" />
+            </div>
+          </div>
+          <h2 className="text-2xl md:text-3xl font-bold mb-4">
+            Secure, Global, Instant
+          </h2>
+          <p className="text-blue-100 max-w-2xl mx-auto mb-8">
+            Built with enterprise-grade security. Send money across borders in
+            seconds, not days. No hidden fees.
+          </p>
+          <Link href="/login">
+            <Button
+              size="lg"
+              className="h-12 px-8 bg-white text-blue-600 hover:bg-blue-50 font-bold"
+            >
+              Get Started Free
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          </Link>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="border-t bg-white/50">
+        <div className="max-w-6xl mx-auto px-4 py-8 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-blue-600" />
+            <span className="font-bold text-muted-foreground">
+              © 2026 Sendzz. All rights reserved.
+            </span>
+          </div>
+          <div className="flex gap-6 text-sm text-muted-foreground">
+            <a href="#" className="hover:text-foreground">
+              Terms
+            </a>
+            <a href="#" className="hover:text-foreground">
+              Privacy
+            </a>
+            <a href="#" className="hover:text-foreground">
+              Support
+            </a>
+          </div>
+        </div>
+      </footer>
     </main>
   );
 }

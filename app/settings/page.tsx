@@ -1,104 +1,199 @@
 'use client';
-import React, { useState } from 'react';
+
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Separator } from '@/components/ui/separator';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { ArrowLeft, Copy, LogOut, Shield, Sparkles, User } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 
-export default function SendzzSettings() {
+export default function SettingsPage() {
+  const [email, setEmail] = useState('');
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
-  const [intent, setIntent] = useState<'EVM' | 'STELLAR' | 'BANK'>('EVM');
-  const [details, setDetails] = useState({ stellarAddr: '', bankAcct: '', bankName: '' });
+  const supabase = getSupabaseBrowserClient();
 
-  const handleUpdateIntent = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch('/api/update-intent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          preferredNetwork: intent, 
-          payoutDetails: details 
-        }),
-      });
-      if (res.ok) alert(`Success! Your Sendzz Intent is now set to ${intent}.`);
-    } catch (err) {
-      alert("Failed to update settings.");
-    } finally {
+  useEffect(() => {
+    const checkUser = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        router.push('/login');
+        return;
+      }
+      setEmail(user.email || '');
       setLoading(false);
-    }
+    };
+    checkUser();
+  }, [router, supabase.auth]);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.push('/login');
+    toast.success('Logged out successfully');
   };
 
-  return (
-    <main className="min-h-screen bg-[#F8FAFC] p-4 md:p-12 text-black">
-      <div className="max-w-xl mx-auto">
-        <button onClick={() => router.push('/')} className="mb-6 text-sm font-bold text-blue-600">← Back to Dashboard</button>
-        
-        <div className="bg-white rounded-[32px] p-10 shadow-sm border border-slate-200">
-          <h1 className="text-3xl font-black italic text-blue-600 mb-2">SENDZZ SETTINGS</h1>
-          <p className="text-slate-500 mb-10 font-medium">Configure your Universal Payout Intent</p>
+  const copyEmail = () => {
+    navigator.clipboard.writeText(email);
+    toast.success('Email copied to clipboard');
+  };
 
-          <div className="space-y-8">
-            {/* INTENT SELECTOR */}
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-linear-to-br from-slate-50 via-white to-blue-50 flex items-center justify-center">
+        <p className="text-muted-foreground">Loading...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-linear-to-br from-slate-50 via-white to-blue-50">
+      {/* Header */}
+      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-lg border-b">
+        <div className="max-w-2xl mx-auto px-4 py-4 flex items-center gap-4">
+          <Link href="/dashboard">
+            <Button variant="ghost" size="icon" className="rounded-full">
+              <ArrowLeft className="w-5 h-5" />
+            </Button>
+          </Link>
+          <h1 className="text-xl font-bold">Settings</h1>
+        </div>
+      </header>
+
+      <main className="max-w-2xl mx-auto px-4 py-8 space-y-6">
+        {/* Account */}
+        <Card className="border-2">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <User className="w-5 h-5" />
+              Account
+            </CardTitle>
+            <CardDescription>Your Sendzz account information</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">
+                  Email Address
+                </p>
+                <p className="font-semibold">{email}</p>
+              </div>
+              <Button variant="outline" size="sm" onClick={copyEmail}>
+                <Copy className="w-4 h-4 mr-2" />
+                Copy
+              </Button>
+            </div>
+            <Separator />
             <div>
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 block">Payout Destination</label>
-              <div className="grid grid-cols-3 gap-3">
-                {['EVM', 'STELLAR', 'BANK'].map((type) => (
-                  <button
-                    key={type}
-                    onClick={() => setIntent(type as any)}
-                    className={`py-3 rounded-xl font-bold text-sm transition-all ${intent === type ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-50 text-slate-400 border border-slate-100'}`}
-                  >
-                    {type}
-                  </button>
-                ))}
+              <p className="text-sm font-medium text-muted-foreground">
+                Account ID
+              </p>
+              <p className="font-mono text-sm text-muted-foreground">
+                Linked to your email address
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Security */}
+        <Card className="border-2">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="w-5 h-5" />
+              Security
+            </CardTitle>
+            <CardDescription>Manage your account security</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-semibold">Authentication</p>
+                <p className="text-sm text-muted-foreground">
+                  Passwordless login via email OTP
+                </p>
+              </div>
+              <div className="text-sm font-medium text-green-600 bg-green-100 px-3 py-1 rounded-full">
+                Enabled
               </div>
             </div>
-
-            {/* CONDITIONAL INPUTS */}
-            {intent === 'STELLAR' && (
-              <div className="animate-in fade-in slide-in-from-top-2">
-                <label className="text-xs font-bold text-slate-500 block mb-2">Stellar (LOBSTR) Public Key</label>
-                <input 
-                  className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="G..."
-                  value={details.stellarAddr}
-                  onChange={(e) => setDetails({...details, stellarAddr: e.target.value})}
-                />
+            <Separator />
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-semibold">Withdrawal Verification</p>
+                <p className="text-sm text-muted-foreground">
+                  OTP required for all withdrawals
+                </p>
               </div>
-            )}
-
-            {intent === 'BANK' && (
-              <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
-                <div>
-                  <label className="text-xs font-bold text-slate-500 block mb-2">Bank Name</label>
-                  <input 
-                    className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="e.g. GTBank"
-                    value={details.bankName}
-                    onChange={(e) => setDetails({...details, bankName: e.target.value})}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-500 block mb-2">Account Number</label>
-                  <input 
-                    className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="0123456789"
-                    value={details.bankAcct}
-                    onChange={(e) => setDetails({...details, bankAcct: e.target.value})}
-                  />
-                </div>
+              <div className="text-sm font-medium text-green-600 bg-green-100 px-3 py-1 rounded-full">
+                Enabled
               </div>
-            )}
+            </div>
+          </CardContent>
+        </Card>
 
-            <button 
-              onClick={handleUpdateIntent}
-              disabled={loading}
-              className="w-full bg-slate-900 text-white font-black py-5 rounded-2xl hover:bg-black transition-all shadow-xl active:scale-95"
+        {/* Customization */}
+        <Card className="border-2">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-blue-600" />
+              Customization
+            </CardTitle>
+            <CardDescription>
+              Personalize your Sendzz experience
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between opacity-60">
+              <div>
+                <p className="font-semibold">Custom Sendzz Email</p>
+                <p className="text-sm text-muted-foreground">
+                  Get your own @sendzz.io address
+                </p>
+              </div>
+              <div className="text-xs font-bold text-blue-600 bg-blue-100 px-3 py-1 rounded-full uppercase tracking-wider">
+                Coming Soon
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Session */}
+        <Card className="border-2 border-red-100">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-red-600">
+              <LogOut className="w-5 h-5" />
+              Session
+            </CardTitle>
+            <CardDescription>Manage your current session</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              variant="outline"
+              className="w-full border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+              onClick={handleLogout}
             >
-              {loading ? 'SAVING...' : 'UPDATE SENDZZ INTENT'}
-            </button>
-          </div>
+              <LogOut className="w-4 h-4 mr-2" />
+              Sign Out
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Footer */}
+        <div className="text-center text-sm text-muted-foreground pt-4">
+          <p>Sendzz v1.0.0</p>
+          <p className="mt-1">© 2026 Sendzz. All rights reserved.</p>
         </div>
-      </div>
-    </main>
+      </main>
+    </div>
   );
 }

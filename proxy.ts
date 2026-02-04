@@ -1,42 +1,52 @@
-import { createServerClient } from '@supabase/ssr'
-import { NextResponse, type NextRequest } from 'next/server'
+/**
+ * Next.js Proxy
+ *
+ * Handles session refresh and protected route redirects.
+ */
+
+import { updateSession } from '@/lib/supabase/middleware';
+import { type NextRequest, NextResponse } from 'next/server';
+
+// Routes that require authentication
+const protectedRoutes = [
+  '/dashboard',
+  '/send',
+  '/withdraw',
+  '/settings',
+  '/transactions',
+  '/contacts',
+];
+
+// Routes that should redirect to dashboard if already authenticated
+const authRoutes = ['/login', '/verify'];
 
 export async function proxy(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request })
+  const { user, supabaseResponse } = await updateSession(request);
+  const { pathname } = request.nextUrl;
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll()
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
-          supabaseResponse = NextResponse.next({ request })
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          )
-        },
-      },
-    }
-  )
+  // Check if route is protected
+  const isProtectedRoute = protectedRoutes.some((route) =>
+    pathname.startsWith(route),
+  );
 
-  // 1. GET THE USER (This refreshes the session automatically)
-  const { data: { user } } = await supabase.auth.getUser()
+  // Check if route is auth route
+  const isAuthRoute = authRoutes.some((route) => pathname.startsWith(route));
 
-  // 2. REDIRECT GUARD (The 401 Killer)
-  // If no user and trying to access a protected page, redirect to login
-  const isAuthPage = request.nextUrl.pathname.startsWith('/login')
-  
-  if (!user && !isAuthPage && !request.nextUrl.pathname.startsWith('/auth')) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/login'
-    return NextResponse.redirect(url)
+  // Redirect unauthenticated users from protected routes
+  if (isProtectedRoute && !user) {
+    const loginUrl = new URL('/login', request.url);
+    loginUrl.searchParams.set('redirect', pathname);
+    return NextResponse.redirect(loginUrl);
   }
 
-  return supabaseResponse
+  // Redirect authenticated users from auth routes to dashboard
+  if (isAuthRoute && user) {
+    const redirectTo = request.nextUrl.searchParams.get('redirect');
+    const destination = redirectTo || '/dashboard';
+    return NextResponse.redirect(new URL(destination, request.url));
+  }
+
+  return supabaseResponse;
 }
 
 export const config = {
@@ -46,8 +56,9 @@ export const config = {
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
-     * - public (public assets like logos)
+     * - public files (images, etc)
+     * - api routes (handled separately)
      */
-    '/((?!_next/static|_next/image|favicon.ico|public|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$|api).*)',
   ],
-}
+};
