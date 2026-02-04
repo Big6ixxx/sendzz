@@ -5,19 +5,20 @@
  */
 
 import {
-    mapEventToWithdrawalStatus,
-    parseWebhookPayload,
-    verifyWebhookSignature,
+  mapEventToWithdrawalStatus,
+  parseWebhookPayload,
+  verifyWebhookSignature,
+  type WebhookPayload,
 } from '@/lib/paycrest';
 import {
-    AUDIT_ACTIONS,
-    createAuditLog,
-    findWithdrawalByPaycrestOrderId,
-    isEventProcessed,
-    markEventProcessed,
-    storeWebhookEvent,
+  AUDIT_ACTIONS,
+  createAuditLog,
+  findWithdrawalByPaycrestOrderId,
+  isEventProcessed,
+  markEventProcessed,
+  storeWebhookEvent,
 } from '@/server/repositories';
-import type { Json, WebhookPayload } from '@/types';
+import type { Json } from '@/types';
 import { completeWithdrawal, failWithdrawal } from './withdrawalService';
 
 export interface ProcessWebhookResult {
