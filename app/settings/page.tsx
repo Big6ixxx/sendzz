@@ -61,11 +61,11 @@ export default function SettingsPage() {
       {/* Header */}
       <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-lg border-b">
         <div className="max-w-2xl mx-auto px-4 py-4 flex items-center gap-4">
-          <Link href="/dashboard">
-            <Button variant="ghost" size="icon" className="rounded-full">
+          <Button asChild variant="ghost" size="icon" className="rounded-full">
+            <Link href="/dashboard">
               <ArrowLeft className="w-5 h-5" />
-            </Button>
-          </Link>
+            </Link>
+          </Button>
           <h1 className="text-xl font-bold">Settings</h1>
         </div>
       </header>
@@ -123,9 +123,9 @@ export default function SettingsPage() {
                 View and manage your address book
               </p>
             </div>
-            <Link href="/contacts">
-              <Button variant="outline">Manage Contacts</Button>
-            </Link>
+            <Button asChild variant="outline">
+              <Link href="/contacts">Manage Contacts</Link>
+            </Button>
           </CardContent>
         </Card>
 

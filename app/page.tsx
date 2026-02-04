@@ -37,12 +37,15 @@ export default async function LandingPage() {
               SENDZZ
             </span>
           </div>
-          <Link href="/login">
-            <Button className="font-bold bg-linear-to-r from-blue-600 to-violet-600">
+          <Button
+            asChild
+            className="font-bold bg-linear-to-r from-blue-600 to-violet-600"
+          >
+            <Link href="/login">
               Get Started
               <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
-          </Link>
+            </Link>
+          </Button>
         </div>
       </header>
 
@@ -65,28 +68,30 @@ export default async function LandingPage() {
             needed. Withdraw directly to your bank account.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/login">
-              <Button
-                size="lg"
-                className="h-14 px-8 text-lg font-bold bg-linear-to-r from-blue-600 to-violet-600 shadow-xl hover:shadow-2xl transition-all"
-              >
+            <Button
+              asChild
+              size="lg"
+              className="h-14 px-8 text-lg font-bold bg-linear-to-r from-blue-600 to-violet-600 shadow-xl hover:shadow-2xl transition-all"
+            >
+              <Link href="/login">
                 <Mail className="mr-2 h-5 w-5" />
                 Start Sending
-              </Button>
-            </Link>
+              </Link>
+            </Button>
             <Button
+              asChild
               size="lg"
               variant="outline"
               className="h-14 px-8 text-lg font-bold"
             >
-              Learn More
+              <Link href="#features">Learn More</Link>
             </Button>
           </div>
         </div>
       </section>
 
       {/* Features */}
-      <section className="max-w-6xl mx-auto px-4 py-16">
+      <section id="features" className="max-w-6xl mx-auto px-4 py-16">
         <div className="grid md:grid-cols-3 gap-8">
           <div className="bg-white rounded-2xl p-8 border-2 shadow-lg hover:shadow-xl transition-shadow">
             <div className="w-14 h-14 bg-blue-100 rounded-2xl flex items-center justify-center mb-6">
@@ -144,15 +149,16 @@ export default async function LandingPage() {
             Built with enterprise-grade security. Send money across borders in
             seconds, not days. No hidden fees.
           </p>
-          <Link href="/login">
-            <Button
-              size="lg"
-              className="h-12 px-8 bg-white text-blue-600 hover:bg-blue-50 font-bold"
-            >
+          <Button
+            asChild
+            size="lg"
+            className="h-12 px-8 bg-white text-blue-600 hover:bg-blue-50 font-bold"
+          >
+            <Link href="/login">
               Get Started Free
               <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
-          </Link>
+            </Link>
+          </Button>
         </div>
       </section>
 

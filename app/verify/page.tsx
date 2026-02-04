@@ -171,9 +171,9 @@ export default function VerifyOTP() {
             <p className="text-muted-foreground mb-4">
               No email address provided.
             </p>
-            <Link href="/login">
-              <Button>Go to Login</Button>
-            </Link>
+            <Button asChild>
+              <Link href="/login">Go to Login</Link>
+            </Button>
           </CardContent>
         </Card>
       </main>
@@ -281,15 +281,16 @@ export default function VerifyOTP() {
 
               {/* Back to login */}
               <div className="text-center pt-2 border-t">
-                <Link href="/login">
-                  <Button
-                    variant="link"
-                    className="text-sm text-muted-foreground"
-                  >
+                <Button
+                  asChild
+                  variant="link"
+                  className="text-sm text-muted-foreground"
+                >
+                  <Link href="/login">
                     <ArrowLeft className="mr-2 h-4 w-4" />
                     Use a different email
-                  </Button>
-                </Link>
+                  </Link>
+                </Button>
               </div>
             </div>
           </CardContent>

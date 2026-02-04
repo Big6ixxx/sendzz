@@ -155,7 +155,7 @@ export default function ClaimPage() {
     }
 
     router.push(loginUrl);
-  };;
+  };
 
   const formatRawAmount = (amt: string) => {
     return new Intl.NumberFormat('en-US', {
@@ -284,11 +284,9 @@ export default function ClaimPage() {
                     </p>
                   )}
                 </div>
-                <Link href="/dashboard">
-                  <Button className="w-full h-12 font-bold">
-                    Go to Dashboard
-                  </Button>
-                </Link>
+                <Button asChild className="w-full h-12 font-bold">
+                  <Link href="/dashboard">Go to Dashboard</Link>
+                </Button>
               </div>
             )}
 

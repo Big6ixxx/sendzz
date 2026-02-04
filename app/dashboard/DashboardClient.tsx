@@ -3,7 +3,7 @@
 import { DepositDialog } from '@/components/DepositDialog';
 import { ReceiveDialog } from '@/components/ReceiveDialog';
 import { SendMoneyDialog } from '@/components/SendMoneyDialog';
-import { Badge } from '@/components/ui/badge';
+import { TransactionList } from '@/components/TransactionList';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -19,13 +19,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Separator } from '@/components/ui/separator';
 import { WithdrawDialog } from '@/components/WithdrawDialog';
 import { convertUsdToNgn, formatCurrency } from '@/lib/currency';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import {
   ArrowDownLeft,
-  ArrowUpRight,
   Banknote,
   Copy,
   LogOut,
@@ -89,79 +87,19 @@ export function DashboardClient({
     toast.success('Email copied to clipboard');
   };
 
-  const formatAmount = (amount: number, currency: 'USD' | 'NGN' = 'USD') => {
-    return formatCurrency(amount, currency);
-  };
-
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diff = now.getTime() - date.getTime();
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-
-    if (days === 0) return 'Today';
-    if (days === 1) return 'Yesterday';
-    if (days < 7) return `${days} days ago`;
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return (
-          <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
-            Completed
-          </Badge>
-        );
-      case 'pending_claim':
-        return (
-          <Badge className="bg-yellow-100 text-yellow-700 hover:bg-yellow-100">
-            Pending
-          </Badge>
-        );
-      case 'processing':
-        return (
-          <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">
-            Processing
-          </Badge>
-        );
-      case 'failed':
-        return (
-          <Badge className="bg-red-100 text-red-700 hover:bg-red-100">
-            Failed
-          </Badge>
-        );
-      default:
-        return <Badge variant="secondary">{status}</Badge>;
-    }
-  };
-
-  const getTransactionIcon = (type: string) => {
-    switch (type) {
-      case 'sent':
-        return <ArrowUpRight className="w-4 h-4 text-red-500" />;
-      case 'received':
-        return <ArrowDownLeft className="w-4 h-4 text-green-500" />;
-      case 'withdrawal':
-        return <Banknote className="w-4 h-4 text-blue-500" />;
-      default:
-        return <Wallet className="w-4 h-4" />;
-    }
-  };
-
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-50 via-white to-blue-50">
       {/* Header */}
       <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-lg border-b">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <Link href="/dashboard" className="flex items-center gap-3">
             <div className="w-10 h-10 bg-linear-to-br from-blue-600 to-violet-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-200/50">
               <Sparkles className="w-5 h-5 text-white" />
             </div>
             <span className="text-xl font-black tracking-tight bg-linear-to-r from-blue-600 to-violet-600 bg-clip-text text-transparent">
               SENDZZ
             </span>
-          </div>
+          </Link>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -207,10 +145,11 @@ export function DashboardClient({
                     Total Balance
                   </p>
                   <h2 className="text-4xl font-bold mb-1">
-                    {formatAmount(balance.available, 'USD')}
+                    {formatCurrency(balance.available, 'USD')}
                   </h2>
                   <p className="text-blue-200 text-sm">
-                    ≈ {formatAmount(convertUsdToNgn(balance.available), 'NGN')}
+                    ≈{' '}
+                    {formatCurrency(convertUsdToNgn(balance.available), 'NGN')}
                   </p>
                 </div>
                 <div className="bg-white/10 rounded-lg p-3 backdrop-blur-sm self-start">
@@ -222,8 +161,8 @@ export function DashboardClient({
                 <div className="mt-4 pt-4 border-t border-white/20 flex items-center gap-2 text-sm text-blue-100">
                   <div className="w-2 h-2 rounded-full bg-yellow-400" />
                   <span>
-                    Locked: {formatAmount(balance.locked, 'USD')} (
-                    {formatAmount(convertUsdToNgn(balance.locked), 'NGN')})
+                    Locked: {formatCurrency(balance.locked, 'USD')} (
+                    {formatCurrency(convertUsdToNgn(balance.locked), 'NGN')})
                   </span>
                 </div>
               )}
@@ -300,73 +239,15 @@ export function DashboardClient({
                 <CardTitle>Recent Activity</CardTitle>
                 <CardDescription>Your latest transactions</CardDescription>
               </div>
-              <Link href="/transactions">
-                <Button variant="ghost" size="sm">
-                  View All
-                </Button>
-              </Link>
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/transactions">View All</Link>
+              </Button>
             </div>
           </CardHeader>
           <CardContent>
-            {recentTransactions.length === 0 ? (
-              <div className="text-center py-8">
-                <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Wallet className="w-8 h-8 text-slate-400" />
-                </div>
-                <p className="text-muted-foreground font-medium">
-                  No transactions yet
-                </p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Make a deposit to get started!
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                {recentTransactions.map((tx, index) => (
-                  <div key={tx.id}>
-                    <div className="flex items-center gap-4 py-3 hover:bg-slate-50 rounded-lg px-2 -mx-2 transition-colors">
-                      <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center">
-                        {getTransactionIcon(tx.type)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="font-semibold truncate">
-                            {tx.counterparty}
-                          </p>
-                          {getStatusBadge(tx.status)}
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          {tx.type === 'sent'
-                            ? 'Sent'
-                            : tx.type === 'received'
-                              ? 'Received'
-                              : 'Withdrawal'}{' '}
-                          • {formatDate(tx.createdAt)}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p
-                          className={`font-bold ${
-                            tx.type === 'received' || tx.type === 'deposit'
-                              ? 'text-green-600'
-                              : ''
-                          }`}
-                        >
-                          {tx.type === 'received' || tx.type === 'deposit'
-                            ? '+'
-                            : '-'}
-                          {formatAmount(tx.amount, 'USD')}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          ≈ {formatAmount(convertUsdToNgn(tx.amount), 'NGN')}
-                        </p>
-                      </div>
-                    </div>
-                    {index < recentTransactions.length - 1 && <Separator />}
-                  </div>
-                ))}
-              </div>
-            )}
+            <CardContent>
+              <TransactionList transactions={recentTransactions} limit={5} />
+            </CardContent>
           </CardContent>
         </Card>
       </main>

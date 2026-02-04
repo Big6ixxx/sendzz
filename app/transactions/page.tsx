@@ -1,7 +1,8 @@
 import { createClient } from '@/lib/supabase/server';
 import {
-    getAllUserTransfers,
-    getWithdrawalsByUser,
+  getAllUserTransfers,
+  getDepositsByUser,
+  getWithdrawalsByUser,
 } from '@/server/repositories';
 import { redirect } from 'next/navigation';
 import { TransactionsClient } from './TransactionsClient';
@@ -17,9 +18,10 @@ export default async function TransactionsPage() {
   }
 
   // Fetch all transactions
-  const [transfers, withdrawals] = await Promise.all([
+  const [transfers, withdrawals, deposits] = await Promise.all([
     getAllUserTransfers(user.id, 50),
     getWithdrawalsByUser(user.id, 50),
+    getDepositsByUser(user.id, 50),
   ]);
 
   // Format transactions
@@ -42,6 +44,15 @@ export default async function TransactionsPage() {
       status: w.status,
       counterparty: `Bank ${w.bank_account_masked}`,
       createdAt: w.created_at,
+    })),
+    ...deposits.map((d) => ({
+      id: d.id,
+      type: 'deposit' as const,
+      amount: Number(d.amount_usdc),
+      asset: 'USDC' as const,
+      status: d.status,
+      counterparty: 'Sendzz Deposit',
+      createdAt: d.created_at,
     })),
   ].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
