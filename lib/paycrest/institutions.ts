@@ -5,7 +5,7 @@
  */
 
 import { getPaycrestClient } from './client';
-import type { Institution, InstitutionsResponse } from './types';
+import type { Institution } from './types';
 
 // Cache for institutions per currency (refresh every hour)
 const institutionsCache = new Map<
@@ -33,17 +33,15 @@ export async function getInstitutions(
   }
 
   const client = getPaycrestClient();
-  const response = await client.get<InstitutionsResponse>(
-    `/institutions/${cacheKey}`,
-  );
+  const response = await client.get<Institution[]>(`/institutions/${cacheKey}`);
 
   // Update cache
   institutionsCache.set(cacheKey, {
-    institutions: response.institutions,
+    institutions: response,
     timestamp: Date.now(),
   });
 
-  return response.institutions;
+  return response;
 }
 
 /**

@@ -59,8 +59,11 @@ export class PaycrestClient {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
+        console.log('Paycrest API Key', this.apiKey);
+
         const headers: Record<string, string> = {
           'API-Key': this.apiKey,
+          Authorization: `Bearer ${this.apiKey}`,
           'Content-Type': 'application/json',
           Accept: 'application/json',
         };

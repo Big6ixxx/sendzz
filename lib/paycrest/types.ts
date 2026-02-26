@@ -47,10 +47,6 @@ export interface Institution {
   type: 'bank' | 'mobile_money' | 'other';
 }
 
-export interface InstitutionsResponse {
-  institutions: Institution[];
-}
-
 // ===========================================
 // SENDER ORDERS (PAYOUTS)
 // ===========================================
@@ -139,6 +135,22 @@ export interface WebhookPayload {
   eventType: WebhookEventType;
   timestamp: string;
   data: Order;
+}
+
+// ===========================================
+// ACCOUNT VERIFICATION
+// ===========================================
+
+export interface VerifyAccountRequest {
+  /** Bank institution code */
+  institution: string;
+  /** Bank account number or mobile number */
+  accountIdentifier: string;
+}
+
+export interface VerifyAccountResponse {
+  /** Account holder name */
+  accountName: string;
 }
 
 // ===========================================

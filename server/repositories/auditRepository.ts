@@ -62,6 +62,11 @@ export const AUDIT_ACTIONS = {
   BALANCE_CREDITED: 'balance.credited',
   BALANCE_DEBITED: 'balance.debited',
 
+  // Deposits
+  DEPOSIT_INITIATED: 'deposit.initiated',
+  DEPOSIT_COMPLETED: 'deposit.completed',
+  DEPOSIT_FAILED: 'deposit.failed',
+
   // Webhook
   WEBHOOK_RECEIVED: 'webhook.received',
   WEBHOOK_PROCESSED: 'webhook.processed',

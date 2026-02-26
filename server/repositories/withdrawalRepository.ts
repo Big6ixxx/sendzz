@@ -18,6 +18,7 @@ export interface CreateWithdrawalParams {
   bankAccountMasked: string;
   verificationTokenHash: string;
   verificationExpiresAt: Date;
+  encryptedAccountData?: string; // AES-256-GCM encrypted account details
 }
 
 /**

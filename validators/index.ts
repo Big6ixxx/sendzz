@@ -93,6 +93,7 @@ export const verifyWithdrawalSchema = z.object({
 export const depositSchema = z.object({
   amount: amountSchema,
   currency: currencyCodeSchema.optional(),
+  method: z.enum(['fiat', 'usdc']).optional().default('fiat'),
 });
 
 // ===========================================

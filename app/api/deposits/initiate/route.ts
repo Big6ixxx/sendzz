@@ -1,6 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
-import { creditBalance, getBalance } from '@/server/repositories/balanceRepository';
-import { createDeposit } from '@/server/repositories/depositRepository';
+import { initiateDeposit } from '@/server/services/depositService';
 import { depositSchema } from '@/validators';
 import { NextResponse } from 'next/server';
 
@@ -25,34 +24,44 @@ export async function POST(request: Request) {
       );
     }
 
-    const { amount } = result.data;
-    const amountNum = parseFloat(amount);
+    const { method = 'fiat', amount } = result.data;
 
-    // SIMULATION: Create confirmed deposit immediately
-    const deposit = await createDeposit({
-      userId: user.id,
-      amount: amountNum,
-      status: 'confirmed',
-    });
+    // PRODUCTION MODE
+    // NOTE: Paycrest is for payouts (withdrawals) only, NOT deposits.
+    // For fiat deposits, you would need:
+    // - A payment processor like Flutterwave/Paystack for card payments
+    // - Virtual account numbers from a banking-as-a-service provider
+    // - Manual bank transfer verification
+    //
+    // For now, encourage USDC deposits via blockchain
 
-    // Credit balance immediately
-    const credited = await creditBalance(user.id, amountNum);
-
-    if (!credited) {
-      console.error('Failed to credit balance for deposit', deposit.id);
-      return NextResponse.json(
-        { error: 'Failed to process deposit' },
-        { status: 500 },
-      );
+    if (method === 'usdc') {
+      return NextResponse.json({
+        success: true,
+        message:
+          'Send USDC to your deposit address. Balance will update automatically.',
+      });
     }
 
-    // Get updated balance
-    const newBalance = await getBalance(user.id);
+    const amountUsdc = parseFloat(amount);
+
+    // Typically you'd fetch live rate here, for now using system default
+    const amountNgn = amountUsdc * 1500;
+
+    const depositResult = await initiateDeposit({
+      userId: user.id,
+      userEmail: user.email || '',
+      amountNgn,
+      amountUsdc,
+    });
+
+    if (!depositResult.success) {
+      return NextResponse.json({ error: depositResult.error }, { status: 400 });
+    }
 
     return NextResponse.json({
       success: true,
-      message: 'Deposit successful',
-      balance: newBalance,
+      paymentUrl: depositResult.paymentUrl,
     });
   } catch (error) {
     console.error('Deposit error:', error);

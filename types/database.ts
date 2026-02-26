@@ -370,6 +370,45 @@ export interface Database {
         };
         Relationships: [];
       };
+      bridge_transactions: {
+        Row: {
+          id: string;
+          user_id: string;
+          source_chain: string;
+          dest_chain: string;
+          amount_usdc: number;
+          burn_tx_hash: string;
+          attestation_status: 'pending' | 'complete' | 'failed';
+          mint_tx_hash: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          source_chain: string;
+          dest_chain: string;
+          amount_usdc: number;
+          burn_tx_hash: string;
+          attestation_status?: 'pending' | 'complete' | 'failed';
+          mint_tx_hash?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          source_chain?: string;
+          dest_chain?: string;
+          amount_usdc?: number;
+          burn_tx_hash?: string;
+          attestation_status?: 'pending' | 'complete' | 'failed';
+          mint_tx_hash?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       [_ in never]: never;

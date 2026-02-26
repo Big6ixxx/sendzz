@@ -1,13 +1,6 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Loader2, Mail, Sparkles } from 'lucide-react';
@@ -19,21 +12,16 @@ export default function SendzzLogin() {
   const searchParams = useSearchParams();
   const [email, setEmail] = useState(searchParams.get('email') || '');
   const [loading, setLoading] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const mounted = true;
   const router = useRouter();
 
   const redirect = searchParams.get('redirect') || '/dashboard';
   const error = searchParams.get('error');
 
   useEffect(() => {
-    const init = () => {
-      setMounted(true);
-      // Show error message if redirected with error
-      if (error === 'auth_callback_error') {
-        toast.error('Authentication failed. Please try again.');
-      }
-    };
-    init();
+    if (error === 'auth_callback_error') {
+      toast.error('Authentication failed. Please try again.');
+    }
   }, [error]);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -57,12 +45,11 @@ export default function SendzzLogin() {
         return;
       }
 
-      toast.success('Code Sent!', {
+      toast.success('Code sent!', {
         description: '📧 Check your inbox for a 6-digit verification code.',
         duration: 5000,
       });
 
-      // Redirect to verify page with email
       router.push(
         `/verify?email=${encodeURIComponent(email)}&redirect=${encodeURIComponent(redirect)}`,
       );
@@ -73,101 +60,147 @@ export default function SendzzLogin() {
   };
 
   return (
-    <main className="min-h-screen bg-linear-to-br from-blue-50 via-white to-violet-50 flex items-center justify-center p-4">
+    <main className="relative min-h-screen bg-background flex items-center justify-center p-4 overflow-hidden">
+      {/* Aurora background blobs */}
+      <div className="pointer-events-none absolute inset-0" aria-hidden>
+        <div className="aurora-orb aurora-orb-indigo w-[600px] h-[600px] -top-48 -left-48 opacity-40 animate-aurora-pulse" />
+        <div
+          className="aurora-orb aurora-orb-cyan w-[500px] h-[500px] -bottom-40 -right-40 opacity-30 animate-aurora-pulse"
+          style={{ animationDelay: '3s' }}
+        />
+        <div
+          className="aurora-orb aurora-orb-gold w-[300px] h-[300px] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-15 animate-aurora-pulse"
+          style={{ animationDelay: '1.5s' }}
+        />
+      </div>
+
       <div
-        className={`w-full max-w-md ${mounted ? 'animate-fade-in' : 'opacity-0'}`}
+        className={`relative w-full max-w-md z-10 ${mounted ? 'animate-fade-in' : 'opacity-0'}`}
       >
-        {/* BRANDING */}
+        {/* Branding */}
         <div className="text-center mb-8 animate-slide-in-down">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-linear-to-br from-blue-600 to-violet-600 rounded-2xl shadow-xl shadow-blue-200/50 mb-4 hover:scale-105 transition-transform">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl btn-shimmer shadow-xl mb-5 animate-float">
             <Sparkles className="w-8 h-8 text-white" />
           </div>
-          <h1 className="text-4xl font-black tracking-tighter bg-linear-to-r from-blue-600 to-violet-600 bg-clip-text text-transparent">
+          <h1
+            className="text-5xl font-extrabold tracking-tight text-aurora"
+            style={{ fontFamily: 'var(--font-syne)' }}
+          >
             SENDZZ
           </h1>
-          <p className="text-muted-foreground font-medium mt-2 text-sm uppercase tracking-widest">
-            Instant • Borderless • Payments
+          <p className="text-muted-foreground text-sm mt-2 font-medium tracking-widest uppercase">
+            Instant · Borderless · Payments
           </p>
         </div>
 
-        {/* LOGIN CARD */}
-        <Card className="border-2 shadow-xl animate-slide-in-up">
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl font-bold">Welcome Back</CardTitle>
-            <CardDescription>
-              Enter your email to receive a verification code.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email" className="text-sm font-semibold">
-                  Email Address
-                </Label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="email"
-                    type="email"
-                    required
-                    placeholder="you@example.com"
-                    className="pl-10 h-12"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    disabled={loading}
-                    autoComplete="email"
-                    autoFocus
-                  />
-                </div>
-              </div>
+        {/* Glass card */}
+        <div className="glass-card rounded-2xl p-8 glow-border-indigo animate-slide-in-up">
+          <div className="mb-6">
+            <h2
+              className="text-2xl font-bold mb-1"
+              style={{ fontFamily: 'var(--font-syne)' }}
+            >
+              Welcome back
+            </h2>
+            <p className="text-muted-foreground text-sm">
+              Enter your email to receive a magic code.
+            </p>
+          </div>
 
-              <Button
-                type="submit"
-                disabled={loading || !email}
-                className="w-full h-12 text-base font-bold shadow-lg hover:shadow-xl transition-all bg-linear-to-r from-blue-600 to-violet-600 hover:from-blue-700 hover:to-violet-700"
-                size="lg"
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div className="space-y-2">
+              <Label
+                htmlFor="email"
+                className="text-sm font-semibold text-foreground/80"
               >
-                {loading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Sending Code...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="mr-2 h-4 w-4" />
-                    Continue with Email
-                  </>
-                )}
-              </Button>
-            </form>
-
-            {/* Features */}
-            <div className="mt-6 pt-6 border-t space-y-3">
-              <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
-                  <span className="text-green-600">✓</span>
-                </div>
-                <span>No password to remember</span>
-              </div>
-              <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
-                  <span className="text-blue-600">💸</span>
-                </div>
-                <span>Send USDC to any email instantly</span>
-              </div>
-              <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                <div className="w-8 h-8 rounded-lg bg-violet-100 flex items-center justify-center">
-                  <span className="text-violet-600">🏦</span>
-                </div>
-                <span>Withdraw to your bank account</span>
+                Email Address
+              </Label>
+              <div className="relative focus-glow rounded-lg transition-all">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  id="email"
+                  type="email"
+                  required
+                  placeholder="you@example.com"
+                  className="pl-10 h-12 bg-white/5 border-white/10 text-foreground placeholder:text-muted-foreground/50 focus:border-primary/60"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled={loading}
+                  autoComplete="email"
+                  autoFocus
+                />
               </div>
             </div>
-          </CardContent>
-        </Card>
 
-        {/* FOOTER */}
-        <p className="text-center mt-6 text-muted-foreground text-xs font-medium animate-fade-in">
-          By continuing, you agree to the Sendzz Terms of Service.
+            <Button
+              type="submit"
+              disabled={loading || !email}
+              className="w-full h-12 text-base font-bold btn-shimmer text-white border-0 shadow-lg"
+              size="lg"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Sending Code...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  Continue with Email
+                </>
+              )}
+            </Button>
+          </form>
+
+          {/* Feature list */}
+          <div className="mt-6 pt-6 border-t border-white/8 space-y-3">
+            {[
+              {
+                emoji: '✓',
+                color: 'text-accent',
+                bg: 'bg-accent/10 border-accent/20',
+                label: 'No password to remember',
+              },
+              {
+                emoji: '💸',
+                color: 'text-primary',
+                bg: 'bg-primary/10 border-primary/20',
+                label: 'Send USDC to any email instantly',
+              },
+              {
+                emoji: '🏦',
+                color: 'text-[oklch(0.82_0.17_87)]',
+                bg: 'bg-[oklch(0.82_0.17_87/0.1)] border-[oklch(0.82_0.17_87/0.2)]',
+                label: 'Withdraw to your bank account',
+              },
+            ].map((item, i) => (
+              <div
+                key={i}
+                className={`flex items-center gap-3 text-sm text-muted-foreground animate-slide-in-left animate-stagger-${i + 1}`}
+              >
+                <div
+                  className={`w-8 h-8 rounded-lg border ${item.bg} flex items-center justify-center shrink-0`}
+                >
+                  <span className={item.color}>{item.emoji}</span>
+                </div>
+                <span>{item.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <p
+          className="text-center mt-5 text-muted-foreground text-xs animate-fade-in"
+          style={{ animationDelay: '0.5s' }}
+        >
+          By continuing, you agree to the Sendzz{' '}
+          <a
+            href="#"
+            className="underline hover:text-foreground transition-colors"
+          >
+            Terms of Service
+          </a>
+          .
         </p>
       </div>
     </main>

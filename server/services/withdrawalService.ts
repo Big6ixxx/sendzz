@@ -96,10 +96,15 @@ export async function initiateWithdrawal(
     await unlockBalance(userId, amountUsdc);
     return { success: false, error: 'Failed to create withdrawal request' };
   }
-
-  // Store full account details temporarily (you might want to encrypt this)
-  // For now, we'll pass them in the verify step
-
+  // Security Note: Full account details are passed in the verify step (not stored).
+  // This is secure because:
+  // 1. OTP verification happens over HTTPS
+  // 2. Account details only exist in memory during the verify request
+  // 3. Only the masked version is persisted in the database
+  //
+  // Future enhancement (requires DB migration):
+  // - Store encrypted account data using encryptObject() from lib/security
+  // - Retrieve and decrypt in verifyWithdrawal, then clear after use
   // Audit log
   await createAuditLog({
     userId,
@@ -255,7 +260,38 @@ export async function completeWithdrawal(
     },
   });
 
-  // TODO: Send completion email (need to get user email)
+  // Send completion email
+  try {
+    const { sendEmail, withdrawalCompletedTemplate } =
+      await import('@/lib/email');
+    const { createAdminClient } = await import('@/lib/supabase/server');
+
+    const supabase = createAdminClient();
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('email')
+      .eq('id', withdrawal.user_id)
+      .single();
+
+    if (profile?.email) {
+      await sendEmail({
+        to: profile.email,
+        subject: '✅ Sendzz withdrawal complete',
+        html: withdrawalCompletedTemplate(
+          withdrawal.amount_usdc.toString(),
+          fiatAmount || 'N/A',
+          withdrawal.fiat_currency,
+          withdrawal.bank_account_masked || '****',
+        ),
+      });
+    }
+  } catch (emailError) {
+    // Don't fail the withdrawal if email fails
+    console.error(
+      '[WithdrawalService] Failed to send completion email:',
+      emailError,
+    );
+  }
 
   return true;
 }

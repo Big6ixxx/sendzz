@@ -7,16 +7,18 @@
 // Transfer
 export { claimTransfer, sendTransfer } from './transferService';
 export type {
-    ClaimTransferInput,
-    ClaimTransferResult, SendTransferInput,
-    SendTransferResult
+  ClaimTransferInput,
+  ClaimTransferResult,
+  SendTransferInput,
+  SendTransferResult,
 } from './transferService';
 
 // Withdrawal
 export {
-    completeWithdrawal,
-    failWithdrawal, initiateWithdrawal,
-    verifyWithdrawal
+  completeWithdrawal,
+  failWithdrawal,
+  initiateWithdrawal,
+  verifyWithdrawal,
 } from './withdrawalService';
 export type {
     InitiateWithdrawalInput,
@@ -28,4 +30,8 @@ export type {
 // Webhook
 export { processPaycrestWebhook } from './webhookService';
 export type { ProcessWebhookResult } from './webhookService';
+
+// Wallet
+export { createUserWallet, getUserWalletAddress } from './walletService';
+export type { CreateWalletResult } from './walletService';
 

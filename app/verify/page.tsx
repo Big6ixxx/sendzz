@@ -1,13 +1,6 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -26,8 +19,7 @@ export default function VerifyOTP() {
   const [code, setCode] = useState(['', '', '', '', '', '']);
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
-  const [mounted, setMounted] = useState(false);
-  const [countdown, setCountdown] = useState(0);
+  const [countdown, setCountdown] = useState(60);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   const router = useRouter();
@@ -36,42 +28,28 @@ export default function VerifyOTP() {
   const redirect = searchParams.get('redirect') || '/dashboard';
 
   useEffect(() => {
-    const init = () => {
-      setMounted(true);
-      // Start countdown for resend
-      setCountdown(60);
-    };
-    init();
-  }, []);
-
-  useEffect(() => {
     if (countdown > 0) {
       const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
       return () => clearTimeout(timer);
     }
   }, [countdown]);
 
-  // Auto-focus first input
+  // Auto-focus first input on mount
   useEffect(() => {
-    if (mounted && inputRefs.current[0]) {
-      inputRefs.current[0].focus();
-    }
-  }, [mounted]);
+    inputRefs.current[0]?.focus();
+  }, []);
 
   const handleChange = (index: number, value: string) => {
-    // Only allow digits
     if (value && !/^\d$/.test(value)) return;
 
     const newCode = [...code];
     newCode[index] = value;
     setCode(newCode);
 
-    // Auto-focus next input
     if (value && index < 5) {
       inputRefs.current[index + 1]?.focus();
     }
 
-    // Auto-submit when all digits entered
     if (value && index === 5 && newCode.every((d) => d)) {
       handleVerify(newCode.join(''));
     }
@@ -105,7 +83,6 @@ export default function VerifyOTP() {
     setLoading(true);
 
     try {
-      // Call custom verify-otp API (session is created server-side)
       const res = await fetch('/api/auth/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -118,14 +95,12 @@ export default function VerifyOTP() {
         toast.error('Invalid Code', {
           description: data.error || 'Please check the code and try again.',
         });
-        // Clear code and focus first input
         setCode(['', '', '', '', '', '']);
         inputRefs.current[0]?.focus();
         setLoading(false);
         return;
       }
 
-      // Session was created server-side, just redirect
       toast.success('Welcome to Sendzz! 🎉');
       router.push(redirect);
     } catch {
@@ -163,138 +138,150 @@ export default function VerifyOTP() {
     setResending(false);
   };
 
+  /* ── No-email fallback ── */
   if (!email) {
     return (
-      <main className="min-h-screen bg-linear-to-br from-blue-50 via-white to-violet-50 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md border-2 shadow-xl">
-          <CardContent className="pt-6 text-center">
-            <p className="text-muted-foreground mb-4">
-              No email address provided.
-            </p>
-            <Button asChild>
-              <Link href="/login">Go to Login</Link>
-            </Button>
-          </CardContent>
-        </Card>
+      <main className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="glass-card rounded-2xl border border-white/8 p-8 w-full max-w-sm text-center animate-fade-in">
+          <p className="text-muted-foreground mb-6">
+            No email address provided.
+          </p>
+          <Button
+            asChild
+            className="btn-shimmer text-white border-0 font-semibold"
+          >
+            <Link href="/login">Go to Login</Link>
+          </Button>
+        </div>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-linear-to-br from-blue-50 via-white to-violet-50 flex items-center justify-center p-4">
+    <main className="min-h-screen bg-background flex items-center justify-center p-4 relative overflow-hidden">
+      {/* Aurora orbs */}
       <div
-        className={`w-full max-w-md ${mounted ? 'animate-fade-in' : 'opacity-0'}`}
+        className="pointer-events-none fixed inset-0 overflow-hidden"
+        aria-hidden
       >
-        {/* BRANDING */}
+        <div className="aurora-orb aurora-orb-indigo w-[600px] h-[600px] -top-60 -left-40 opacity-35 animate-aurora-pulse" />
+        <div
+          className="aurora-orb aurora-orb-cyan w-[450px] h-[450px] -bottom-40 -right-32 opacity-25 animate-aurora-pulse"
+          style={{ animationDelay: '3s' }}
+        />
+      </div>
+
+      <div className="relative w-full max-w-md">
+        {/* Icon + heading */}
         <div className="text-center mb-8 animate-slide-in-down">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-linear-to-br from-blue-600 to-violet-600 rounded-2xl shadow-xl shadow-blue-200/50 mb-4">
-            <KeyRound className="w-8 h-8 text-white" />
+          <div
+            className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-5 relative"
+            style={{
+              background:
+                'linear-gradient(135deg, oklch(0.50 0.28 290), oklch(0.68 0.22 195))',
+              boxShadow: '0 8px 32px oklch(0.62 0.28 290 / 35%)',
+            }}
+          >
+            <KeyRound className="w-7 h-7 text-white" />
           </div>
-          <h1 className="text-3xl font-black tracking-tight">
+          <h1
+            className="text-3xl font-black tracking-tight"
+            style={{ fontFamily: 'var(--font-syne)' }}
+          >
             Check Your Email
           </h1>
-          <p className="text-muted-foreground mt-2">
-            We sent a code to{' '}
+          <p className="text-muted-foreground mt-2 text-sm">
+            We sent a 6-digit code to{' '}
             <span className="font-semibold text-foreground">{email}</span>
           </p>
         </div>
 
-        {/* VERIFY CARD */}
-        <Card className="border-2 shadow-xl animate-slide-in-up">
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-xl font-bold">
-              Enter Verification Code
-            </CardTitle>
-            <CardDescription>
-              Enter the 6-digit code from your email
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-6">
-              {/* OTP Input */}
-              <div className="space-y-2">
-                <Label className="text-sm font-semibold">
-                  Verification Code
-                </Label>
-                <div
-                  className="flex gap-2 justify-between"
-                  onPaste={handlePaste}
-                >
-                  {code.map((digit, index) => (
-                    <Input
-                      key={index}
-                      ref={(el) => {
-                        inputRefs.current[index] = el;
-                      }}
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={1}
-                      value={digit}
-                      onChange={(e) => handleChange(index, e.target.value)}
-                      onKeyDown={(e) => handleKeyDown(index, e)}
-                      disabled={loading}
-                      className="w-12 h-14 text-center text-2xl font-bold"
-                      aria-label={`Digit ${index + 1}`}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              {/* Verify Button */}
-              <Button
-                onClick={() => handleVerify(code.join(''))}
-                disabled={loading || code.some((d) => !d)}
-                className="w-full h-12 text-base font-bold shadow-lg hover:shadow-xl transition-all bg-linear-to-r from-blue-600 to-violet-600 hover:from-blue-700 hover:to-violet-700"
-                size="lg"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Verifying...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="mr-2 h-4 w-4" />
-                    Verify & Continue
-                  </>
-                )}
-              </Button>
-
-              {/* Resend */}
-              <div className="text-center">
-                <Button
-                  variant="ghost"
-                  onClick={handleResend}
-                  disabled={countdown > 0 || resending}
-                  className="text-sm"
-                >
-                  {resending ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                  )}
-                  {countdown > 0
-                    ? `Resend code in ${countdown}s`
-                    : 'Resend code'}
-                </Button>
-              </div>
-
-              {/* Back to login */}
-              <div className="text-center pt-2 border-t">
-                <Button
-                  asChild
-                  variant="link"
-                  className="text-sm text-muted-foreground"
-                >
-                  <Link href="/login">
-                    <ArrowLeft className="mr-2 h-4 w-4" />
-                    Use a different email
-                  </Link>
-                </Button>
+        {/* Glass card */}
+        <div
+          className="glass-card rounded-2xl p-7 animate-slide-in-up"
+          style={{ border: '1px solid oklch(0.62 0.28 290 / 20%)' }}
+        >
+          <div className="space-y-6">
+            {/* OTP inputs */}
+            <div className="space-y-3">
+              <Label className="text-sm font-semibold">Verification Code</Label>
+              <div className="flex gap-2 justify-between" onPaste={handlePaste}>
+                {code.map((digit, index) => (
+                  <Input
+                    key={index}
+                    ref={(el) => {
+                      inputRefs.current[index] = el;
+                    }}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={1}
+                    value={digit}
+                    onChange={(e) => handleChange(index, e.target.value)}
+                    onKeyDown={(e) => handleKeyDown(index, e)}
+                    disabled={loading}
+                    aria-label={`Digit ${index + 1}`}
+                    className={`w-12 h-14 text-center text-2xl font-bold transition-all
+                      bg-white/5 border-white/10
+                      focus:border-primary/60 focus:ring-2 focus:ring-primary/30
+                      ${digit ? 'border-primary/40 bg-primary/8 text-white' : ''}
+                    `}
+                  />
+                ))}
               </div>
             </div>
-          </CardContent>
-        </Card>
+
+            {/* Verify button */}
+            <Button
+              onClick={() => handleVerify(code.join(''))}
+              disabled={loading || code.some((d) => !d)}
+              className="w-full h-12 text-base font-bold btn-shimmer text-white border-0 disabled:opacity-50"
+              size="lg"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Verifying…
+                </>
+              ) : (
+                <>
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  Verify &amp; Continue
+                </>
+              )}
+            </Button>
+
+            {/* Resend */}
+            <div className="text-center">
+              <Button
+                variant="ghost"
+                onClick={handleResend}
+                disabled={countdown > 0 || resending}
+                className="text-sm text-muted-foreground hover:text-foreground hover:bg-white/5 disabled:opacity-40"
+              >
+                {resending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                {countdown > 0 ? `Resend in ${countdown}s` : 'Resend code'}
+              </Button>
+            </div>
+
+            {/* Back to login */}
+            <div className="text-center pt-1 border-t border-white/8">
+              <Button
+                asChild
+                variant="link"
+                className="text-sm text-muted-foreground hover:text-foreground"
+              >
+                <Link href="/login">
+                  <ArrowLeft className="mr-2 h-3.5 w-3.5" />
+                  Use a different email
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
   );

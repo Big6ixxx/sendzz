@@ -11,6 +11,8 @@ export interface CreateDepositParams {
   userId: string;
   amount: number;
   status?: DepositStatus;
+  txHash?: string;
+  paymentReference?: string; // For Paystack payment tracking
 }
 
 /**
@@ -20,19 +22,26 @@ export async function createDeposit({
   userId,
   amount,
   status = 'pending',
+  txHash,
+  paymentReference,
 }: CreateDepositParams) {
   const supabase = createAdminClient();
 
+  const insertData: Record<string, unknown> = {
+    user_id: userId,
+    amount_usdc: amount,
+    status,
+    tx_hash: txHash,
+  };
+
+  // Add payment_reference if provided (may need DB migration)
+  if (paymentReference) {
+    insertData.payment_reference = paymentReference;
+  }
+
   const { data, error } = await supabase
     .from('deposits')
-    .insert({
-      user_id: userId,
-      amount_usdc: amount,
-      status,
-      // For simulation, we can add a dummy Paycrest TX ID if needed,
-      // or leave it null since it's unique but nullable in schema?
-      // Actually schema says: paycrest_tx_id text unique. Unique allows multiple nulls in Postgres.
-    })
+    .insert(insertData as Record<string, unknown> & { user_id: string })
     .select()
     .single();
 
@@ -64,6 +73,26 @@ export async function updateDepositStatus(
   }
 
   return true;
+}
+
+/**
+ * Find deposit by payment reference
+ */
+export async function findDepositByReference(reference: string) {
+  const supabase = createAdminClient();
+
+  const { data, error } = await supabase
+    .from('deposits')
+    .select('*')
+    .eq('payment_reference' as string, reference)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[DepositRepo] findByReference error:', error);
+    return null;
+  }
+
+  return data;
 }
 
 /**

@@ -172,7 +172,7 @@ export function SendMoneyDialog({
                     />
                     {/* Contacts Dropdown */}
                     {showContacts && (
-                      <div className="absolute top-full left-0 right-0 mt-1 bg-popover border rounded-md shadow-md z-50 max-h-[200px] overflow-auto">
+                      <div className="absolute top-full left-0 right-0 mt-1 glass-card border border-white/10 rounded-lg shadow-xl z-50 max-h-[200px] overflow-auto">
                         {contacts
                           .filter(
                             (c) =>
@@ -187,17 +187,17 @@ export function SendMoneyDialog({
                             <button
                               key={contact.id}
                               type="button"
-                              className="w-full text-left px-4 py-2 hover:bg-muted flex items-center gap-3 transition-colors"
+                              className="w-full text-left px-4 py-2.5 hover:bg-white/5 flex items-center gap-3 transition-colors text-foreground"
                               onClick={() => {
                                 setEmail(contact.email);
                                 setShowContacts(false);
                               }}
                             >
-                              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold">
+                              <div className="w-8 h-8 rounded-full bg-primary/15 border border-primary/20 flex items-center justify-center text-primary text-xs font-bold">
                                 {contact.name.slice(0, 2).toUpperCase()}
                               </div>
                               <div>
-                                <p className="text-sm font-medium">
+                                <p className="text-sm font-medium text-foreground">
                                   {contact.name}
                                 </p>
                                 <p className="text-xs text-muted-foreground">
@@ -210,10 +210,10 @@ export function SendMoneyDialog({
                         {/* Add Contact Option */}
                         <button
                           type="button"
-                          className="w-full text-left px-4 py-2 hover:bg-muted flex items-center gap-2 text-blue-600 border-t"
+                          className="w-full text-left px-4 py-2.5 hover:bg-white/5 flex items-center gap-2 text-primary border-t border-white/8"
                           onMouseDown={(e) => {
-                            e.preventDefault(); // Prevent input blur
-                            setNewContactEmail(email); // Pre-fill email
+                            e.preventDefault();
+                            setNewContactEmail(email);
                             setShowAddContact(true);
                             setShowContacts(false);
                           }}
@@ -237,11 +237,11 @@ export function SendMoneyDialog({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-6 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                    className="h-6 text-xs text-primary hover:text-primary hover:bg-primary/10"
                     onClick={() => {
                       const newCurrency = currency === 'USD' ? 'NGN' : 'USD';
                       setCurrency(newCurrency);
-                      setAmount(''); // Reset to avoid confusion or we could convert
+                      setAmount('');
                     }}
                   >
                     <RefreshCw className="w-3 h-3 mr-1" />
@@ -284,7 +284,7 @@ export function SendMoneyDialog({
                 )}
 
                 {/* Quick amounts */}
-                <div className="flex gap-2 mt-2">
+                <div className="flex flex-wrap gap-1.5 mt-2">
                   {[5, 10, 25, 50, 100].map((baseAmount) => {
                     const chipAmount =
                       currency === 'NGN' ? baseAmount * 1500 : baseAmount;
@@ -304,7 +304,7 @@ export function SendMoneyDialog({
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="flex-1"
+                        className="border-white/10 bg-white/5 hover:bg-white/10 text-foreground text-xs px-2.5"
                         onClick={() => setAmount(chipAmount.toString())}
                         disabled={isDisabled}
                       >
@@ -332,7 +332,7 @@ export function SendMoneyDialog({
               <Button
                 type="submit"
                 disabled={loading || !email || !amount}
-                className="w-full h-12 font-bold bg-linear-to-r from-blue-600 to-violet-600 hover:from-blue-700 hover:to-violet-700"
+                className="w-full h-12 font-bold btn-shimmer text-white border-0"
               >
                 {loading ? (
                   <>
@@ -350,16 +350,24 @@ export function SendMoneyDialog({
           </>
         ) : (
           <div className="text-center py-6">
-            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Sparkles className="w-8 h-8 text-green-600" />
+            <div className="w-16 h-16 rounded-full bg-accent/15 border border-accent/25 flex items-center justify-center mx-auto mb-4">
+              <Sparkles className="w-8 h-8 text-accent" />
             </div>
-            <h3 className="text-xl font-bold mb-2">Transfer Sent! 🎉</h3>
-            <p className="text-muted-foreground mb-4">
+            <h3
+              className="text-xl font-bold mb-2"
+              style={{ fontFamily: 'var(--font-syne)' }}
+            >
+              Transfer Sent! 🎉
+            </h3>
+            <p className="text-muted-foreground mb-5">
               {result?.claimRequired
                 ? `We've sent ${email} an email with a link to claim their funds.`
                 : `${email} has received ${amount} USDC instantly!`}
             </p>
-            <Button onClick={handleClose} className="w-full">
+            <Button
+              onClick={handleClose}
+              className="w-full btn-shimmer text-white border-0 font-bold"
+            >
               Done
             </Button>
           </div>
