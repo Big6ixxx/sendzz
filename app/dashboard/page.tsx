@@ -1,84 +1,177 @@
-import { createClient } from '@/lib/supabase/server';
-import {
-  findUserById,
-  getAllUserTransfers,
-  getBalance,
-  getDepositsByUser,
-  getWithdrawalsByUser,
-} from '@/server/repositories';
-import { redirect } from 'next/navigation';
-import { DashboardClient } from './DashboardClient';
+'use client';
 
-export default async function DashboardPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+import { RampModal } from '@/components/RampModal';
+import { TransferModule } from '@/components/TransferModule';
+import { registerUserAddress } from '@/lib/supabase/actions';
+import { getSmartAccount, getUSDCBalance } from '@/lib/web3/actions';
+import { usePrivy, useWallets } from '@privy-io/react-auth';
+import { Loader2, LogOut, RefreshCw } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useState } from 'react';
 
-  if (!user) {
-    redirect('/login');
+export default function Dashboard() {
+  const { ready, authenticated, user, logout } = usePrivy();
+  const { wallets } = useWallets();
+  const router = useRouter();
+
+  const [smartAddress, setSmartAddress] = useState<string>('');
+  const [balance, setBalance] = useState<string>('0.00');
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [error, setError] = useState<string>('');
+
+  const [rampModalOpen, setRampModalOpen] = useState(false);
+  const [rampType, setRampType] = useState<'onramp' | 'offramp'>('onramp');
+
+  const fetchBalance = useCallback(async (address: string) => {
+    setIsSyncing(true);
+    try {
+      const bal = await getUSDCBalance(address);
+      setBalance(bal);
+    } catch (err) {
+      console.error('Balance sync failed:', err);
+    }
+    setIsSyncing(false);
+  }, []);
+
+  useEffect(() => {
+    if (ready && !authenticated) {
+      router.push('/');
+    }
+  }, [ready, authenticated, router]);
+
+  useEffect(() => {
+    async function initAccount() {
+      try {
+        const embeddedWallet = wallets.find(
+          (w) => w.walletClientType === 'privy',
+        );
+        if (!embeddedWallet) return;
+
+        const provider = await embeddedWallet.getEthereumProvider();
+        const account = await getSmartAccount(provider);
+        const address = await account.getAccountAddress();
+        setSmartAddress(address);
+        fetchBalance(address);
+
+        if (user?.email?.address) {
+          registerUserAddress(user.email.address, address).catch(console.error);
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } catch (err: any) {
+        setError(err.message || 'Failed to generate smart account');
+      }
+    }
+
+    if (ready && authenticated && wallets.length > 0) initAccount();
+  }, [ready, authenticated, wallets, user, fetchBalance]);
+
+  if (!ready || !authenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center font-mono uppercase font-bold text-2xl">
+        <Loader2 className="animate-spin w-8 h-8 mr-4" /> Initializing Network
+        Sync...
+      </div>
+    );
   }
 
-  // Fetch data in parallel
-  const [profile, balance, transfers, withdrawals, deposits] =
-    await Promise.all([
-      findUserById(user.id),
-      getBalance(user.id),
-      getAllUserTransfers(user.id, 10),
-      getWithdrawalsByUser(user.id, 5),
-      getDepositsByUser(user.id, 5),
-    ]);
-
-  // Combine and format transactions
-  const recentTransactions = [
-    ...transfers.map((t) => ({
-      id: t.id,
-      type: t.sender_id === user.id ? 'sent' : 'received',
-      amount: Number(t.amount),
-      asset: t.asset,
-      status: t.status,
-      counterparty: t.sender_id === user.id ? t.recipient_email : 'Someone',
-      note: t.note,
-      createdAt: t.created_at,
-    })),
-    ...withdrawals.map((w) => ({
-      id: w.id,
-      type: 'withdrawal',
-      amount: Number(w.amount_usdc),
-      asset: 'USDC' as const,
-      status: w.status,
-      counterparty: `Bank ${w.bank_account_masked}`,
-      createdAt: w.created_at,
-    })),
-    ...deposits.map((d) => ({
-      id: d.id,
-      type: 'deposit',
-      amount: Number(d.amount_usdc),
-      asset: 'USDC' as const,
-      status: d.status,
-      counterparty: 'Sendzz Deposit',
-      createdAt: d.created_at,
-    })),
-  ]
-    .sort(
-      (a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    )
-    .slice(0, 10);
+  const openRamp = (type: 'onramp' | 'offramp') => {
+    setRampType(type);
+    setRampModalOpen(true);
+  };
 
   return (
-    <DashboardClient
-      user={{
-        id: user.id,
-        email: user.email!,
-        onboardingCompleted: profile?.onboarding_completed ?? false,
-      }}
-      balance={{
-        available: balance?.available ?? 0,
-        locked: balance?.locked ?? 0,
-        total: balance?.total ?? 0,
-      }}
-      recentTransactions={recentTransactions}
-    />
+    <div className="flex flex-col min-h-[85vh]">
+      <header className="flex justify-between items-center border-b-4 border-black dark:border-white pb-6 mb-8 flex-wrap gap-4">
+        <h1 className="text-3xl font-oswald font-black uppercase tracking-tighter">
+          Sendzz // TERMINAL
+        </h1>
+        <div className="flex gap-4 items-center">
+          <div className="brutal-card px-4 py-2 flex items-center gap-2 font-mono text-sm font-bold bg-neon text-black border-2 border-black">
+            <span>AGENT: {user?.email?.address || 'ANONYMOUS'}</span>
+          </div>
+          <button
+            onClick={logout}
+            className="brutal-card px-4 py-2 bg-black text-white hover:bg-neon hover:text-black transition-colors"
+          >
+            <LogOut className="w-5 h-5" />
+          </button>
+        </div>
+      </header>
+
+      <main className="grid lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-1 flex flex-col gap-8">
+          <div className="brutal-card p-6 bg-black text-white dark:bg-white dark:text-black relative">
+            <button
+              onClick={() => fetchBalance(smartAddress)}
+              disabled={isSyncing || !smartAddress}
+              className="absolute top-4 right-4 text-neon hover:rotate-180 transition-transform disabled:opacity-50"
+            >
+              <RefreshCw
+                className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`}
+              />
+            </button>
+
+            <h2 className="font-oswald text-2xl uppercase mb-6 border-b-2 border-white dark:border-black pb-2">
+              Active Capital
+            </h2>
+            <div className="font-oswald font-black text-6xl break-all">
+              ${balance}
+            </div>
+            <p className="font-mono text-xs mt-2 text-gray-400 dark:text-gray-600">
+              USDC BALANCE ALIGNED ON BASE
+            </p>
+
+            <div className="mt-8">
+              <p className="font-mono text-xs mb-2 uppercase font-bold text-neon dark:text-black">
+                Smart Account Address
+              </p>
+              <div
+                className={`p-3 bg-white text-black dark:bg-black dark:text-white font-mono text-xs wrap-break-word border-2 cursor-copy ${error ? 'border-red-600 bg-red-100' : 'border-neon'}`}
+              >
+                {error
+                  ? `ERROR: ${error}`
+                  : smartAddress || 'GENERATING_SC_ADDRESS...'}
+              </div>
+            </div>
+          </div>
+
+          <div className="brutal-card p-6">
+            <h2 className="font-oswald text-2xl uppercase mb-4 font-black">
+              Fiat Gateways
+            </h2>
+            <button
+              onClick={() => openRamp('offramp')}
+              className="brutal-btn w-full mb-4 bg-white! text-black! hover:bg-black! hover:text-neon! border-2 border-black text-sm md:text-base"
+            >
+              OFF-RAMP (Convert USDC to NGN)
+            </button>
+            <button
+              onClick={() => openRamp('onramp')}
+              className="brutal-btn w-full bg-white! text-black! hover:bg-black! hover:text-neon! border-2 border-black text-sm md:text-base"
+            >
+              ON-RAMP (Convert NGN to USDC)
+            </button>
+          </div>
+        </div>
+
+        <div className="lg:col-span-2">
+          <TransferModule
+            smartAddress={smartAddress}
+            embeddedProvider={wallets.find(
+              (w) => w.walletClientType === 'privy',
+            )}
+            balance={balance}
+          />
+        </div>
+      </main>
+
+      <RampModal
+        isOpen={rampModalOpen}
+        onClose={() => setRampModalOpen(false)}
+        type={rampType}
+        userId={user?.id || ''}
+        userAddress={smartAddress}
+      />
+    </div>
   );
 }

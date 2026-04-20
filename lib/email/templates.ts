@@ -5,7 +5,6 @@
  */
 
 const BRAND_COLOR = '#2563eb';
-const BRAND_GRADIENT = 'linear-gradient(135deg, #2563eb 0%, #7c3aed 100%)';
 
 /**
  * Base email wrapper template

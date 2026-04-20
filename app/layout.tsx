@@ -1,35 +1,17 @@
-import { Toaster } from '@/components/ui/sonner';
+import { Providers } from '@/components/providers';
 import type { Metadata } from 'next';
-import { Geist_Mono, Inter, Syne } from 'next/font/google';
+import { JetBrains_Mono, Oswald } from 'next/font/google';
 import './globals.css';
 
-const inter = Inter({
-  variable: '--font-inter',
+const oswald = Oswald({ subsets: ['latin'], variable: '--font-oswald' });
+const jetbrains = JetBrains_Mono({
   subsets: ['latin'],
-  display: 'swap',
-});
-
-const syne = Syne({
-  variable: '--font-syne',
-  subsets: ['latin'],
-  display: 'swap',
-  weight: ['400', '500', '600', '700', '800'],
-});
-
-const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
-  subsets: ['latin'],
+  variable: '--font-mono',
 });
 
 export const metadata: Metadata = {
-  title: 'Sendzz – Instant Email Payments',
-  description:
-    'Send USDC to any email address instantly. Withdraw to your bank. No wallet needed.',
-  openGraph: {
-    title: 'Sendzz – Instant Email Payments',
-    description: 'Send USDC to any email address instantly.',
-    type: 'website',
-  },
+  title: 'SENDZZ // DECT. NETWORK',
+  description: 'Uncompromising cross-chain finance.',
 };
 
 export default function RootLayout({
@@ -38,13 +20,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      className={`dark ${inter.variable} ${syne.variable} ${geistMono.variable}`}
-    >
-      <body className="antialiased">
-        {children}
-        <Toaster richColors position="top-right" />
+    <html lang="en" className={`${oswald.variable} ${jetbrains.variable}`}>
+      <body className="antialiased min-h-screen border-12 border-black dark:border-white p-4 lg:p-8 flex flex-col">
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

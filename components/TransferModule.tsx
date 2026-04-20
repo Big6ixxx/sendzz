@@ -1,0 +1,122 @@
+'use client';
+
+import { getUserAddressByEmail } from '@/lib/supabase/actions';
+import { executeGaslessTransfer } from '@/lib/web3/actions';
+import { Loader2, Send } from 'lucide-react';
+import { useState } from 'react';
+
+export function TransferModule({
+  smartAddress,
+  embeddedProvider,
+  balance,
+}: {
+  smartAddress: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  embeddedProvider: any;
+  balance: string;
+}) {
+  const [recipientEmail, setRecipientEmail] = useState('');
+  const [amount, setAmount] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState<string>('');
+
+  const handleTransfer = async (e: React.SubmitEvent) => {
+    e.preventDefault();
+    if (!amount || !recipientEmail || !embeddedProvider) return;
+
+    setLoading(true);
+    setStatus('Looking up identity strictly...');
+
+    try {
+      const recipientAddress = await getUserAddressByEmail(recipientEmail);
+      if (!recipientAddress) {
+        setStatus('ERR: Recipient identity not resolved on network.');
+        setLoading(false);
+        return;
+      }
+
+      setStatus(
+        `Identity confirmed: ${recipientAddress.substring(0, 6)}... Requesting provider signature...`,
+      );
+
+      const provider = await embeddedProvider.getEthereumProvider();
+      const txHash = await executeGaslessTransfer(
+        provider,
+        recipientAddress,
+        amount,
+      );
+
+      setStatus(`SUCCESS: TX Hash ${txHash}`);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (err: any) {
+      setStatus(`FATAL: ${err.message}`);
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="brutal-card p-6 md:p-10 bg-neon text-black h-full">
+      <h2 className="font-oswald text-3xl md:text-5xl uppercase font-black mb-8 border-b-4 border-black pb-4 flex items-center gap-4">
+        <Send className="w-10 h-10 md:w-14 md:h-14" /> P2P execution engine
+      </h2>
+
+      <form onSubmit={handleTransfer} className="flex flex-col gap-6">
+        <div>
+          <label className="font-mono text-sm font-bold uppercase block mb-2">
+            Target Email Identifier
+          </label>
+          <input
+            type="email"
+            value={recipientEmail}
+            onChange={(e) => setRecipientEmail(e.target.value)}
+            className="brutal-input text-xl focus:bg-white! focus:text-black!"
+            placeholder="RECEIVER@SENDZZ.IO"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="font-mono text-sm font-bold uppercase block mb-2">
+            USDC Principal Amount
+          </label>
+          <input
+            type="number"
+            step="0.01"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            className="brutal-input text-4xl md:text-6xl font-black font-oswald focus:bg-white! focus:text-black!"
+            placeholder="0.00"
+            required
+          />
+        </div>
+
+        <button
+          type="submit"
+          disabled={
+            loading ||
+            !smartAddress ||
+            parseFloat(balance) === 0 ||
+            parseFloat(amount || '0') > parseFloat(balance)
+          }
+          className={`brutal-btn mt-4 text-xl md:text-2xl py-4 flex items-center justify-center gap-4 w-full bg-black text-neon hover:bg-white hover:text-black ${parseFloat(balance) === 0 || parseFloat(amount || '0') > parseFloat(balance) ? 'opacity-50 cursor-not-allowed' : ''}`}
+        >
+          {loading ? (
+            <Loader2 className="animate-spin" />
+          ) : parseFloat(balance) === 0 ? (
+            'INSUFFICIENT BALANCE'
+          ) : parseFloat(amount || '0') > parseFloat(balance) ? (
+            'EXCEEDS BALANCE'
+          ) : (
+            'EXECUTE SPONSORED TRANSFER'
+          )}
+        </button>
+
+        {status && (
+          <div className="mt-4 p-4 border-4 border-black font-mono text-sm font-bold bg-white text-black wrap-break-word">
+            &gt; SYSTEM LOG: {status}
+          </div>
+        )}
+      </form>
+    </div>
+  );
+}
