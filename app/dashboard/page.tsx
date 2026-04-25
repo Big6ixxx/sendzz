@@ -1,26 +1,28 @@
-'use client';
+"use client";
 
-import { RampModal } from '@/components/RampModal';
-import { TransferModule } from '@/components/TransferModule';
-import { registerUserAddress } from '@/lib/supabase/actions';
-import { getSmartAccount, getUSDCBalance } from '@/lib/web3/actions';
-import { usePrivy, useWallets } from '@privy-io/react-auth';
-import { Loader2, LogOut, RefreshCw } from 'lucide-react';
-import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { RampModal } from "@/components/RampModal";
+import { TransferModule } from "@/components/TransferModule";
+import { registerUserAddress } from "@/lib/supabase/actions";
+import { getSmartAccount, getUSDCBalance } from "@/lib/web3/actions";
+import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { Loader2, LogOut, RefreshCw, Copy } from "lucide-react";
+import { toast } from "sonner";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
 
 export default function Dashboard() {
+  console.log("[Dashboard] Rendering");
   const { ready, authenticated, user, logout } = usePrivy();
   const { wallets } = useWallets();
   const router = useRouter();
 
-  const [smartAddress, setSmartAddress] = useState<string>('');
-  const [balance, setBalance] = useState<string>('0.00');
+  const [smartAddress, setSmartAddress] = useState<string>("");
+  const [balance, setBalance] = useState<string>("0.00");
   const [isSyncing, setIsSyncing] = useState(false);
-  const [error, setError] = useState<string>('');
+  const [error, setError] = useState<string>("");
 
   const [rampModalOpen, setRampModalOpen] = useState(false);
-  const [rampType, setRampType] = useState<'onramp' | 'offramp'>('onramp');
+  const [rampType, setRampType] = useState<"onramp" | "offramp">("onramp");
 
   const fetchBalance = useCallback(async (address: string) => {
     setIsSyncing(true);
@@ -28,14 +30,14 @@ export default function Dashboard() {
       const bal = await getUSDCBalance(address);
       setBalance(bal);
     } catch (err) {
-      console.error('Balance sync failed:', err);
+      console.error("Balance sync failed:", err);
     }
     setIsSyncing(false);
   }, []);
 
   useEffect(() => {
     if (ready && !authenticated) {
-      router.push('/');
+      router.push("/");
     }
   }, [ready, authenticated, router]);
 
@@ -43,13 +45,17 @@ export default function Dashboard() {
     async function initAccount() {
       try {
         const embeddedWallet = wallets.find(
-          (w) => w.walletClientType === 'privy',
+          (w) => w.walletClientType === "privy",
         );
         if (!embeddedWallet) return;
 
         const provider = await embeddedWallet.getEthereumProvider();
         const account = await getSmartAccount(provider);
+        console.log("[Dashboard] Smart account resolved");
+        
         const address = await account.getAccountAddress();
+        console.log("[Dashboard] getAccountAddress resolved to:", address);
+        
         setSmartAddress(address);
         fetchBalance(address);
 
@@ -58,7 +64,8 @@ export default function Dashboard() {
         }
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (err: any) {
-        setError(err.message || 'Failed to generate smart account');
+        console.error("[Dashboard] INIT ACCOUNT FATAL ERROR:", err);
+        setError(err?.message || "Failed to generate smart account");
       }
     }
 
@@ -74,7 +81,7 @@ export default function Dashboard() {
     );
   }
 
-  const openRamp = (type: 'onramp' | 'offramp') => {
+  const openRamp = (type: "onramp" | "offramp") => {
     setRampType(type);
     setRampModalOpen(true);
   };
@@ -87,7 +94,7 @@ export default function Dashboard() {
         </h1>
         <div className="flex gap-4 items-center">
           <div className="brutal-card px-4 py-2 flex items-center gap-2 font-mono text-sm font-bold bg-neon text-black border-2 border-black">
-            <span>AGENT: {user?.email?.address || 'ANONYMOUS'}</span>
+            <span>AGENT: {user?.email?.address || "ANONYMOUS"}</span>
           </div>
           <button
             onClick={logout}
@@ -107,7 +114,7 @@ export default function Dashboard() {
               className="absolute top-4 right-4 text-neon hover:rotate-180 transition-transform disabled:opacity-50"
             >
               <RefreshCw
-                className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`}
+                className={`w-5 h-5 ${isSyncing ? "animate-spin" : ""}`}
               />
             </button>
 
@@ -126,11 +133,20 @@ export default function Dashboard() {
                 Smart Account Address
               </p>
               <div
-                className={`p-3 bg-white text-black dark:bg-black dark:text-white font-mono text-xs wrap-break-word border-2 cursor-copy ${error ? 'border-red-600 bg-red-100' : 'border-neon'}`}
+                onClick={() => {
+                  if (smartAddress && !error) {
+                    navigator.clipboard.writeText(smartAddress);
+                    toast.success("Address copied to clipboard");
+                  }
+                }}
+                className={`flex justify-between items-center p-3 bg-white text-black dark:bg-black dark:text-white font-mono text-xs wrap-break-word border-2 cursor-copy hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black transition-colors ${error ? "border-red-600 bg-red-100" : "border-neon"}`}
               >
-                {error
-                  ? `ERROR: ${error}`
-                  : smartAddress || 'GENERATING_SC_ADDRESS...'}
+                <span>
+                  {error
+                    ? `ERROR: ${error}`
+                    : smartAddress || "GENERATING_SC_ADDRESS..."}
+                </span>
+                {smartAddress && !error && <Copy className="w-4 h-4 ml-2 shrink-0" />}
               </div>
             </div>
           </div>
@@ -140,13 +156,13 @@ export default function Dashboard() {
               Fiat Gateways
             </h2>
             <button
-              onClick={() => openRamp('offramp')}
+              onClick={() => openRamp("offramp")}
               className="brutal-btn w-full mb-4 bg-white! text-black! hover:bg-black! hover:text-neon! border-2 border-black text-sm md:text-base"
             >
               OFF-RAMP (Convert USDC to NGN)
             </button>
             <button
-              onClick={() => openRamp('onramp')}
+              onClick={() => openRamp("onramp")}
               className="brutal-btn w-full bg-white! text-black! hover:bg-black! hover:text-neon! border-2 border-black text-sm md:text-base"
             >
               ON-RAMP (Convert NGN to USDC)
@@ -158,7 +174,7 @@ export default function Dashboard() {
           <TransferModule
             smartAddress={smartAddress}
             embeddedProvider={wallets.find(
-              (w) => w.walletClientType === 'privy',
+              (w) => w.walletClientType === "privy",
             )}
             balance={balance}
           />
@@ -169,7 +185,7 @@ export default function Dashboard() {
         isOpen={rampModalOpen}
         onClose={() => setRampModalOpen(false)}
         type={rampType}
-        userId={user?.id || ''}
+        userId={user?.id || ""}
         userAddress={smartAddress}
       />
     </div>
