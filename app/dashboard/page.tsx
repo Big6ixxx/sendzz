@@ -132,14 +132,15 @@ export default function Dashboard() {
               <p className="font-mono text-xs mb-2 uppercase font-bold text-neon dark:text-black">
                 Smart Account Address
               </p>
-              <div
+              <button
+                type="button"
                 onClick={() => {
                   if (smartAddress && !error) {
                     navigator.clipboard.writeText(smartAddress);
                     toast.success("Address copied to clipboard");
                   }
                 }}
-                className={`flex justify-between items-center p-3 bg-white text-black dark:bg-black dark:text-white font-mono text-xs wrap-break-word border-2 cursor-copy hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black transition-colors ${error ? "border-red-600 bg-red-100" : "border-neon"}`}
+                className={`flex justify-between items-center p-3 bg-white text-black dark:bg-black dark:text-white font-mono text-xs wrap-break-word border-2 cursor-copy hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black transition-colors w-full text-left ${error ? "border-red-600 bg-red-100" : "border-neon"}`}
               >
                 <span>
                   {error
@@ -147,7 +148,7 @@ export default function Dashboard() {
                     : smartAddress || "GENERATING_SC_ADDRESS..."}
                 </span>
                 {smartAddress && !error && <Copy className="w-4 h-4 ml-2 shrink-0" />}
-              </div>
+              </button>
             </div>
           </div>
 
@@ -187,6 +188,7 @@ export default function Dashboard() {
         type={rampType}
         userId={user?.id || ""}
         userAddress={smartAddress}
+        balance={balance}
       />
     </div>
   );

@@ -45,10 +45,11 @@ export class PaycrestClient {
    * Creates a payment order (On-ramp or Off-ramp)
    */
   async createOrder(order: PaycrestOrderRequest): Promise<PaycrestOrderResponse> {
-    return this.request<PaycrestOrderResponse>('/v2/sender/orders', {
+    const res = await this.request<{ data: PaycrestOrderResponse }>('/v2/sender/orders', {
       method: 'POST',
       body: JSON.stringify(order),
     });
+    return res.data;
   }
 
   /**
@@ -81,7 +82,8 @@ export class PaycrestClient {
    * Retrieves status of an existing order
    */
   async getOrder(orderId: string): Promise<PaycrestOrderResponse> {
-    return this.request<PaycrestOrderResponse>(`/v2/sender/orders/${orderId}`);
+    const res = await this.request<{ data: PaycrestOrderResponse }>(`/v2/sender/orders/${orderId}`);
+    return res.data;
   }
 
   /**

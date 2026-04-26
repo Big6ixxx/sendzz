@@ -1,6 +1,7 @@
 'use client';
 
 import { PrivyProvider } from '@privy-io/react-auth';
+import { Toaster } from 'sonner';
 import { base, baseSepolia } from 'viem/chains';
 import { ReactNode } from 'react';
 
@@ -27,6 +28,12 @@ export function Providers({ children }: { children: ReactNode }) {
       }}
     >
       {children}
+      <Toaster
+        position="top-center"
+        toastOptions={{
+          className: 'font-mono! uppercase! font-bold! text-sm! border-4! border-black! rounded-none! shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]',
+        }}
+      />
     </PrivyProvider>
   );
 }

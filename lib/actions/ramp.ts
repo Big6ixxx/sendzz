@@ -11,16 +11,19 @@ export async function initiateOnRamp(
   amountNgn: number,
   userId: string,
   userAddress: string,
+  refundAccount: { institution: string; accountIdentifier: string; accountName: string }
 ) {
   const paycrest = getPaycrestClient();
   
   try {
+    const safeUserId = userId.replace(/[^a-z0-9]/gi, '');
     const order = await paycrest.createOrder({
       amount: amountNgn.toString(),
       amountIn: 'fiat',
       source: {
         type: 'fiat',
         currency: 'NGN',
+        refundAccount,
       },
       destination: {
         type: 'crypto',
@@ -30,16 +33,34 @@ export async function initiateOnRamp(
           network: 'base',
         }
       },
-      reference: `onramp_${Date.now()}_${userId}`,
+      reference: `onramp${Date.now()}${safeUserId}`,
     });
 
-    // Paycrest returns virtual account details in providerAccount
     return order;
   } catch (error: unknown) {
     const err = error as Error;
     console.error('Error initiating Paycrest on-ramp:', err.message || error);
     throw error;
   }
+}
+
+/**
+ * Get the live NGN→USDC buy rate from Paycrest
+ */
+export async function getOnRampRate(): Promise<number> {
+  const paycrest = getPaycrestClient();
+  const rates = await paycrest.getRates('base', 'USDC', 1, 'NGN');
+  const buyRate = rates.data.buy?.rate;
+  if (!buyRate) throw new Error('Could not fetch onramp rate');
+  return Number(buyRate);
+}
+
+/**
+ * Fetch the current status of an order
+ */
+export async function getOrderStatus(orderId: string) {
+  const paycrest = getPaycrestClient();
+  return paycrest.getOrder(orderId);
 }
 
 /**
