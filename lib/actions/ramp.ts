@@ -64,6 +64,19 @@ export async function getOrderStatus(orderId: string) {
 }
 
 /**
+ * Save order reference to allow resuming from a dedicated route
+ * Returns the order details for status checking
+ */
+export async function checkOrderById(orderId: string) {
+  const paycrest = getPaycrestClient();
+  try {
+    return await paycrest.getOrder(orderId);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * PAYCREST OFF-RAMP QUOTE (DEFAULT)
  */
 export async function getOffRampQuote(amountUsdc: number) {

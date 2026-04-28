@@ -12,14 +12,14 @@ export const DEFAULT_EXCHANGE_RATE_USD_NGN = 1500;
 let cachedRate: { rate: number; timestamp: number } | null = null;
 const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 
-export type CurrencyCode = 'USD' | 'NGN' | 'KES' | 'GHS' | 'USDC';
+export type CurrencyCode = "USD" | "NGN" | "KES" | "GHS" | "USDC";
 
 /**
  * Get the current exchange rate (with caching for client-side)
  * TODO: This should be called from components that need live rates
  */
 export async function fetchExchangeRate(
-  fiatCurrency: CurrencyCode = 'NGN',
+  fiatCurrency: CurrencyCode = "NGN",
 ): Promise<number> {
   // Check cache
   if (cachedRate && Date.now() - cachedRate.timestamp < CACHE_DURATION_MS) {
@@ -27,14 +27,14 @@ export async function fetchExchangeRate(
   }
 
   try {
-    const res = await fetch(`/api/paycrest/rates/USDC/${fiatCurrency}`);
+    const res = await fetch(`/api/paycrest/rates/USDC/NGN`);
     const data = await res.json();
     if (data.success && data.data?.marketRate) {
       cachedRate = { rate: data.data.marketRate, timestamp: Date.now() };
       return data.data.marketRate;
     }
   } catch {
-    console.warn('Failed to fetch exchange rate, using default');
+    console.warn("Failed to fetch exchange rate, using default");
   }
 
   return DEFAULT_EXCHANGE_RATE_USD_NGN;
@@ -45,16 +45,16 @@ export async function fetchExchangeRate(
  */
 export function formatCurrency(amount: number, currency: CurrencyCode): string {
   const currencyMap: Record<string, string> = {
-    USD: 'USD',
-    USDC: 'USD',
-    NGN: 'NGN',
-    KES: 'KES',
-    GHS: 'GHS',
+    USD: "USD",
+    USDC: "USD",
+    NGN: "NGN",
+    KES: "KES",
+    GHS: "GHS",
   };
 
-  const formatter = new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: currencyMap[currency] || 'USD',
+  const formatter = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: currencyMap[currency] || "USD",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -84,7 +84,7 @@ export function convertNgnToUsd(amountNgn: number): number {
 export function convertWithRate(
   amount: number,
   rate: number,
-  direction: 'toFiat' | 'toUsd',
+  direction: "toFiat" | "toUsd",
 ): number {
-  return direction === 'toFiat' ? amount * rate : amount / rate;
+  return direction === "toFiat" ? amount * rate : amount / rate;
 }

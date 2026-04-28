@@ -11,13 +11,15 @@ export const VIEM_PUBLIC_CLIENT = createPublicClient({
   transport: http(process.env.NEXT_PUBLIC_RPC_URL),
 });
 
-const baseUrl = typeof window !== 'undefined' 
-  ? window.location.origin 
+const baseUrl = typeof window !== 'undefined'
+  ? window.location.origin
   : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
 export const BICONOMY_BUNDLER_URL = `${baseUrl}/api/bundler-proxy/${chain.id}/`;
 export const BICONOMY_PAYMASTER_URL = `${baseUrl}/api/paymaster-proxy/${chain.id}/`;
 
-export const USDC_ADDRESS = IS_PROD 
+export const USDC_ADDRESS = IS_PROD
+  ? '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' // Base Mainnet
+  : '0x036CbD53842c5426634e7929541eC2318f3dCF7e'; // Base Sepolia
   ? '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' // Base Mainnet
   : '0x036CbD53842c5426634e7929541eC2318f3dCF7e'; // Base Sepolia

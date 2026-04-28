@@ -27,16 +27,13 @@ export async function getUSDCBalance(address: string): Promise<string> {
   }
 }
 
-
-
 /**
  * Initializes a Biconomy Smart Account using the Privy embedded wallet EIP1193 provider.
- * This now uses the server-side proxy for Bundler and Paymaster to keep API keys secret.
+ * Uses the server-side proxy for Bundler and Paymaster to keep API keys secret.
  */
 export async function getSmartAccount(provider: any) {
   try {
     console.log('[getSmartAccount] Step 1: Requesting accounts...');
-    // Fetch the current address
     const [address] = await provider.request({ method: 'eth_requestAccounts' });
     console.log('[getSmartAccount] Step 1 passed, address:', address);
 
@@ -52,13 +49,13 @@ export async function getSmartAccount(provider: any) {
       bundlerUrl: BICONOMY_BUNDLER_URL,
       paymasterUrl: BICONOMY_PAYMASTER_URL || undefined,
     });
-    
+
     const account = await createSmartAccountClient({
       signer: walletClient,
       bundlerUrl: BICONOMY_BUNDLER_URL,
       paymasterUrl: BICONOMY_PAYMASTER_URL || undefined,
     });
-    
+
     console.log('[getSmartAccount] Step 3 passed, smart account created successfully.');
     return account;
   } catch (error) {
@@ -68,7 +65,7 @@ export async function getSmartAccount(provider: any) {
 }
 
 /**
- * Executes a gasless USDC transfer to the recipient's smart account via Circle Paymaster
+ * Executes a gasless USDC transfer via Biconomy sponsored paymaster.
  */
 export async function executeGaslessTransfer(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -90,7 +87,6 @@ export async function executeGaslessTransfer(
     data: transferData,
   };
 
-  // Dispatch the ERC-4337 UserOperation gaslessly
   const userOpResponse = await smartAccount.sendTransaction(tx, {
     paymasterServiceData: { mode: PaymasterMode.SPONSORED },
   });

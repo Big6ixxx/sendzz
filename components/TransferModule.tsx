@@ -1,9 +1,9 @@
-'use client';
+"use client";
 
-import { getUserAddressByEmail } from '@/lib/supabase/actions';
-import { executeGaslessTransfer } from '@/lib/web3/actions';
-import { Loader2, Send } from 'lucide-react';
-import { useState } from 'react';
+import { getUserAddressByEmail } from "@/lib/supabase/actions";
+import { executeGaslessTransfer } from "@/lib/web3/actions";
+import { Loader2, Send } from "lucide-react";
+import { useState } from "react";
 
 export function TransferModule({
   smartAddress,
@@ -15,22 +15,22 @@ export function TransferModule({
   embeddedProvider: any;
   balance: string;
 }) {
-  const [recipientEmail, setRecipientEmail] = useState('');
-  const [amount, setAmount] = useState('');
+  const [recipientEmail, setRecipientEmail] = useState("");
+  const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState<string>('');
+  const [status, setStatus] = useState<string>("");
 
   const handleTransfer = async (e: React.SubmitEvent) => {
     e.preventDefault();
     if (!amount || !recipientEmail || !embeddedProvider) return;
 
     setLoading(true);
-    setStatus('Looking up identity strictly...');
+    setStatus("Looking up identity strictly...");
 
     try {
       const recipientAddress = await getUserAddressByEmail(recipientEmail);
       if (!recipientAddress) {
-        setStatus('ERR: Recipient identity not resolved on network.');
+        setStatus("ERR: Recipient identity not resolved on network.");
         setLoading(false);
         return;
       }
@@ -96,18 +96,18 @@ export function TransferModule({
             loading ||
             !smartAddress ||
             parseFloat(balance) === 0 ||
-            parseFloat(amount || '0') > parseFloat(balance)
+            parseFloat(amount || "0") > parseFloat(balance)
           }
-          className={`brutal-btn mt-4 text-xl md:text-2xl py-4 flex items-center justify-center gap-4 w-full bg-black text-neon hover:bg-white hover:text-black ${parseFloat(balance) === 0 || parseFloat(amount || '0') > parseFloat(balance) ? 'opacity-50 cursor-not-allowed' : ''}`}
+          className={`brutal-btn mt-4 text-xl md:text-2xl py-4 flex items-center justify-center gap-4 w-full bg-black text-neon hover:bg-white hover:text-black ${parseFloat(balance) === 0 || parseFloat(amount || "0") > parseFloat(balance) ? "opacity-50 cursor-not-allowed" : ""}`}
         >
           {loading ? (
             <Loader2 className="animate-spin" />
           ) : parseFloat(balance) === 0 ? (
-            'INSUFFICIENT BALANCE'
-          ) : parseFloat(amount || '0') > parseFloat(balance) ? (
-            'EXCEEDS BALANCE'
+            "INSUFFICIENT BALANCE"
+          ) : parseFloat(amount || "0") > parseFloat(balance) ? (
+            "EXCEEDS BALANCE"
           ) : (
-            'EXECUTE SPONSORED TRANSFER'
+            "EXECUTE SPONSORED TRANSFER"
           )}
         </button>
 

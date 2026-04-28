@@ -20,6 +20,7 @@ import {
   verifyBankAccount,
   getInstitutions,
   getOnRampRate,
+  getOrderStatus,
 } from "@/lib/actions/ramp";
 import { executeGaslessTransfer } from "@/lib/web3/actions";
 import { useWallets } from "@privy-io/react-auth";
@@ -76,6 +77,10 @@ export function RampModal({
 
   // Countdown timer for onramp order validity
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
+  // Onramp polling state
+  const [polling, setPolling] = useState(false);
+  const [txStatus, setTxStatus] = useState<string | null>(null);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (!order?.providerAccount?.validUntil) return;
@@ -88,6 +93,58 @@ export function RampModal({
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, [order?.providerAccount?.validUntil]);
+
+  // Persist order to localStorage so user can resume from /tx/[orderId]
+  useEffect(() => {
+    if (order?.id) {
+      localStorage.setItem('sendzz_pending_order', JSON.stringify({
+        orderId: order.id,
+        type,
+        amount,
+        createdAt: order.createdAt || new Date().toISOString(),
+      }));
+    }
+  }, [order?.id, type, amount, order?.createdAt]);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
+  }, []);
+
+  const startPolling = () => {
+    if (!order?.id) return;
+    setPolling(true);
+    setTxStatus('pending');
+
+    const poll = async () => {
+      try {
+        const result = await getOrderStatus(order.id);
+        const status = result.status;
+        setTxStatus(status);
+
+        const terminal = ['settled', 'refunded', 'expired'];
+        if (terminal.includes(status)) {
+          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+          setPolling(false);
+          if (status === 'settled') {
+            toast.success('Deposit confirmed! USDC credited to your wallet.');
+            setStep(3);
+          } else if (status === 'refunded') {
+            toast.error('Order refunded. Your NGN has been returned.');
+          } else {
+            toast.error('Order expired. Please start a new one.');
+          }
+        }
+      } catch {
+        // keep polling, network blip
+      }
+    };
+
+    poll(); // immediate first check
+    pollIntervalRef.current = setInterval(poll, 8000); // every 8s
+  };
 
   // Onramp-specific state
   const [onRampRate, setOnRampRate] = useState<number | null>(null);
@@ -691,8 +748,47 @@ export function RampModal({
                   * Funds will be automatically credited to your smart account
                   once the transfer is confirmed on-chain.
                 </p>
-                <button onClick={onClose} className="brutal-btn w-full">
-                  I HAVE TRANSFERRED
+                {polling ? (
+                  <div className="border-4 border-black p-4 font-mono text-center bg-black text-white">
+                    <div className="flex items-center justify-center gap-3 mb-2">
+                      <Loader2 className="w-5 h-5 animate-spin text-neon" />
+                      <span className="text-sm font-black uppercase text-neon">Checking Payment...</span>
+                    </div>
+                    <p className="text-[10px] opacity-60 uppercase">
+                      Status: <span className="text-neon font-black">{txStatus?.toUpperCase() ?? 'PENDING'}</span>
+                    </p>
+                    <p className="text-[10px] opacity-50 mt-1">
+                      Order ID: <span className="font-mono">{order.id}</span>
+                    </p>
+                    <a
+                      href={`/tx/${order.id}`}
+                      className="block mt-3 text-[10px] underline text-neon opacity-70 hover:opacity-100"
+                      target="_blank"
+                    >
+                      View in dedicated page →
+                    </a>
+                  </div>
+                ) : (
+                  <button onClick={startPolling} className="brutal-btn w-full">
+                    I HAVE TRANSFERRED
+                  </button>
+                )}
+              </div>
+            )}
+
+            {step === 3 && (
+              <div className="flex flex-col items-center gap-6 py-4 text-center">
+                <div className="bg-neon border-4 border-black w-20 h-20 flex items-center justify-center">
+                  <CheckCircle2 className="w-10 h-10 text-black" />
+                </div>
+                <div>
+                  <h3 className="font-oswald text-2xl font-black uppercase mb-2">Deposit Confirmed!</h3>
+                  <p className="font-mono text-sm text-gray-600">
+                    Your USDC has been credited to your smart account.
+                  </p>
+                </div>
+                <button onClick={() => { onClose(); setStep(1); setOrder(null); setAmount(''); setTxStatus(null); }} className="brutal-btn w-full bg-neon! text-black!">
+                  DONE
                 </button>
               </div>
             )}
