@@ -1,6 +1,5 @@
-import { createSmartAccountClient, PaymasterMode } from '@biconomy/account';
-import { encodeFunctionData, formatUnits, parseUnits, createWalletClient, custom } from 'viem';
-import { BICONOMY_BUNDLER_URL, BICONOMY_PAYMASTER_URL, USDC_ADDRESS, VIEM_PUBLIC_CLIENT, chain } from './config';
+import { formatUnits} from 'viem';
+import {  USDC_ADDRESS, VIEM_PUBLIC_CLIENT, } from './config';
 
 import { parseAbi } from 'viem';
 
@@ -25,72 +24,4 @@ export async function getUSDCBalance(address: string): Promise<string> {
     console.error('Error fetching USDC balance:', error);
     return '0';
   }
-}
-
-/**
- * Initializes a Biconomy Smart Account using the Privy embedded wallet EIP1193 provider.
- * Uses the server-side proxy for Bundler and Paymaster to keep API keys secret.
- */
-export async function getSmartAccount(provider: any) {
-  try {
-    console.log('[getSmartAccount] Step 1: Requesting accounts...');
-    const [address] = await provider.request({ method: 'eth_requestAccounts' });
-    console.log('[getSmartAccount] Step 1 passed, address:', address);
-
-    console.log('[getSmartAccount] Step 2: Creating Viem wallet client on chain:', chain.id);
-    const walletClient = createWalletClient({
-      account: address,
-      chain,
-      transport: custom(provider),
-    });
-    console.log('[getSmartAccount] Step 2 passed, walletClient created.');
-
-    console.log('[getSmartAccount] Step 3: Creating Biconomy smart account...', {
-      bundlerUrl: BICONOMY_BUNDLER_URL,
-      paymasterUrl: BICONOMY_PAYMASTER_URL || undefined,
-    });
-
-    const account = await createSmartAccountClient({
-      signer: walletClient,
-      bundlerUrl: BICONOMY_BUNDLER_URL,
-      paymasterUrl: BICONOMY_PAYMASTER_URL || undefined,
-    });
-
-    console.log('[getSmartAccount] Step 3 passed, smart account created successfully.');
-    return account;
-  } catch (error) {
-    console.error('[getSmartAccount] FATAL ERROR:', error);
-    throw error;
-  }
-}
-
-/**
- * Executes a gasless USDC transfer via Biconomy sponsored paymaster.
- */
-export async function executeGaslessTransfer(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  provider: any,
-  recipientAddress: string,
-  amountUSDC: string
-) {
-  const smartAccount = await getSmartAccount(provider);
-  const amountParsed = parseUnits(amountUSDC, 6);
-
-  const transferData = encodeFunctionData({
-    abi: ERC20_ABI,
-    functionName: 'transfer',
-    args: [recipientAddress as `0x${string}`, amountParsed],
-  });
-
-  const tx = {
-    to: USDC_ADDRESS,
-    data: transferData,
-  };
-
-  const userOpResponse = await smartAccount.sendTransaction(tx, {
-    paymasterServiceData: { mode: PaymasterMode.SPONSORED },
-  });
-
-  const { transactionHash } = await userOpResponse.waitForTxHash();
-  return transactionHash;
 }

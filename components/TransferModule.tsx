@@ -1,7 +1,8 @@
 "use client";
 
+import { sendTransferEmail } from "@/lib/email/sendEmail";
 import { getUserAddressByEmail } from "@/lib/supabase/actions";
-import { executeGaslessTransfer } from "@/lib/web3/actions";
+import { executeCircleGaslessTransfer } from "@/lib/web3/circle-actions";
 import { Loader2, Send } from "lucide-react";
 import { useState } from "react";
 
@@ -9,11 +10,13 @@ export function TransferModule({
   smartAddress,
   embeddedProvider,
   balance,
+  senderEmail,
 }: {
   smartAddress: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   embeddedProvider: any;
   balance: string;
+  senderEmail: string;
 }) {
   const [recipientEmail, setRecipientEmail] = useState("");
   const [amount, setAmount] = useState("");
@@ -40,13 +43,16 @@ export function TransferModule({
       );
 
       const provider = await embeddedProvider.getEthereumProvider();
-      const txHash = await executeGaslessTransfer(
+      const txHash = await executeCircleGaslessTransfer(
         provider,
         recipientAddress,
         amount,
       );
 
       setStatus(`SUCCESS: TX Hash ${txHash}`);
+
+      // Notify recipient — fire and forget, don't block the UI
+      sendTransferEmail(recipientEmail, amount, senderEmail).catch(console.error);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       setStatus(`FATAL: ${err.message}`);

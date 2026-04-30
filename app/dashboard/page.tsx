@@ -3,7 +3,8 @@
 import { RampModal } from "@/components/RampModal";
 import { TransferModule } from "@/components/TransferModule";
 import { registerUserAddress } from "@/lib/supabase/actions";
-import { getSmartAccount, getUSDCBalance } from "@/lib/web3/actions";
+import { getUSDCBalance } from "@/lib/web3/actions";
+import { getCircleAddress } from "@/lib/web3/circle-client";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { Loader2, LogOut, RefreshCw, Copy } from "lucide-react";
 import { toast } from "sonner";
@@ -50,15 +51,14 @@ export default function Dashboard() {
         if (!embeddedWallet) return;
 
         const provider = await embeddedWallet.getEthereumProvider();
-        const account = await getSmartAccount(provider);
-        console.log("[Dashboard] Smart account resolved");
-        
-        const address = await account.getAccountAddress();
-        console.log("[Dashboard] getAccountAddress resolved to:", address);
+        const address = await getCircleAddress(provider);
+        console.log("[Dashboard] getCircleAddress resolved to:", address);
+
+
         
         setSmartAddress(address);
         fetchBalance(address);
-
+        console.log(user?.email?.address, {user});
         if (user?.email?.address) {
           registerUserAddress(user.email.address, address).catch(console.error);
         }
@@ -178,6 +178,7 @@ export default function Dashboard() {
               (w) => w.walletClientType === "privy",
             )}
             balance={balance}
+            senderEmail={user?.email?.address || ""}
           />
         </div>
       </main>

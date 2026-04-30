@@ -4,10 +4,8 @@
  * Abstraction layer for sending emails via Resend.
  */
 
-import { Resend } from 'resend';
-
-// Initialize Resend client
-const resend = new Resend(process.env.RESEND_API_KEY);
+import { Resend } from "resend";
+import { transferReceivedTemplate } from "./templates";
 
 export interface SendEmailOptions {
   to: string | string[];
@@ -29,7 +27,14 @@ export interface SendEmailResult {
 export async function sendEmail(
   options: SendEmailOptions,
 ): Promise<SendEmailResult> {
-  const fromAddress = process.env.EMAIL_FROM_ADDRESS || 'noreply@sendzz.io';
+  const apiKey = process.env.RESEND_API_KEY;
+  const fromAddress = process.env.EMAIL_FROM_ADDRESS || "noreply@sendzz.io";
+
+  if (!apiKey) {
+    return { success: false, error: "RESEND_API_KEY not configured" };
+  }
+
+  const resend = new Resend(apiKey);
 
   try {
     const response = await resend.emails.send({
@@ -38,30 +43,35 @@ export async function sendEmail(
       subject: options.subject,
       html: options.html,
       text: options.text,
-      replyTo: options.replyTo || 'support@sendzz.io',
+      replyTo: options.replyTo || "support@sendzz.io",
     });
 
     if (response.error) {
-      console.error('[Email] Send failed:', response.error);
-      return {
-        success: false,
-        error: response.error.message,
-      };
+      return { success: false, error: response.error.message };
     }
 
-    console.log(
-      `[Email] Sent successfully to ${options.to}:`,
-      response.data?.id,
-    );
-    return {
-      success: true,
-      messageId: response.data?.id,
-    };
+    return { success: true, messageId: response.data?.id };
   } catch (error) {
-    console.error('[Email] Unexpected error:', error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: error instanceof Error ? error.message : "Unknown error",
     };
+  }
+}
+
+export async function sendTransferEmail(
+  recipientEmail: string,
+  amountUSDC: string,
+  senderEmail: string,
+) {
+  const result = await sendEmail({
+    to: recipientEmail,
+    subject: `You received ${amountUSDC} USDC on Sendzz`,
+    html: transferReceivedTemplate(amountUSDC, senderEmail),
+  });
+
+  if (!result.success) {
+    console.error("[sendTransferEmail] Failed:", result.error);
+    throw new Error(result.error || "Failed to send transfer email");
   }
 }
