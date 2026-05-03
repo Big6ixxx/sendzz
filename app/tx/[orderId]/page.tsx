@@ -96,7 +96,7 @@ export default function TxStatusPage({ params }: { params: Promise<{ orderId: st
           </Link>
           <div>
             <h1 className="font-oswald text-2xl font-black uppercase">Transaction Status</h1>
-            <p className="text-[10px] uppercase opacity-60">Sendzz // Paycrest Order</p>
+            <p className="text-[10px] uppercase opacity-60">Sendzz</p>
           </div>
         </div>
 

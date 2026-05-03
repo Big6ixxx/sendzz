@@ -31,21 +31,37 @@ export function TransferModule({
     setStatus("Looking up identity strictly...");
 
     try {
-      const recipientAddress = await getUserAddressByEmail(recipientEmail);
+      let recipientAddress = await getUserAddressByEmail(recipientEmail);
+      
       if (!recipientAddress) {
-        setStatus("ERR: Recipient identity not resolved on network.");
-        setLoading(false);
-        return;
+        setStatus("Recipient not found. Pre-generating smart wallet (JIT)...");
+        
+        // Call the new API to generate the Privy user and get the deterministic address
+        const res = await fetch('/api/wallets/pre-generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: recipientEmail })
+        });
+        
+        const data = await res.json();
+        
+        if (!res.ok) {
+          throw new Error(data.error || 'Failed to pre-generate wallet');
+        }
+        
+        recipientAddress = data.address as string;
+        console.log(`[JIT] Pre-generated Circle Address for ${recipientEmail}:`, recipientAddress);
+        setStatus(`Generated New Address: ${(recipientAddress as string).substring(0, 8)}... Requesting signature...`);
+      } else {
+        console.log(`[Transfer] Existing Circle Address for ${recipientEmail}:`, recipientAddress);
+        setStatus(`Identity confirmed: ${(recipientAddress as string).substring(0, 8)}... Requesting signature...`);
       }
 
-      setStatus(
-        `Identity confirmed: ${recipientAddress.substring(0, 6)}... Requesting provider signature...`,
-      );
 
       const provider = await embeddedProvider.getEthereumProvider();
       const txHash = await executeCircleGaslessTransfer(
         provider,
-        recipientAddress,
+        recipientAddress as string,
         amount,
       );
 

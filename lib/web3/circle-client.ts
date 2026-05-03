@@ -108,3 +108,32 @@ export async function getCircleAddress(provider: any) {
 
   return account.address;
 }
+
+/**
+ * Deterministically computes a Circle Smart Account address from any EOA address.
+ * Useful for pre-generating wallets without needing a true signer.
+ */
+export async function computeCircleSmartAddress(eoaAddress: string) {
+  const publicClient = createPublicClient({
+    chain,
+    transport: http(
+      `https://base-mainnet.g.alchemy.com/v2/${process.env.NEXT_PUBLIC_ALCHEMY_API_KEY}`,
+    ),
+  });
+
+  // Mock owner that satisfies the owner interface purely for address derivation
+  const mockOwner = {
+    address: eoaAddress as Address,
+    type: "local" as const,
+    signTypedData: async () => "0x" as Hex,
+    signMessage: async () => "0x" as Hex,
+    sign: async () => { throw new Error("Cannot sign with mock owner"); }
+  };
+
+  const account = await toCircleSmartAccount({
+    client: publicClient,
+    owner: mockOwner,
+  });
+
+  return account.address;
+}

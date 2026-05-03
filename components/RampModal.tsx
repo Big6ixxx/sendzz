@@ -441,7 +441,7 @@ export function RampModal({
             {type === "onramp" ? "Deposit Capital" : "Withdraw Capital"}
           </h2>
           <p className="font-mono text-xs uppercase font-bold mt-2">
-            Network: Base // Provider: Paycrest
+            Network: Base
           </p>
         </div>
 
