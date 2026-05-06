@@ -6,35 +6,33 @@ import { registerUserAddress } from "@/lib/supabase/actions";
 import { getUSDCBalance } from "@/lib/web3/actions";
 import { getCircleAddress } from "@/lib/web3/circle-client";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { useQuery } from "@tanstack/react-query";
 import { Loader2, LogOut, RefreshCw, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 export default function Dashboard() {
-  console.log("[Dashboard] Rendering");
   const { ready, authenticated, user, logout } = usePrivy();
   const { wallets } = useWallets();
   const router = useRouter();
 
   const [smartAddress, setSmartAddress] = useState<string>("");
-  const [balance, setBalance] = useState<string>("0.00");
-  const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState<string>("");
-
   const [rampModalOpen, setRampModalOpen] = useState(false);
   const [rampType, setRampType] = useState<"onramp" | "offramp">("onramp");
 
-  const fetchBalance = useCallback(async (address: string) => {
-    setIsSyncing(true);
-    try {
-      const bal = await getUSDCBalance(address);
-      setBalance(bal);
-    } catch (err) {
-      console.error("Balance sync failed:", err);
-    }
-    setIsSyncing(false);
-  }, []);
+  // Use Query for balance with auto-refreshing
+  const { 
+    data: balance = "0.00", 
+    isLoading: isBalanceLoading, 
+    refetch: refetchBalance
+  } = useQuery({
+    queryKey: ["balance", smartAddress],
+    queryFn: () => getUSDCBalance(smartAddress),
+    enabled: !!smartAddress,
+    refetchInterval: 10000, // Auto-refresh every 10 seconds
+  });
 
   useEffect(() => {
     if (ready && !authenticated) {
@@ -52,17 +50,12 @@ export default function Dashboard() {
 
         const provider = await embeddedWallet.getEthereumProvider();
         const address = await getCircleAddress(provider);
-        console.log("[Dashboard] getCircleAddress resolved to:", address);
-
-
         
         setSmartAddress(address);
-        fetchBalance(address);
-        console.log(user?.email?.address, {user});
+        
         if (user?.email?.address) {
           registerUserAddress(user.email.address, address).catch(console.error);
         }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (err: any) {
         console.error("[Dashboard] INIT ACCOUNT FATAL ERROR:", err);
         setError(err?.message || "Failed to generate smart account");
@@ -70,7 +63,7 @@ export default function Dashboard() {
     }
 
     if (ready && authenticated && wallets.length > 0) initAccount();
-  }, [ready, authenticated, wallets, user, fetchBalance]);
+  }, [ready, authenticated, wallets, user]);
 
   if (!ready || !authenticated) {
     return (
@@ -109,12 +102,12 @@ export default function Dashboard() {
         <div className="lg:col-span-1 flex flex-col gap-8">
           <div className="brutal-card p-6 bg-black text-white dark:bg-white dark:text-black relative">
             <button
-              onClick={() => fetchBalance(smartAddress)}
-              disabled={isSyncing || !smartAddress}
+              onClick={() => refetchBalance()}
+              disabled={isBalanceLoading || !smartAddress}
               className="absolute top-4 right-4 text-neon hover:rotate-180 transition-transform disabled:opacity-50"
             >
               <RefreshCw
-                className={`w-5 h-5 ${isSyncing ? "animate-spin" : ""}`}
+                className={`w-5 h-5 ${isBalanceLoading ? "animate-spin" : ""}`}
               />
             </button>
 

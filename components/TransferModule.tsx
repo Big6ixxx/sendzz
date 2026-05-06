@@ -3,6 +3,7 @@
 import { sendTransferEmail } from "@/lib/email/sendEmail";
 import { getUserAddressByEmail } from "@/lib/supabase/actions";
 import { executeCircleGaslessTransfer } from "@/lib/web3/circle-actions";
+import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, Send } from "lucide-react";
 import { useState } from "react";
 
@@ -22,8 +23,10 @@ export function TransferModule({
   const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string>("");
+  
+  const queryClient = useQueryClient();
 
-  const handleTransfer = async (e: React.SubmitEvent) => {
+  const handleTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!amount || !recipientEmail || !embeddedProvider) return;
 
@@ -36,7 +39,6 @@ export function TransferModule({
       if (!recipientAddress) {
         setStatus("Recipient not found. Pre-generating smart wallet (JIT)...");
         
-        // Call the new API to generate the Privy user and get the deterministic address
         const res = await fetch('/api/wallets/pre-generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -50,13 +52,10 @@ export function TransferModule({
         }
         
         recipientAddress = data.address as string;
-        console.log(`[JIT] Pre-generated Circle Address for ${recipientEmail}:`, recipientAddress);
         setStatus(`Generated New Address: ${(recipientAddress as string).substring(0, 8)}... Requesting signature...`);
       } else {
-        console.log(`[Transfer] Existing Circle Address for ${recipientEmail}:`, recipientAddress);
         setStatus(`Identity confirmed: ${(recipientAddress as string).substring(0, 8)}... Requesting signature...`);
       }
-
 
       const provider = await embeddedProvider.getEthereumProvider();
       const txHash = await executeCircleGaslessTransfer(
@@ -66,11 +65,17 @@ export function TransferModule({
       );
 
       setStatus(`SUCCESS: TX Hash ${txHash}`);
+      
+      // Invalidate and refetch balance immediately
+      queryClient.invalidateQueries({ queryKey: ["balance", smartAddress] });
 
-      // Notify recipient — fire and forget, don't block the UI
+      // Notify recipient
       sendTransferEmail(recipientEmail, amount, senderEmail).catch(console.error);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      
+      setAmount("");
+      setRecipientEmail("");
     } catch (err: any) {
+      console.error("[Transfer] Fatal Error:", err);
       setStatus(`FATAL: ${err.message}`);
     }
     setLoading(false);

@@ -29,6 +29,7 @@ import {
   PaycrestOrderResponse,
   PaycrestInstitution,
 } from "@/lib/paycrest/types";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface RampModalProps {
   isOpen: boolean;
@@ -49,6 +50,7 @@ export function RampModal({
 }: RampModalProps) {
   console.log("[RampModal] Rendering, isOpen:", isOpen);
   const { wallets } = useWallets();
+  const queryClient = useQueryClient();
   const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
   const [transferring, setTransferring] = useState(false);
@@ -133,6 +135,7 @@ export function RampModal({
           setPolling(false);
           if (status === "settled") {
             toast.success("Deposit confirmed! USDC credited to your wallet.");
+            queryClient.invalidateQueries({ queryKey: ["balance", userAddress] });
             setStep(3);
           } else if (status === "refunded") {
             toast.error("Order refunded. Your NGN has been returned.");
@@ -400,6 +403,10 @@ export function RampModal({
       );
 
       toast.success(`Transfer Complete! Tx: ${txHash}`);
+      
+      // Refresh balance
+      queryClient.invalidateQueries({ queryKey: ["balance", userAddress] });
+      
       setTimeout(() => {
         onClose();
         setStep(1);
