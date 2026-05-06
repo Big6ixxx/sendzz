@@ -19,8 +19,37 @@ function baseTemplate(content: string): string {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Sendzz</title>
+  <style>
+    /* Geist Font Import */
+    @font-face {
+      font-family: 'Geist';
+      src: url('https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-sans/Geist-Regular.woff2') format('woff2');
+      font-weight: 400;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: 'Geist';
+      src: url('https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-sans/Geist-Bold.woff2') format('woff2');
+      font-weight: 700;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: 'Geist';
+      src: url('https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-sans/Geist-Black.woff2') format('woff2');
+      font-weight: 900;
+      font-style: normal;
+    }
+    
+    body, table, td, p, a, div, h1, h2, h3 {
+      font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
+    }
+    
+    .coil-bg {
+      background-image: url("data:image/svg+xml,%3Csvg width='40' height='20' viewBox='0 0 40 20' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0 C 5 0 5 15 10 15 C 15 15 15 0 20 0 C 25 0 25 15 30 15 C 35 15 35 0 40 0 L 40 20 L 0 20 Z' fill='%23DDEAF8'/%3E%3C/svg%3E");
+    }
+  </style>
 </head>
-<body style="margin: 0; padding: 0; width: 100% !important; background-color: #F2FBF1; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+<body style="margin: 0; padding: 0; width: 100% !important; background-color: #F2FBF1; font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
   <div style="width: 100%; background-color: #F2FBF1; padding: 40px 0;">
     <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 584px; margin: 0 auto; background-color: #F2FBF1;">
       <!-- Header -->
@@ -37,9 +66,14 @@ function baseTemplate(content: string): string {
         </td>
       </tr>
       
-      <!-- Content Area Bottom Border -->
+      <!-- THE COIL (WAVY DIVIDER) - PRESERVED AS REQUESTED -->
       <tr>
-        <td height="1" style="background-color: #E2E8F0; padding: 0; line-height: 0; font-size: 0;">
+        <td height="20" class="coil-bg" style="background-color: #ffffff; padding: 0; line-height: 0; font-size: 0; background-image: url('data:image/svg+xml,%3Csvg width='40' height='20' viewBox='0 0 40 20' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0 C 5 0 5 15 10 15 C 15 15 15 0 20 0 C 25 0 25 15 30 15 C 35 15 35 0 40 0 L 40 20 L 0 20 Z' fill='%23DDEAF8'/%3E%3C/svg%3E'); background-repeat: repeat-x; background-size: 40px 20px;">
+          <!--[if gte mso 9]>
+          <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:584px;height:20px;">
+            <v:fill type="tile" src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0nNDAnIGhlaWdodD0nMjAnIHZpZXdCb3g9JzAgMCA0MCAyMCcgeG1sbnM9J2h0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnJz48cGF0aCBkPSdNMCAwIEMgNSAwIDUgMTUgMTAgMTUgQyAxNSAxNSAxNSAwIDIwIDAgQyAyNSAwIDI1IDE1IDMwIDE1IEMgMzUgMTUgMzUgMCA0MCAwIEwgNDAgMjAgTCAwIDIwIFonIGZpbGw9JyNEREVBRjgnLz48L3N2Zz4=" color="#DDEAF8" />
+          </v:rect>
+          <![endif]-->
           &nbsp;
         </td>
       </tr>
@@ -49,8 +83,9 @@ function baseTemplate(content: string): string {
         <td align="center" style="padding: 40px 20px; color: #006633;">
           <p style="margin: 0 0 4px 0; font-size: 16px; line-height: 1.6; font-weight: 500;">Its secured to your email and ready for your bank.</p>
           <p style="margin: 0 0 4px 0; font-size: 16px; line-height: 1.6; font-weight: 500;">No codes or waiting</p>
-          <p style="margin: 0; font-size: 16px; line-height: 1.6; font-weight: 700;">Click above to get your money now</p>
+          <p style="margin: 0; font-size: 16px; line-height: 1.6; font-weight: 500;">Click above to get your money now</p>
           
+          <!-- ILLUSTRATION PRESERVED AS REQUESTED (COMMENTED OUT) -->
           <!-- 
           <div style="margin-top: 40px; position: relative; width: 100%; max-width: 450px;">
             <img src="${APP_URL}/Layer_x0020_1.svg" alt="Illustration" width="450" style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
@@ -137,7 +172,7 @@ export function claimTransferTemplate(
 ): string {
   const noteSection = note
     ? `<p style="font-style: italic; color: #64748b; margin-bottom: 24px;">"${note}"</p>`
-    : '';
+    : "";
 
   return baseTemplate(`
     <div style="text-align: center;">
@@ -170,7 +205,7 @@ export function transferReceivedTemplate(
 ): string {
   const noteSection = note
     ? `<p style="font-style: italic; color: #64748b; margin-bottom: 24px;">"${note}"</p>`
-    : '';
+    : "";
 
   return baseTemplate(`
     <div style="text-align: center;">
@@ -187,15 +222,15 @@ export function transferReceivedTemplate(
         <table border="0" cellpadding="0" cellspacing="0" width="100%" style="margin-bottom: 24px;">
           <tr>
             <td width="20" valign="top" style="padding-top: 8px;"><div style="width: 6px; height: 6px; background-color: #404040; border-radius: 50%;"></div></td>
-            <td style="padding-bottom: 12px; font-size: 16px; line-height: 1.4; color: #404040;"><strong>Transfer to your bank:</strong> Send the funds directly to your local bank account.</td>
+            <td style="padding-bottom: 12px; font-size: 16px; line-height: 1.4; color: #404040;">Transfer to your bank: Send the funds directly to your local bank account.</td>
           </tr>
           <tr>
             <td width="20" valign="top" style="padding-top: 8px;"><div style="width: 6px; height: 6px; background-color: #404040; border-radius: 50%;"></div></td>
-            <td style="padding-bottom: 12px; font-size: 16px; line-height: 1.4; color: #404040;"><strong>Keep it in your Sendzz account:</strong> Save it for later or use it to pay someone else.</td>
+            <td style="padding-bottom: 12px; font-size: 16px; line-height: 1.4; color: #404040;">Keep it in your Sendzz account: Save it for later or use it to pay someone else.</td>
           </tr>
           <tr>
             <td width="20" valign="top" style="padding-top: 8px;"><div style="width: 6px; height: 6px; background-color: #404040; border-radius: 50%;"></div></td>
-            <td style="padding-bottom: 12px; font-size: 16px; line-height: 1.4; color: #404040;"><strong>Send it to a friend:</strong> All you need is their email address to pass the money along.</td>
+            <td style="padding-bottom: 12px; font-size: 16px; line-height: 1.4; color: #404040;">Send it to a friend: All you need is their email address to pass the money along.</td>
           </tr>
         </table>
       </div>
@@ -206,7 +241,7 @@ export function transferReceivedTemplate(
         <table align="center" border="0" cellpadding="0" cellspacing="0">
           <tr>
             <td><img src="${APP_URL}/Group 248.png" width="48" style="display: block; opacity: 0.7; margin-right: 20px;"></td>
-            <td><a href="${APP_URL}" style="display: inline-block; background-color: #67ED0A; color: #004421 !important; padding: 14px 40px; border-radius: 12px; text-decoration: none; font-weight: 800; font-size: 18px;">Access My Funds</a></td>
+            <td><a href="#" style="display: inline-block; background-color: #67ED0A; color: #004421 !important; padding: 14px 40px; border-radius: 12px; text-decoration: none; font-weight: 800; font-size: 18px;">Access My Funds</a></td>
             <td><img src="${APP_URL}/Group 248.png" width="48" style="display: block; opacity: 0.7; margin-left: 20px;"></td>
           </tr>
         </table>
