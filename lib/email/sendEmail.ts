@@ -1,8 +1,4 @@
-/**
- * Email Service - Base Email Sender
- *
- * Abstraction layer for sending emails via Resend.
- */
+"use server";
 
 import { Resend } from "resend";
 import { transferReceivedTemplate } from "./templates";
