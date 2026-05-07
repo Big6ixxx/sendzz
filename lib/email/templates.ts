@@ -4,9 +4,7 @@
  * Modern, responsive email templates for Sendzz.
  * Using inline styles and robust table layouts for maximum compatibility.
  */
-
-const BRAND_COLOR = "#1F5E12";
-const APP_URL = "https://yunusabdul.vercel.app";
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "";
 
 /**
  * Base email wrapper template
@@ -86,20 +84,9 @@ function baseTemplate(content: string): string {
           <p style="margin: 0; font-size: 16px; line-height: 1.6; font-weight: 500;">Click above to get your money now</p>
           
           <!-- ILLUSTRATION PRESERVED AS REQUESTED (COMMENTED OUT) -->
-          <!-- 
           <div style="margin-top: 40px; position: relative; width: 100%; max-width: 450px;">
-            <img src="${APP_URL}/Layer_x0020_1.svg" alt="Illustration" width="450" style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
-            
-            <div style="position: absolute; left: 16%; top: 40%; width: 140px; text-align: center; transform: skewY(-15deg) rotate(-10deg);">
-               <p style="margin: 0; font-size: 12px; font-weight: 700; color: #1F5E12; line-height: 1;">Send Crypto as Easily as</p>
-               <p style="margin: 2px 0 0 0; font-size: 26px; font-weight: 900; color: #1F5E12; line-height: 1; font-style: italic;">EMAIL</p>
-            </div>
-            
-            <div style="position: absolute; right: 10%; top: 38%; width: 160px; text-align: left; transform: skewY(18deg) rotate(8deg);">
-               <p style="margin: 0; font-size: 13px; font-weight: 800; color: #1F5E12; line-height: 1.1; opacity: 0.9;">Transfer USDC, BTC, ETH, and more directly to any email address</p>
-            </div>
+            <img src="${APP_URL}/Group 275.svg" alt="Illustration" width="450" style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
           </div>
-          -->
           
           <p style="font-size: 12px; color: #94a3b8; margin-top: 60px;">
             Sendzz • Fast & Borderless Payments
@@ -241,7 +228,7 @@ export function transferReceivedTemplate(
         <table align="center" border="0" cellpadding="0" cellspacing="0">
           <tr>
             <td><img src="${APP_URL}/Group 248.png" width="48" style="display: block; opacity: 0.7; margin-right: 20px;"></td>
-            <td><a href="#" style="display: inline-block; background-color: #67ED0A; color: #004421 !important; padding: 14px 40px; border-radius: 12px; text-decoration: none; font-weight: 800; font-size: 18px;">Access My Funds</a></td>
+            <td><a href=${APP_URL} style="display: inline-block; background-color: #67ED0A; color: #004421 !important; padding: 14px 40px; border-radius: 12px; text-decoration: none; font-weight: 800; font-size: 18px;">Access My Funds</a></td>
             <td><img src="${APP_URL}/Group 248.png" width="48" style="display: block; opacity: 0.7; margin-left: 20px;"></td>
           </tr>
         </table>
