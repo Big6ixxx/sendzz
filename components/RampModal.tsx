@@ -38,6 +38,7 @@ interface RampModalProps {
   userAddress: string;
   type: "onramp" | "offramp";
   balance: string;
+  userEmail: string;
 }
 
 export function RampModal({
@@ -47,6 +48,7 @@ export function RampModal({
   userAddress,
   type,
   balance,
+  userEmail,
 }: RampModalProps) {
   console.log("[RampModal] Rendering, isOpen:", isOpen);
   const { wallets } = useWallets();
@@ -257,11 +259,17 @@ export function RampModal({
     setLoading(true);
     setError("");
     try {
-      const res = await initiateOnRamp(parseFloat(amount), userId, recipient, {
-        institution: refundBank.bankCode,
-        accountIdentifier: refundBank.accountNumber,
-        accountName: refundBank.accountName,
-      });
+      const res = await initiateOnRamp(
+        parseFloat(amount),
+        userId,
+        recipient,
+        userEmail,
+        {
+          institution: refundBank.bankCode,
+          accountIdentifier: refundBank.accountNumber,
+          accountName: refundBank.accountName,
+        },
+      );
       setOrder(res);
       setStep(2);
     } catch (error) {
@@ -371,6 +379,7 @@ export function RampModal({
         bankDetails.bankCode,
         bankDetails.accountName,
         userAddress,
+        userEmail,
       );
       setOrder(res);
       setStep(3);
@@ -594,7 +603,7 @@ export function RampModal({
                     </button>
 
                     {showRefundDropdown && (
-                      <div className="absolute top-full left-0 right-0 z-[100] bg-white border-4 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] mt-1 max-h-52 overflow-y-auto">
+                      <div className="absolute top-full left-0 right-0 z-100 bg-white border-4 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] mt-1 max-h-52 overflow-y-auto">
                         <div className="sticky top-0 bg-black p-2 z-10">
                           <div className="relative">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neon" />
@@ -890,7 +899,7 @@ export function RampModal({
                   >
                     <div className="flex items-center gap-2 overflow-hidden mr-2">
                       {bankDetails.bankCode && (
-                        <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0" />
+                        <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
                       )}
                       <span
                         className={`truncate uppercase ${bankDetails.bankName ? "font-black" : "text-gray-400"}`}
@@ -899,12 +908,12 @@ export function RampModal({
                       </span>
                     </div>
                     <ChevronDown
-                      className={`w-5 h-5 flex-shrink-0 transition-transform ${showBankDropdown ? "rotate-180" : ""}`}
+                      className={`w-5 h-5 shrink-0 transition-transform ${showBankDropdown ? "rotate-180" : ""}`}
                     />
                   </button>
 
                   {showBankDropdown && (
-                    <div className="absolute top-full left-0 right-0 z-[100] bg-white border-4 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] mt-2 max-h-64 overflow-y-auto">
+                    <div className="absolute top-full left-0 right-0 z-100 bg-white border-4 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] mt-2 max-h-64 overflow-y-auto">
                       <div className="sticky top-0 bg-black p-3 border-b-4 border-black z-10">
                         <div className="relative">
                           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neon" />

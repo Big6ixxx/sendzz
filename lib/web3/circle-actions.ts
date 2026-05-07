@@ -1,34 +1,43 @@
-import { getCircleClient } from "./circle-client";
+import { toModularTransport } from '@circle-fin/modular-wallets-core';
+import { EIP1193Provider } from '@privy-io/react-auth';
+import { encodeFunctionData, parseAbi, parseUnits, type Address } from 'viem';
+import { createBundlerClient } from 'viem/account-abstraction';
+import { getCircleClient } from './circle-client';
 import {
-  USDC_ADDRESS,
   chain,
   CIRCLE_CLIENT_KEY,
   CIRCLE_SEND_URL,
-} from "./config";
-import { parseAbi, encodeFunctionData, parseUnits, type Address } from "viem";
-import { toModularTransport } from "@circle-fin/modular-wallets-core";
-import { createBundlerClient } from "viem/account-abstraction";
+  USDC_ADDRESS,
+} from './config';
 
 const ERC20_ABI = parseAbi([
-  "function transfer(address _to, uint256 _value) returns (bool)",
+  'function transfer(address _to, uint256 _value) returns (bool)',
 ]);
 
 // Chain slug for Circle modular transport URL
-const CHAIN_SLUG = chain.id === 8453 ? "base" : "base-sepolia";
+const CHAIN_SLUG = chain.id === 8453 ? 'base' : 'base-sepolia';
 
 // Circle's bundler + paymaster endpoint — handles gas sponsorship via our policy
 const SEND_RPC_URL = `${CIRCLE_SEND_URL}/${CHAIN_SLUG}`;
 
 export async function executeCircleGaslessTransfer(
-  provider: any,
+  provider: EIP1193Provider,
   recipientAddress: string,
   amountUSDC: string,
+) {
+  return executeCircleGaslessBatchTransfer(provider, [
+    { recipientAddress, amountUSDC },
+  ]);
+}
+
+export async function executeCircleGaslessBatchTransfer(
+  provider: EIP1193Provider,
+  transfers: { recipientAddress: string; amountUSDC: string }[],
 ) {
   // 1. Get Circle smart account
   const { account } = await getCircleClient(provider);
 
   // 2. Create bundler client using Circle's send transport
-  // Circle's bundler automatically applies our gas policy when paymaster: true
   const sendTransport = toModularTransport(SEND_RPC_URL, CIRCLE_CLIENT_KEY!);
 
   const bundlerClient = createBundlerClient({
@@ -37,38 +46,37 @@ export async function executeCircleGaslessTransfer(
     account,
   });
 
-  // 3. Encode the USDC transfer
-  const amountParsed = parseUnits(amountUSDC, 6);
-  const transferData = encodeFunctionData({
-    abi: ERC20_ABI,
-    functionName: "transfer",
-    args: [recipientAddress as Address, amountParsed],
+  // 3. Encode all transfers as multiple calls
+  const calls = transfers.map((t) => {
+    const amountParsed = parseUnits(t.amountUSDC, 6);
+    const transferData = encodeFunctionData({
+      abi: ERC20_ABI,
+      functionName: 'transfer',
+      args: [t.recipientAddress as Address, amountParsed],
+    });
+
+    return {
+      to: USDC_ADDRESS as Address,
+      data: transferData,
+      value: 0n,
+    };
   });
 
-  // 4. Send UserOperation — paymaster: true tells Circle to use your policy
-  console.log("[Transfer] Sending UserOp...", {
-    recipient: recipientAddress,
-    amount: amountUSDC,
-  });
+  // 4. Send UserOperation in one batch
+  console.log(`[BatchTransfer] Sending UserOp with ${calls.length} calls...`);
 
   const userOpHash = await bundlerClient.sendUserOperation({
-    calls: [
-      {
-        to: USDC_ADDRESS as Address,
-        data: transferData,
-        value: 0n,
-      },
-    ],
-    paymaster: true, // Circle uses our policy ID automatically
+    calls,
+    paymaster: true,
   });
 
-  console.log("[Transfer] UserOp Hash:", userOpHash);
+  console.log('[BatchTransfer] UserOp Hash:', userOpHash);
 
   // 5. Wait for transaction
   const receipt = await bundlerClient.waitForUserOperationReceipt({
     hash: userOpHash,
   });
 
-  console.log("[Transfer] Success:", receipt.receipt.transactionHash);
+  console.log('[BatchTransfer] Success:', receipt.receipt.transactionHash);
   return receipt.receipt.transactionHash;
 }

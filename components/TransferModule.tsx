@@ -1,11 +1,12 @@
-"use client";
+'use client';
 
-import { sendTransferEmail } from "@/lib/email/sendEmail";
-import { getUserAddressByEmail } from "@/lib/supabase/actions";
-import { executeCircleGaslessTransfer } from "@/lib/web3/circle-actions";
-import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, Send } from "lucide-react";
-import { useState } from "react";
+import { sendTransferEmail } from '@/lib/email/sendEmail';
+import { getUserAddressByEmail } from '@/lib/supabase/actions';
+import { executeCircleGaslessTransfer } from '@/lib/web3/circle-actions';
+import { ConnectedWallet } from '@privy-io/react-auth';
+import { useQueryClient } from '@tanstack/react-query';
+import { Loader2, Send } from 'lucide-react';
+import { useState } from 'react';
 
 export function TransferModule({
   smartAddress,
@@ -14,16 +15,15 @@ export function TransferModule({
   senderEmail,
 }: {
   smartAddress: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  embeddedProvider: any;
+  embeddedProvider?: ConnectedWallet;
   balance: string;
   senderEmail: string;
 }) {
-  const [recipientEmail, setRecipientEmail] = useState("");
-  const [amount, setAmount] = useState("");
+  const [recipientEmail, setRecipientEmail] = useState('');
+  const [amount, setAmount] = useState('');
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState<string>("");
-  
+  const [status, setStatus] = useState<string>('');
+
   const queryClient = useQueryClient();
 
   const handleTransfer = async (e: React.FormEvent) => {
@@ -31,30 +31,34 @@ export function TransferModule({
     if (!amount || !recipientEmail || !embeddedProvider) return;
 
     setLoading(true);
-    setStatus("Looking up identity strictly...");
+    setStatus('Looking up identity strictly...');
 
     try {
       let recipientAddress = await getUserAddressByEmail(recipientEmail);
-      
+
       if (!recipientAddress) {
-        setStatus("Recipient not found. Pre-generating smart wallet (JIT)...");
-        
+        setStatus('Recipient not found. Pre-generating smart wallet (JIT)...');
+
         const res = await fetch('/api/wallets/pre-generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: recipientEmail })
+          body: JSON.stringify({ email: recipientEmail }),
         });
-        
+
         const data = await res.json();
-        
+
         if (!res.ok) {
           throw new Error(data.error || 'Failed to pre-generate wallet');
         }
-        
+
         recipientAddress = data.address as string;
-        setStatus(`Generated New Address: ${(recipientAddress as string).substring(0, 8)}... Requesting signature...`);
+        setStatus(
+          `Generated New Address: ${(recipientAddress as string).substring(0, 8)}... Requesting signature...`,
+        );
       } else {
-        setStatus(`Identity confirmed: ${(recipientAddress as string).substring(0, 8)}... Requesting signature...`);
+        setStatus(
+          `Identity confirmed: ${(recipientAddress as string).substring(0, 8)}... Requesting signature...`,
+        );
       }
 
       const provider = await embeddedProvider.getEthereumProvider();
@@ -65,18 +69,33 @@ export function TransferModule({
       );
 
       setStatus(`SUCCESS: TX Hash ${txHash}`);
-      
-      // Invalidate and refetch balance immediately
-      queryClient.invalidateQueries({ queryKey: ["balance", smartAddress] });
+
+      // Record in database (Internal Ledger)
+      const { recordTransfer } = await import('@/lib/supabase/actions');
+      await recordTransfer({
+        senderEmail,
+        recipientEmail,
+        amount: parseFloat(amount),
+        status: status.includes('Generated') ? 'pending_claim' : 'completed',
+        txHash,
+      });
+
+      // Invalidate balance and history immediately after DB record is confirmed
+      queryClient.invalidateQueries({ queryKey: ['balance', smartAddress] });
+      queryClient.invalidateQueries({ queryKey: ['history', senderEmail] });
 
       // Notify recipient
-      sendTransferEmail(recipientEmail, amount, senderEmail).catch(console.error);
-      
-      setAmount("");
-      setRecipientEmail("");
-    } catch (err: any) {
-      console.error("[Transfer] Fatal Error:", err);
-      setStatus(`FATAL: ${err.message}`);
+      sendTransferEmail(recipientEmail, amount, senderEmail).catch(
+        console.error,
+      );
+
+      setAmount('');
+      setRecipientEmail('');
+    } catch (err) {
+      console.error('[Transfer] Fatal Error:', err);
+      setStatus(
+        `FATAL: ${err instanceof Error ? err.message : 'Unknown error'}`,
+      );
     }
     setLoading(false);
   };
@@ -123,18 +142,18 @@ export function TransferModule({
             loading ||
             !smartAddress ||
             parseFloat(balance) === 0 ||
-            parseFloat(amount || "0") > parseFloat(balance)
+            parseFloat(amount || '0') > parseFloat(balance)
           }
-          className={`brutal-btn mt-4 text-xl md:text-2xl py-4 flex items-center justify-center gap-4 w-full bg-black text-neon hover:bg-white hover:text-black ${parseFloat(balance) === 0 || parseFloat(amount || "0") > parseFloat(balance) ? "opacity-50 cursor-not-allowed" : ""}`}
+          className={`brutal-btn mt-4 text-xl md:text-2xl py-4 flex items-center justify-center gap-4 w-full bg-black text-neon hover:bg-white hover:text-black ${parseFloat(balance) === 0 || parseFloat(amount || '0') > parseFloat(balance) ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
           {loading ? (
             <Loader2 className="animate-spin" />
           ) : parseFloat(balance) === 0 ? (
-            "INSUFFICIENT BALANCE"
-          ) : parseFloat(amount || "0") > parseFloat(balance) ? (
-            "EXCEEDS BALANCE"
+            'INSUFFICIENT BALANCE'
+          ) : parseFloat(amount || '0') > parseFloat(balance) ? (
+            'EXCEEDS BALANCE'
           ) : (
-            "EXECUTE SPONSORED TRANSFER"
+            'EXECUTE SPONSORED TRANSFER'
           )}
         </button>
 

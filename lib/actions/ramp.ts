@@ -104,7 +104,8 @@ export async function finalizeOffRamp(
   accountNumber: string,
   bankCode: string,
   accountName: string,
-  userRefundAddress: string
+  userRefundAddress: string,
+  userEmail: string
 ) {
   const paycrest = getPaycrestClient();
   
@@ -128,6 +129,18 @@ export async function finalizeOffRamp(
         }
       },
       reference: `offramp_${Date.now()}`,
+    });
+
+    // Record in internal ledger
+    const { recordWithdrawal } = await import('@/lib/supabase/actions');
+    await recordWithdrawal({
+      userEmail,
+      amountUsdc,
+      fiatCurrency: 'NGN',
+      bankAccountMasked: accountNumber.replace(/.(?=.{4})/g, '*'),
+      institutionCode: bankCode,
+      status: 'processing',
+      paycrestOrderId: order.id,
     });
 
     return order;

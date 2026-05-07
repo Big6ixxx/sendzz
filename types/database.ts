@@ -433,12 +433,23 @@ export interface Database {
         };
         Relationships: [];
       };
+      
     };
     Views: {
       [_ in never]: never;
     };
     Functions: {
-      [_ in never]: never;
+      create_transfer_and_lock_balance: {
+        Args: {
+          p_sender_id: string
+          p_recipient_email: string
+          p_amount: number
+          p_note?: string | null
+          p_claim_token_hash?: string | null
+          p_expires_at?: string | null
+        }
+        Returns: string
+      }
     };
     Enums: {
       asset_type: AssetType;
