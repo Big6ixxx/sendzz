@@ -125,7 +125,7 @@ export function DepositDialog({
     }
   }, [open, userId, depositMethod]);
 
-  const handleFiatDeposit = async (e: React.FormEvent) => {
+  const handleFiatDeposit = async (e: React.SubmitEvent) => {
     e.preventDefault();
     if (!amount || parseFloat(amount) <= 0) {
       toast.error('Please enter a valid amount');

@@ -26,7 +26,7 @@ export function TransferModule({
 
   const queryClient = useQueryClient();
 
-  const handleTransfer = async (e: React.FormEvent) => {
+  const handleTransfer = async (e: React.SubmitEvent) => {
     e.preventDefault();
     if (!amount || !recipientEmail || !embeddedProvider) return;
 

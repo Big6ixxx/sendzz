@@ -167,7 +167,7 @@ export function HistoryModule({ userId, userEmail }: { userId: string; userEmail
 
       {/* Activity Detail Modal */}
       {selectedActivity && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-100 flex items-center justify-center p-4">
           <div className="brutal-card w-full max-w-md bg-white text-black p-8 relative">
             <button 
               onClick={() => setSelectedActivity(null)}

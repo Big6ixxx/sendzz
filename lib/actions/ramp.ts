@@ -7,12 +7,19 @@ import { getPaycrestClient } from '@/lib/paycrest/client';
  * PAYCREST ON-RAMP (DEFAULT)
  * Initiates an on-ramp order via Paycrest
  */
-export async function initiateOnRamp(
-  amountNgn: number,
-  userId: string,
-  userAddress: string,
-  refundAccount: { institution: string; accountIdentifier: string; accountName: string }
-) {
+export async function initiateOnRamp({
+  amountNgn,
+  userId,
+  userAddress,
+  userEmail,
+  refundAccount,
+}: {
+  amountNgn: number;
+  userId: string;
+  userAddress: string;
+  userEmail: string;
+  refundAccount: { institution: string; accountIdentifier: string; accountName: string };
+}) {
   const paycrest = getPaycrestClient();
   
   try {
@@ -34,6 +41,17 @@ export async function initiateOnRamp(
         }
       },
       reference: `onramp${Date.now()}${safeUserId}`,
+    });
+
+    // Record in internal ledger
+    const { recordDeposit } = await import('@/lib/supabase/actions');
+    await recordDeposit({
+      userEmail,
+      amountFiat: amountNgn,
+      currencyFiat: 'NGN',
+      amountUsdc: 0, // Will be updated when confirmed
+      status: 'pending',
+      paycrestTxId: order.id,
     });
 
     return order;
