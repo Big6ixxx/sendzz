@@ -1,11 +1,11 @@
-import { NextResponse } from "next/server";
-import { PrivyClient } from "@privy-io/node";
-import { computeCircleSmartAddress } from "@/lib/web3/circle-client";
-import { registerUserAddress } from "@/lib/supabase/actions";
+import { registerUserAddress } from '@/lib/supabase/actions';
+import { computeCircleSmartAddress } from '@/lib/web3/circle-client';
+import { LinkedAccountEmbeddedWallet, PrivyClient } from '@privy-io/node';
+import { NextResponse } from 'next/server';
 
 const privy = new PrivyClient({
-  appId: process.env.NEXT_PUBLIC_PRIVY_APP_ID || "",
-  appSecret: process.env.PRIVY_APP_SECRET || "",
+  appId: process.env.NEXT_PUBLIC_PRIVY_APP_ID || '',
+  appSecret: process.env.PRIVY_APP_SECRET || '',
 });
 
 export async function POST(req: Request) {
@@ -13,22 +13,22 @@ export async function POST(req: Request) {
     const { email } = await req.json();
 
     if (!email) {
-      return NextResponse.json({ error: "Email is required" }, { status: 400 });
+      return NextResponse.json({ error: 'Email is required' }, { status: 400 });
     }
 
     // 1. Create a "shell" user in Privy for this email
     console.log(`[JIT Wallet] Creating Privy user for: ${email}`);
     const user = await privy.users().create({
-      linked_accounts: [{ type: "email", address: email }],
-      wallets: [{ chain_type: "ethereum" }],
+      linked_accounts: [{ type: 'email', address: email }],
+      wallets: [{ chain_type: 'ethereum' }],
     });
 
     const embeddedWallet = user.linked_accounts.find(
-      (a: any) => a.type === "wallet" && a.wallet_client_type === "privy",
-    ) as any;
+      (a) => a.type === 'wallet' && a.wallet_client_type === 'privy',
+    ) as LinkedAccountEmbeddedWallet | undefined;
 
     if (!embeddedWallet?.address) {
-      throw new Error("Failed to generate Privy embedded wallet");
+      throw new Error('Failed to generate Privy embedded wallet');
     }
 
     const privyEoaAddress = embeddedWallet.address;
@@ -49,10 +49,10 @@ export async function POST(req: Request) {
       address: smartAccountAddress,
       eoaAddress: privyEoaAddress,
     });
-  } catch (error: any) {
-    console.error("[JIT Wallet] Error:", error);
+  } catch (error) {
+    console.error('[JIT Wallet] Error:', error);
     return NextResponse.json(
-      { error: error.message || "Internal Server Error" },
+      { error: (error as Error).message || 'Internal Server Error' },
       { status: 500 },
     );
   }

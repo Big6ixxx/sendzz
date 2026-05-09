@@ -1,52 +1,57 @@
-import { createPublicClient, http, type Address, type Hex } from "viem";
-import { createBundlerClient } from "viem/account-abstraction";
 import {
+  EIP1193Provider,
   toCircleSmartAccount,
   toModularTransport,
-} from "@circle-fin/modular-wallets-core";
+} from '@circle-fin/modular-wallets-core';
+import { createPublicClient, http, type Address, type Hex } from 'viem';
+import { createBundlerClient } from 'viem/account-abstraction';
 import {
   chain,
   CIRCLE_CLIENT_KEY,
   CIRCLE_SEND_URL as CIRCLE_CLIENT_URL,
-} from "./config";
+} from './config';
 
 const CIRCLE_RPC_URL = `${CIRCLE_CLIENT_URL}/base`;
 
 // Build a viem custom account from Privy's provider
 // Privy supports eth_signTypedData_v4 but NOT raw signing
-function privyToLocalAccount(provider: any, address: Address) {
+function privyToLocalAccount(provider: EIP1193Provider, address: Address) {
   return {
     address,
-    type: "local" as const,
+    type: 'local' as const,
 
     // Privy supports signTypedData via eth_signTypedData_v4
-    async signTypedData(typedData: any): Promise<Hex> {
+    async signTypedData(typedData: unknown): Promise<Hex> {
       const signature = await provider.request({
-        method: "eth_signTypedData_v4",
+        method: 'eth_signTypedData_v4',
         params: [address, JSON.stringify(typedData)],
       });
       return signature as Hex;
     },
 
     // Required by viem account interface but won't be called for permit flow
-    async signMessage({ message }: { message: any }): Promise<Hex> {
+    async signMessage({
+      message,
+    }: {
+      message: string | { raw: string };
+    }): Promise<Hex> {
       const signature = await provider.request({
-        method: "personal_sign",
-        params: [typeof message === "string" ? message : message.raw, address],
+        method: 'personal_sign',
+        params: [typeof message === 'string' ? message : message.raw, address],
       });
       return signature as Hex;
     },
 
     // Not supported by Privy embedded wallets — throw a clear error
     async sign(): Promise<never> {
-      throw new Error("Raw sign not supported by Privy embedded wallets.");
+      throw new Error('Raw sign not supported by Privy embedded wallets.');
     },
   };
 }
 
-export async function getCircleClient(provider: any) {
-  if (!CIRCLE_CLIENT_KEY) throw new Error("Circle Client Key not configured.");
-  if (!CIRCLE_CLIENT_URL) throw new Error("Circle Client URL not configured.");
+export async function getCircleClient(provider: EIP1193Provider) {
+  if (!CIRCLE_CLIENT_KEY) throw new Error('Circle Client Key not configured.');
+  if (!CIRCLE_CLIENT_URL) throw new Error('Circle Client URL not configured.');
 
   const modularTransport = toModularTransport(
     CIRCLE_RPC_URL,
@@ -60,7 +65,7 @@ export async function getCircleClient(provider: any) {
 
   // Get the EOA address from Privy
   const [address]: [Address] = await provider.request({
-    method: "eth_requestAccounts",
+    method: 'eth_requestAccounts',
   });
 
   // Use our custom Privy-compatible local account instead of walletClientToLocalAccount
@@ -80,13 +85,8 @@ export async function getCircleClient(provider: any) {
   return { bundlerClient, account, localAccount };
 }
 
-export async function getCircleAddress(provider: any) {
-  if (!CIRCLE_CLIENT_KEY) throw new Error("Circle Client Key not configured.");
-
-  const modularTransport = toModularTransport(
-    CIRCLE_RPC_URL,
-    CIRCLE_CLIENT_KEY,
-  );
+export async function getCircleAddress(provider: EIP1193Provider) {
+  if (!CIRCLE_CLIENT_KEY) throw new Error('Circle Client Key not configured.');
 
   const publicClient = createPublicClient({
     chain,
@@ -96,7 +96,7 @@ export async function getCircleAddress(provider: any) {
   });
 
   const [address]: [Address] = await provider.request({
-    method: "eth_requestAccounts",
+    method: 'eth_requestAccounts',
   });
 
   const localAccount = privyToLocalAccount(provider, address);
@@ -124,10 +124,12 @@ export async function computeCircleSmartAddress(eoaAddress: string) {
   // Mock owner that satisfies the owner interface purely for address derivation
   const mockOwner = {
     address: eoaAddress as Address,
-    type: "local" as const,
-    signTypedData: async () => "0x" as Hex,
-    signMessage: async () => "0x" as Hex,
-    sign: async () => { throw new Error("Cannot sign with mock owner"); }
+    type: 'local' as const,
+    signTypedData: async () => '0x' as Hex,
+    signMessage: async () => '0x' as Hex,
+    sign: async () => {
+      throw new Error('Cannot sign with mock owner');
+    },
   };
 
   const account = await toCircleSmartAccount({

@@ -50,7 +50,6 @@ export function RampModal({
   balance,
   userEmail,
 }: RampModalProps) {
-  console.log('[RampModal] Rendering, isOpen:', isOpen);
   const { wallets } = useWallets();
   const queryClient = useQueryClient();
   const [amount, setAmount] = useState('');
@@ -190,7 +189,6 @@ export function RampModal({
       const fetchBanks = async () => {
         try {
           const res = await getInstitutions('NGN');
-          console.log('[RampModal] Institutions fetched:', res.data);
           setInstitutions(res.data);
         } catch (err) {
           console.error('Failed to fetch institutions:', err);
@@ -218,25 +216,29 @@ export function RampModal({
       !refundVerifying &&
       lastRefundAttemptRef.current !== key
     ) {
-      lastRefundAttemptRef.current = key;
-      setRefundVerifying(true);
-      setRefundVerificationError('');
-      verifyBankAccount(bankCode, accountNumber)
-        .then((res) => {
-          const name =
-            typeof res.data === 'string'
-              ? res.data
-              : (res as unknown as { data: { accountName: string } }).data
-                  ?.accountName;
-          setRefundBank((prev) => ({ ...prev, accountName: name }));
-          toast.success('Refund bank verified');
-        })
-        .catch((err) => {
-          setRefundVerificationError(
-            (err as Error)?.message || 'Could not verify',
-          );
-        })
-        .finally(() => setRefundVerifying(false));
+      const timeoutId = setTimeout(() => {
+        lastRefundAttemptRef.current = key;
+        setRefundVerifying(true);
+        setRefundVerificationError('');
+        verifyBankAccount(bankCode, accountNumber)
+          .then((res) => {
+            const name =
+              typeof res.data === 'string'
+                ? res.data
+                : (res as unknown as { data: { accountName: string } }).data
+                    ?.accountName;
+            setRefundBank((prev) => ({ ...prev, accountName: name }));
+            toast.success('Refund bank verified');
+          })
+          .catch((err) => {
+            setRefundVerificationError(
+              (err as Error)?.message || 'Could not verify',
+            );
+          })
+          .finally(() => setRefundVerifying(false));
+      }, 500);
+
+      return () => clearTimeout(timeoutId);
     }
   }, [refundBank, refundVerifying]);
 
@@ -303,14 +305,9 @@ export function RampModal({
   const handleVerifyAccount = useCallback(async () => {
     const attemptKey = `${bankDetails.bankCode}-${bankDetails.accountNumber}`;
     if (bankDetails.accountNumber.length !== 10 || !bankDetails.bankCode) {
-      console.log(
-        '[RampModal] Skipping verification: invalid inputs',
-        bankDetails,
-      );
       return;
     }
 
-    console.log('[RampModal] Starting account verification:', attemptKey);
     setVerifying(true);
     setVerificationError('');
     lastAttemptedRef.current = attemptKey;
@@ -320,7 +317,7 @@ export function RampModal({
         bankDetails.bankCode,
         bankDetails.accountNumber,
       );
-      console.log('[RampModal] Verification success:', res);
+
       // The API returns the name directly in res.data
       const name =
         typeof res.data === 'string'
@@ -343,15 +340,6 @@ export function RampModal({
     const { accountNumber, bankCode, accountName } = bankDetails;
     const attemptKey = `${bankCode}-${accountNumber}`;
 
-    console.log('[RampModal] Auto-verification check:', {
-      accountNumberLength: accountNumber.length,
-      bankCode,
-      hasAccountName: !!accountName,
-      verifying,
-      lastAttempt: lastAttemptedRef.current,
-      attemptKey,
-    });
-
     if (
       accountNumber.length === 10 &&
       bankCode &&
@@ -359,8 +347,11 @@ export function RampModal({
       !verifying &&
       lastAttemptedRef.current !== attemptKey
     ) {
-      console.log('[RampModal] TRIGGERING VERIFICATION!');
-      handleVerifyAccount();
+      const timeoutId = setTimeout(() => {
+        handleVerifyAccount();
+      }, 500);
+
+      return () => clearTimeout(timeoutId);
     }
   }, [bankDetails, verifying, handleVerifyAccount]);
 
@@ -424,11 +415,11 @@ export function RampModal({
         setOrder(null);
         setAmount('');
       }, 2000);
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } catch (err: any) {
+    } catch (err) {
       console.error('[RampModal] Transfer failed:', err);
-      setError(err?.message || 'Failed to execute transfer');
+      setError(
+        err instanceof Error ? err.message : 'Failed to execute transfer',
+      );
     } finally {
       setTransferring(false);
     }
@@ -938,12 +929,6 @@ export function RampModal({
                               type="button"
                               onClick={() => {
                                 const code = inst.institutionCode || inst.code;
-                                console.log(
-                                  '[RampModal] Selected bank:',
-                                  inst.name,
-                                  'Code:',
-                                  code,
-                                );
                                 setBankDetails({
                                   ...bankDetails,
                                   bankCode: code,

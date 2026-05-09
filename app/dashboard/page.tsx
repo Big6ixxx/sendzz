@@ -52,7 +52,9 @@ export default function Dashboard() {
         if (!embeddedWallet) return;
 
         const provider = await embeddedWallet.getEthereumProvider();
-        const address = await getCircleAddress(provider);
+        const address = await getCircleAddress(
+          provider as unknown as Parameters<typeof getCircleAddress>[0]
+        );
 
         setSmartAddress(address);
 

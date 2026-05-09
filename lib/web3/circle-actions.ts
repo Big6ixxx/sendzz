@@ -35,7 +35,9 @@ export async function executeCircleGaslessBatchTransfer(
   transfers: { recipientAddress: string; amountUSDC: string }[],
 ) {
   // 1. Get Circle smart account
-  const { account } = await getCircleClient(provider);
+  const { account } = await getCircleClient(
+    provider as unknown as Parameters<typeof getCircleClient>[0],
+  );
 
   // 2. Create bundler client using Circle's send transport
   const sendTransport = toModularTransport(SEND_RPC_URL, CIRCLE_CLIENT_KEY!);
