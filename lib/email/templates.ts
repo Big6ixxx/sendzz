@@ -197,7 +197,7 @@ export function transferReceivedTemplate(
   return baseTemplate(`
     <div style="text-align: center;">
       <p style="font-size: 16px; line-height: 1.6; color: #404040; margin: 0 0 32px 0;">
-        Hi there, <strong>${senderEmail}</strong> just sent you <strong>${amount}</strong> using <span style="color: #1F5E12; font-weight: 900;">Sendzz</span>
+        Hi there, <strong>${senderEmail}</strong> just sent you <strong>$${amount}</strong> using <span style="color: #1F5E12; font-weight: 900;">Sendzz</span>
       </p>
       
       <div style="font-size: 48px; font-weight: 900; color: #1F5E12; margin: 0 0 40px 0; letter-spacing: -1px;">${amount} USDC</div>

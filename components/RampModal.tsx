@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 import {
   finalizeOffRamp,
@@ -8,14 +8,14 @@ import {
   getOrderStatus,
   initiateOnRamp,
   verifyBankAccount,
-} from '@/lib/actions/ramp';
+} from "@/lib/actions/ramp";
 import {
   PaycrestInstitution,
   PaycrestOrderResponse,
-} from '@/lib/paycrest/types';
-import { executeCircleGaslessTransfer } from '@/lib/web3/circle-actions';
-import { useWallets } from '@privy-io/react-auth';
-import { useQueryClient } from '@tanstack/react-query';
+} from "@/lib/paycrest/types";
+import { executeCircleGaslessTransfer } from "@/lib/web3/circle-actions";
+import { useWallets } from "@privy-io/react-auth";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -27,16 +27,16 @@ import {
   Search,
   Wallet,
   X,
-} from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { toast } from 'sonner';
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 
 interface RampModalProps {
   isOpen: boolean;
   onClose: () => void;
   userId: string;
   userAddress: string;
-  type: 'onramp' | 'offramp';
+  type: "onramp" | "offramp";
   balance: string;
   userEmail: string;
 }
@@ -52,7 +52,7 @@ export function RampModal({
 }: RampModalProps) {
   const { wallets } = useWallets();
   const queryClient = useQueryClient();
-  const [amount, setAmount] = useState('');
+  const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
   const [transferring, setTransferring] = useState(false);
   const [step, setStep] = useState(1);
@@ -64,19 +64,19 @@ export function RampModal({
   } | null>(null);
 
   const [bankDetails, setBankDetails] = useState({
-    accountNumber: '',
-    bankCode: '',
-    accountName: '',
-    bankName: '',
+    accountNumber: "",
+    bankCode: "",
+    accountName: "",
+    bankName: "",
   });
   const [institutions, setInstitutions] = useState<PaycrestInstitution[]>([]);
-  const [bankSearch, setBankSearch] = useState('');
+  const [bankSearch, setBankSearch] = useState("");
   const [showBankDropdown, setShowBankDropdown] = useState(false);
 
-  const [error, setError] = useState('');
-  const [verificationError, setVerificationError] = useState('');
+  const [error, setError] = useState("");
+  const [verificationError, setVerificationError] = useState("");
   const [verifying, setVerifying] = useState(false);
-  const lastAttemptedRef = useRef<string>(''); // tracks bankCode-accountNumber
+  const lastAttemptedRef = useRef<string>(""); // tracks bankCode-accountNumber
 
   // Countdown timer for onramp order validity
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
@@ -101,7 +101,7 @@ export function RampModal({
   useEffect(() => {
     if (order?.id) {
       localStorage.setItem(
-        'sendzz_pending_order',
+        "sendzz_pending_order",
         JSON.stringify({
           orderId: order.id,
           type,
@@ -122,7 +122,7 @@ export function RampModal({
   const startPolling = () => {
     if (!order?.id) return;
     setPolling(true);
-    setTxStatus('pending');
+    setTxStatus("pending");
 
     const poll = async () => {
       try {
@@ -130,20 +130,20 @@ export function RampModal({
         const status = result.status;
         setTxStatus(status);
 
-        const terminal = ['settled', 'refunded', 'expired'];
+        const terminal = ["settled", "refunded", "expired"];
         if (terminal.includes(status)) {
           if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
           setPolling(false);
-          if (status === 'settled') {
-            toast.success('Deposit confirmed! USDC credited to your wallet.');
+          if (status === "settled") {
+            toast.success("Deposit confirmed! USDC credited to your wallet.");
             queryClient.invalidateQueries({
-              queryKey: ['balance', userAddress],
+              queryKey: ["balance", userAddress],
             });
             setStep(3);
-          } else if (status === 'refunded') {
-            toast.error('Order refunded. Your NGN has been returned.');
+          } else if (status === "refunded") {
+            toast.error("Order refunded. Your NGN has been returned.");
           } else {
-            toast.error('Order expired. Please start a new one.');
+            toast.error("Order expired. Please start a new one.");
           }
         }
       } catch {
@@ -159,19 +159,19 @@ export function RampModal({
   const [onRampRate, setOnRampRate] = useState<number | null>(null);
   const [rateLoading, setRateLoading] = useState(false);
   const [useCustomAddress, setUseCustomAddress] = useState(false);
-  const [customAddress, setCustomAddress] = useState('');
+  const [customAddress, setCustomAddress] = useState("");
   // Refund bank for onramp (required by Paycrest)
   const [refundBank, setRefundBank] = useState({
-    accountNumber: '',
-    bankCode: '',
-    accountName: '',
-    bankName: '',
+    accountNumber: "",
+    bankCode: "",
+    accountName: "",
+    bankName: "",
   });
-  const [refundBankSearch, setRefundBankSearch] = useState('');
+  const [refundBankSearch, setRefundBankSearch] = useState("");
   const [showRefundDropdown, setShowRefundDropdown] = useState(false);
   const [refundVerifying, setRefundVerifying] = useState(false);
-  const [refundVerificationError, setRefundVerificationError] = useState('');
-  const lastRefundAttemptRef = useRef<string>('');
+  const [refundVerificationError, setRefundVerificationError] = useState("");
+  const lastRefundAttemptRef = useRef<string>("");
 
   // Computed: estimated USDC received from NGN input
   const estimatedUsdc =
@@ -185,18 +185,18 @@ export function RampModal({
   }, [institutions, refundBankSearch]);
 
   useEffect(() => {
-    if (isOpen && (type === 'offramp' || type === 'onramp')) {
+    if (isOpen && (type === "offramp" || type === "onramp")) {
       const fetchBanks = async () => {
         try {
-          const res = await getInstitutions('NGN');
+          const res = await getInstitutions("NGN");
           setInstitutions(res.data);
         } catch (err) {
-          console.error('Failed to fetch institutions:', err);
+          console.error("Failed to fetch institutions:", err);
         }
       };
       fetchBanks();
     }
-    if (isOpen && type === 'onramp') {
+    if (isOpen && type === "onramp") {
       setRateLoading(true);
       getOnRampRate()
         .then((r) => setOnRampRate(r))
@@ -219,20 +219,20 @@ export function RampModal({
       const timeoutId = setTimeout(() => {
         lastRefundAttemptRef.current = key;
         setRefundVerifying(true);
-        setRefundVerificationError('');
+        setRefundVerificationError("");
         verifyBankAccount(bankCode, accountNumber)
           .then((res) => {
             const name =
-              typeof res.data === 'string'
+              typeof res.data === "string"
                 ? res.data
                 : (res as unknown as { data: { accountName: string } }).data
                     ?.accountName;
             setRefundBank((prev) => ({ ...prev, accountName: name }));
-            toast.success('Refund bank verified');
+            toast.success("Refund bank verified");
           })
           .catch((err) => {
             setRefundVerificationError(
-              (err as Error)?.message || 'Could not verify',
+              (err as Error)?.message || "Could not verify",
             );
           })
           .finally(() => setRefundVerifying(false));
@@ -252,16 +252,16 @@ export function RampModal({
   const handleOnRamp = async (e: React.SubmitEvent) => {
     e.preventDefault();
     const recipient = useCustomAddress ? customAddress : userAddress;
-    if (useCustomAddress && !customAddress.startsWith('0x')) {
-      setError('Invalid wallet address. Must start with 0x.');
+    if (useCustomAddress && !customAddress.startsWith("0x")) {
+      setError("Invalid wallet address. Must start with 0x.");
       return;
     }
     if (!refundBank.accountName) {
-      setError('Please verify your refund bank account first.');
+      setError("Please verify your refund bank account first.");
       return;
     }
     setLoading(true);
-    setError('');
+    setError("");
     try {
       const res = await initiateOnRamp({
         amountNgn: parseFloat(amount),
@@ -290,7 +290,7 @@ export function RampModal({
       return;
     }
     setLoading(true);
-    setError('');
+    setError("");
     try {
       const res = await getOffRampQuote(parseFloat(amount));
       setQuote(res);
@@ -309,7 +309,7 @@ export function RampModal({
     }
 
     setVerifying(true);
-    setVerificationError('');
+    setVerificationError("");
     lastAttemptedRef.current = attemptKey;
 
     try {
@@ -320,17 +320,17 @@ export function RampModal({
 
       // The API returns the name directly in res.data
       const name =
-        typeof res.data === 'string'
+        typeof res.data === "string"
           ? res.data
           : (res as unknown as { data: { accountName: string } }).data
               ?.accountName;
       setBankDetails((prev) => ({ ...prev, accountName: name }));
-      toast.success('Account verified');
+      toast.success("Account verified");
     } catch (error: unknown) {
-      console.error('[RampModal] Verification error:', error);
+      console.error("[RampModal] Verification error:", error);
       const err = error as Error;
-      setVerificationError(err?.message || 'Could not verify account');
-      toast.error('Could not verify account');
+      setVerificationError(err?.message || "Could not verify account");
+      toast.error("Could not verify account");
     } finally {
       setVerifying(false);
     }
@@ -360,11 +360,11 @@ export function RampModal({
   const handleFinalizeOffRamp = async (e: React.SubmitEvent) => {
     e.preventDefault();
     if (!bankDetails.accountName) {
-      setError('Please verify account first');
+      setError("Please verify account first");
       return;
     }
     setLoading(true);
-    setError('');
+    setError("");
     try {
       const res = await finalizeOffRamp(
         parseFloat(amount),
@@ -387,17 +387,17 @@ export function RampModal({
     if (!order?.providerAccount?.receiveAddress) return;
 
     setTransferring(true);
-    setError('');
+    setError("");
 
     try {
       const embeddedWallet = wallets.find(
-        (w) => w.walletClientType === 'privy',
+        (w) => w.walletClientType === "privy",
       );
-      if (!embeddedWallet) throw new Error('Embedded wallet not found');
+      if (!embeddedWallet) throw new Error("Embedded wallet not found");
 
       const provider = await embeddedWallet.getEthereumProvider();
 
-      toast.info('Initiating transfer...');
+      toast.info("Initiating transfer...");
       const txHash = await executeCircleGaslessTransfer(
         provider,
         order?.providerAccount?.receiveAddress,
@@ -407,18 +407,18 @@ export function RampModal({
       toast.success(`Transfer Complete! Tx: ${txHash}`);
 
       // Refresh balance
-      queryClient.invalidateQueries({ queryKey: ['balance', userAddress] });
+      queryClient.invalidateQueries({ queryKey: ["balance", userAddress] });
 
       setTimeout(() => {
         onClose();
         setStep(1);
         setOrder(null);
-        setAmount('');
+        setAmount("");
       }, 2000);
     } catch (err) {
-      console.error('[RampModal] Transfer failed:', err);
+      console.error("[RampModal] Transfer failed:", err);
       setError(
-        err instanceof Error ? err.message : 'Failed to execute transfer',
+        err instanceof Error ? err.message : "Failed to execute transfer",
       );
     } finally {
       setTransferring(false);
@@ -442,12 +442,12 @@ export function RampModal({
 
         <div className="mb-8 border-b-4 border-black pb-4">
           <h2 className="font-oswald text-3xl uppercase font-black flex items-center gap-3">
-            {type === 'onramp' ? (
+            {type === "onramp" ? (
               <ArrowDownLeft className="text-neon bg-black p-1" />
             ) : (
               <ArrowUpRight className="text-black bg-neon p-1" />
             )}
-            {type === 'onramp' ? 'Deposit Capital' : 'Withdraw Capital'}
+            {type === "onramp" ? "Deposit Capital" : "Withdraw Capital"}
           </h2>
           <p className="font-mono text-xs uppercase font-bold mt-2">
             Network: Base
@@ -460,7 +460,7 @@ export function RampModal({
           </div>
         )}
 
-        {type === 'onramp' ? (
+        {type === "onramp" ? (
           <div className="flex flex-col gap-6">
             {step === 1 && (
               <form onSubmit={handleOnRamp} className="flex flex-col gap-5">
@@ -498,7 +498,7 @@ export function RampModal({
                       <div className="flex justify-between border-b border-white/10 pb-2 mb-2">
                         <span className="opacity-60">YOU RECEIVE (EST.):</span>
                         <span className="font-bold text-neon">
-                          {estimatedUsdc ?? '—'} USDC
+                          {estimatedUsdc ?? "—"} USDC
                         </span>
                       </div>
                       <div className="flex justify-between">
@@ -524,8 +524,8 @@ export function RampModal({
                       onClick={() => setUseCustomAddress(false)}
                       className={`flex-1 p-2 border-2 border-black font-mono text-xs font-black uppercase flex items-center justify-center gap-1 transition-colors ${
                         !useCustomAddress
-                          ? 'bg-neon text-black'
-                          : 'bg-white text-black hover:bg-gray-100'
+                          ? "bg-neon text-black"
+                          : "bg-white text-black hover:bg-gray-100"
                       }`}
                     >
                       <Wallet className="w-3 h-3" /> My Wallet
@@ -535,8 +535,8 @@ export function RampModal({
                       onClick={() => setUseCustomAddress(true)}
                       className={`flex-1 p-2 border-2 border-black font-mono text-xs font-black uppercase flex items-center justify-center gap-1 transition-colors ${
                         useCustomAddress
-                          ? 'bg-neon text-black'
-                          : 'bg-white text-black hover:bg-gray-100'
+                          ? "bg-neon text-black"
+                          : "bg-white text-black hover:bg-gray-100"
                       }`}
                     >
                       <Copy className="w-3 h-3" /> Custom Address
@@ -549,7 +549,7 @@ export function RampModal({
                         DESTINATION:
                       </span>
                       <span className="font-bold">
-                        {userAddress || 'Loading...'}
+                        {userAddress || "Loading..."}
                       </span>
                     </div>
                   ) : (
@@ -570,7 +570,7 @@ export function RampModal({
                     Refund Bank Account <span className="text-red-500">*</span>
                   </label>
                   <p className="font-mono text-[10px] text-gray-400 mb-2">
-                    If the order fails, Paycrest refunds your NGN here.
+                    If the order fails, We will refunds your NGN here.
                   </p>
 
                   {/* Refund Bank Dropdown */}
@@ -585,13 +585,13 @@ export function RampModal({
                           <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
                         )}
                         <span
-                          className={`truncate uppercase text-xs font-black ${refundBank.bankName ? '' : 'text-gray-400'}`}
+                          className={`truncate uppercase text-xs font-black ${refundBank.bankName ? "" : "text-gray-400"}`}
                         >
-                          {refundBank.bankName || 'SELECT REFUND BANK'}
+                          {refundBank.bankName || "SELECT REFUND BANK"}
                         </span>
                       </div>
                       <ChevronDown
-                        className={`w-5 h-5 shrink-0 transition-transform ${showRefundDropdown ? 'rotate-180' : ''}`}
+                        className={`w-5 h-5 shrink-0 transition-transform ${showRefundDropdown ? "rotate-180" : ""}`}
                       />
                     </button>
 
@@ -620,13 +620,13 @@ export function RampModal({
                             onClick={() => {
                               const code = inst.institutionCode || inst.code;
                               setRefundBank({
-                                accountNumber: '',
+                                accountNumber: "",
                                 bankCode: code,
                                 bankName: inst.name,
-                                accountName: '',
+                                accountName: "",
                               });
                               setShowRefundDropdown(false);
-                              setRefundBankSearch('');
+                              setRefundBankSearch("");
                             }}
                             className="w-full text-left p-3 text-xs font-black font-mono hover:bg-neon text-black border-b border-black/10 last:border-0 uppercase"
                           >
@@ -643,11 +643,11 @@ export function RampModal({
                       type="text"
                       value={refundBank.accountNumber}
                       onChange={(e) => {
-                        const val = e.target.value.replace(/\D/g, '');
+                        const val = e.target.value.replace(/\D/g, "");
                         setRefundBank({
                           ...refundBank,
                           accountNumber: val,
-                          accountName: '',
+                          accountName: "",
                         });
                       }}
                       className="brutal-input p-3 w-full font-black text-black! bg-white! border-4 border-black placeholder:text-gray-300"
@@ -691,7 +691,7 @@ export function RampModal({
                   {loading ? (
                     <Loader2 className="animate-spin" />
                   ) : (
-                    'GENERATE DEPOSIT ACCOUNT'
+                    "GENERATE DEPOSIT ACCOUNT"
                   )}
                 </button>
               </form>
@@ -704,16 +704,16 @@ export function RampModal({
                   <div
                     className={`border-4 p-4 font-mono text-center ${
                       secondsLeft <= 60
-                        ? 'border-red-500 bg-red-50 text-red-700'
-                        : 'border-black bg-black text-white'
+                        ? "border-red-500 bg-red-50 text-red-700"
+                        : "border-black bg-black text-white"
                     }`}
                   >
                     <p className="text-[10px] uppercase font-bold opacity-70 mb-1">
                       Order Expires In
                     </p>
                     <p className="text-3xl font-black tracking-widest">
-                      {String(Math.floor(secondsLeft / 60)).padStart(2, '0')}:
-                      {String(secondsLeft % 60).padStart(2, '0')}
+                      {String(Math.floor(secondsLeft / 60)).padStart(2, "0")}:
+                      {String(secondsLeft % 60).padStart(2, "0")}
                     </p>
                     {secondsLeft === 0 && (
                       <p className="text-xs mt-1 font-bold uppercase">
@@ -728,7 +728,7 @@ export function RampModal({
                     Transfer exactly this amount:
                   </p>
                   <div className="text-3xl font-black mb-4">
-                    {order.providerAccount?.amountToTransfer}{' '}
+                    {order.providerAccount?.amountToTransfer}{" "}
                     {order.providerAccount?.currency}
                   </div>
 
@@ -737,14 +737,14 @@ export function RampModal({
                       className="flex justify-between items-center group cursor-pointer"
                       onClick={() =>
                         copyToClipboard(
-                          order.providerAccount?.accountIdentifier || '',
-                          'Account Number',
+                          order.providerAccount?.accountIdentifier || "",
+                          "Account Number",
                         )
                       }
                     >
                       <span className="opacity-60">ACCOUNT:</span>
                       <span className="font-bold flex items-center gap-2">
-                        {order.providerAccount?.accountIdentifier}{' '}
+                        {order.providerAccount?.accountIdentifier}{" "}
                         <Copy className="w-3 h-3" />
                       </span>
                     </div>
@@ -775,9 +775,9 @@ export function RampModal({
                       </span>
                     </div>
                     <p className="text-[10px] opacity-60 uppercase">
-                      Status:{' '}
+                      Status:{" "}
                       <span className="text-neon font-black">
-                        {txStatus?.toUpperCase() ?? 'PENDING'}
+                        {txStatus?.toUpperCase() ?? "PENDING"}
                       </span>
                     </p>
                     <p className="text-[10px] opacity-50 mt-1">
@@ -817,7 +817,7 @@ export function RampModal({
                     onClose();
                     setStep(1);
                     setOrder(null);
-                    setAmount('');
+                    setAmount("");
                     setTxStatus(null);
                   }}
                   className="brutal-btn w-full bg-neon! text-black!"
@@ -855,7 +855,7 @@ export function RampModal({
                   {loading ? (
                     <Loader2 className="animate-spin" />
                   ) : (
-                    'CHECK EXCHANGE RATE'
+                    "CHECK EXCHANGE RATE"
                   )}
                 </button>
               </form>
@@ -895,13 +895,13 @@ export function RampModal({
                         <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
                       )}
                       <span
-                        className={`truncate uppercase ${bankDetails.bankName ? 'font-black' : 'text-gray-400'}`}
+                        className={`truncate uppercase ${bankDetails.bankName ? "font-black" : "text-gray-400"}`}
                       >
-                        {bankDetails.bankName || 'SEARCH & SELECT BANK'}
+                        {bankDetails.bankName || "SEARCH & SELECT BANK"}
                       </span>
                     </div>
                     <ChevronDown
-                      className={`w-5 h-5 shrink-0 transition-transform ${showBankDropdown ? 'rotate-180' : ''}`}
+                      className={`w-5 h-5 shrink-0 transition-transform ${showBankDropdown ? "rotate-180" : ""}`}
                     />
                   </button>
 
@@ -933,10 +933,10 @@ export function RampModal({
                                   ...bankDetails,
                                   bankCode: code,
                                   bankName: inst.name,
-                                  accountName: '',
+                                  accountName: "",
                                 });
                                 setShowBankDropdown(false);
-                                setBankSearch('');
+                                setBankSearch("");
                               }}
                               className="w-full text-left p-3 text-xs font-black font-mono hover:bg-neon text-black border-b-2 border-black/10 last:border-0 uppercase"
                             >
@@ -963,13 +963,13 @@ export function RampModal({
                       value={bankDetails.accountNumber}
                       autoComplete="off"
                       onChange={(e) => {
-                        const val = e.target.value.replace(/\D/g, '');
+                        const val = e.target.value.replace(/\D/g, "");
                         setBankDetails({
                           ...bankDetails,
                           accountNumber: val,
-                          accountName: '',
+                          accountName: "",
                         });
-                        setVerificationError('');
+                        setVerificationError("");
                       }}
                       className="brutal-input p-3 text-xl w-full font-black text-black! bg-white! border-4 border-black placeholder:text-gray-300 focus:bg-white! active:bg-white!"
                       required
@@ -1011,7 +1011,7 @@ export function RampModal({
                   {loading ? (
                     <Loader2 className="animate-spin" />
                   ) : (
-                    'FINALIZE WITHDRAWAL'
+                    "FINALIZE WITHDRAWAL"
                   )}
                 </button>
               </form>
@@ -1033,8 +1033,8 @@ export function RampModal({
                     className="flex items-center gap-2 bg-white border-2 border-black p-2 group cursor-pointer"
                     onClick={() =>
                       copyToClipboard(
-                        order.providerAccount?.receiveAddress || '',
-                        'Address',
+                        order.providerAccount?.receiveAddress || "",
+                        "Address",
                       )
                     }
                   >
@@ -1063,7 +1063,7 @@ export function RampModal({
                       PROCESSING...
                     </div>
                   ) : (
-                    'EXECUTE TRANSFER AUTOMATICALLY'
+                    "EXECUTE TRANSFER AUTOMATICALLY"
                   )}
                 </button>
               </div>
