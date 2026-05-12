@@ -8,10 +8,9 @@ const jetbrains = JetBrains_Mono({
   subsets: ['latin'],
   variable: '--font-mono',
 });
-
 export const metadata: Metadata = {
-  title: 'SENDZZ // DECT. NETWORK',
-  description: 'Uncompromising cross-chain finance.',
+  title: 'Sendzz | Money Without Borders',
+  description: 'Instant, gas-sponsored global payments for everyone.',
 };
 
 export default function RootLayout({
@@ -21,9 +20,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${oswald.variable} ${jetbrains.variable}`}>
-      <body className="antialiased min-h-screen border-12 border-black dark:border-white p-4 lg:p-8 flex flex-col">
+      <body className="antialiased min-h-screen bg-background text-foreground flex flex-col">
         <Providers>{children}</Providers>
       </body>
     </html>
   );
 }
+

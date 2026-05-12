@@ -2,10 +2,11 @@
 
 import { checkOrderById } from '@/lib/actions/ramp';
 import { PaycrestOrderStatus } from '@/lib/paycrest/types';
-import { ArrowLeft, CheckCircle2, Clock, Copy, Loader2, RefreshCw, XCircle } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Clock, Copy, Loader2, RefreshCw, XCircle, ChevronRight, Landmark, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { use, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 
 interface OrderData {
   id: string;
@@ -26,15 +27,15 @@ interface OrderData {
 }
 
 const STATUS_CONFIG: Record<PaycrestOrderStatus, { label: string; color: string; icon: React.ReactNode; terminal: boolean }> = {
-  initiated:  { label: 'Initiated',  color: 'border-gray-400 bg-gray-50 text-gray-700',   icon: <Clock className="w-6 h-6" />,   terminal: false },
-  pending:    { label: 'Pending',    color: 'border-yellow-400 bg-yellow-50 text-yellow-700', icon: <Loader2 className="w-6 h-6 animate-spin" />, terminal: false },
-  deposited:  { label: 'Deposited',  color: 'border-blue-400 bg-blue-50 text-blue-700',   icon: <Loader2 className="w-6 h-6 animate-spin" />, terminal: false },
-  validated:  { label: 'Validated',  color: 'border-blue-500 bg-blue-50 text-blue-800',   icon: <Loader2 className="w-6 h-6 animate-spin" />, terminal: false },
-  settling:   { label: 'Settling',   color: 'border-purple-400 bg-purple-50 text-purple-700', icon: <Loader2 className="w-6 h-6 animate-spin" />, terminal: false },
-  settled:    { label: 'Settled ✓',  color: 'border-green-500 bg-green-50 text-green-700', icon: <CheckCircle2 className="w-6 h-6" />, terminal: true },
-  refunding:  { label: 'Refunding',  color: 'border-orange-400 bg-orange-50 text-orange-700', icon: <Loader2 className="w-6 h-6 animate-spin" />, terminal: false },
-  refunded:   { label: 'Refunded',   color: 'border-orange-500 bg-orange-50 text-orange-700', icon: <XCircle className="w-6 h-6" />, terminal: true },
-  expired:    { label: 'Expired',    color: 'border-red-400 bg-red-50 text-red-700',      icon: <XCircle className="w-6 h-6" />, terminal: true },
+  initiated:  { label: 'Waiting for transfer', color: 'bg-muted text-muted-foreground', icon: <Clock className="w-5 h-5" />, terminal: false },
+  pending:    { label: 'Payment received', color: 'bg-blue-50 text-blue-600', icon: <Loader2 className="w-5 h-5 animate-spin" />, terminal: false },
+  deposited:  { label: 'Processing funds', color: 'bg-blue-50 text-blue-600', icon: <Loader2 className="w-5 h-5 animate-spin" />, terminal: false },
+  validated:  { label: 'Verifying payment', color: 'bg-blue-50 text-blue-600', icon: <Loader2 className="w-5 h-5 animate-spin" />, terminal: false },
+  settling:   { label: 'Sending to wallet', color: 'bg-blue-50 text-blue-600', icon: <Loader2 className="w-5 h-5 animate-spin" />, terminal: false },
+  settled:    { label: 'Complete', color: 'bg-green-50 text-green-600', icon: <CheckCircle2 className="w-5 h-5" />, terminal: true },
+  refunding:  { label: 'Refunding payment', color: 'bg-orange-50 text-orange-600', icon: <Loader2 className="w-5 h-5 animate-spin" />, terminal: false },
+  refunded:   { label: 'Refunded', color: 'bg-orange-50 text-orange-600', icon: <XCircle className="w-5 h-5" />, terminal: true },
+  expired:    { label: 'Expired', color: 'bg-red-50 text-red-600', icon: <XCircle className="w-5 h-5" />, terminal: true },
 };
 
 export default function TxStatusPage({ params }: { params: Promise<{ orderId: string }> }) {
@@ -49,13 +50,13 @@ export default function TxStatusPage({ params }: { params: Promise<{ orderId: st
     try {
       const data = await checkOrderById(orderId);
       if (!data) {
-        setError('Order not found. Check the ID and try again.');
+        setError('Order not found. Please check the ID.');
       } else {
         setOrder(data as OrderData);
         setError('');
       }
     } catch {
-      setError('Failed to fetch order. Please try again.');
+      setError('Failed to fetch transaction details.');
     }
     setLastChecked(new Date());
     setLoading(false);
@@ -65,7 +66,6 @@ export default function TxStatusPage({ params }: { params: Promise<{ orderId: st
     fetchOrder();
   }, [fetchOrder]);
 
-  // Auto-poll every 8s if order is not terminal
   useEffect(() => {
     if (!order) return;
     const cfg = STATUS_CONFIG[order.status];
@@ -84,175 +84,162 @@ export default function TxStatusPage({ params }: { params: Promise<{ orderId: st
   };
 
   const statusCfg = order ? STATUS_CONFIG[order.status] : null;
-  const isOnramp = order?.source?.type === 'fiat';
+  const isDeposit = order?.source?.type === 'fiat';
 
   return (
-    <div className="min-h-screen p-4 lg:p-8 font-mono">
-      <div className="max-w-lg mx-auto">
+    <div className="min-h-screen bg-background py-8 md:py-16 px-4">
+      <div className="max-w-xl mx-auto space-y-8">
         {/* Header */}
-        <div className="flex items-center gap-4 mb-8 border-b-4 border-black pb-4">
-          <Link href="/dashboard" className="hover:bg-neon p-2 border-2 border-black transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-          </Link>
-          <div>
-            <h1 className="font-oswald text-2xl font-black uppercase">Transaction Status</h1>
-            <p className="text-[10px] uppercase opacity-60">Sendzz</p>
+        <div className="flex items-center justify-between pb-6 border-b border-border/50">
+          <div className="flex items-center gap-4">
+            <Link href="/dashboard" className="p-2.5 hover:bg-muted rounded-full transition-colors">
+              <ArrowLeft className="w-5 h-5" />
+            </Link>
+            <div className="space-y-0.5">
+              <h1 className="text-xl font-black uppercase tracking-tight">Transaction Status</h1>
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Order ID: {orderId.slice(0, 8)}...</p>
+            </div>
           </div>
+          {autoPolling && (
+            <div className="flex items-center gap-2 px-3 py-1 bg-muted rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Live</span>
+            </div>
+          )}
         </div>
 
         {loading && (
-          <div className="brutal-card p-8 flex flex-col items-center gap-4">
-            <Loader2 className="w-10 h-10 animate-spin" />
-            <p className="font-black uppercase text-sm">Fetching order...</p>
+          <div className="card-elegant py-20 flex flex-col items-center justify-center gap-6">
+            <Loader2 className="w-10 h-10 animate-spin text-muted-foreground opacity-20" />
+            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground animate-pulse">Fetching details</p>
           </div>
         )}
 
         {error && !loading && (
-          <div className="border-4 border-red-500 bg-red-50 p-6 text-red-700">
-            <p className="font-black uppercase text-sm mb-2">!! Error</p>
-            <p className="text-sm">{error}</p>
-            <button onClick={fetchOrder} className="brutal-btn mt-4 text-sm">
-              Retry
+          <div className="card-elegant p-8 border-red-100 bg-red-50/30 text-center space-y-6">
+            <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto">
+              <XCircle className="w-8 h-8" />
+            </div>
+            <div className="space-y-1">
+              <p className="font-bold uppercase text-red-600 tracking-tight">Something went wrong</p>
+              <p className="text-sm text-red-600/70">{error}</p>
+            </div>
+            <button onClick={fetchOrder} className="btn-primary h-12 px-8 text-xs">
+              Try Again
             </button>
           </div>
         )}
 
         {order && statusCfg && (
-          <div className="flex flex-col gap-4">
-            {/* Status Card */}
-            <div className={`border-4 p-6 ${statusCfg.color}`}>
-              <div className="flex items-center gap-3 mb-2">
-                {statusCfg.icon}
-                <span className="font-black uppercase text-xl">{statusCfg.label}</span>
-                {autoPolling && (
-                  <span className="ml-auto text-[10px] opacity-60 flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-current animate-pulse" />
-                    Live
-                  </span>
-                )}
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            {/* Main Status Card */}
+            <div className="card-elegant p-8 bg-foreground text-background dark:bg-foreground dark:text-background space-y-8 relative overflow-hidden">
+              <div className="flex justify-between items-start relative z-10">
+                <div className="space-y-1">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-60">
+                    {isDeposit ? 'Deposit' : 'Withdrawal'} Amount
+                  </p>
+                  <h2 className="text-5xl font-black tracking-tighter">
+                    {order.amount} <span className="text-sm opacity-40">{order.source?.currency}</span>
+                  </h2>
+                </div>
+                <div className={cn(
+                  "flex items-center gap-2 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest bg-background/10 text-background border border-background/20"
+                )}>
+                  {statusCfg.icon}
+                  {statusCfg.label}
+                </div>
               </div>
-              {lastChecked && (
-                <p className="text-[10px] opacity-60">
-                  Last checked: {lastChecked.toLocaleTimeString()}
-                </p>
-              )}
+
+              <div className="pt-8 border-t border-background/10 flex justify-between items-end relative z-10">
+                <div className="space-y-1">
+                  <p className="text-[10px] font-bold uppercase tracking-widest opacity-60">Created On</p>
+                  <p className="text-xs font-semibold">{new Date(order.createdAt).toLocaleString()}</p>
+                </div>
+                <div className="text-right space-y-1">
+                  <p className="text-[10px] font-bold uppercase tracking-widest opacity-60">Current Network</p>
+                  <p className="text-xs font-semibold">Base</p>
+                </div>
+              </div>
             </div>
 
-            {/* Order Details */}
-            <div className="border-4 border-black bg-white p-5 flex flex-col gap-3 text-sm text-black">
-              <p className="font-black uppercase text-xs border-b-2 border-black pb-2">Order Details</p>
-
-              <div className="flex justify-between items-center">
-                <span className="opacity-60 uppercase text-[10px]">Order ID</span>
-                <button
-                  onClick={() => copy(order.id, 'Order ID')}
-                  className="flex items-center gap-1 font-black text-xs hover:text-blue-600"
-                >
-                  {order.id.slice(0, 8)}...{order.id.slice(-6)}
-                  <Copy className="w-3 h-3" />
-                </button>
-              </div>
-
-              <div className="flex justify-between">
-                <span className="opacity-60 uppercase text-[10px]">Amount</span>
-                <span className="font-black">{order.amount} {order.source?.currency}</span>
-              </div>
-
-              <div className="flex justify-between">
-                <span className="opacity-60 uppercase text-[10px]">Type</span>
-                <span className="font-black uppercase">{isOnramp ? 'On-Ramp (NGN → USDC)' : 'Off-Ramp (USDC → NGN)'}</span>
-              </div>
-
-              {order.createdAt && (
-                <div className="flex justify-between">
-                  <span className="opacity-60 uppercase text-[10px]">Created</span>
-                  <span className="font-black text-xs">{new Date(order.createdAt).toLocaleString()}</span>
+            {/* Action/Instructions Card */}
+            {isDeposit && order.providerAccount?.accountIdentifier && !statusCfg.terminal && (
+              <div className="card-elegant p-6 space-y-6 animate-in slide-in-from-top-4 duration-500">
+                <div className="flex items-center gap-3 text-sm font-bold uppercase tracking-tight">
+                  <Landmark className="w-5 h-5 text-muted-foreground" />
+                  Complete Your Deposit
                 </div>
-              )}
-            </div>
-
-            {/* Onramp: show bank transfer details if still pending */}
-            {isOnramp && order.providerAccount?.accountIdentifier && !statusCfg.terminal && (
-              <div className="border-4 border-black bg-neon/10 p-5 flex flex-col gap-3 text-sm text-black">
-                <p className="font-black uppercase text-xs border-b-2 border-black pb-2">
-                  Complete Your Transfer
-                </p>
-                <div className="flex justify-between items-center">
-                  <span className="opacity-60 uppercase text-[10px]">Amount to Send</span>
-                  <span className="font-black text-lg">{order.providerAccount.amountToTransfer} {order.providerAccount.currency}</span>
+                
+                <div className="space-y-4">
+                  {[
+                    { label: 'Transfer Amount', value: `${order.providerAccount.amountToTransfer} ${order.providerAccount.currency}`, highlight: true },
+                    { label: 'Bank Name', value: order.providerAccount.institution },
+                    { label: 'Account Number', value: order.providerAccount.accountIdentifier, copy: true },
+                    { label: 'Account Name', value: order.providerAccount.accountName },
+                  ].map((item) => (
+                    <div key={item.label} className="flex justify-between items-baseline gap-4 py-2 border-b border-border/30 last:border-0">
+                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest shrink-0">{item.label}</span>
+                      {item.copy ? (
+                        <button 
+                          onClick={() => copy(item.value!, 'Account number')}
+                          className="text-sm font-bold hover:text-muted-foreground transition-colors flex items-center gap-2 truncate"
+                        >
+                          {item.value} <Copy className="w-3.5 h-3.5 opacity-40" />
+                        </button>
+                      ) : (
+                        <span className={cn("text-sm font-bold text-right", item.highlight && "text-lg")}>{item.value}</span>
+                      )}
+                    </div>
+                  ))}
                 </div>
-                <div
-                  className="flex justify-between items-center cursor-pointer hover:bg-neon/20 p-2 -mx-2"
-                  onClick={() => copy(order.providerAccount!.accountIdentifier!, 'Account number')}
-                >
-                  <span className="opacity-60 uppercase text-[10px]">Account</span>
-                  <span className="font-black flex items-center gap-1">
-                    {order.providerAccount.accountIdentifier}
-                    <Copy className="w-3 h-3" />
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="opacity-60 uppercase text-[10px]">Bank</span>
-                  <span className="font-black">{order.providerAccount.institution}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="opacity-60 uppercase text-[10px]">Account Name</span>
-                  <span className="font-black text-xs text-right">{order.providerAccount.accountName}</span>
-                </div>
-                {order.providerAccount.validUntil && (
-                  <div className="flex justify-between">
-                    <span className="opacity-60 uppercase text-[10px]">Expires</span>
-                    <span className="font-black text-xs text-red-600">
-                      {new Date(order.providerAccount.validUntil).toLocaleTimeString()}
-                    </span>
-                  </div>
-                )}
               </div>
             )}
 
-            {/* Offramp: show receive address if pending */}
-            {!isOnramp && order.providerAccount?.receiveAddress && !statusCfg.terminal && (
-              <div className="border-4 border-black bg-neon/10 p-5 flex flex-col gap-3 text-sm text-black">
-                <p className="font-black uppercase text-xs border-b-2 border-black pb-2">
-                  Send USDC To
-                </p>
-                <div
-                  className="flex items-center gap-2 bg-white border-2 border-black p-3 cursor-pointer hover:bg-neon/20"
-                  onClick={() => copy(order.providerAccount!.receiveAddress!, 'Address')}
-                >
-                  <code className="text-[10px] break-all font-bold flex-1">{order.providerAccount.receiveAddress}</code>
-                  <Copy className="w-4 h-4 shrink-0" />
+            {!isDeposit && order.providerAccount?.receiveAddress && !statusCfg.terminal && (
+              <div className="card-elegant p-6 space-y-6">
+                <div className="flex items-center gap-3 text-sm font-bold uppercase tracking-tight">
+                  <ExternalLink className="w-5 h-5 text-muted-foreground" />
+                  Withdrawal Destination
                 </div>
-                <p className="text-[10px] opacity-60">Network: BASE</p>
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Send USDC to this address:</p>
+                  <button
+                    onClick={() => copy(order.providerAccount!.receiveAddress!, 'Address')}
+                    className="w-full flex items-center justify-between p-4 bg-muted/50 hover:bg-muted rounded-xl transition-all group border border-border/50"
+                  >
+                    <code className="text-[10px] font-mono font-bold break-all pr-4 text-left leading-relaxed">
+                      {order.providerAccount.receiveAddress}
+                    </code>
+                    <Copy className="w-4 h-4 shrink-0 opacity-20 group-hover:opacity-100 transition-opacity" />
+                  </button>
+                </div>
               </div>
             )}
 
-            {/* Actions */}
-            <div className="flex gap-3">
+            {/* Utility buttons */}
+            <div className="flex gap-4">
               <button
                 onClick={fetchOrder}
                 disabled={loading}
-                className="brutal-btn flex-1 flex items-center justify-center gap-2 text-sm"
+                className="btn-secondary flex-1 h-14 text-sm gap-2"
               >
-                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
                 Refresh
               </button>
-              <Link href="/dashboard" className="brutal-btn flex-1 text-center text-sm bg-black! text-white!">
+              <Link href="/dashboard" className="btn-primary flex-1 h-14 text-sm">
                 Dashboard
               </Link>
             </div>
 
-            {/* Status explanation */}
-            <div className="border-2 border-black/20 p-4 text-[10px] opacity-60 uppercase leading-relaxed">
-              {order.status === 'initiated' && 'Order created. Waiting for your bank transfer.'}
-              {order.status === 'pending' && 'Transfer received. Verifying on-chain...'}
-              {order.status === 'deposited' && 'Deposit detected. Processing conversion...'}
-              {order.status === 'validated' && 'Validated. Settling to your wallet...'}
-              {order.status === 'settling' && 'Sending USDC to your smart account...'}
-              {order.status === 'settled' && 'Complete. USDC has been sent to your wallet.'}
-              {order.status === 'refunding' && 'Something went wrong. Initiating refund...'}
-              {order.status === 'refunded' && 'Refunded. Your NGN has been returned to your bank.'}
-              {order.status === 'expired' && 'Order expired without a transfer. Start a new one.'}
+            {/* Helper Text */}
+            <div className="px-4 text-center">
+              <p className="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-widest leading-relaxed">
+                {order.status === 'initiated' && 'Awaiting your manual bank transfer to the details provided above.'}
+                {order.status === 'pending' && 'Payment detected. Finalizing transaction on the blockchain.'}
+                {order.status === 'settled' && 'Success! Your funds have been successfully settled.'}
+                {order.status === 'expired' && 'Order has expired. Please initiate a new one from the dashboard.'}
+              </p>
             </div>
           </div>
         )}

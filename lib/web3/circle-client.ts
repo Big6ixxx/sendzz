@@ -1,5 +1,4 @@
 import {
-  EIP1193Provider,
   toCircleSmartAccount,
   toModularTransport,
 } from '@circle-fin/modular-wallets-core';
@@ -10,6 +9,7 @@ import {
   CIRCLE_CLIENT_KEY,
   CIRCLE_SEND_URL as CIRCLE_CLIENT_URL,
 } from './config';
+import { EIP1193Provider } from '@privy-io/react-auth';
 
 const CIRCLE_RPC_URL = `${CIRCLE_CLIENT_URL}/base`;
 

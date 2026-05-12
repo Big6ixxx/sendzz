@@ -13,11 +13,13 @@ import {
   X,
   ExternalLink,
   Copy,
-  Clock
+  Clock,
+  ChevronRight
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useState } from 'react';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 
 type ActivityType = 'sent' | 'received' | 'deposit' | 'withdrawal';
 
@@ -37,12 +39,11 @@ const EXPLORER_BASE_URL = 'https://basescan.org/tx/';
 export function HistoryModule({ userId, userEmail }: { userId: string; userEmail: string }) {
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
 
-  const { data: activities, isLoading, refetch } = useQuery({
+  const { data: activities, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ['history', userEmail],
     queryFn: async () => {
       const data = await getUserActivities(userEmail);
 
-      // Unified mapping
       const unified: Activity[] = [
         ...(data.sent || []).map(t => ({
           id: t.id,
@@ -50,9 +51,9 @@ export function HistoryModule({ userId, userEmail }: { userId: string; userEmail
           amount: t.amount,
           status: t.status,
           timestamp: t.created_at,
-          details: `Recipient: ${t.recipient_email}`,
+          details: `To: ${t.recipient_email}`,
           asset: t.asset,
-          txHash: t.note?.startsWith('0x') ? t.note : undefined // Note currently stores txHash
+          txHash: t.note?.startsWith('0x') ? t.note : undefined
         })),
         ...(data.received || []).filter(t => t.sender_id !== userId).map(t => ({
           id: t.id,
@@ -60,7 +61,7 @@ export function HistoryModule({ userId, userEmail }: { userId: string; userEmail
           amount: t.amount,
           status: t.status,
           timestamp: t.created_at,
-          details: `Sender ID: ${t.sender_id || 'EXTERNAL'}`,
+          details: `From: ${t.sender_email || 'External Account'}`,
           asset: t.asset,
           txHash: t.note?.startsWith('0x') ? t.note : undefined
         })),
@@ -70,7 +71,7 @@ export function HistoryModule({ userId, userEmail }: { userId: string; userEmail
           amount: d.amount_usdc || 0,
           status: d.status,
           timestamp: d.created_at,
-          details: `Source: ${d.currency_fiat} Gateway`,
+          details: `Via: ${d.currency_fiat} Gateway`,
           asset: 'USDC',
           txHash: d.paycrest_tx_id?.startsWith('0x') ? d.paycrest_tx_id : undefined
         })),
@@ -80,7 +81,7 @@ export function HistoryModule({ userId, userEmail }: { userId: string; userEmail
           amount: w.amount_usdc,
           status: w.status,
           timestamp: w.created_at,
-          details: `Target: ${w.fiat_currency} Bank`,
+          details: `To: ${w.fiat_currency} Bank`,
           asset: 'USDC',
           txHash: w.paycrest_order_id?.startsWith('0x') ? w.paycrest_order_id : undefined
         }))
@@ -94,168 +95,152 @@ export function HistoryModule({ userId, userEmail }: { userId: string; userEmail
 
   if (isLoading) {
     return (
-      <div className="brutal-card p-12 flex flex-col items-center justify-center gap-4 bg-white dark:bg-black">
-        <Loader2 className="w-12 h-12 animate-spin text-neon" />
-        <p className="font-mono text-sm font-bold uppercase animate-pulse">Syncing Ledger...</p>
+      <div className="card-elegant p-12 flex flex-col items-center justify-center gap-6 bg-background">
+        <Loader2 className="w-10 h-10 animate-spin text-muted-foreground opacity-20" />
+        <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground animate-pulse">Syncing History</p>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex justify-between items-center border-b-4 border-black dark:border-white pb-2">
-        <h2 className="font-oswald text-3xl font-black uppercase tracking-tighter flex items-center gap-3">
-          <History className="w-8 h-8" />
-          Operational History
-        </h2>
+    <div className="space-y-6">
+      <div className="flex justify-between items-end px-2">
+        <div className="space-y-1">
+          <h2 className="text-2xl font-black uppercase tracking-tighter flex items-center gap-2">
+            Activity
+          </h2>
+          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Recent Transactions</p>
+        </div>
         <button 
           onClick={() => refetch()}
-          className="p-2 hover:bg-neon hover:text-black transition-colors border-2 border-black"
+          disabled={isRefetching}
+          className="p-2 hover:bg-muted rounded-full transition-colors group"
         >
-          <RefreshCw className="w-4 h-4" />
+          <RefreshCw className={cn("w-4 h-4 text-muted-foreground group-hover:text-foreground", isRefetching && "animate-spin")} />
         </button>
       </div>
 
-      <div className="flex flex-col gap-4 overflow-y-auto max-h-[600px] pr-2">
+      <div className="card-elegant p-0 overflow-hidden divide-y divide-border/50">
         {!activities || activities.length === 0 ? (
-          <div className="brutal-card p-12 text-center bg-white/5 border-dashed">
-            <p className="font-mono text-gray-500 uppercase font-bold">No operations logged in terminal</p>
+          <div className="p-16 text-center">
+            <p className="text-sm font-bold text-muted-foreground uppercase tracking-widest opacity-40">No activity yet</p>
           </div>
         ) : (
           activities.map((a) => (
-            <div 
+            <button 
               key={a.id} 
               onClick={() => setSelectedActivity(a)}
-              className="brutal-card p-4 flex items-center gap-6 bg-white dark:bg-black hover:bg-neon hover:text-black transition-all group cursor-pointer"
+              className="w-full p-5 flex items-center gap-4 hover:bg-muted/30 transition-all text-left group"
             >
-              <div className={`w-12 h-12 border-4 border-black flex items-center justify-center shrink-0 ${
-                a.type === 'sent' ? 'bg-red-500' :
-                a.type === 'received' ? 'bg-neon' :
-                a.type === 'deposit' ? 'bg-green-500' : 'bg-orange-500'
-              }`}>
-                {a.type === 'sent' && <ArrowUpRight className="w-6 h-6 text-white group-hover:text-black" />}
-                {a.type === 'received' && <ArrowDownLeft className="w-6 h-6 text-black" />}
-                {a.type === 'deposit' && <Wallet className="w-6 h-6 text-white group-hover:text-black" />}
-                {a.type === 'withdrawal' && <Landmark className="w-6 h-6 text-white group-hover:text-black" />}
+              <div className={cn(
+                "w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 transition-transform group-hover:scale-105",
+                a.type === 'sent' ? 'bg-red-50 text-red-600' :
+                a.type === 'received' ? 'bg-green-50 text-green-600' :
+                a.type === 'deposit' ? 'bg-blue-50 text-blue-600' :
+                'bg-orange-50 text-orange-600'
+              )}>
+                {a.type === 'sent' && <ArrowUpRight className="w-5 h-5" />}
+                {a.type === 'received' && <ArrowDownLeft className="w-5 h-5" />}
+                {a.type === 'deposit' && <Wallet className="w-5 h-5" />}
+                {a.type === 'withdrawal' && <Landmark className="w-5 h-5" />}
               </div>
 
-              <div className="flex-1 min-w-0">
-                <div className="flex justify-between items-start mb-1">
-                  <p className="font-oswald text-xl font-black uppercase tracking-tight truncate">
-                    {a.type} {a.amount} {a.asset}
+              <div className="flex-1 min-w-0 space-y-0.5">
+                <div className="flex justify-between items-start">
+                  <p className="font-bold text-sm uppercase tracking-tight truncate">
+                    {a.type}
                   </p>
-                  <span className="font-mono text-[10px] font-bold uppercase opacity-60">
-                    {format(new Date(a.timestamp), 'MMM dd, HH:mm')}
+                  <span className="text-sm font-black tabular-nums">
+                    {a.type === 'sent' || a.type === 'withdrawal' ? '-' : '+'}{a.amount.toLocaleString()} <span className="text-[10px] opacity-40">{a.asset}</span>
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <p className="font-mono text-[10px] font-bold uppercase truncate opacity-70">
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase truncate tracking-wide">
                     {a.details}
                   </p>
-                  <span className={`font-mono text-[10px] font-black uppercase px-2 py-0.5 border-2 border-black ${
-                    a.status === 'completed' || a.status === 'confirmed' || a.status === 'claimed' ? 'bg-neon text-black' :
-                    a.status === 'failed' ? 'bg-red-500 text-white' : 'bg-black text-white'
-                  }`}>
-                    {a.status}
+                  <span className="text-[10px] font-medium text-muted-foreground/60 uppercase">
+                    {format(new Date(a.timestamp), 'MMM dd')}
                   </span>
                 </div>
               </div>
-            </div>
+              
+              <ChevronRight className="w-4 h-4 text-muted-foreground/20 group-hover:text-muted-foreground/50 transition-colors" />
+            </button>
           ))
         )}
       </div>
 
       {/* Activity Detail Modal */}
       {selectedActivity && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-100 flex items-center justify-center p-4">
-          <div className="brutal-card w-full max-w-md bg-white text-black p-8 relative">
-            <button 
-              onClick={() => setSelectedActivity(null)}
-              className="absolute top-4 right-4 hover:rotate-90 transition-transform"
-            >
-              <X className="w-8 h-8" />
-            </button>
-
-            <div className="mb-8 border-b-4 border-black pb-4 flex items-center gap-4">
-              <div className={`w-14 h-14 border-4 border-black flex items-center justify-center shrink-0 ${
-                selectedActivity.type === 'sent' ? 'bg-red-500' :
-                selectedActivity.type === 'received' ? 'bg-neon' :
-                selectedActivity.type === 'deposit' ? 'bg-green-500' : 'bg-orange-500'
-              }`}>
-                {selectedActivity.type === 'sent' && <ArrowUpRight className="w-8 h-8 text-white" />}
-                {selectedActivity.type === 'received' && <ArrowDownLeft className="w-8 h-8 text-black" />}
-                {selectedActivity.type === 'deposit' && <Wallet className="w-8 h-8 text-white" />}
-                {selectedActivity.type === 'withdrawal' && <Landmark className="w-8 h-8 text-white" />}
+        <div className="fixed inset-0 bg-foreground/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-300">
+          <div className="card-elegant w-full max-w-sm bg-background p-0 border-none shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
+            <div className="p-8 text-center space-y-6">
+              <div className="flex justify-center">
+                <div className={cn(
+                  "w-20 h-20 rounded-3xl flex items-center justify-center shadow-lg",
+                  selectedActivity.type === 'sent' ? 'bg-red-50 text-red-600' :
+                  selectedActivity.type === 'received' ? 'bg-green-50 text-green-600' :
+                  selectedActivity.type === 'deposit' ? 'bg-blue-50 text-blue-600' :
+                  'bg-orange-50 text-orange-600'
+                )}>
+                  {selectedActivity.type === 'sent' && <ArrowUpRight className="w-10 h-10" />}
+                  {selectedActivity.type === 'received' && <ArrowDownLeft className="w-10 h-10" />}
+                  {selectedActivity.type === 'deposit' && <Wallet className="w-10 h-10" />}
+                  {selectedActivity.type === 'withdrawal' && <Landmark className="w-10 h-10" />}
+                </div>
               </div>
-              <div>
-                <h3 className="font-oswald text-3xl font-black uppercase tracking-tighter leading-none">
-                  {selectedActivity.type} Details
+
+              <div className="space-y-1">
+                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em]">{selectedActivity.type}</p>
+                <h3 className="text-4xl font-black tracking-tighter">
+                  {selectedActivity.amount.toLocaleString()} <span className="text-lg opacity-40">{selectedActivity.asset}</span>
                 </h3>
-                <p className="font-mono text-[10px] font-bold uppercase opacity-60">Internal Log ID: {selectedActivity.id.substring(0, 8)}...</p>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-6">
-              <div className="flex justify-between items-end border-b-2 border-black pb-4">
-                <div>
-                  <p className="font-mono text-[10px] font-bold uppercase opacity-60">Principal Amount</p>
-                  <p className="font-oswald text-5xl font-black">{selectedActivity.amount} {selectedActivity.asset}</p>
-                </div>
-                <div className={`px-3 py-1 border-4 border-black font-mono text-xs font-black uppercase ${
-                  selectedActivity.status === 'completed' || selectedActivity.status === 'confirmed' || selectedActivity.status === 'claimed' ? 'bg-neon text-black' :
-                  selectedActivity.status === 'failed' ? 'bg-red-500 text-white' : 'bg-black text-white'
-                }`}>
+                <span className={cn(
+                  "inline-block px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest mt-2",
+                  selectedActivity.status === 'completed' || selectedActivity.status === 'confirmed' || selectedActivity.status === 'claimed' ? 'bg-green-100 text-green-700' :
+                  selectedActivity.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-muted text-muted-foreground'
+                )}>
                   {selectedActivity.status}
-                </div>
+                </span>
               </div>
 
-              <div className="grid grid-cols-1 gap-4">
-                <div className="brutal-card p-4 bg-gray-50 border-2 border-black">
-                  <p className="font-mono text-[10px] font-bold uppercase opacity-60 mb-2 flex items-center gap-2">
-                    <Clock className="w-3 h-3" /> Execution Timestamp
+              <div className="grid grid-cols-1 gap-3 text-left">
+                <div className="p-4 bg-muted/30 rounded-2xl border border-border/50">
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1 flex items-center gap-2">
+                    <Clock className="w-3 h-3" /> Timestamp
                   </p>
-                  <p className="font-mono text-sm font-black uppercase">
-                    {format(new Date(selectedActivity.timestamp), 'MMMM dd, yyyy @ HH:mm:ss')}
+                  <p className="text-xs font-semibold uppercase">
+                    {format(new Date(selectedActivity.timestamp), 'MMMM dd, yyyy @ HH:mm')}
                   </p>
                 </div>
 
-                <div className="brutal-card p-4 bg-gray-50 border-2 border-black">
-                  <p className="font-mono text-[10px] font-bold uppercase opacity-60 mb-2 flex items-center gap-2">
-                    <History className="w-3 h-3" /> Operational Context
+                <div className="p-4 bg-muted/30 rounded-2xl border border-border/50">
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1 flex items-center gap-2">
+                    <History className="w-3 h-3" /> Details
                   </p>
-                  <p className="font-mono text-sm font-black uppercase">
+                  <p className="text-xs font-semibold uppercase truncate">
                     {selectedActivity.details}
                   </p>
                 </div>
               </div>
 
-              <div className="mt-4 flex gap-4">
-                <button 
-                  onClick={() => {
-                    navigator.clipboard.writeText(selectedActivity.id);
-                    toast.success('Internal ID copied');
-                  }}
-                  className="brutal-btn flex-1 bg-white! text-black! flex items-center justify-center gap-2 py-3"
-                >
-                  <Copy className="w-4 h-4" /> COPY ID
-                </button>
-                {selectedActivity.txHash ? (
+              <div className="flex gap-3">
+                {selectedActivity.txHash && (
                   <a 
                     href={`${EXPLORER_BASE_URL}${selectedActivity.txHash}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="brutal-btn flex-1 bg-black! text-white! flex items-center justify-center gap-2 py-3 hover:bg-neon! hover:text-black! transition-all"
+                    className="btn-secondary flex-1 h-12 text-xs gap-2"
                   >
-                    <ExternalLink className="w-4 h-4" /> EXPLORER
+                    <ExternalLink className="w-4 h-4" /> Explorer
                   </a>
-                ) : (
-                  <button 
-                    disabled
-                    className="brutal-btn flex-1 bg-gray-300! text-gray-500! border-gray-400! flex items-center justify-center gap-2 py-3 cursor-not-allowed"
-                  >
-                    <ExternalLink className="w-4 h-4" /> EXPLORER
-                  </button>
                 )}
+                <button 
+                  onClick={() => setSelectedActivity(null)}
+                  className="btn-primary flex-1 h-12 text-xs"
+                >
+                  Close
+                </button>
               </div>
             </div>
           </div>

@@ -42,7 +42,7 @@ export function Providers({ children }: { children: ReactNode }) {
         <Toaster
           position="top-center"
           toastOptions={{
-            className: 'font-mono! uppercase! font-bold! text-sm! border-4! border-black! rounded-none! shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]',
+            className: 'font-sans! font-bold! text-sm! border-2! border-foreground! rounded-xl! shadow-lg!',
           }}
         />
       </PrivyProvider>

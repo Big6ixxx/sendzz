@@ -1,91 +1,164 @@
 @import 'tailwindcss';
 
 @theme {
-  --color-neon: #eaff00;
-  --color-slate-950: #0a0a0a;
+  --color-brand-primary: #111111;
+  --color-brand-secondary: #fafafa;
 
-  --font-oswald: var(--font-oswald);
-  --font-mono: var(--font-mono);
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --radius-xl: 1rem;
+  --radius-2xl: 1.5rem;
 }
 
 @layer base {
   :root {
-    --background: #ffffff;
-    --foreground: #000000;
+    --background: var(--color-brand-secondary);
+    --foreground: var(--color-brand-primary);
+    --muted: #f3f4f6;
+    --muted-foreground: #6b7280;
+    --border: #e5e7eb;
+    --input: #f9fafb;
+    --ring: var(--color-brand-primary);
+    --radius: 0.75rem;
   }
 
   @media (prefers-color-scheme: dark) {
     :root {
-      --background: #000000;
-      --foreground: #ffffff;
+      --background: var(--color-brand-primary);
+      --foreground: var(--color-brand-secondary);
+      --muted: #1a1a1c;
+      --muted-foreground: #9ca3af;
+      --border: #262628;
+      --input: #0e0e0f;
+      --ring: var(--color-brand-secondary);
     }
+  }
+
+  * {
+    border-color: var(--border);
   }
 
   body {
     background-color: var(--background);
     color: var(--foreground);
-    font-family: Arial, Helvetica, sans-serif;
-    letter-spacing: -0.02em;
-    padding: 0;
-    margin: 0;
+    font-family: var(--font-sans);
+    letter-spacing: -0.01em;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Brutalist UI Elements */
-  .brutal-card {
-    border: 4px solid var(--foreground);
-    box-shadow: 8px 8px 0 var(--foreground);
+  .card-elegant {
     background-color: var(--background);
-    transition: transform 0.1s, box-shadow 0.1s;
-    border-radius: 0;
-  }
-  
-  .brutal-card:hover {
-    transform: translate(2px, 2px);
-    box-shadow: 6px 6px 0 var(--foreground);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    padding: 1.5rem;
+    box-shadow:
+      0 1px 3px 0 rgb(0 0 0 / 0.05),
+      0 1px 2px -1px rgb(0 0 0 / 0.05);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
-  .brutal-btn {
-    border: 4px solid var(--foreground);
-    background-color: var(--color-neon);
-    color: #000000;
-    text-transform: uppercase;
-    font-family: var(--font-oswald);
-    font-weight: bold;
-    padding: 0.75rem 2rem;
-    box-shadow: 6px 6px 0 var(--foreground);
-    transition: all 0.1s;
+  .card-elegant:hover {
+    box-shadow:
+      0 4px 6px -1px rgb(0 0 0 / 0.1),
+      0 2px 4px -2px rgb(0 0 0 / 0.1);
+    border-color: var(--muted-foreground);
+  }
+
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 3.5rem;
+    padding: 0 2rem;
+    background-color: var(--foreground);
+    color: var(--background);
+    font-weight: 600;
+    border-radius: 9999px;
+    transition: all 0.2s;
     cursor: pointer;
+    border: none;
+    font-size: 1rem;
   }
 
-  .brutal-btn:hover {
-    background-color: #000000;
-    color: var(--color-neon);
-    border-color: var(--color-neon);
-    box-shadow: 6px 6px 0 var(--color-neon);
+  .btn-primary:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
   }
 
-  .brutal-btn:active {
-    transform: translate(6px, 6px);
-    box-shadow: 0 0 0 var(--foreground);
+  .btn-primary:active {
+    transform: translateY(0);
   }
 
-  .brutal-input {
-    border: 4px solid var(--foreground);
-    background-color: var(--background);
+  .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 3.5rem;
+    padding: 0 2rem;
+    background-color: var(--muted);
     color: var(--foreground);
-    padding: 1rem;
-    font-family: var(--font-mono);
+    font-weight: 600;
+    border-radius: 9999px;
+    transition: all 0.2s;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    font-size: 1rem;
+  }
+
+  .btn-secondary:hover {
+    background-color: var(--border);
+  }
+
+  .input-elegant {
     width: 100%;
+    height: 3.5rem;
+    background-color: var(--input);
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    padding: 0 1rem;
+    font-size: 1rem;
+    color: var(--foreground);
     outline: none;
-    border-radius: 0;
     transition: all 0.2s;
   }
-  .brutal-input:focus {
-    background-color: var(--color-neon);
-    color: #000000;
-    border-color: #000000;
+
+  .input-elegant:focus {
+    background-color: var(--background);
+    border-color: var(--foreground);
+    box-shadow: 0 0 0 1px var(--foreground);
   }
-  .brutal-input::placeholder {
-    color: #888;
+
+  .input-elegant::placeholder {
+    color: var(--muted-foreground);
+  }
+
+  /* Navigation Item */
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-radius: 0.75rem;
+    color: var(--muted-foreground);
+    font-weight: 500;
+    transition: all 0.2s;
+  }
+
+  .nav-item:hover {
+    color: var(--foreground);
+    background-color: var(--muted);
+  }
+
+  .nav-item.active {
+    color: var(--foreground);
+    background-color: var(--muted);
   }
 }
