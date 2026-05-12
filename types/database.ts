@@ -122,6 +122,7 @@ export interface Database {
         Row: {
           id: string;
           sender_id: string;
+          sender_email: string | null;
           recipient_id: string | null;
           recipient_email: string;
           amount: number;
@@ -136,6 +137,7 @@ export interface Database {
         Insert: {
           id?: string;
           sender_id: string;
+          sender_email?: string | null;
           recipient_id?: string | null;
           recipient_email: string;
           amount: number;
@@ -150,6 +152,7 @@ export interface Database {
         Update: {
           id?: string;
           sender_id?: string;
+          sender_email?: string | null;
           recipient_id?: string | null;
           recipient_email?: string;
           amount?: number;

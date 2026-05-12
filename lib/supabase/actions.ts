@@ -64,6 +64,7 @@ export async function recordTransfer(params: {
     // 2. Insert record into transfers table
     const { error: insertError } = await supabaseAdmin.from('transfers').insert({
       sender_id: sender.id,
+      sender_email: params.senderEmail,
       recipient_id: recipient?.id || null,
       recipient_email: params.recipientEmail,
       amount: params.amount,
@@ -164,14 +165,16 @@ export async function getUserActivities(userEmail: string) {
     const internalId = userRecord?.id;
     if (!internalId) return { sent: [], received: [], deposits: [], withdrawals: [] };
 
+    // Fetch sent transfers with sender email (joined or column)
     const { data: sent } = await supabaseAdmin
       .from('transfers')
-      .select('*')
+      .select('*, sender:sender_id(email)')
       .eq('sender_id', internalId);
 
+    // Fetch received transfers with sender email (joined or column)
     const { data: received } = await supabaseAdmin
       .from('transfers')
-      .select('*')
+      .select('*, sender:sender_id(email)')
       .or(`recipient_id.eq.${internalId},recipient_email.eq.${userEmail}`);
 
     const { data: deposits } = await supabaseAdmin
@@ -184,9 +187,15 @@ export async function getUserActivities(userEmail: string) {
       .select('*')
       .eq('user_id', internalId);
 
+    // Process transfers to include sender_email if column is null
+    const mapTransfer = (t: any) => ({
+      ...t,
+      sender_email: t.sender_email || t.sender?.email || 'Unknown Sender'
+    });
+
     return {
-      sent: sent || [],
-      received: received || [],
+      sent: (sent || []).map(mapTransfer),
+      received: (received || []).map(mapTransfer),
       deposits: deposits || [],
       withdrawals: withdrawals || [],
     };

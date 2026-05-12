@@ -207,7 +207,7 @@ export function TransferModule({
       </form>
 
       {/* Decorative Background Element */}
-      <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-muted/20 rounded-full blur-3xl -z-0" />
+      <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-muted/20 rounded-full blur-3xl z-0" />
     </div>
   );
 }
