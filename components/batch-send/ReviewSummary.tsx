@@ -1,9 +1,8 @@
 'use client';
 
+import { ArrowRight, ChevronLeft, Search, X } from 'lucide-react';
 import * as React from 'react';
 import { useBatchSend } from './useBatchSend';
-import { Search, X, ChevronLeft, ArrowRight, ShieldCheck } from 'lucide-react';
-import { cn } from '@/lib/utils';
 
 interface ReviewSummaryProps {
   hook: ReturnType<typeof useBatchSend>;
@@ -11,9 +10,9 @@ interface ReviewSummaryProps {
 
 export function ReviewSummary({ hook }: ReviewSummaryProps) {
   const [search, setSearch] = React.useState('');
-  
-  const filtered = hook.validRecipients.filter(r => 
-    r.email.toLowerCase().includes(search.toLowerCase())
+
+  const filtered = hook.validRecipients.filter((r) =>
+    r.email.toLowerCase().includes(search.toLowerCase()),
   );
 
   return (
@@ -24,8 +23,13 @@ export function ReviewSummary({ hook }: ReviewSummaryProps) {
           { label: 'Each', value: `$${hook.amountUsd.toFixed(2)}` },
           { label: 'Total', value: `$${hook.totalAmount.toFixed(2)}` },
         ].map((stat) => (
-          <div key={stat.label} className="p-4 bg-muted/30 border border-border rounded-2xl text-center">
-            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">{stat.label}</p>
+          <div
+            key={stat.label}
+            className="p-4 bg-muted/30 border border-border rounded-2xl text-center"
+          >
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">
+              {stat.label}
+            </p>
             <p className="text-xl font-black">{stat.value}</p>
           </div>
         ))}
@@ -50,10 +54,15 @@ export function ReviewSummary({ hook }: ReviewSummaryProps) {
         </div>
         <div className="divide-y divide-border/50">
           {filtered.map((r) => (
-            <div key={r.id} className="p-3 grid grid-cols-[1fr_auto_auto] gap-4 items-center hover:bg-muted/30 transition-colors group">
+            <div
+              key={r.id}
+              className="p-3 grid grid-cols-[1fr_auto_auto] gap-4 items-center hover:bg-muted/30 transition-colors group"
+            >
               <span className="text-sm font-medium truncate">{r.email}</span>
-              <span className="text-sm font-bold text-right tabular-nums">${hook.amountUsd.toFixed(2)}</span>
-              <button 
+              <span className="text-sm font-bold text-right tabular-nums">
+                ${hook.amountUsd.toFixed(2)}
+              </span>
+              <button
                 onClick={() => hook.removeRecipient(r.id)}
                 className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-all"
               >
@@ -80,7 +89,8 @@ export function ReviewSummary({ hook }: ReviewSummaryProps) {
           onClick={() => hook.setStep('confirm')}
           className="btn-primary flex-1 gap-2 group"
         >
-          Continue <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+          Continue{' '}
+          <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
         </button>
       </div>
     </div>

@@ -1,40 +1,38 @@
 /**
- * Circle CCTP Gateway Service
+ * Circle CCTP V2 Gateway
  *
- * Core service for orchestrating Cross-Chain Transfer Protocol (CCTP) transfers.
- * Rather than relying on auto-forwarding hooks, this implements a robust,
- * production-ready flow involving direct burn and manual backend-driven minting.
+ * Uses Circle's Cross-Chain Transfer Protocol V2 with the Iris API for
+ * attestation polling. Circle's infrastructure handles the relay and minting
+ * on the destination chain — no hot wallet / BRIDGE_SIGNER_PRIVATE_KEY needed.
  *
- * Flow:
- * 1. User calls depositForBurn on source chain TokenMessenger
- * 2. BridgeWorker polls the burn transaction logs to extract the MessageHash
- * 3. BridgeWorker fetches the attestation signature from Iris API
- * 4. BridgeWorker calls receiveMessage on the destination chain MessageTransmitter
+ * Flow (simplified):
+ * 1. User calls approve() + depositForBurn() on source chain TokenMessengerV2
+ * 2. We poll Circle's Iris API for attestation status
+ * 3. Once attested, Circle's relayer automatically mints USDC on Base
+ *
+ * Fee model:
+ * - Fast Transfer: 0–14 bps (e.g., $0–$1.40 per $1,000)
+ * - Standard Transfer: fee switch applies on some chains
+ * - Always fetch current fee via /v2/burn/USDC/fees before initiating
+ *
+ * Docs: https://developers.circle.com/cctp/concepts/fees
  */
 
-// CCTP Domain IDs for supported chains
+// CCTP V2 Domain IDs (EVM chains only)
 export const CCTP_DOMAINS = {
   ethereum: 0,
   avalanche: 1,
   optimism: 2,
   arbitrum: 3,
-  solana: 5,
   base: 6,
   polygon: 7,
 } as const;
 
 export type SupportedChain = keyof typeof CCTP_DOMAINS;
 
-// Contract addresses for CCTP TokenMessenger
-export const TOKEN_MESSENGER_ADDRESSES: Record<SupportedChain, string> = {
-  ethereum: '0xBd3fa81B58Ba92a82136038B25aDec7066af3155',
-  avalanche: '0x6b25532e1060ce10cc3b0a99e5683b91bfde6982',
-  arbitrum: '0x19330d10D9Cc8751218eaf51E8885D058642E08A',
-  base: '0x1682Ae6375C4E4A97e4B583BC394c861A46D8962',
-  polygon: '0x9daF8c91AEFAE50b9c0E69629D3F6Ca40cA3B3FE',
-  optimism: '0x2B4069517957735bE00ceE0fadAE88a26365528f',
-  solana: 'CCTP1V4o69zB586146B8B165C7B6195E054210452G',
-};
+// CCTP V2 TokenMessengerV2 — same address across all EVM chains (CREATE2 deployment)
+export const TOKEN_MESSENGER_V2 =
+  '0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d' as const;
 
 // USDC contract addresses per chain
 export const USDC_ADDRESSES: Record<SupportedChain, string> = {
@@ -44,64 +42,155 @@ export const USDC_ADDRESSES: Record<SupportedChain, string> = {
   base: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
   polygon: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
   optimism: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
-  solana: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // mainnet USDC
 };
 
+export const CHAIN_NAMES: Record<SupportedChain, string> = {
+  ethereum: 'Ethereum',
+  avalanche: 'Avalanche',
+  arbitrum: 'Arbitrum',
+  base: 'Base',
+  polygon: 'Polygon',
+  optimism: 'Optimism',
+};
+
+export const CHAIN_IDS: Record<SupportedChain, number> = {
+  ethereum: 1,
+  avalanche: 43114,
+  arbitrum: 42161,
+  base: 8453,
+  polygon: 137,
+  optimism: 10,
+};
+
+// Source chains the user can bridge FROM (Base is the destination)
+export const SOURCE_CHAINS: SupportedChain[] = [
+  'ethereum',
+  'arbitrum',
+  'polygon',
+  'optimism',
+  'avalanche',
+];
+
+// Circle Iris API base URL (mainnet)
+const IRIS_API_BASE = 'https://iris-api.circle.com/v2';
+
+// ─── Fee Fetching ───────────────────────────────────────────────────────────
+
+export interface CctpFee {
+  /** Finality threshold: 1000 = Fast Transfer, 2000 = Standard */
+  finalityThreshold: number;
+  /** Minimum fee in basis points */
+  minimumFee: number;
+}
+
 /**
- * Get the deposit instructions for manual CCTP bridging.
+ * Fetch current CCTP transfer fees from Circle Iris API.
+ * Returns fees sorted: [Fast Transfer, Standard Transfer]
  */
-export function getDepositForBurnParams(
+export async function fetchCctpFees(
+  sourceDomain: number,
+  destDomain: number,
+): Promise<CctpFee[]> {
+  const res = await fetch(
+    `${IRIS_API_BASE}/burn/USDC/fees/${sourceDomain}/${destDomain}`,
+  );
+  if (!res.ok) throw new Error(`Failed to fetch CCTP fees: ${res.statusText}`);
+  const data = await res.json();
+  return data as CctpFee[];
+}
+
+/**
+ * Calculate the maxFee parameter for depositForBurn.
+ * Fetches the current fee and adds a 20% buffer to handle fluctuations.
+ *
+ * @returns maxFee in USDC subunits (6 decimals)
+ */
+export async function calculateMaxFee(
   sourceChain: SupportedChain,
-  destinationChain: SupportedChain,
+  amountUSDC: string,
+): Promise<bigint> {
+  const sourceDomain = CCTP_DOMAINS[sourceChain];
+  const destDomain = CCTP_DOMAINS.base;
+
+  // Convert USDC to subunits (6 decimals)
+  const [whole, decimal = ''] = amountUSDC.split('.');
+  const decimal6 = (decimal + '000000').slice(0, 6);
+  const transferAmount = BigInt(whole + decimal6);
+
+  const fees = await fetchCctpFees(sourceDomain, destDomain);
+
+  // Use Fast Transfer fee (finalityThreshold === 1000) if available
+  const fastFee = fees.find((f) => f.finalityThreshold === 1000) ?? fees[0];
+  const minimumFeeBps = fastFee.minimumFee;
+
+  // Calculate protocol fee
+  const protocolFee =
+    (transferAmount * BigInt(Math.round(minimumFeeBps * 100))) / 1_000_000n;
+
+  // Add 20% buffer
+  const maxFee = (protocolFee * 120n) / 100n;
+  return maxFee;
+}
+
+// ─── Deposit Instructions ───────────────────────────────────────────────────
+
+export function getCCTPDepositInstructions(
+  sourceChain: SupportedChain,
   amount: string,
+  recipientAddress: string,
 ) {
-  const recipientAmount = BigInt(parseFloat(amount) * 1_000_000); // 6 decimals
+  // Pad recipient to bytes32 (left-pad with zeros as required by CCTP)
+  const mintRecipient =
+    '0x' + '0'.repeat(24) + recipientAddress.slice(2).toLowerCase();
 
   return {
     sourceChain,
-    destinationChain,
-    destinationDomain: CCTP_DOMAINS[destinationChain],
-    tokenMessenger: TOKEN_MESSENGER_ADDRESSES[sourceChain],
+    destinationChain: 'base' as SupportedChain,
+    destinationDomain: CCTP_DOMAINS.base,
+    tokenMessenger: TOKEN_MESSENGER_V2,
     usdcAddress: USDC_ADDRESSES[sourceChain],
-    amount: recipientAmount.toString(),
-    instructions: `Call approve() on the USDC token to allow TokenMessenger (${TOKEN_MESSENGER_ADDRESSES[sourceChain]}) to spend ${amount} USDC. Then call depositForBurn() on the TokenMessenger contract with destination domain ${CCTP_DOMAINS[destinationChain]}.`,
+    amount,
+    amountRaw: BigInt(Math.floor(parseFloat(amount) * 1_000_000)).toString(),
+    mintRecipient,
+    chainName: CHAIN_NAMES[sourceChain],
   };
 }
 
+// ─── Attestation Polling ────────────────────────────────────────────────────
+
+export type AttestationStatus = 'pending' | 'complete';
+
 export interface AttestationResponse {
-  attestation: string;
-  status: 'complete' | 'pending';
+  status: AttestationStatus;
+  attestation?: string;
+  /** Returned when Circle's relayer has submitted the mint tx */
+  mintTxHash?: string;
 }
 
 /**
- * Fetch the attestation signature from Circle's Iris API
+ * Poll Circle's Iris API for the attestation status of a burn transaction.
+ * Once Circle attests the message, their relayer automatically mints on Base.
  *
- * @param messageHash The explicit keccak256 hash of the message bytes
+ * @param messageHash  The keccak256 hash of the MessageSent bytes
  */
 export async function fetchAttestation(
   messageHash: string,
 ): Promise<AttestationResponse> {
-  const baseUrl = 'https://iris-api.circle.com/v1';
-
   try {
-    const response = await fetch(`${baseUrl}/attestations/${messageHash}`);
+    const res = await fetch(
+      `${IRIS_API_BASE}/attestations/${messageHash}`,
+    );
 
-    if (response.status === 404) {
-      // Attestation not ready yet
-      return { attestation: '', status: 'pending' };
-    }
+    if (res.status === 404) return { status: 'pending' };
+    if (!res.ok) throw new Error(`Iris API error: ${res.statusText}`);
 
-    if (!response.ok) {
-      throw new Error(`Iris API query failed: ${response.statusText}`);
-    }
-
-    const data = await response.json();
+    const data = await res.json();
     return {
+      status: data.status === 'complete' ? 'complete' : 'pending',
       attestation: data.attestation,
-      status: data.status,
+      mintTxHash: data.mintTxHash,
     };
-  } catch (error) {
-    console.error('[CCTP] Error fetching attestation:', error);
-    return { attestation: '', status: 'pending' };
+  } catch {
+    return { status: 'pending' };
   }
 }

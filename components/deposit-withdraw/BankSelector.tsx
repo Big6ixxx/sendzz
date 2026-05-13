@@ -1,9 +1,9 @@
 'use client';
 
-import * as React from 'react';
 import { PaycrestInstitution } from '@/lib/paycrest/types';
-import { CheckCircle2, ChevronDown, Search, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { CheckCircle2, ChevronDown, Loader2, Search } from 'lucide-react';
+import * as React from 'react';
 
 interface BankSelectorProps {
   institutions: PaycrestInstitution[];
@@ -26,16 +26,20 @@ export function BankSelector({
   accountName,
   isVerifying,
   label,
-  disabled
+  disabled,
 }: BankSelectorProps) {
   const [open, setOpen] = React.useState(false);
   const [search, setSearch] = React.useState('');
-  
-  const selectedBank = institutions.find(i => (i.institutionCode || i.code) === selectedBankCode);
+
+  const selectedBank = institutions.find(
+    (i) => (i.institutionCode || i.code) === selectedBankCode,
+  );
 
   const filtered = React.useMemo(() => {
     if (!search) return institutions;
-    return institutions.filter(i => i.name.toLowerCase().includes(search.toLowerCase()));
+    return institutions.filter((i) =>
+      i.name.toLowerCase().includes(search.toLowerCase()),
+    );
   }, [institutions, search]);
 
   return (
@@ -49,15 +53,28 @@ export function BankSelector({
           disabled={disabled}
           onClick={() => setOpen(!open)}
           className="input-elegant flex items-center justify-between group"
+          style={{ background: '#141416', border: '1px solid rgba(255,255,255,0.1)' }}
         >
-          <span className={cn(selectedBank ? "text-foreground" : "text-muted-foreground")}>
-            {selectedBank?.name || "Select a bank"}
+          <span
+            className={cn(
+              selectedBank ? 'text-foreground' : 'text-muted-foreground',
+            )}
+          >
+            {selectedBank?.name || 'Select a bank'}
           </span>
-          <ChevronDown className={cn("w-4 h-4 transition-transform opacity-50", open && "rotate-180")} />
+          <ChevronDown
+            className={cn(
+              'w-4 h-4 transition-transform opacity-50',
+              open && 'rotate-180',
+            )}
+          />
         </button>
 
         {open && (
-          <div className="absolute z-50 top-full left-0 right-0 mt-2 bg-background border border-border rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+          <div 
+            className="absolute z-50 top-full left-0 right-0 mt-2 border rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+            style={{ background: '#1a1a1c', borderColor: 'rgba(255,255,255,0.1)' }}
+          >
             <div className="p-2 border-b border-border bg-muted/30">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -77,7 +94,10 @@ export function BankSelector({
                   key={inst.code}
                   type="button"
                   onClick={() => {
-                    onSelect({ code: inst.institutionCode || inst.code, name: inst.name });
+                    onSelect({
+                      code: inst.institutionCode || inst.code,
+                      name: inst.name,
+                    });
                     setOpen(false);
                     setSearch('');
                   }}
@@ -108,7 +128,9 @@ export function BankSelector({
             placeholder="0123456789"
             className="input-elegant tracking-widest font-mono"
             value={accountNumber}
-            onChange={(e) => onAccountNumberChange(e.target.value.replace(/\D/g, ''))}
+            onChange={(e) =>
+              onAccountNumberChange(e.target.value.replace(/\D/g, ''))
+            }
           />
           <div className="absolute right-3 top-1/2 -translate-y-1/2">
             {isVerifying ? (

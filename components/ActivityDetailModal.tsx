@@ -1,0 +1,183 @@
+'use client';
+
+import { format } from 'date-fns';
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  Clock,
+  ExternalLink,
+  History,
+  Landmark,
+  MessageSquare,
+  Wallet,
+  X,
+} from 'lucide-react';
+
+import { Activity } from './HistoryModule';
+
+const ACTIVITY_LABELS: Record<string, string> = {
+  sent: 'Transfer Sent',
+  received: 'Funds Received',
+  deposit: 'Deposit',
+  withdrawal: 'Withdrawal',
+};
+
+const EXPLORER_BASE_URL = 'https://basescan.org/tx/';
+
+interface ActivityDetailModalProps {
+  activity: Activity | null;
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+export function ActivityDetailModal({
+  activity,
+  isOpen,
+  onClose,
+}: ActivityDetailModalProps) {
+  if (!isOpen || !activity) return null;
+
+  return (
+    <div className="fixed inset-0 z-100 flex items-center justify-center p-4 animate-in fade-in duration-300">
+      <div
+        className="fixed inset-0 bg-black/80 backdrop-blur-xl"
+        onClick={onClose}
+      />
+      <div className="card-glass w-full max-w-sm p-0 overflow-hidden animate-in zoom-in-95 duration-300 relative z-10 shadow-[0_32px_80px_rgba(0,0,0,0.8)] border-white/10">
+        <div className="p-8 text-center space-y-8">
+          {/* Close Button for better UX */}
+          <button
+            onClick={onClose}
+            className="absolute top-4 right-4 p-2 rounded-full bg-white/5 border border-white/10 text-brand-secondary/40 hover:text-brand-secondary transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+
+          <div className="flex justify-center">
+            <div
+              className="w-20 h-20 rounded-4xl flex items-center justify-center shadow-2xl relative group"
+              style={{
+                background:
+                  activity.type === 'sent'
+                    ? 'rgba(248, 113, 113, 0.1)'
+                    : activity.type === 'received'
+                      ? 'rgba(0, 232, 122, 0.1)'
+                      : activity.type === 'deposit'
+                        ? 'rgba(59, 130, 246, 0.1)'
+                        : 'rgba(251, 146, 60, 0.1)',
+                color:
+                  activity.type === 'sent'
+                    ? '#f87171'
+                    : activity.type === 'received'
+                      ? '#00e87a'
+                      : activity.type === 'deposit'
+                        ? '#3b82f6'
+                        : '#fb923c',
+                border: `1px solid ${
+                  activity.type === 'sent'
+                    ? 'rgba(248, 113, 113, 0.2)'
+                    : activity.type === 'received'
+                      ? 'rgba(0, 232, 122, 0.2)'
+                      : activity.type === 'deposit'
+                        ? 'rgba(59, 130, 246, 0.2)'
+                        : 'rgba(251, 146, 60, 0.2)'
+                }`,
+              }}
+            >
+              <div className="absolute inset-0 rounded-4xl blur-xl opacity-20 bg-current group-hover:opacity-40 transition-opacity" />
+              {activity.type === 'sent' && (
+                <ArrowUpRight className="w-10 h-10 relative z-10" />
+              )}
+              {activity.type === 'received' && (
+                <ArrowDownLeft className="w-10 h-10 relative z-10" />
+              )}
+              {activity.type === 'deposit' && (
+                <Wallet className="w-10 h-10 relative z-10" />
+              )}
+              {activity.type === 'withdrawal' && (
+                <Landmark className="w-10 h-10 relative z-10" />
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
+              {ACTIVITY_LABELS[activity.type]}
+            </p>
+            <h3 className="font-display text-4xl font-bold tracking-tighter text-brand-secondary">
+              {activity.amount.toLocaleString()}{' '}
+              <span className="text-lg opacity-30 font-bold uppercase">
+                {activity.asset}
+              </span>
+            </h3>
+            <div className="flex justify-center mt-3">
+              <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-widest bg-white/4 border border-white/8 text-brand-secondary/60">
+                {activity.status}
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 text-left">
+            {[
+              {
+                icon: Clock,
+                label: 'Timestamp',
+                value: format(
+                  new Date(activity.timestamp),
+                  'MMMM dd, yyyy @ HH:mm',
+                ),
+              },
+              {
+                icon: History,
+                label: 'Details',
+                value: activity.details,
+              },
+            ].map((item) => (
+              <div
+                key={item.label}
+                className="p-4 rounded-2xl bg-white/2 border border-white/4"
+              >
+                <p className="text-[10px] font-bold uppercase tracking-widest mb-1 flex items-center gap-2 text-brand-secondary/20">
+                  <item.icon className="w-3 h-3" /> {item.label}
+                </p>
+                <p className="text-xs font-semibold uppercase truncate text-brand-secondary">
+                  {item.value}
+                </p>
+              </div>
+            ))}
+
+            {activity.note && (
+              <div className="p-4 rounded-2xl bg-accent/5 border border-accent/10">
+                <p className="text-[10px] font-bold uppercase tracking-widest mb-1 flex items-center gap-2 text-accent">
+                  <MessageSquare className="w-3 h-3" /> Memo
+                </p>
+                <p className="text-sm font-medium leading-relaxed text-brand-secondary/80">
+                  {activity.note}
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-3">
+            {activity.txHash && (
+              <a
+                href={`${EXPLORER_BASE_URL}${activity.txHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest transition-all bg-white/6 text-brand-secondary border border-white/10 hover:bg-white/10"
+              >
+                <ExternalLink className="w-3.5 h-3.5" /> Explorer
+              </a>
+            )}
+            <button
+              onClick={onClose}
+              className="btn-accent flex-1 h-12 rounded-xl text-[10px] font-bold"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -74,7 +74,6 @@ export function BatchSendDialog({
     smartAddress,
     senderEmail,
     embeddedProvider,
-    () => onOpenChange(false),
   );
 
   const handleClose = () => {

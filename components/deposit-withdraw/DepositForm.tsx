@@ -1,13 +1,9 @@
 'use client';
 
+import { CurrencySelector } from '@/components/CurrencySelector';
+import { getCurrencySymbol } from '@/lib/currency-config';
 import { cn } from '@/lib/utils';
-import {
-  AlertCircle,
-  CheckCircle2,
-  Clock,
-  Copy,
-  Loader2
-} from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clock, Copy, Loader2 } from 'lucide-react';
 import * as React from 'react';
 import { toast } from 'sonner';
 import { BankSelector } from './BankSelector';
@@ -42,18 +38,26 @@ export function DepositForm({ hook }: DepositFormProps) {
       <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
         <div className="space-y-4">
           <div>
-            <label className="text-sm font-semibold mb-1.5 block text-muted-foreground">
-              Amount to Deposit (NGN)
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-sm font-semibold text-muted-foreground">
+                Amount to Deposit ({hook.fiatCurrency})
+              </label>
+              <CurrencySelector
+                selected={hook.fiatCurrency}
+                onChange={hook.setFiatCurrency}
+                includeUsd={false}
+                size="sm"
+              />
+            </div>
             <div className="relative">
               <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-muted-foreground">
-                ₦
+                {getCurrencySymbol(hook.fiatCurrency)}
               </span>
               <input
                 type="number"
                 value={hook.amount}
                 onChange={(e) => hook.setAmount(e.target.value)}
-                className="input-elegant pl-8 text-xl font-bold"
+                className="input-elegant pl-14 text-xl font-bold"
                 placeholder="5,000"
               />
             </div>
@@ -66,7 +70,7 @@ export function DepositForm({ hook }: DepositFormProps) {
                 {hook.rateLoading ? (
                   <Loader2 className="w-4 h-4 animate-spin inline" />
                 ) : hook.rate ? (
-                  `1 USDC = ${hook.rate.toLocaleString()} NGN`
+                  `1 USDC = ${hook.rate.toLocaleString()} ${hook.fiatCurrency}`
                 ) : (
                   'Unavailable'
                 )}
@@ -115,9 +119,7 @@ export function DepositForm({ hook }: DepositFormProps) {
         </div>
 
         <button
-          onClick={() =>
-            hook.handleDepositInitiate()
-          }
+          onClick={() => hook.handleDepositInitiate()}
           disabled={
             hook.loading || !hook.amount || !hook.bankDetails.accountName
           }
@@ -141,7 +143,7 @@ export function DepositForm({ hook }: DepositFormProps) {
             className={cn(
               'p-4 rounded-2xl border flex items-center justify-between',
               secondsLeft < 60
-                ? 'bg-red-50 border-red-100 text-red-600'
+                ? 'bg-red-50 border-red-100 text-red-600 dark:bg-red-950/30 dark:border-red-900 dark:text-red-400'
                 : 'bg-muted/50 border-border',
             )}
           >
@@ -233,7 +235,7 @@ export function DepositForm({ hook }: DepositFormProps) {
   if (hook.step === 3) {
     return (
       <div className="flex flex-col items-center justify-center py-10 text-center space-y-6 animate-in zoom-in duration-500">
-        <div className="w-20 h-20 bg-green-500 text-background rounded-full flex items-center justify-center shadow-lg shadow-green-200">
+        <div className="w-20 h-20 bg-green-500 text-background rounded-full flex items-center justify-center shadow-lg shadow-green-200 dark:shadow-green-900/20">
           <CheckCircle2 className="w-10 h-10" />
         </div>
         <div className="space-y-2">
@@ -245,7 +247,7 @@ export function DepositForm({ hook }: DepositFormProps) {
           </p>
         </div>
         <button
-          onClick={() => window.location.reload()} // Quick way to reset all state for now
+          onClick={() => window.location.reload()}
           className="btn-secondary px-10"
         >
           View Dashboard

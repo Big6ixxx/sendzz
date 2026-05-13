@@ -1,10 +1,11 @@
 'use client';
 
-import * as React from 'react';
-import { useBatchSend } from './useBatchSend';
+import { CurrencySelector } from '@/components/CurrencySelector';
+import { getCurrencySymbol } from '@/lib/currency-config';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { AlertCircle, ChevronLeft } from 'lucide-react';
+import { useBatchSend } from './useBatchSend';
 
 interface AmountConfigProps {
   hook: ReturnType<typeof useBatchSend>;
@@ -21,20 +22,12 @@ export function AmountConfig({ hook, maxAmount }: AmountConfigProps) {
           <Label className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
             Amount per Person
           </Label>
-          <button
-            onClick={() => {
-              hook.setCurrency(c => c === 'USD' ? 'NGN' : 'USD');
-              hook.setAmount('');
-            }}
-            className="text-[10px] font-bold uppercase bg-muted px-3 py-1 rounded-full hover:bg-muted/80 transition-colors"
-          >
-            Switch to {hook.currency === 'USD' ? 'NGN' : 'USD'}
-          </button>
-        </div>
+          <CurrencySelector selected={hook.currency} onChange={(c) => { hook.setCurrency(c); hook.setAmount(''); }} />
+          </div>
 
         <div className="relative">
           <span className="absolute left-4 top-1/2 -translate-y-1/2 text-4xl font-black opacity-20 pointer-events-none">
-            {hook.currency === 'NGN' ? '₦' : '$'}
+            {hook.currency === 'USD' ? '$' : getCurrencySymbol(hook.currency)}
           </span>
           <input
             type="text"
@@ -42,38 +35,53 @@ export function AmountConfig({ hook, maxAmount }: AmountConfigProps) {
             placeholder="0.00"
             className="w-full bg-transparent border-none text-6xl font-black text-right pr-4 h-24 outline-none focus:ring-0 placeholder:opacity-10"
             value={hook.amount}
-            onChange={(e) => hook.setAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+            onChange={(e) =>
+              hook.setAmount(e.target.value.replace(/[^0-9.]/g, ''))
+            }
             autoFocus
           />
         </div>
 
         <div className="grid grid-cols-5 gap-2">
           {[5, 10, 25, 50, 100].map((v) => {
-            const val = hook.currency === 'NGN' ? v * 1500 : v;
+            const isFiat = hook.currency !== 'USD';
+            const val = isFiat ? v * 1000 : v;
             return (
               <button
                 key={v}
                 onClick={() => hook.setAmount(val.toString())}
                 className="py-2.5 bg-muted/50 rounded-xl text-xs font-bold hover:bg-muted transition-colors border border-border/50"
               >
-                {hook.currency === 'NGN' ? `₦${v}k` : `$${v}`}
+                {isFiat ? `${getCurrencySymbol(hook.currency)}${v}k` : `$${v}`}
               </button>
             );
           })}
         </div>
       </div>
 
-      <div className={cn(
-        "p-6 rounded-2xl border transition-all space-y-4",
-        isOverBalance ? "bg-red-50 border-red-100" : "bg-muted/30 border-border"
-      )}>
+      <div
+        className={cn(
+          'p-6 rounded-2xl border transition-all space-y-4',
+          isOverBalance
+            ? 'bg-red-50 border-red-100'
+            : 'bg-muted/30 border-border',
+        )}
+      >
         <div className="flex justify-between items-end border-b border-border/50 pb-4">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Total Payout</span>
-          <span className={cn("text-3xl font-black", isOverBalance ? "text-red-600" : "text-foreground")}>
-            ${hook.totalAmount.toFixed(2)} <span className="text-xs font-bold opacity-40">USDC</span>
+          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            Total Payout
+          </span>
+          <span
+            className={cn(
+              'text-3xl font-black',
+              isOverBalance ? 'text-red-600' : 'text-foreground',
+            )}
+          >
+            ${hook.totalAmount.toFixed(2)}{' '}
+            <span className="text-xs font-bold opacity-40">USDC</span>
           </span>
         </div>
-        
+
         <div className="flex justify-between text-xs font-bold uppercase tracking-wider">
           <span className="text-muted-foreground">Recipients</span>
           <span>{hook.validRecipients.length} People</span>

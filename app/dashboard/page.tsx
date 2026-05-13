@@ -1,8 +1,9 @@
 'use client';
 
+import { ActivityDetailModal } from '@/components/ActivityDetailModal';
 import { BatchSendDialog } from '@/components/BatchSendDialog';
 import { DepositWithdrawDialog } from '@/components/deposit-withdraw/DepositWithdrawDialog';
-import { HistoryModule } from '@/components/HistoryModule';
+import { Activity, HistoryModule } from '@/components/HistoryModule';
 import { TransferModule } from '@/components/TransferModule';
 import {
   Tooltip,
@@ -39,6 +40,9 @@ export default function Dashboard() {
   const [rampModalOpen, setRampModalOpen] = useState(false);
   const [batchSendDialogOpen, setBatchSendDialogOpen] = useState(false);
   const [rampType, setRampType] = useState<'deposit' | 'withdraw'>('deposit');
+  const [selectedActivity, setSelectedActivity] = useState<Activity | null>(
+    null,
+  );
 
   const {
     data: balance = '0.00',
@@ -75,10 +79,13 @@ export default function Dashboard() {
     if (ready && authenticated && wallets.length > 0) initAccount();
   }, [ready, authenticated, wallets, user]);
 
-  if (!ready || !authenticated) {
+  if (!ready || !authenticated || !user) {
     return (
       <div className="h-[60vh] flex items-center justify-center">
-        <Loader2 className="animate-spin w-8 h-8 text-muted-foreground/50" />
+        <Loader2
+          className="animate-spin w-8 h-8"
+          style={{ color: 'rgba(248,248,246,0.2)' }}
+        />
       </div>
     );
   }
@@ -91,82 +98,128 @@ export default function Dashboard() {
   return (
     <TooltipProvider>
       <div className="max-w-5xl mx-auto space-y-12">
-        {/* Modern integrated Header Section */}
-        <section className="space-y-8 md:space-y-10">
-          <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-8 pb-10 border-b border-border/50">
-            <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.25em]">
-                  Global Portfolio
-                </p>
-                <div className="px-2 py-0.5 bg-muted rounded text-[10px] font-bold uppercase tracking-widest text-muted-foreground border border-border/50">
-                  Base
-                </div>
-              </div>
-              <div className="flex items-baseline flex-wrap gap-x-4 gap-y-2">
-                <h2 className="text-5xl md:text-7xl font-black tracking-tighter leading-none">
-                  ${balance}
-                </h2>
+        {/* Balance Header */}
+        <section>
+          <div className="card-glass p-8 md:p-10 rounded-3xl">
+            <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-8">
+              <div className="space-y-4">
                 <div className="flex items-center gap-2">
-                  <span className="text-xl font-bold opacity-20 uppercase tracking-tighter">
-                    USDC
-                  </span>
-                  <button
-                    onClick={() => refetchBalance()}
-                    disabled={isBalanceLoading || !smartAddress}
-                    className="p-2 hover:bg-muted rounded-full transition-all disabled:opacity-50"
+                  <p
+                    className="text-[10px] font-bold uppercase tracking-[0.25em]"
+                    style={{ color: 'rgba(248,248,246,0.35)' }}
                   >
-                    <RefreshCw
-                      className={cn(
-                        'w-5 h-5 text-muted-foreground/40',
-                        isBalanceLoading && 'animate-spin',
-                      )}
+                    Global Portfolio
+                  </p>
+                  <div
+                    className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest"
+                    style={{
+                      background: 'rgba(0, 232, 122, 0.1)',
+                      color: '#00e87a',
+                      border: '1px solid rgba(0,232,122,0.2)',
+                    }}
+                  >
+                    Base
+                  </div>
+                </div>
+                <div className="flex items-baseline flex-wrap gap-x-4 gap-y-2">
+                  <h2
+                    className="font-display text-5xl md:text-7xl font-bold tracking-tighter leading-none"
+                    style={{ color: '#f8f8f6' }}
+                  >
+                    ${balance}
+                  </h2>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="text-xl font-bold uppercase tracking-tighter"
+                      style={{ color: 'rgba(248,248,246,0.2)' }}
+                    >
+                      USDC
+                    </span>
+                    <button
+                      onClick={() => refetchBalance()}
+                      disabled={isBalanceLoading || !smartAddress}
+                      className="p-2 rounded-full transition-all disabled:opacity-50"
+                      style={{ color: 'rgba(248,248,246,0.3)' }}
+                    >
+                      <RefreshCw
+                        className={cn(
+                          'w-5 h-5',
+                          isBalanceLoading && 'animate-spin',
+                        )}
+                      />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-3 pt-2">
+                  <div
+                    className="flex items-center gap-2 group cursor-pointer"
+                    onClick={() => (
+                      navigator.clipboard.writeText(smartAddress),
+                      toast.success('Address copied')
+                    )}
+                  >
+                    <div
+                      className="w-1.5 h-1.5 rounded-full animate-beacon"
+                      style={{ background: '#00e87a' }}
                     />
-                  </button>
+                    <span
+                      className="text-[10px] font-mono font-bold transition-colors"
+                      style={{ color: 'rgba(248,248,246,0.4)' }}
+                    >
+                      {smartAddress
+                        ? `${smartAddress.slice(0, 6)}...${smartAddress.slice(-4)}`
+                        : 'Generating...'}
+                    </span>
+                    <Copy
+                      className="w-3 h-3"
+                      style={{ color: 'rgba(248,248,246,0.2)' }}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck
+                      className="w-3.5 h-3.5"
+                      style={{ color: 'rgba(248,248,246,0.25)' }}
+                    />
+                    <span
+                      className="text-[10px] font-bold uppercase tracking-widest"
+                      style={{ color: 'rgba(248,248,246,0.3)' }}
+                    >
+                      Non-Custodial
+                    </span>
+                  </div>
                 </div>
               </div>
 
-              {/* Account mini-details */}
-              <div className="flex flex-wrap items-center gap-x-6 gap-y-3 pt-2">
-                <div
-                  className="flex items-center gap-2 group cursor-pointer"
-                  onClick={() => (
-                    navigator.clipboard.writeText(smartAddress),
-                    toast.success('Address copied')
-                  )}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => openRamp('deposit')}
+                  className="btn-accent flex-1 sm:flex-none h-14 md:h-16 px-6 md:px-10 gap-3 rounded-2xl text-sm md:text-base transition-all"
                 >
-                  <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                  <span className="text-[10px] font-mono font-bold text-muted-foreground group-hover:text-foreground transition-colors">
-                    {smartAddress
-                      ? `${smartAddress.slice(0, 6)}...${smartAddress.slice(-4)}`
-                      : 'Generating...'}
+                  <ArrowDown className="w-4 h-4 md:w-5 md:h-5" />
+                  <span className="uppercase tracking-tight font-bold">
+                    Deposit
                   </span>
-                  <Copy className="w-3 h-3 text-muted-foreground/30 group-hover:text-muted-foreground transition-colors" />
-                </div>
-                <div className="flex items-center gap-2">
-                  <ShieldCheck className="w-3.5 h-3.5 text-muted-foreground/40" />
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">
-                    Non-Custodial
-                  </span>
-                </div>
+                </button>
+                <button
+                  onClick={() => openRamp('withdraw')}
+                  className="flex-1 sm:flex-none h-14 md:h-16 px-6 md:px-10 gap-3 rounded-2xl flex items-center justify-center text-sm md:text-base font-semibold transition-all"
+                  style={{
+                    background: 'rgba(255,255,255,0.06)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    color: 'rgba(248,248,246,0.7)',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
+                  }}
+                >
+                  <ArrowUp className="w-4 h-4 md:w-5 md:h-5" />
+                  <span className="uppercase tracking-tight">Withdraw</span>
+                </button>
               </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => openRamp('deposit')}
-                className="btn-primary flex-1 sm:flex-none h-14 md:h-16 px-6 md:px-10 gap-3 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.08)] hover:shadow-[0_20px_50px_rgba(0,0,0,0.15)] hover:scale-105 transition-all"
-              >
-                <ArrowDown className="w-4 h-4 md:w-5 md:h-5" />
-                <span className="uppercase tracking-tight text-sm md:text-base">Deposit</span>
-              </button>
-              <button
-                onClick={() => openRamp('withdraw')}
-                className="btn-secondary flex-1 sm:flex-none h-14 md:h-16 px-6 md:px-10 gap-3 rounded-2xl border-border/50 hover:bg-background hover:border-foreground transition-all"
-              >
-                <ArrowUp className="w-4 h-4 md:w-5 md:h-5" />
-                <span className="uppercase tracking-tight text-sm md:text-base">Withdraw</span>
-              </button>
             </div>
           </div>
         </section>
@@ -198,44 +251,72 @@ export default function Dashboard() {
               />
             </div>
 
-            <div className="card-elegant bg-foreground text-background p-8 rounded-3xl space-y-6 group overflow-hidden relative">
-              <Users className="absolute -right-4 -top-4 w-32 h-32 opacity-5 -rotate-12 transition-transform group-hover:scale-110 group-hover:rotate-0 duration-700" />
+            <div
+              className="card-glass p-8 rounded-3xl space-y-6 group overflow-hidden relative"
+              style={{ border: '1px solid rgba(255,255,255,0.08)' }}
+            >
+              <Users
+                className="absolute -right-4 -top-4 w-32 h-32 opacity-5 -rotate-12 transition-transform group-hover:scale-110 group-hover:rotate-0 duration-700"
+                style={{ color: '#00e87a' }}
+              />
               <div className="space-y-2 relative z-10">
-                <h3 className="text-2xl font-black uppercase tracking-tight">
-                  Batch Operations
+                <h3
+                  className="text-2xl font-display font-bold tracking-tight"
+                  style={{ color: '#f8f8f6' }}
+                >
+                  Batch Payroll
                 </h3>
-                <p className="text-sm opacity-60 font-medium leading-relaxed max-w-sm">
+                <p
+                  className="text-sm font-medium leading-relaxed max-w-sm"
+                  style={{ color: 'rgba(248,248,246,0.4)' }}
+                >
                   Distribute payments to your entire network simultaneously.
                   Perfect for payroll or global payouts.
                 </p>
               </div>
               <button
                 onClick={() => setBatchSendDialogOpen(true)}
-                className="btn-secondary w-full h-14 rounded-xl bg-background text-foreground border-none relative z-10 hover:bg-muted transition-colors"
+                className="w-full h-12 rounded-xl flex items-center justify-center gap-2 relative z-10 font-bold text-xs uppercase tracking-widest transition-all"
+                style={{
+                  background: 'rgba(0,232,122,0.1)',
+                  color: '#00e87a',
+                  border: '1px solid rgba(0,232,122,0.2)',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(0,232,122,0.18)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'rgba(0,232,122,0.1)';
+                }}
               >
-                <span className="uppercase tracking-widest font-black text-xs text-foreground">
-                  Launch Batch Engine
-                </span>
+                Launch Batch Engine
               </button>
             </div>
           </div>
 
           <div className="lg:col-span-5 space-y-4">
             <div className="flex items-center justify-between px-1">
-              <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-muted-foreground">
+              <h3
+                className="text-xs font-bold uppercase tracking-[0.2em]"
+                style={{ color: 'rgba(248,248,246,0.35)' }}
+              >
                 Recent Activity
               </h3>
               <button
                 onClick={() => router.push('/dashboard/history')}
-                className="text-[10px] font-bold uppercase tracking-widest hover:underline text-muted-foreground/60"
+                className="text-[10px] font-bold uppercase tracking-widest transition-colors"
+                style={{ color: 'rgba(0,232,122,0.7)' }}
               >
                 View All
               </button>
             </div>
-            <div className="card-elegant p-1 rounded-3xl border-border/40">
+            <div className="card-glass p-1 rounded-3xl">
               <HistoryModule
-                userId={user?.id || ''}
-                userEmail={user?.email?.address || ''}
+                userId={user.id}
+                userEmail={user.email?.address || ''}
+                limit={5}
+                hideHeader={true}
+                onTxClick={setSelectedActivity}
               />
             </div>
           </div>
@@ -259,6 +340,12 @@ export default function Dashboard() {
           smartAddress={smartAddress}
           embeddedProvider={wallets.find((w) => w.walletClientType === 'privy')}
           senderEmail={user?.email?.address || ''}
+        />
+
+        <ActivityDetailModal
+          isOpen={!!selectedActivity}
+          activity={selectedActivity}
+          onClose={() => setSelectedActivity(null)}
         />
       </div>
     </TooltipProvider>

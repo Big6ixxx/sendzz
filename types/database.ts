@@ -129,6 +129,7 @@ export interface Database {
           asset: AssetType;
           status: TransferStatus;
           note: string | null;
+          tx_hash: string | null;
           claim_token_hash: string | null;
           expires_at: string | null;
           created_at: string;
@@ -144,6 +145,7 @@ export interface Database {
           asset?: AssetType;
           status?: TransferStatus;
           note?: string | null;
+          tx_hash?: string | null;
           claim_token_hash?: string | null;
           expires_at?: string | null;
           created_at?: string;
@@ -159,6 +161,7 @@ export interface Database {
           asset?: AssetType;
           status?: TransferStatus;
           note?: string | null;
+          tx_hash?: string | null;
           claim_token_hash?: string | null;
           expires_at?: string | null;
           created_at?: string;
@@ -436,7 +439,6 @@ export interface Database {
         };
         Relationships: [];
       };
-      
     };
     Views: {
       [_ in never]: never;
@@ -444,15 +446,15 @@ export interface Database {
     Functions: {
       create_transfer_and_lock_balance: {
         Args: {
-          p_sender_id: string
-          p_recipient_email: string
-          p_amount: number
-          p_note?: string | null
-          p_claim_token_hash?: string | null
-          p_expires_at?: string | null
-        }
-        Returns: string
-      }
+          p_sender_id: string;
+          p_recipient_email: string;
+          p_amount: number;
+          p_note?: string | null;
+          p_claim_token_hash?: string | null;
+          p_expires_at?: string | null;
+        };
+        Returns: string;
+      };
     };
     Enums: {
       asset_type: AssetType;

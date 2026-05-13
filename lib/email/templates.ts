@@ -4,7 +4,7 @@
  * Modern, responsive email templates for Sendzz.
  * Using inline styles and robust table layouts for maximum compatibility.
  */
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "";
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || '';
 
 /**
  * Base email wrapper template
@@ -159,7 +159,7 @@ export function claimTransferTemplate(
 ): string {
   const noteSection = note
     ? `<p style="font-style: italic; color: #64748b; margin-bottom: 24px;">"${note}"</p>`
-    : "";
+    : '';
 
   return baseTemplate(`
     <div style="text-align: center;">
@@ -192,7 +192,7 @@ export function transferReceivedTemplate(
 ): string {
   const noteSection = note
     ? `<p style="font-style: italic; color: #64748b; margin-bottom: 24px;">"${note}"</p>`
-    : "";
+    : '';
 
   return baseTemplate(`
     <div style="text-align: center;">

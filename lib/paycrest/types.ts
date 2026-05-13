@@ -1,7 +1,16 @@
-export type PaycrestCurrency = 'NGN' | 'USDT' | 'USDC';
+export type PaycrestCurrency = 'NGN' | 'KES' | 'GHS' | 'USDT' | 'USDC';
 export type PaycrestNetwork = 'base' | 'polygon' | 'ethereum';
 export type PaycrestOrderType = 'crypto' | 'fiat';
-export type PaycrestOrderStatus = 'initiated' | 'pending' | 'deposited' | 'validated' | 'settling' | 'settled' | 'refunding' | 'refunded' | 'expired';
+export type PaycrestOrderStatus =
+  | 'initiated'
+  | 'pending'
+  | 'deposited'
+  | 'validated'
+  | 'settling'
+  | 'settled'
+  | 'refunding'
+  | 'refunded'
+  | 'expired';
 
 export interface PaycrestInstitution {
   name: string;
@@ -48,11 +57,11 @@ export interface PaycrestProviderAccount {
   accountName?: string;
   amountToTransfer?: string;
   currency?: string;
-  
+
   // Offramp fields
   network?: PaycrestNetwork;
   receiveAddress?: string;
-  
+
   validUntil: string;
 }
 

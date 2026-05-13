@@ -10,7 +10,7 @@ const jetbrains = JetBrains_Mono({
 });
 export const metadata: Metadata = {
   title: 'Sendzz | Money Without Borders',
-  description: 'Instant, gas-sponsored global payments for everyone.',
+  description: 'Free, instant, global payments for everyone.',
 };
 
 export default function RootLayout({
@@ -26,4 +26,3 @@ export default function RootLayout({
     </html>
   );
 }
-

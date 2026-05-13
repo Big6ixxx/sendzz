@@ -69,7 +69,8 @@ export async function recordTransfer(params: {
       recipient_email: params.recipientEmail,
       amount: params.amount,
       status: params.status,
-      note: params.txHash || params.note || null, // Store txHash in note for explorer links
+      note: params.note || null,
+      tx_hash: params.txHash || null,
       asset: 'USDC',
     });
 
@@ -190,7 +191,8 @@ export async function getUserActivities(userEmail: string) {
     // Process transfers to include sender_email if column is null
     const mapTransfer = (t: any) => ({
       ...t,
-      sender_email: t.sender_email || t.sender?.email || 'Unknown Sender'
+      sender_email: t.sender_email || t.sender?.email || 'Unknown Sender',
+      tx_hash: t.tx_hash || (t.note?.startsWith('0x') ? t.note : null)
     });
 
     return {

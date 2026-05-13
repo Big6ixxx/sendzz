@@ -5,36 +5,43 @@
  * Uses live exchange rates from Paycrest API when available.
  */
 
+import { getOnRampRate } from './actions/ramp';
+
 // Default fallback rate (used when API is unavailable)
-export const DEFAULT_EXCHANGE_RATE_USD_NGN = 1500;
+export const DEFAULT_EXCHANGE_RATE_USD_NGN = 1300;
 
 // Rate cache for client-side usage
-let cachedRate: { rate: number; timestamp: number } | null = null;
-const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+const cachedRates: Map<string, { rate: number; timestamp: number }> = new Map();
+const CACHE_DURATION_MS = 10 * 60 * 1000; // 10 minutes
 
-export type CurrencyCode = "USD" | "NGN" | "KES" | "GHS" | "USDC";
+export type CurrencyCode = 'USD' | 'NGN' | 'KES' | 'GHS' | 'USDC';
 
 /**
  * Get the current exchange rate (with caching for client-side)
- * TODO: This should be called from components that need live rates
  */
 export async function fetchExchangeRate(
-  fiatCurrency: CurrencyCode = "NGN",
+  fiatCurrency: CurrencyCode = 'NGN',
 ): Promise<number> {
+  // If USD/USDC, it's 1:1
+  if (fiatCurrency === 'USD' || fiatCurrency === 'USDC') return 1;
+
   // Check cache
-  if (cachedRate && Date.now() - cachedRate.timestamp < CACHE_DURATION_MS) {
-    return cachedRate.rate;
+  const cached = cachedRates.get(fiatCurrency);
+  if (cached && Date.now() - cached.timestamp < CACHE_DURATION_MS) {
+    return cached.rate;
   }
 
   try {
-    const res = await fetch(`/api/paycrest/rates/USDC/NGN`);
-    const data = await res.json();
-    if (data.success && data.data?.marketRate) {
-      cachedRate = { rate: data.data.marketRate, timestamp: Date.now() };
-      return data.data.marketRate;
+    const rate = await getOnRampRate(fiatCurrency);
+    if (rate) {
+      cachedRates.set(fiatCurrency, { rate, timestamp: Date.now() });
+      return rate;
     }
-  } catch {
-    console.warn("Failed to fetch exchange rate, using default");
+  } catch (error) {
+    console.warn(
+      `Failed to fetch exchange rate for ${fiatCurrency} via server action:`,
+      error,
+    );
   }
 
   return DEFAULT_EXCHANGE_RATE_USD_NGN;
@@ -45,16 +52,16 @@ export async function fetchExchangeRate(
  */
 export function formatCurrency(amount: number, currency: CurrencyCode): string {
   const currencyMap: Record<string, string> = {
-    USD: "USD",
-    USDC: "USD",
-    NGN: "NGN",
-    KES: "KES",
-    GHS: "GHS",
+    USD: 'USD',
+    USDC: 'USD',
+    NGN: 'NGN',
+    KES: 'KES',
+    GHS: 'GHS',
   };
 
-  const formatter = new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: currencyMap[currency] || "USD",
+  const formatter = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: currencyMap[currency] || 'USD',
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -84,7 +91,7 @@ export function convertNgnToUsd(amountNgn: number): number {
 export function convertWithRate(
   amount: number,
   rate: number,
-  direction: "toFiat" | "toUsd",
+  direction: 'toFiat' | 'toUsd',
 ): number {
-  return direction === "toFiat" ? amount * rate : amount / rate;
+  return direction === 'toFiat' ? amount * rate : amount / rate;
 }

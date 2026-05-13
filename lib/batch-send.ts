@@ -18,12 +18,14 @@ export async function batchSend({
   recipients,
   amount,
   senderEmail,
+  note,
   provider,
   onProgress,
 }: {
   recipients: string[];
   amount: string;
   senderEmail: string;
+  note?: string;
   provider: EIP1193Provider;
   onProgress?: (done: number, total: number, result: SendResult) => void;
 }): Promise<SendResult[]> {
@@ -32,8 +34,13 @@ export async function batchSend({
 
   try {
     // 1. Pre-resolve all identities and JIT wallets
-    const transferParams: { recipientAddress: string; amountUSDC: string; email: string; isNewUser: boolean }[] = [];
-    
+    const transferParams: {
+      recipientAddress: string;
+      amountUSDC: string;
+      email: string;
+      isNewUser: boolean;
+    }[] = [];
+
     for (let i = 0; i < recipients.length; i++) {
       const email = recipients[i];
       let recipientAddress = await getUserAddressByEmail(email);
@@ -48,17 +55,21 @@ export async function batchSend({
         });
         const data = await res.json();
         if (!res.ok) {
-          results.push({ email, status: 'failed', error: data.error || 'Identity generation failed' });
+          results.push({
+            email,
+            status: 'failed',
+            error: data.error || 'Identity generation failed',
+          });
           continue;
         }
         recipientAddress = data.address;
       }
 
-      transferParams.push({ 
-        recipientAddress: recipientAddress as string, 
-        amountUSDC: amount, 
-        email, 
-        isNewUser 
+      transferParams.push({
+        recipientAddress: recipientAddress as string,
+        amountUSDC: amount,
+        email,
+        isNewUser,
       });
     }
 
@@ -67,25 +78,31 @@ export async function batchSend({
     // 2. Execute Atomic Batch Transfer (One Signature)
     const txHash = await executeCircleGaslessBatchTransfer(
       provider,
-      transferParams.map(p => ({ recipientAddress: p.recipientAddress, amountUSDC: p.amountUSDC }))
+      transferParams.map((p) => ({
+        recipientAddress: p.recipientAddress,
+        amountUSDC: p.amountUSDC,
+      })),
     );
 
     // 3. Post-execution: Record and Notify
     for (let i = 0; i < transferParams.length; i++) {
       const p = transferParams[i];
-      
+
       // Record in ledger
       await recordTransfer({
         senderEmail,
         recipientEmail: p.email,
         amount: parseFloat(p.amountUSDC),
         status: p.isNewUser ? 'pending_claim' : 'completed',
+        note,
         txHash,
-      }).catch(err => console.error(`[BatchSend] Ledger failed for ${p.email}:`, err));
+      }).catch((err) =>
+        console.error(`[BatchSend] Ledger failed for ${p.email}:`, err),
+      );
 
       // Notify
-      sendTransferEmail(p.email, p.amountUSDC, senderEmail).catch(err =>
-        console.error(`[BatchSend] Email failed for ${p.email}:`, err)
+      sendTransferEmail(p.email, p.amountUSDC, senderEmail).catch((err) =>
+        console.error(`[BatchSend] Email failed for ${p.email}:`, err),
       );
 
       const result: SendResult = {
@@ -98,16 +115,16 @@ export async function batchSend({
     }
 
     return results;
-
   } catch (err) {
     console.error(`[BatchSend] Atomic batch failed:`, err);
-    const errorMsg = err instanceof Error ? err.message : 'Batch execution failed';
-    
+    const errorMsg =
+      err instanceof Error ? err.message : 'Batch execution failed';
+
     // If it failed at the batch level, mark all as failed
-    return recipients.map(email => ({
+    return recipients.map((email) => ({
       email,
       status: 'failed',
-      error: errorMsg
+      error: errorMsg,
     }));
   }
 }

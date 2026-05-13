@@ -1,10 +1,9 @@
 'use client';
 
 import { BatchSendDialog } from '@/components/BatchSendDialog';
+import { DashboardPageHeader } from '@/components/DashboardPageHeader';
 import { TransferModule } from '@/components/TransferModule';
-import {
-  TooltipProvider
-} from '@/components/ui/tooltip';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { getUSDCBalance } from '@/lib/web3/actions';
 import { getCircleAddress } from '@/lib/web3/circle-client';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
@@ -44,17 +43,13 @@ export default function TransfersPage() {
   return (
     <TooltipProvider>
       <div className="max-w-4xl mx-auto space-y-10">
-        <div className="space-y-2">
-          <h1 className="text-3xl font-black uppercase tracking-tight">
-            Transfers
-          </h1>
-          <p className="text-muted-foreground font-medium">
-            Send money instantly to anyone, anywhere.
-          </p>
-        </div>
+        <DashboardPageHeader
+          title="Transfers"
+          subtitle="Send money instantly to anyone, anywhere."
+        />
 
-        <div className="grid md:grid-cols-12 gap-8">
-          <div className="md:col-span-7">
+        <div className="grid lg:grid-cols-12 gap-8">
+          <div className="lg:col-span-7">
             <TransferModule
               smartAddress={smartAddress}
               embeddedProvider={wallets.find(
@@ -65,35 +60,35 @@ export default function TransfersPage() {
             />
           </div>
 
-          <div className="md:col-span-5 space-y-6">
-            <div className="card-elegant p-6 bg-muted/20 border-dashed space-y-4">
-              <div className="w-12 h-12 bg-background rounded-2xl flex items-center justify-center shadow-sm">
-                <Users className="w-6 h-6 text-muted-foreground" />
+          <div className="lg:col-span-5 space-y-6">
+            <div className="card-glass p-8 space-y-6">
+              <div className="w-14 h-14 bg-white/5 rounded-2xl flex items-center justify-center border border-white/10">
+                <Users className="w-7 h-7 text-accent" />
               </div>
-              <div className="space-y-1">
-                <h3 className="text-lg font-black uppercase tracking-tight">
+              <div className="space-y-2">
+                <h3 className="text-xl font-bold tracking-tight text-brand-secondary">
                   Batch Payments
                 </h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">
+                <p className="text-sm text-brand-secondary/50 leading-relaxed">
                   Paying a team or a group? Use our batch engine to send funds
                   to hundreds of emails in seconds.
                 </p>
               </div>
               <button
                 onClick={() => setBatchSendDialogOpen(true)}
-                className="w-full btn-secondary h-12 rounded-xl flex items-center justify-center gap-2 group"
+                className="w-full btn-accent h-14 rounded-2xl flex items-center justify-center gap-3 group text-xs font-bold uppercase tracking-widest"
               >
                 Launch Batch Engine
                 <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
               </button>
             </div>
 
-            <div className="card-elegant p-6 space-y-4">
-              <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                <ShieldCheck className="w-3.5 h-3.5 text-green-500" />
+            <div className="card-glass p-8 space-y-4">
+              <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-accent">
+                <ShieldCheck className="w-4 h-4" />
                 Gas-Sponsored
               </div>
-              <p className="text-xs text-muted-foreground font-medium leading-relaxed">
+              <p className="text-xs text-brand-secondary/40 font-medium leading-relaxed">
                 All transfers on Sendzz are gas-sponsored. You never need to
                 worry about network fees or holding ETH.
               </p>

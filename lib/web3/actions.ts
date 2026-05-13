@@ -1,11 +1,11 @@
-import { formatUnits} from 'viem';
-import {  USDC_ADDRESS, VIEM_PUBLIC_CLIENT, } from './config';
+import { formatUnits } from 'viem';
+import { USDC_ADDRESS, VIEM_PUBLIC_CLIENT } from './config';
 
 import { parseAbi } from 'viem';
 
 const ERC20_ABI = parseAbi([
   'function balanceOf(address account) view returns (uint256)',
-  'function transfer(address _to, uint256 _value) returns (bool)'
+  'function transfer(address _to, uint256 _value) returns (bool)',
 ]);
 
 /**

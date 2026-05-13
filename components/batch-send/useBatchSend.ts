@@ -1,10 +1,12 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
 import { batchSend, type SendResult } from '@/lib/batch-send';
+import { type FiatCurrencyCode } from '@/lib/currency-config';
 import { ConnectedWallet } from '@privy-io/react-auth';
+import { useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
+import { toast } from 'sonner';
+import { useExchangeRate } from '@/lib/hooks/useExchangeRate';
 
 export type Step =
   | 'recipients'
@@ -27,26 +29,34 @@ export function useBatchSend(
   smartAddress: string,
   senderEmail: string,
   embeddedProvider?: ConnectedWallet,
-  onClose?: () => void
 ) {
   const queryClient = useQueryClient();
   const [step, setStep] = useState<Step>('recipients');
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [amount, setAmount] = useState('');
-  const [currency, setCurrency] = useState<'USD' | 'NGN'>('USD');
+  const [currency, setCurrency] = useState<'USD' | FiatCurrencyCode>('USD');
   const [note, setNote] = useState('');
-  
+
+  const isFiat = currency !== 'USD';
+  const { data: exchangeRate = 1 } = useExchangeRate(isFiat ? currency : 'NGN');
+
   const [batchResults, setBatchResults] = useState<SendResult[]>([]);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
 
   // Derived
   const validRecipients = recipients.filter((r) => r.valid);
-  const amountUsd = currency === 'NGN' ? parseFloat(amount || '0') / 1500 : parseFloat(amount || '0');
+  const amountUsd = isFiat
+    ? parseFloat(amount || '0') / exchangeRate
+    : parseFloat(amount || '0');
   const totalAmount = amountUsd * validRecipients.length;
 
   const handleConfirm = async (retryEmails?: string[]) => {
     if (!embeddedProvider) {
       toast.error('Wallet not connected');
+      return;
+    }
+    if (totalAmount > maxAmount) {
+      toast.error('Insufficient Balance');
       return;
     }
 
@@ -61,6 +71,7 @@ export function useBatchSend(
         recipients: targetEmails,
         amount: amountUsd.toString(),
         senderEmail,
+        note: note || undefined,
         provider,
         onProgress: (done, total) => setProgress({ done, total }),
       });
@@ -118,14 +129,23 @@ export function useBatchSend(
   };
 
   return {
-    step, setStep,
-    recipients, setRecipients, addRecipients, removeRecipient,
+    step,
+    setStep,
+    recipients,
+    setRecipients,
+    addRecipients,
+    removeRecipient,
     validRecipients,
-    amount, setAmount,
-    currency, setCurrency,
-    note, setNote,
-    amountUsd, totalAmount,
-    batchResults, progress,
-    handleConfirm
+    amount,
+    setAmount,
+    currency,
+    setCurrency,
+    note,
+    setNote,
+    amountUsd,
+    totalAmount,
+    batchResults,
+    progress,
+    handleConfirm,
   };
 }

@@ -7,11 +7,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { cn } from '@/lib/utils';
 import { ConnectedWallet } from '@privy-io/react-auth';
 import { ArrowDownLeft, ArrowUpRight, X } from 'lucide-react';
+import { useState } from 'react';
+import { CctpDepositForm } from './CctpDepositForm';
 import { DepositForm } from './DepositForm';
 import { FlowType, useDepositWithdraw } from './useDepositWithdraw';
 import { WithdrawForm } from './WithdrawForm';
+
+type DepositTab = 'fiat' | 'usdc';
 
 interface DepositWithdrawDialogProps {
   isOpen: boolean;
@@ -34,6 +39,8 @@ export function DepositWithdrawDialog({
   userEmail,
   embeddedProvider,
 }: DepositWithdrawDialogProps) {
+  const [depositTab, setDepositTab] = useState<DepositTab>('fiat');
+
   const hook = useDepositWithdraw(
     type,
     userAddress,
@@ -46,7 +53,7 @@ export function DepositWithdrawDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={(val) => !val && onClose()}>
-      <DialogContent 
+      <DialogContent
         showCloseButton={false}
         className="sm:max-w-md p-0 overflow-hidden border-none rounded-2xl shadow-2xl bg-background"
       >
@@ -62,8 +69,8 @@ export function DepositWithdrawDialog({
             </DialogTitle>
             <DialogDescription className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
               {type === 'deposit'
-                ? 'Convert NGN to USDC'
-                : 'Convert USDC to NGN'}
+                ? 'Deposit funds into your Sendzz wallet'
+                : 'Withdraw to Bank Account'}
             </DialogDescription>
           </div>
           <button
@@ -75,11 +82,43 @@ export function DepositWithdrawDialog({
         </DialogHeader>
 
         <div className="p-6">
-          {type === 'deposit' ? (
-            <DepositForm hook={hook} />
-          ) : (
-            <WithdrawForm hook={hook} />
+          {type === 'deposit' && (
+            <>
+              {/* Tab Switcher */}
+              <div className="flex bg-muted p-1 rounded-xl mb-6">
+                <button
+                  onClick={() => setDepositTab('fiat')}
+                  className={cn(
+                    'flex-1 py-2.5 text-xs font-bold uppercase tracking-widest rounded-lg transition-all',
+                    depositTab === 'fiat'
+                      ? 'bg-background shadow-sm text-foreground'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  Fiat (NGN)
+                </button>
+                <button
+                  onClick={() => setDepositTab('usdc')}
+                  className={cn(
+                    'flex-1 py-2.5 text-xs font-bold uppercase tracking-widest rounded-lg transition-all',
+                    depositTab === 'usdc'
+                      ? 'bg-background shadow-sm text-foreground'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  USDC (Bridge)
+                </button>
+              </div>
+
+              {depositTab === 'fiat' ? (
+                <DepositForm hook={hook} />
+              ) : (
+                <CctpDepositForm userAddress={userAddress} />
+              )}
+            </>
           )}
+
+          {type === 'withdraw' && <WithdrawForm hook={hook} />}
         </div>
       </DialogContent>
     </Dialog>

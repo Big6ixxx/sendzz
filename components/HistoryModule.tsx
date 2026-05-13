@@ -7,20 +7,15 @@ import { format } from 'date-fns';
 import {
   ArrowDownLeft,
   ArrowUpRight,
-  ChevronRight,
-  Clock,
-  ExternalLink,
-  History,
   Landmark,
   Loader2,
   RefreshCw,
   Wallet
 } from 'lucide-react';
-import { useState } from 'react';
 
-type ActivityType = 'sent' | 'received' | 'deposit' | 'withdrawal';
+export type ActivityType = 'sent' | 'received' | 'deposit' | 'withdrawal';
 
-interface Activity {
+export interface Activity {
   id: string;
   type: ActivityType;
   amount: number;
@@ -30,21 +25,29 @@ interface Activity {
   asset: string;
   txHash?: string;
   senderEmail?: string;
+  note?: string;
 }
 
-const EXPLORER_BASE_URL = 'https://basescan.org/tx/';
+const ACTIVITY_LABELS: Record<ActivityType, string> = {
+  sent: 'Transfer Sent',
+  received: 'Funds Received',
+  deposit: 'Deposit',
+  withdrawal: 'Withdrawal',
+};
 
 export function HistoryModule({
   userId,
   userEmail,
+  limit,
+  hideHeader = false,
+  onTxClick,
 }: {
   userId: string;
   userEmail: string;
+  limit?: number;
+  hideHeader?: boolean;
+  onTxClick?: (activity: Activity) => void;
 }) {
-  const [selectedActivity, setSelectedActivity] = useState<Activity | null>(
-    null,
-  );
-
   const {
     data: activities,
     isLoading,
@@ -64,8 +67,9 @@ export function HistoryModule({
           timestamp: t.created_at,
           details: `To: ${t.recipient_email}`,
           asset: t.asset,
-          txHash: t.note?.startsWith('0x') ? t.note : undefined,
-          senderEmail: t.sender_email
+          txHash: t.tx_hash || (t.note?.startsWith('0x') ? t.note : undefined),
+          senderEmail: t.sender_email,
+          note: t.note && !t.note.startsWith('0x') ? t.note : undefined,
         })),
         ...(data.received || [])
           .filter((t) => t.sender_id !== userId)
@@ -77,8 +81,10 @@ export function HistoryModule({
             timestamp: t.created_at,
             details: `From: ${t.sender_email}`,
             asset: t.asset,
-            txHash: t.note?.startsWith('0x') ? t.note : undefined,
-            senderEmail: t.sender_email
+            txHash:
+              t.tx_hash || (t.note?.startsWith('0x') ? t.note : undefined),
+            senderEmail: t.sender_email,
+            note: t.note && !t.note.startsWith('0x') ? t.note : undefined,
           })),
         ...(data.deposits || []).map((d) => ({
           id: d.id,
@@ -106,10 +112,12 @@ export function HistoryModule({
         })),
       ];
 
-      return unified.sort(
+      const sorted = unified.sort(
         (a, b) =>
           new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
       );
+
+      return limit ? sorted.slice(0, limit) : sorted;
     },
     enabled: !!userEmail,
     refetchInterval: 15000,
@@ -117,9 +125,9 @@ export function HistoryModule({
 
   if (isLoading) {
     return (
-      <div className="card-elegant p-12 flex flex-col items-center justify-center gap-6 bg-background">
-        <Loader2 className="w-10 h-10 animate-spin text-muted-foreground opacity-20" />
-        <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground animate-pulse">
+      <div className="p-12 flex flex-col items-center justify-center gap-6">
+        <Loader2 className="w-10 h-10 animate-spin text-brand-secondary/20" />
+        <p className="text-xs font-bold uppercase tracking-[0.3em] text-brand-secondary/20 animate-pulse">
           Syncing History
         </p>
       </div>
@@ -128,54 +136,84 @@ export function HistoryModule({
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-end px-2">
-        <div className="space-y-1">
-          <h2 className="text-2xl font-black uppercase tracking-tighter flex items-center gap-2">
-            Activity
-          </h2>
-          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-            Recent Transactions
-          </p>
+      {!hideHeader && (
+        <div className="flex justify-between items-end px-2">
+          <div className="space-y-1">
+            <h2 className="text-2xl font-display font-bold tracking-tight text-brand-secondary">
+              Activity
+            </h2>
+            <p className="text-[10px] font-bold text-brand-secondary/30 uppercase tracking-[0.2em]">
+              Recent Transactions
+            </p>
+          </div>
+          <button
+            onClick={() => refetch()}
+            disabled={isRefetching}
+            className="p-3 bg-white/5 border border-white/8 rounded-xl transition-all hover:bg-white/10 group"
+          >
+            <RefreshCw
+              className={cn(
+                'w-4 h-4 text-brand-secondary/40 group-hover:text-accent',
+                isRefetching && 'animate-spin',
+              )}
+            />
+          </button>
         </div>
-        <button
-          onClick={() => refetch()}
-          disabled={isRefetching}
-          className="p-2 hover:bg-muted rounded-full transition-colors group"
-        >
-          <RefreshCw
-            className={cn(
-              'w-4 h-4 text-muted-foreground group-hover:text-foreground',
-              isRefetching && 'animate-spin',
-            )}
-          />
-        </button>
-      </div>
+      )}
 
-      <div className="card-elegant p-0 overflow-hidden divide-y divide-border/50">
+      <div
+        className={cn(
+          'overflow-hidden divide-y divide-white/4',
+          !hideHeader && 'card-glass p-0',
+        )}
+      >
         {!activities || activities.length === 0 ? (
           <div className="p-16 text-center">
-            <p className="text-sm font-bold text-muted-foreground uppercase tracking-widest opacity-40">
-              No activity yet
+            <p
+              className="text-xs font-bold uppercase tracking-[0.2em]"
+              style={{ color: 'rgba(248,248,246,0.2)' }}
+            >
+              No transactions found
             </p>
           </div>
         ) : (
           activities.map((a) => (
             <button
               key={a.id}
-              onClick={() => setSelectedActivity(a)}
-              className="w-full p-5 flex items-center gap-4 hover:bg-muted/30 transition-all text-left group"
+              onClick={() => onTxClick?.(a)}
+              className="w-full p-4 md:p-6 flex items-center gap-5 hover:bg-white/2 transition-all text-left group relative"
             >
               <div
                 className={cn(
-                  'w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 transition-transform group-hover:scale-105',
-                  a.type === 'sent'
-                    ? 'bg-red-50 text-red-600'
-                    : a.type === 'received'
-                      ? 'bg-green-50 text-green-600'
-                      : a.type === 'deposit'
-                        ? 'bg-blue-50 text-blue-600'
-                        : 'bg-orange-50 text-orange-600',
+                  'w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 transition-all group-hover:scale-110 group-hover:rotate-3',
                 )}
+                style={{
+                  background:
+                    a.type === 'sent'
+                      ? 'rgba(248, 113, 113, 0.08)'
+                      : a.type === 'received'
+                        ? 'rgba(0, 232, 122, 0.08)'
+                        : a.type === 'deposit'
+                          ? 'rgba(59, 130, 246, 0.08)'
+                          : 'rgba(251, 146, 60, 0.08)',
+                  color:
+                    a.type === 'sent'
+                      ? '#f87171'
+                      : a.type === 'received'
+                        ? '#00e87a'
+                        : a.type === 'deposit'
+                          ? '#3b82f6'
+                          : '#fb923c',
+                  border: `1px solid ${
+                    a.type === 'sent'
+                      ? 'rgba(248, 113, 113, 0.15)'
+                      : a.type === 'received'
+                        ? 'rgba(0, 232, 122, 0.15)'
+                        : a.type === 'deposit'
+                          ? 'rgba(59, 130, 246, 0.15)'
+                          : 'rgba(251, 146, 60, 0.15)'
+                  }`,
+                }}
               >
                 {a.type === 'sent' && <ArrowUpRight className="w-5 h-5" />}
                 {a.type === 'received' && <ArrowDownLeft className="w-5 h-5" />}
@@ -183,142 +221,40 @@ export function HistoryModule({
                 {a.type === 'withdrawal' && <Landmark className="w-5 h-5" />}
               </div>
 
-              <div className="flex-1 min-w-0 space-y-0.5">
-                <div className="flex justify-between items-start">
-                  <p className="font-bold text-sm uppercase tracking-tight truncate">
-                    {a.type}
+              <div className="flex-1 min-w-0 space-y-1.5">
+                <div className="flex justify-between items-center gap-2">
+                  <p className="font-bold text-sm tracking-tight text-brand-secondary">
+                    {ACTIVITY_LABELS[a.type]}
                   </p>
-                  <span className="text-sm font-black tabular-nums">
+                  <span
+                    className="text-sm font-bold tabular-nums"
+                    style={{
+                      color:
+                        a.type === 'sent' || a.type === 'withdrawal'
+                          ? '#f8f8f6'
+                          : '#00e87a',
+                    }}
+                  >
                     {a.type === 'sent' || a.type === 'withdrawal' ? '-' : '+'}
                     {a.amount.toLocaleString()}{' '}
-                    <span className="text-[10px] opacity-40">{a.asset}</span>
+                    <span className="text-[10px] opacity-30 font-bold">
+                      {a.asset}
+                    </span>
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <p className="text-[10px] font-bold text-muted-foreground uppercase truncate tracking-wide">
+                  <p className="text-[10px] font-bold uppercase truncate tracking-widest text-brand-secondary/30">
                     {a.details}
                   </p>
-                  <span className="text-[10px] font-medium text-muted-foreground/60 uppercase">
+                  <span className="text-[10px] font-bold uppercase text-brand-secondary/20">
                     {format(new Date(a.timestamp), 'MMM dd')}
                   </span>
                 </div>
               </div>
-
-              <ChevronRight className="w-4 h-4 text-muted-foreground/20 group-hover:text-muted-foreground/50 transition-colors" />
             </button>
           ))
         )}
       </div>
-
-      {/* Activity Detail Modal */}
-      {selectedActivity && (
-        <div className="fixed inset-0 bg-foreground/40 backdrop-blur-sm z-100 flex items-center justify-center p-4 animate-in fade-in duration-300">
-          <div className="card-elegant w-full max-w-sm bg-background p-0 border-none shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
-            <div className="p-8 text-center space-y-6">
-              <div className="flex justify-center">
-                <div
-                  className={cn(
-                    'w-20 h-20 rounded-3xl flex items-center justify-center shadow-lg',
-                    selectedActivity.type === 'sent'
-                      ? 'bg-red-50 text-red-600'
-                      : selectedActivity.type === 'received'
-                        ? 'bg-green-50 text-green-600'
-                        : selectedActivity.type === 'deposit'
-                          ? 'bg-blue-50 text-blue-600'
-                          : 'bg-orange-50 text-orange-600',
-                  )}
-                >
-                  {selectedActivity.type === 'sent' && (
-                    <ArrowUpRight className="w-10 h-10" />
-                  )}
-                  {selectedActivity.type === 'received' && (
-                    <ArrowDownLeft className="w-10 h-10" />
-                  )}
-                  {selectedActivity.type === 'deposit' && (
-                    <Wallet className="w-10 h-10" />
-                  )}
-                  {selectedActivity.type === 'withdrawal' && (
-                    <Landmark className="w-10 h-10" />
-                  )}
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em]">
-                  {selectedActivity.type}
-                </p>
-                <h3 className="text-4xl font-black tracking-tighter">
-                  {selectedActivity.amount.toLocaleString()}{' '}
-                  <span className="text-lg opacity-40">
-                    {selectedActivity.asset}
-                  </span>
-                </h3>
-                <span
-                  className={cn(
-                    'inline-block px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest mt-2',
-                    selectedActivity.status === 'completed' ||
-                      selectedActivity.status === 'confirmed' ||
-                      selectedActivity.status === 'claimed'
-                      ? 'bg-green-100 text-green-700'
-                      : selectedActivity.status === 'failed'
-                        ? 'bg-red-100 text-red-700'
-                        : 'bg-muted text-muted-foreground',
-                  )}
-                >
-                  {selectedActivity.status}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 text-left">
-                <div className="p-4 bg-muted/30 rounded-2xl border border-border/50">
-                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1 flex items-center gap-2">
-                    <Clock className="w-3 h-3" /> Timestamp
-                  </p>
-                  <p className="text-xs font-semibold uppercase">
-                    {format(
-                      new Date(selectedActivity.timestamp),
-                      'MMMM dd, yyyy @ HH:mm',
-                    )}
-                  </p>
-                </div>
-
-                <div className="p-4 bg-muted/30 rounded-2xl border border-border/50">
-                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1 flex items-center gap-2">
-                    <History className="w-3 h-3" /> Details
-                  </p>
-                  <p className="text-xs font-semibold uppercase truncate">
-                    {selectedActivity.details}
-                  </p>
-                  {selectedActivity.type === 'received' && selectedActivity.senderEmail && (
-                    <p className="text-[10px] text-muted-foreground mt-1 truncate">
-                      Source: {selectedActivity.senderEmail}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex gap-3">
-                {selectedActivity.txHash && (
-                  <a
-                    href={`${EXPLORER_BASE_URL}${selectedActivity.txHash}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="btn-secondary flex-1 h-12 text-xs gap-2"
-                  >
-                    <ExternalLink className="w-4 h-4" /> Explorer
-                  </a>
-                )}
-                <button
-                  onClick={() => setSelectedActivity(null)}
-                  className="btn-primary flex-1 h-12 text-xs"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

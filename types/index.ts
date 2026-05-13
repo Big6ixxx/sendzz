@@ -5,10 +5,19 @@
  */
 
 export {
-    type AssetType, type Database, type DepositStatus, type Enums, type Json, type OtpPurpose, type Tables,
-    type TablesInsert,
-    type TablesUpdate, type TransferStatus, type WebhookProvider, type WithdrawalStatus,
-    type WithdrawalVerificationStatus
+  type AssetType,
+  type Database,
+  type DepositStatus,
+  type Enums,
+  type Json,
+  type OtpPurpose,
+  type Tables,
+  type TablesInsert,
+  type TablesUpdate,
+  type TransferStatus,
+  type WebhookProvider,
+  type WithdrawalStatus,
+  type WithdrawalVerificationStatus
 } from './database';
 
 // Paycrest webhook payload type for service layer

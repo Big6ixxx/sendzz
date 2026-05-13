@@ -2,34 +2,41 @@
 
 import { getBitnobClient } from '@/lib/bitnob/client';
 import { getPaycrestClient } from '@/lib/paycrest/client';
+import { PaycrestCurrency } from '../paycrest/types';
 
 /**
  * PAYCREST ON-RAMP (DEFAULT)
  * Initiates an on-ramp order via Paycrest
  */
 export async function initiateOnRamp({
-  amountNgn,
+  amountFiat,
   userId,
   userAddress,
   userEmail,
   refundAccount,
+  fiatCurrency = 'NGN',
 }: {
-  amountNgn: number;
+  amountFiat: number;
   userId: string;
   userAddress: string;
   userEmail: string;
-  refundAccount: { institution: string; accountIdentifier: string; accountName: string };
+  refundAccount: {
+    institution: string;
+    accountIdentifier: string;
+    accountName: string;
+  };
+  fiatCurrency?: PaycrestCurrency;
 }) {
   const paycrest = getPaycrestClient();
-  
+
   try {
     const safeUserId = userId.replace(/[^a-z0-9]/gi, '');
     const order = await paycrest.createOrder({
-      amount: amountNgn.toString(),
+      amount: amountFiat.toString(),
       amountIn: 'fiat',
       source: {
         type: 'fiat',
-        currency: 'NGN',
+        currency: fiatCurrency,
         refundAccount,
       },
       destination: {
@@ -38,7 +45,7 @@ export async function initiateOnRamp({
         recipient: {
           address: userAddress,
           network: 'base',
-        }
+        },
       },
       reference: `onramp${Date.now()}${safeUserId}`,
     });
@@ -47,8 +54,8 @@ export async function initiateOnRamp({
     const { recordDeposit } = await import('@/lib/supabase/actions');
     await recordDeposit({
       userEmail,
-      amountFiat: amountNgn,
-      currencyFiat: 'NGN',
+      amountFiat,
+      currencyFiat: fiatCurrency,
       amountUsdc: 0, // Will be updated when confirmed
       status: 'pending',
       paycrestTxId: order.id,
@@ -57,19 +64,22 @@ export async function initiateOnRamp({
     return order;
   } catch (error: unknown) {
     const err = error as Error;
-    console.error('Error initiating Paycrest on-ramp:', err.message || error);
+    console.error(
+      `Error initiating Paycrest on-ramp for ${fiatCurrency}:`,
+      err.message || error,
+    );
     throw error;
   }
 }
 
 /**
- * Get the live NGN→USDC buy rate from Paycrest
+ * Get the live fiat→USDC buy rate from Paycrest
  */
-export async function getOnRampRate(): Promise<number> {
+export async function getOnRampRate(fiat: string = 'NGN'): Promise<number> {
   const paycrest = getPaycrestClient();
-  const rates = await paycrest.getRates('base', 'USDC', 1, 'NGN');
+  const rates = await paycrest.getRates('base', 'USDC', 1, fiat);
   const buyRate = rates.data.buy?.rate;
-  if (!buyRate) throw new Error('Could not fetch onramp rate');
+  if (!buyRate) throw new Error(`Could not fetch onramp rate for ${fiat}`);
   return Number(buyRate);
 }
 
@@ -97,19 +107,22 @@ export async function checkOrderById(orderId: string) {
 /**
  * PAYCREST OFF-RAMP QUOTE (DEFAULT)
  */
-export async function getOffRampQuote(amountUsdc: number) {
+export async function getOffRampQuote(amountUsdc: number, fiat: string = 'NGN') {
   const paycrest = getPaycrestClient();
-  
+
   try {
-    const rates = await paycrest.getRates('base', 'USDC', amountUsdc, 'NGN');
+    const rates = await paycrest.getRates('base', 'USDC', amountUsdc, fiat);
     return {
       rate: rates.data.sell?.rate || 0,
       payoutAmount: amountUsdc * (rates.data.sell?.rate || 0),
-      provider: 'paycrest'
+      provider: 'paycrest',
     };
   } catch (error: unknown) {
     const err = error as Error;
-    console.error('Error fetching Paycrest rates:', err.message || error);
+    console.error(
+      `Error fetching Paycrest rates for ${fiat}:`,
+      err.message || error,
+    );
     throw error;
   }
 }
@@ -123,10 +136,11 @@ export async function finalizeOffRamp(
   bankCode: string,
   accountName: string,
   userRefundAddress: string,
-  userEmail: string
+  userEmail: string,
+  fiat: PaycrestCurrency = 'NGN',
 ) {
   const paycrest = getPaycrestClient();
-  
+
   try {
     const order = await paycrest.createOrder({
       amount: amountUsdc.toString(),
@@ -135,16 +149,16 @@ export async function finalizeOffRamp(
         type: 'crypto',
         currency: 'USDC',
         network: 'base',
-        refundAddress: userRefundAddress
+        refundAddress: userRefundAddress,
       },
       destination: {
         type: 'fiat',
-        currency: 'NGN',
+        currency: fiat,
         recipient: {
           institution: bankCode,
           accountIdentifier: accountNumber,
           accountName: accountName,
-        }
+        },
       },
       reference: `offramp_${Date.now()}`,
     });
@@ -154,7 +168,7 @@ export async function finalizeOffRamp(
     await recordWithdrawal({
       userEmail,
       amountUsdc,
-      fiatCurrency: 'NGN',
+      fiatCurrency: fiat,
       bankAccountMasked: accountNumber.replace(/.(?=.{4})/g, '*'),
       institutionCode: bankCode,
       status: 'processing',
@@ -164,7 +178,10 @@ export async function finalizeOffRamp(
     return order;
   } catch (error: unknown) {
     const err = error as Error;
-    console.error('Error finalizing Paycrest off-ramp:', err.message || error);
+    console.error(
+      `Error finalizing Paycrest off-ramp for ${fiat}:`,
+      err.message || error,
+    );
     throw error;
   }
 }
@@ -172,7 +189,10 @@ export async function finalizeOffRamp(
 /**
  * Verify Bank Account
  */
-export async function verifyBankAccount(institution: string, accountNumber: string) {
+export async function verifyBankAccount(
+  institution: string,
+  accountNumber: string,
+) {
   console.log(`[Action] verifyBankAccount: ${institution} / ${accountNumber}`);
   const paycrest = getPaycrestClient();
   try {
@@ -200,7 +220,9 @@ export async function initiateBitnobOnRamp(
     description: `Sendzz Deposit for ${userAddress}`,
     successUrl: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?status=success`,
   });
-  return checkout.data.checkoutUrl || checkout.data.hosted_url || checkout.data.url;
+  return (
+    checkout.data.checkoutUrl || checkout.data.hosted_url || checkout.data.url
+  );
 }
 
 export async function getBitnobOffRampQuote(amountUsdc: number) {

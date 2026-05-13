@@ -1,21 +1,10 @@
 'use client';
 
+import { Sidebar } from '@/components/Sidebar';
 import { usePrivy } from '@privy-io/react-auth';
-import { 
-  LayoutDashboard, 
-  Send, 
-  History, 
-  Settings, 
-  LogOut, 
-  Menu, 
-  X,
-  CreditCard,
-  User
-} from 'lucide-react';
-import Link from 'next/link';
+import { Menu } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
-import { cn } from '@/lib/utils';
 
 export default function DashboardLayout({
   children,
@@ -26,90 +15,63 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  const navItems = [
-    { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-    { name: 'Transfers', href: '/dashboard/transfers', icon: Send },
-    { name: 'History', href: '/dashboard/history', icon: History },
-    { name: 'Settings', href: '/dashboard/settings', icon: Settings },
-  ];
-
   return (
-    <div className="flex min-h-screen bg-background">
-      {/* Mobile Sidebar Overlay */}
-      {isSidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-foreground/50 z-40 lg:hidden backdrop-blur-sm"
-          onClick={() => setIsSidebarOpen(false)}
+    <div className="flex min-h-screen" style={{ background: '#07070a' }}>
+      {/* Ambient glow — subtle, dashboard version */}
+      <div
+        className="fixed inset-0 pointer-events-none overflow-hidden"
+        aria-hidden
+      >
+        <div
+          className="absolute top-[-10%] left-[20%] w-[500px] h-[500px] rounded-full opacity-[0.06] blur-[100px]"
+          style={{
+            background: 'radial-gradient(circle, #00e87a, transparent 70%)',
+          }}
         />
-      )}
+        <div
+          className="absolute bottom-[5%] right-[10%] w-[400px] h-[400px] rounded-full opacity-[0.04] blur-[80px]"
+          style={{
+            background: 'radial-gradient(circle, #3b82f6, transparent 70%)',
+          }}
+        />
+      </div>
 
-      {/* Sidebar */}
-      <aside className={cn(
-        "fixed inset-y-0 left-0 z-50 w-72 bg-background border-r border-border transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0",
-        isSidebarOpen ? "translate-x-0" : "-translate-x-full"
-      )}>
-        <div className="flex flex-col h-full p-6">
-          <div className="flex items-center gap-3 mb-10 px-2">
-            <div className="w-10 h-10 bg-foreground text-background rounded-xl flex items-center justify-center font-black text-xl">S</div>
-            <h1 className="text-2xl font-black tracking-tighter uppercase">Sendzz</h1>
-          </div>
-
-          <nav className="flex-1 space-y-2">
-            {navItems.map((item) => (
-              <Link
-                key={item.name}
-                href={item.href}
-                onClick={() => setIsSidebarOpen(false)}
-                className={cn(
-                  "flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all group",
-                  pathname === item.href 
-                    ? "bg-foreground text-background" 
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                )}
-              >
-                <item.icon className="w-5 h-5" />
-                {item.name}
-              </Link>
-            ))}
-          </nav>
-
-          <div className="mt-auto pt-6 border-t border-border space-y-4">
-            <div className="px-4 py-3 bg-muted/50 rounded-2xl border border-border/50">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-foreground/10 rounded-full flex items-center justify-center">
-                  <User className="w-4 h-4 text-foreground" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-bold truncate">{user?.email?.address || 'Anonymous'}</p>
-                  <p className="text-[10px] text-muted-foreground uppercase font-black tracking-widest">Personal Account</p>
-                </div>
-              </div>
-            </div>
-            
-            <button
-              onClick={() => logout()}
-              className="flex items-center gap-3 px-4 py-3 w-full rounded-xl text-sm font-semibold text-muted-foreground hover:bg-red-50 hover:text-red-600 transition-all"
-            >
-              <LogOut className="w-5 h-5" />
-              Sign Out
-            </button>
-          </div>
-        </div>
-      </aside>
+      <Sidebar
+        userEmail={user?.email?.address || ''}
+        pathname={pathname}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        onLogout={() => logout()}
+      />
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         {/* Mobile Header */}
-        <header className="lg:hidden flex items-center justify-between p-4 border-b border-border bg-background">
+        <header
+          className="lg:hidden flex items-center justify-between p-4 sticky top-0 z-30"
+          style={{
+            background: 'rgba(7, 7, 10, 0.75)',
+            backdropFilter: 'blur(24px) saturate(180%)',
+            borderBottom: '1px solid rgba(255,255,255,0.05)',
+          }}
+        >
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-foreground text-background rounded-lg flex items-center justify-center font-black">S</div>
-            <span className="font-black tracking-tighter uppercase">Sendzz</span>
+            <div
+              className="w-7 h-7 rounded-lg flex items-center justify-center font-display font-bold text-sm"
+              style={{ background: '#00e87a', color: '#07070a' }}
+            >
+              S
+            </div>
+            <span className="font-display font-bold tracking-tight text-sm">
+              Sendzz
+            </span>
           </div>
-          <button 
+          <button
             onClick={() => setIsSidebarOpen(true)}
-            className="p-2 hover:bg-muted rounded-lg"
+            className="p-2 rounded-xl transition-colors"
+            style={{ color: 'rgba(248,248,246,0.5)' }}
           >
-            <Menu className="w-6 h-6" />
+            <Menu className="w-5 h-5" />
           </button>
         </header>
 

@@ -34,3 +34,11 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+
+1. There are errors in the TxStatusPage, and I'm not sure it was redesigned in the big redesign. Fix this.
+2. Abstract away the Sidebar into its own component.
+3. Make the transfers table more responsive.
+4. Abstract away the header component of the dashboard components.
+5. I need to be able to add a memo for single transfers. Also, I don't see the note/ memo that I add during batch sends or Paycrest orders when I open up transaction details. Also, I don't like the way the history transactions are displayed exactly like recent transactions on the home page. The home page should only have 5 transactions, and not load everything. The history shouldn't have the activity card and recent transactions text.
+6. There are errors in the TxStatusPage, and I'm not sure it was redesigned in the big redesign.

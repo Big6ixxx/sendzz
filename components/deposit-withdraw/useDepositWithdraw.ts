@@ -9,6 +9,7 @@ import {
   initiateOnRamp,
   verifyBankAccount,
 } from '@/lib/actions/ramp';
+import { type FiatCurrencyCode } from '@/lib/currency-config';
 import {
   PaycrestInstitution,
   PaycrestOrderResponse,
@@ -42,6 +43,7 @@ export function useDepositWithdraw(
   const [amount, setAmount] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fiatCurrency, setFiatCurrency] = useState<FiatCurrencyCode>('NGN');
 
   // Institutions & Rates
   const [institutions, setInstitutions] = useState<PaycrestInstitution[]>([]);
@@ -71,11 +73,11 @@ export function useDepositWithdraw(
   const [txStatus, setTxStatus] = useState<string | null>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Fetch initial data
+  // Fetch institutions & rates when fiatCurrency changes
   useEffect(() => {
     const init = async () => {
       try {
-        const res = await getInstitutions('NGN');
+        const res = await getInstitutions(fiatCurrency);
         setInstitutions(res.data);
       } catch (err) {
         console.error('Failed to fetch banks', err);
@@ -83,14 +85,18 @@ export function useDepositWithdraw(
     };
     init();
 
+    // Reset bank details when currency changes
+    setBankDetails({ accountNumber: '', bankCode: '', accountName: '', bankName: '' });
+    lastAttemptedRef.current = '';
+
     if (type === 'deposit') {
       setRateLoading(true);
-      getOnRampRate()
+      getOnRampRate(fiatCurrency)
         .then(setRate)
         .catch(() => setRate(null))
         .finally(() => setRateLoading(false));
     }
-  }, [type]);
+  }, [type, fiatCurrency]);
 
   // Bank Auto-Verification
   const handleVerifyBank = useCallback(async (details: BankDetails) => {
@@ -144,7 +150,7 @@ export function useDepositWithdraw(
     setError(null);
     try {
       const res = await initiateOnRamp({
-        amountNgn: parseFloat(amount),
+        amountFiat: parseFloat(amount),
         userId,
         userAddress,
         userEmail,
@@ -153,6 +159,7 @@ export function useDepositWithdraw(
           accountIdentifier: bankDetails.accountNumber,
           accountName: bankDetails.accountName,
         },
+        fiatCurrency,
       });
       setOrder(res);
       setStep(2);
@@ -173,7 +180,7 @@ export function useDepositWithdraw(
     setLoading(true);
     setError(null);
     try {
-      const res = await getOffRampQuote(parseFloat(amount));
+      const res = await getOffRampQuote(parseFloat(amount), fiatCurrency);
       setQuote(res);
       setStep(2);
     } catch (err) {
@@ -200,6 +207,7 @@ export function useDepositWithdraw(
         bankDetails.accountName,
         userAddress,
         userEmail,
+        fiatCurrency,
       );
       setOrder(res);
       setStep(3);
@@ -283,6 +291,8 @@ export function useDepositWithdraw(
     setAmount,
     loading,
     error,
+    fiatCurrency,
+    setFiatCurrency,
     institutions,
     rate,
     rateLoading,
