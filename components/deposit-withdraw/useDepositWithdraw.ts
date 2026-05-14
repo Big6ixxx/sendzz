@@ -9,6 +9,7 @@ import {
   initiateOnRamp,
   verifyBankAccount,
 } from '@/lib/actions/ramp';
+import { updateDepositStatus } from '@/lib/supabase/actions';
 import { type FiatCurrencyCode } from '@/lib/currency-config';
 import {
   PaycrestInstitution,
@@ -159,6 +160,13 @@ export function useDepositWithdraw(
       return;
     }
 
+    // Check estimated USDC > 1
+    const estimatedUsdc = val / (rate || 1);
+    if (estimatedUsdc <= 1) {
+      toast.error('Estimated deposit must be greater than 1 USDC');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
@@ -187,8 +195,8 @@ export function useDepositWithdraw(
 
   const handleWithdrawQuote = async () => {
     const val = parseFloat(amount);
-    if (isNaN(val) || val < 1) {
-      setError('Minimum withdrawal is 1 USDC');
+    if (isNaN(val) || val <= 1) {
+      toast.error('Minimum withdrawal must be greater than 1 USDC');
       return;
     }
 
@@ -273,21 +281,21 @@ export function useDepositWithdraw(
             'settled',
             'refunded',
             'expired',
-            'failed',
-            'cancelled',
-            'completed',
           ].includes(result.status)
         ) {
           if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
           setPolling(false);
 
+          // Update database status
           if (result.status === 'settled') {
+            updateDepositStatus(order.id, 'confirmed');
             toast.success('Funds received!');
             queryClient.invalidateQueries({
               queryKey: ['balance', userAddress],
             });
             setStep(3);
           } else {
+            updateDepositStatus(order.id, 'failed');
             toast.error(`Transaction ${result.status}`);
           }
         }

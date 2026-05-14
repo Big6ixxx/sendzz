@@ -439,6 +439,30 @@ export interface Database {
         };
         Relationships: [];
       };
+      platform_admins: {
+        Row: {
+          id: string;
+          email: string;
+          role: 'super_admin' | 'admin' | 'moderator';
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          email: string;
+          role?: 'super_admin' | 'admin' | 'moderator';
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          email?: string;
+          role?: 'super_admin' | 'admin' | 'moderator';
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       [_ in never]: never;

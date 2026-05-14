@@ -54,9 +54,9 @@ export async function initiateOnRamp({
     const { recordDeposit } = await import('@/lib/supabase/actions');
     await recordDeposit({
       userEmail,
-      amountFiat,
+      amountFiat: Number(order.providerAccount?.amountToTransfer || amountFiat),
       currencyFiat: fiatCurrency,
-      amountUsdc: 0, // Will be updated when confirmed
+      amountUsdc: Number(order.amount),
       status: 'pending',
       paycrestTxId: order.id,
     });
