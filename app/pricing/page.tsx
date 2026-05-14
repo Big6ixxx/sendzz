@@ -1,11 +1,11 @@
-'use client';
+"use client";
 
-import { usePrivy } from '@privy-io/react-auth';
-import { motion } from 'framer-motion';
-import { Check } from 'lucide-react';
-import Image from 'next/image';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { usePrivy } from "@privy-io/react-auth";
+import { motion } from "framer-motion";
+import { Check } from "lucide-react";
+import Image from "next/image";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 export default function PricingPage() {
   const { authenticated, login } = usePrivy();
@@ -13,7 +13,7 @@ export default function PricingPage() {
 
   const handleAction = () => {
     if (authenticated) {
-      router.push('/dashboard');
+      router.push("/dashboard");
     } else {
       login();
     }
@@ -21,49 +21,49 @@ export default function PricingPage() {
 
   const plans = [
     {
-      name: 'Personal',
-      price: 'Free',
-      description: 'Ideal for individuals sending money to friends and family.',
+      name: "Personal",
+      price: "Free",
+      description: "Ideal for individuals sending money to friends and family.",
       features: [
-        'Gas-free transfers',
-        'Email-based payments',
-        'Local fiat ramps',
-        'Biometric security',
-        'Standard support',
+        "Gas-free transfers",
+        "Email-based payments",
+        "Local fiat ramps",
+        "Biometric security",
+        "Standard support",
       ],
-      cta: 'Get Started',
+      cta: "Get Started",
       accent: false,
     },
     {
-      name: 'Business',
-      price: '$49',
-      period: '/mo',
-      description: 'For teams and organizations managing payroll and ops.',
+      name: "Business",
+      price: "$49",
+      period: "/mo",
+      description: "For teams and organizations managing payroll and ops.",
       features: [
-        'Everything in Personal',
-        'Batch engine access',
-        'Multiple sub-accounts',
-        'Transaction API access',
-        'Priority 24/7 support',
-        'Custom webhooks',
+        "Everything in Personal",
+        "Batch engine access",
+        "Multiple sub-accounts",
+        "Transaction API access",
+        "Priority 24/7 support",
+        "Custom webhooks",
       ],
-      cta: 'Upgrade to Business',
+      cta: "Upgrade to Business",
       accent: true,
     },
     {
-      name: 'Enterprise',
-      price: 'Custom',
+      name: "Enterprise",
+      price: "Custom",
       description:
-        'Custom infrastructure and support for high-volume entities.',
+        "Custom infrastructure and support for high-volume entities.",
       features: [
-        'Everything in Business',
-        'Dedicated account manager',
-        'Whitelabel options',
-        'On-premise deployment',
-        'SLA guarantees',
-        'Audit-ready reporting',
+        "Everything in Business",
+        "Dedicated account manager",
+        "Whitelabel options",
+        "On-premise deployment",
+        "SLA guarantees",
+        "Audit-ready reporting",
       ],
-      cta: 'Contact Sales',
+      cta: "Contact Sales",
       accent: false,
     },
   ];
@@ -71,7 +71,7 @@ export default function PricingPage() {
   return (
     <div
       className="min-h-screen selection:bg-accent/30"
-      style={{ background: '#07070a' }}
+      style={{ background: "#07070a" }}
     >
       {/* Background Ambience */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
@@ -81,16 +81,19 @@ export default function PricingPage() {
 
       <header className="fixed top-0 left-0 right-0 z-50 flex justify-between items-center py-5 px-6 md:px-12 bg-[#07070a]/60 backdrop-blur-xl border-b border-white/5">
         <Link href="/" className="flex items-center gap-2.5">
-          <Image src="/logo.svg" alt="Sendzz" width={32} height={32} priority />
-          <span className="font-display text-xl font-bold tracking-tight text-brand-secondary">
-            Sendzz
-          </span>
+          <Image
+            src="/logo.svg"
+            alt="Sendzz"
+            width={100}
+            height={30}
+            priority
+          />
         </Link>
         <button
           onClick={handleAction}
           className="btn-accent h-10 px-6 text-sm rounded-full font-semibold"
         >
-          {authenticated ? 'Dashboard' : 'Get Started'}
+          {authenticated ? "Dashboard" : "Get Started"}
         </button>
       </header>
 
@@ -126,9 +129,9 @@ export default function PricingPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.1 }}
                 className={cn(
-                  'card-glass p-10 flex flex-col h-full',
+                  "card-glass p-10 flex flex-col h-full",
                   plan.accent &&
-                    'border-accent/30 bg-accent/3 scale-105 z-10 shadow-[0_32px_80px_rgba(0,232,122,0.1)]',
+                    "border-accent/30 bg-accent/3 scale-105 z-10 shadow-[0_32px_80px_rgba(0,232,122,0.1)]",
                 )}
               >
                 <div className="space-y-4 mb-10">
@@ -167,13 +170,13 @@ export default function PricingPage() {
                 <button
                   onClick={handleAction}
                   className={cn(
-                    'w-full h-14 rounded-2xl font-bold text-xs uppercase tracking-widest transition-all',
+                    "w-full h-14 rounded-2xl font-bold text-xs uppercase tracking-widest transition-all",
                     plan.accent
-                      ? 'bg-accent text-[#07070a] hover:brightness-110'
-                      : 'bg-white/5 text-brand-secondary border border-white/10 hover:bg-white/8',
+                      ? "bg-accent text-[#07070a] hover:brightness-110"
+                      : "bg-white/5 text-brand-secondary border border-white/10 hover:bg-white/8",
                   )}
                 >
-                  {authenticated ? 'Enter Dashboard' : plan.cta}
+                  {authenticated ? "Enter Dashboard" : plan.cta}
                 </button>
               </motion.div>
             ))}
@@ -212,28 +215,28 @@ export default function PricingPage() {
                 <tbody className="divide-y divide-white/5">
                   {[
                     {
-                      s: 'Wallet to Wallet',
-                      n: '$0.00',
-                      o: 'Free',
-                      st: 'Instant',
+                      s: "Wallet to Wallet",
+                      n: "$0.00",
+                      o: "Free",
+                      st: "Instant",
                     },
                     {
-                      s: 'Fiat Deposit (On-ramp)',
-                      n: '$0.00',
-                      o: '0.8%',
-                      st: '< 2 mins',
+                      s: "Fiat Deposit (On-ramp)",
+                      n: "$0.00",
+                      o: "0.8%",
+                      st: "< 2 mins",
                     },
                     {
-                      s: 'Fiat Withdrawal (Off-ramp)',
-                      n: '$0.00',
-                      o: '1.2%',
-                      st: '< 5 mins',
+                      s: "Fiat Withdrawal (Off-ramp)",
+                      n: "$0.00",
+                      o: "1.2%",
+                      st: "< 5 mins",
                     },
                     {
-                      s: 'Batch Disbursement',
-                      n: '$0.00',
-                      o: '$0.10 / rec',
-                      st: 'Instant',
+                      s: "Batch Disbursement",
+                      n: "$0.00",
+                      o: "$0.10 / rec",
+                      st: "Instant",
                     },
                   ].map((row, i) => (
                     <tr key={i} className="group hover:bg-white/2">
@@ -268,5 +271,5 @@ export default function PricingPage() {
 }
 
 function cn(...classes: unknown[]) {
-  return classes.filter(Boolean).join(' ');
+  return classes.filter(Boolean).join(" ");
 }
