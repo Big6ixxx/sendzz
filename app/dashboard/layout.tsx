@@ -6,7 +6,7 @@ import { Menu } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export default function DashboardLayout({
   children,
@@ -16,6 +16,17 @@ export default function DashboardLayout({
   const { logout, user } = usePrivy();
   const pathname = usePathname();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    const items = [
+      { name: 'Dashboard', href: '/dashboard' },
+      { name: 'Transfer', href: '/dashboard/transfer' },
+      { name: 'History', href: '/dashboard/history' },
+      { name: 'Settings', href: '/dashboard/settings' },
+    ];
+    const section = items.find(item => item.href === pathname)?.name || 'Dashboard';
+    document.title = `${section} | Sendzz`;
+  }, [pathname]);
 
   return (
     <div className="flex min-h-screen" style={{ background: "#07070a" }}>

@@ -34,6 +34,11 @@ export default function AdminLayout({
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
 
   useEffect(() => {
+    const section = navItems.find(item => item.href === pathname)?.name || 'Admin';
+    document.title = `${section} | Sendzz`;
+  }, [pathname]);
+
+  useEffect(() => {
     async function verify() {
       if (ready && authenticated && user?.email?.address) {
         try {
