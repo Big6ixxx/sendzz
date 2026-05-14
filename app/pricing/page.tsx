@@ -3,10 +3,21 @@
 import { usePrivy } from '@privy-io/react-auth';
 import { motion } from 'framer-motion';
 import { Check } from 'lucide-react';
+import Image from 'next/image';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 export default function PricingPage() {
-  const { login } = usePrivy();
+  const { authenticated, login } = usePrivy();
+  const router = useRouter();
+
+  const handleAction = () => {
+    if (authenticated) {
+      router.push('/dashboard');
+    } else {
+      login();
+    }
+  };
 
   const plans = [
     {
@@ -70,18 +81,16 @@ export default function PricingPage() {
 
       <header className="fixed top-0 left-0 right-0 z-50 flex justify-between items-center py-5 px-6 md:px-12 bg-[#07070a]/60 backdrop-blur-xl border-b border-white/5">
         <Link href="/" className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl flex items-center justify-center font-display font-bold text-lg bg-accent text-[#07070a]">
-            S
-          </div>
+          <Image src="/logo.svg" alt="Sendzz" width={32} height={32} priority />
           <span className="font-display text-xl font-bold tracking-tight text-brand-secondary">
             Sendzz
           </span>
         </Link>
         <button
-          onClick={login}
+          onClick={handleAction}
           className="btn-accent h-10 px-6 text-sm rounded-full font-semibold"
         >
-          Get Started
+          {authenticated ? 'Dashboard' : 'Get Started'}
         </button>
       </header>
 
@@ -156,7 +165,7 @@ export default function PricingPage() {
                 </div>
 
                 <button
-                  onClick={login}
+                  onClick={handleAction}
                   className={cn(
                     'w-full h-14 rounded-2xl font-bold text-xs uppercase tracking-widest transition-all',
                     plan.accent
@@ -164,7 +173,7 @@ export default function PricingPage() {
                       : 'bg-white/5 text-brand-secondary border border-white/10 hover:bg-white/8',
                   )}
                 >
-                  {plan.cta}
+                  {authenticated ? 'Enter Dashboard' : plan.cta}
                 </button>
               </motion.div>
             ))}

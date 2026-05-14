@@ -87,8 +87,8 @@ export function CctpDepositForm({ userAddress }: CctpDepositFormProps) {
     : null;
 
   const handleContinueToInstructions = () => {
-    if (!amount || parseFloat(amount) <= 0) {
-      setError('Please enter a valid amount');
+    if (!amount || parseFloat(amount) < 1) {
+      setError('Minimum bridge amount is 1 USDC');
       return;
     }
     setError('');

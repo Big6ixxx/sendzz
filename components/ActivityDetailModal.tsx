@@ -12,6 +12,7 @@ import {
   Wallet,
   X,
 } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 
 import { Activity } from './HistoryModule';
 
@@ -35,20 +36,64 @@ export function ActivityDetailModal({
   isOpen,
   onClose,
 }: ActivityDetailModalProps) {
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+      window.addEventListener('keydown', handleEscape);
+      // Accessibility: Focus the modal container when it opens
+      modalRef.current?.focus();
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+
+    return () => {
+      document.body.style.overflow = 'unset';
+      window.removeEventListener('keydown', handleEscape);
+    };
+  }, [isOpen, onClose]);
+
   if (!isOpen || !activity) return null;
 
+  const isSuccess =
+    activity.status.toLowerCase() === 'settled' ||
+    activity.status.toLowerCase() === 'completed' ||
+    activity.status.toLowerCase() === 'confirmed' ||
+    activity.status.toLowerCase() === 'success';
+
   return (
-    <div className="fixed inset-0 z-100 flex items-center justify-center p-4 animate-in fade-in duration-300">
+    <div
+      className="fixed inset-0 z-100 flex items-center justify-center p-4 animate-in fade-in duration-300"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-title"
+    >
+      {/* Overlay / Backdrop */}
       <div
         className="fixed inset-0 bg-black/80 backdrop-blur-xl"
         onClick={onClose}
+        aria-hidden="true"
       />
-      <div className="card-glass w-full max-w-sm p-0 overflow-hidden animate-in zoom-in-95 duration-300 relative z-10 shadow-[0_32px_80px_rgba(0,0,0,0.8)] border-white/10">
+
+      {/* Modal Content */}
+      <div
+        ref={modalRef}
+        tabIndex={-1}
+        className="card-glass w-full max-w-sm p-0 overflow-hidden animate-in zoom-in-95 duration-300 relative z-10 shadow-[0_32px_80px_rgba(0,0,0,0.8)] border-white/10 focus:outline-none"
+      >
         <div className="p-8 text-center space-y-8">
-          {/* Close Button for better UX */}
+          {/* Close Button */}
           <button
             onClick={onClose}
-            className="absolute top-4 right-4 p-2 rounded-full bg-white/5 border border-white/10 text-brand-secondary/40 hover:text-brand-secondary transition-colors"
+            aria-label="Close details"
+            className="absolute top-4 right-4 p-2 rounded-full bg-white/5 border border-white/10 text-brand-secondary/40 hover:text-brand-secondary transition-colors outline-none focus:ring-2 focus:ring-accent/50"
           >
             <X className="w-4 h-4" />
           </button>
@@ -57,16 +102,18 @@ export function ActivityDetailModal({
             <div
               className="w-20 h-20 rounded-4xl flex items-center justify-center shadow-2xl relative group"
               style={{
-                background:
-                  activity.type === 'sent'
+                background: isSuccess
+                  ? 'rgba(0, 232, 122, 0.1)'
+                  : activity.type === 'sent'
                     ? 'rgba(248, 113, 113, 0.1)'
                     : activity.type === 'received'
                       ? 'rgba(0, 232, 122, 0.1)'
                       : activity.type === 'deposit'
                         ? 'rgba(59, 130, 246, 0.1)'
                         : 'rgba(251, 146, 60, 0.1)',
-                color:
-                  activity.type === 'sent'
+                color: isSuccess
+                  ? '#00e87a'
+                  : activity.type === 'sent'
                     ? '#f87171'
                     : activity.type === 'received'
                       ? '#00e87a'
@@ -74,13 +121,15 @@ export function ActivityDetailModal({
                         ? '#3b82f6'
                         : '#fb923c',
                 border: `1px solid ${
-                  activity.type === 'sent'
-                    ? 'rgba(248, 113, 113, 0.2)'
-                    : activity.type === 'received'
-                      ? 'rgba(0, 232, 122, 0.2)'
-                      : activity.type === 'deposit'
-                        ? 'rgba(59, 130, 246, 0.2)'
-                        : 'rgba(251, 146, 60, 0.2)'
+                  isSuccess
+                    ? 'rgba(0, 232, 122, 0.2)'
+                    : activity.type === 'sent'
+                      ? 'rgba(248, 113, 113, 0.2)'
+                      : activity.type === 'received'
+                        ? 'rgba(0, 232, 122, 0.2)'
+                        : activity.type === 'deposit'
+                          ? 'rgba(59, 130, 246, 0.2)'
+                          : 'rgba(251, 146, 60, 0.2)'
                 }`,
               }}
             >
@@ -104,7 +153,10 @@ export function ActivityDetailModal({
             <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
               {ACTIVITY_LABELS[activity.type]}
             </p>
-            <h3 className="font-display text-4xl font-bold tracking-tighter text-brand-secondary">
+            <h3
+              id="modal-title"
+              className="font-display text-4xl font-bold tracking-tighter text-brand-secondary"
+            >
               {activity.amount.toLocaleString()}{' '}
               <span className="text-lg opacity-30 font-bold uppercase">
                 {activity.asset}
@@ -164,14 +216,14 @@ export function ActivityDetailModal({
                 href={`${EXPLORER_BASE_URL}${activity.txHash}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest transition-all bg-white/6 text-brand-secondary border border-white/10 hover:bg-white/10"
+                className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest transition-all bg-white/6 text-brand-secondary border border-white/10 hover:bg-white/10 outline-none focus:ring-2 focus:ring-accent/50"
               >
                 <ExternalLink className="w-3.5 h-3.5" /> Explorer
               </a>
             )}
             <button
               onClick={onClose}
-              className="btn-accent flex-1 h-12 rounded-xl text-[10px] font-bold"
+              className="btn-accent flex-1 h-12 rounded-xl text-[10px] font-bold outline-none focus:ring-2 focus:ring-accent/50"
             >
               Close
             </button>

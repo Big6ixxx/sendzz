@@ -3,6 +3,8 @@
 import { Sidebar } from '@/components/Sidebar';
 import { usePrivy } from '@privy-io/react-auth';
 import { Menu } from 'lucide-react';
+import Image from 'next/image';
+import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 
@@ -55,17 +57,15 @@ export default function DashboardLayout({
             borderBottom: '1px solid rgba(255,255,255,0.05)',
           }}
         >
-          <div className="flex items-center gap-2">
-            <div
-              className="w-7 h-7 rounded-lg flex items-center justify-center font-display font-bold text-sm"
-              style={{ background: '#00e87a', color: '#07070a' }}
-            >
-              S
-            </div>
-            <span className="font-display font-bold tracking-tight text-sm">
-              Sendzz
-            </span>
-          </div>
+          <Link href="/dashboard">
+            <Image
+              src="/logo.svg"
+              alt="Sendzz"
+              width={100}
+              height={30}
+              priority
+            />
+          </Link>
           <button
             onClick={() => setIsSidebarOpen(true)}
             className="p-2 rounded-xl transition-colors"

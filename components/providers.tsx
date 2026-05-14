@@ -25,8 +25,8 @@ export function Providers({ children }: { children: ReactNode }) {
         config={{
           loginMethods: ['email'],
           appearance: {
-            theme: 'light',
-            accentColor: '#eaff00',
+            theme: 'dark',
+            accentColor: '#00e87a',
             showWalletLoginFirst: false,
           },
           embeddedWallets: {
@@ -40,9 +40,15 @@ export function Providers({ children }: { children: ReactNode }) {
       >
         {children}
         <Toaster
-          position="top-center"
+          position="top-right"
           toastOptions={{
-            className: 'font-sans! font-bold! text-sm! border-2! border-foreground! rounded-xl! shadow-lg!',
+            style: {
+              background: 'rgba(10, 10, 11, 0.8)',
+              backdropFilter: 'blur(16px)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              color: '#f8f8f6',
+              borderRadius: '20px',
+            },
           }}
         />
       </PrivyProvider>

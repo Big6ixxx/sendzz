@@ -10,7 +10,7 @@ import {
 import { cn } from '@/lib/utils';
 import { ConnectedWallet } from '@privy-io/react-auth';
 import { ArrowDownLeft, ArrowUpRight, X } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CctpDepositForm } from './CctpDepositForm';
 import { DepositForm } from './DepositForm';
 import { FlowType, useDepositWithdraw } from './useDepositWithdraw';
@@ -51,62 +51,82 @@ export function DepositWithdrawDialog({
     onClose,
   );
 
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [isOpen]);
+
   return (
     <Dialog open={isOpen} onOpenChange={(val) => !val && onClose()}>
       <DialogContent
         showCloseButton={false}
-        className="sm:max-w-md p-0 overflow-hidden border-none rounded-2xl shadow-2xl bg-background"
+        className="sm:max-w-md p-0 overflow-hidden border-none rounded-4xl shadow-[0_32px_80px_rgba(0,0,0,0.5)] card-glass bg-brand-primary/90 backdrop-blur-3xl"
       >
-        <DialogHeader className="p-6 pb-0 flex flex-row items-center justify-between">
-          <div className="space-y-1">
-            <DialogTitle className="text-3xl font-black uppercase tracking-tighter flex items-center gap-2">
-              {type === 'deposit' ? (
-                <ArrowDownLeft className="w-8 h-8 p-1.5 bg-foreground text-background rounded-lg" />
-              ) : (
-                <ArrowUpRight className="w-8 h-8 p-1.5 bg-foreground text-background rounded-lg" />
-              )}
-              {type === 'deposit' ? 'Deposit Funds' : 'Withdraw Funds'}
+        <DialogHeader className="p-8 pb-0 flex flex-row items-center justify-between">
+          <div className="space-y-1.5">
+            <DialogTitle className="text-4xl font-display font-bold tracking-tight text-brand-secondary flex items-center gap-3">
+              <div
+                className={cn(
+                  'w-12 h-12 rounded-2xl flex items-center justify-center shrink-0',
+                  type === 'deposit'
+                    ? 'bg-accent/10 text-accent border border-accent/20'
+                    : 'bg-blue-400/10 text-blue-400 border border-blue-400/20',
+                )}
+              >
+                {type === 'deposit' ? (
+                  <ArrowDownLeft className="w-6 h-6" />
+                ) : (
+                  <ArrowUpRight className="w-6 h-6" />
+                )}
+              </div>
+              {type === 'deposit' ? 'Deposit' : 'Withdraw'}
             </DialogTitle>
-            <DialogDescription className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            <DialogDescription className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
               {type === 'deposit'
-                ? 'Deposit funds into your Sendzz wallet'
-                : 'Withdraw to Bank Account'}
+                ? 'Fund your digital wallet'
+                : 'Withdraw to your bank'}
             </DialogDescription>
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-muted rounded-full transition-colors"
+            className="p-3 bg-white/5 border border-white/8 rounded-xl transition-all hover:bg-white/10 group"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4 text-brand-secondary/40 group-hover:text-brand-secondary" />
           </button>
         </DialogHeader>
 
-        <div className="p-6">
+        <div className="p-8">
           {type === 'deposit' && (
             <>
               {/* Tab Switcher */}
-              <div className="flex bg-muted p-1 rounded-xl mb-6">
+              <div className="flex bg-white/5 p-1 rounded-2xl mb-8 border border-white/5">
                 <button
                   onClick={() => setDepositTab('fiat')}
                   className={cn(
-                    'flex-1 py-2.5 text-xs font-bold uppercase tracking-widest rounded-lg transition-all',
+                    'flex-1 py-3 text-[10px] font-bold uppercase tracking-[0.2em] rounded-xl transition-all',
                     depositTab === 'fiat'
-                      ? 'bg-background shadow-sm text-foreground'
-                      : 'text-muted-foreground hover:text-foreground',
+                      ? 'bg-accent text-[#07070a] shadow-lg'
+                      : 'text-brand-secondary/40 hover:text-brand-secondary/60',
                   )}
                 >
-                  Fiat (NGN)
+                  Local Bank
                 </button>
                 <button
                   onClick={() => setDepositTab('usdc')}
                   className={cn(
-                    'flex-1 py-2.5 text-xs font-bold uppercase tracking-widest rounded-lg transition-all',
+                    'flex-1 py-3 text-[10px] font-bold uppercase tracking-[0.2em] rounded-xl transition-all',
                     depositTab === 'usdc'
-                      ? 'bg-background shadow-sm text-foreground'
-                      : 'text-muted-foreground hover:text-foreground',
+                      ? 'bg-accent text-[#07070a] shadow-lg'
+                      : 'text-brand-secondary/40 hover:text-brand-secondary/60',
                   )}
                 >
-                  USDC (Bridge)
+                  USDC Bridge
                 </button>
               </div>
 

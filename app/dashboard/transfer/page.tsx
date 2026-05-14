@@ -34,7 +34,7 @@ export default function TransfersPage() {
         const address = await getCircleAddress(provider);
         setSmartAddress(address);
       } catch (err) {
-        console.error('[Transfers] INIT ACCOUNT ERROR:', err);
+        console.error('[Transfer] INIT ACCOUNT ERROR:', err);
       }
     }
     if (ready && authenticated && wallets.length > 0) initAccount();
@@ -44,7 +44,7 @@ export default function TransfersPage() {
     <TooltipProvider>
       <div className="max-w-4xl mx-auto space-y-10">
         <DashboardPageHeader
-          title="Transfers"
+          title="Transfer"
           subtitle="Send money instantly to anyone, anywhere."
         />
 

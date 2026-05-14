@@ -22,20 +22,19 @@ export default function HistoryPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-10">
+    <div className="max-w-5xl mx-auto space-y-12">
       <DashboardPageHeader
         title="History"
         subtitle="Review your global settlement activity."
       />
 
-      <div className="card-glass p-1">
-        <HistoryModule
-          userId={user.id}
-          userEmail={user.email?.address || ''}
-          hideHeader={true}
-          onTxClick={setSelectedActivity}
-        />
-      </div>
+      <HistoryModule
+        userId={user.id}
+        userEmail={user.email?.address || ''}
+        hideHeader={true}
+        showControls={true}
+        onTxClick={setSelectedActivity}
+      />
 
       <ActivityDetailModal
         isOpen={!!selectedActivity}

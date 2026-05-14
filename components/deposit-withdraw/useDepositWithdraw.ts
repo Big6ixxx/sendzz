@@ -146,11 +146,24 @@ export function useDepositWithdraw(
       setError('Please verify your refund bank account');
       return;
     }
+    
+    const val = parseFloat(amount);
+    if (isNaN(val) || val <= 0) {
+      setError('Enter a valid amount');
+      return;
+    }
+    
+    // Minimums
+    if (fiatCurrency === 'NGN' && val < 1000) {
+      setError('Minimum deposit is 1,000 NGN');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
       const res = await initiateOnRamp({
-        amountFiat: parseFloat(amount),
+        amountFiat: val,
         userId,
         userAddress,
         userEmail,
@@ -173,14 +186,20 @@ export function useDepositWithdraw(
   };
 
   const handleWithdrawQuote = async () => {
-    if (parseFloat(amount) > parseFloat(balance)) {
+    const val = parseFloat(amount);
+    if (isNaN(val) || val < 1) {
+      setError('Minimum withdrawal is 1 USDC');
+      return;
+    }
+
+    if (val > parseFloat(balance)) {
       setError(`Insufficient balance. Max: ${balance} USDC`);
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const res = await getOffRampQuote(parseFloat(amount), fiatCurrency);
+      const res = await getOffRampQuote(val, fiatCurrency);
       setQuote(res);
       setStep(2);
     } catch (err) {

@@ -11,9 +11,10 @@ import {
   Shield,
   Zap,
 } from 'lucide-react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 
 /* ─── Mock UI Card Components ─── */
 
@@ -310,15 +311,17 @@ function CardTriptych() {
 
 /* ─── Main Landing Page ─── */
 export default function Landing() {
-  const { ready, authenticated, login } = usePrivy();
+  const { authenticated, login } = usePrivy();
   const router = useRouter();
   const heroRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (ready && authenticated) {
+  const handleAction = () => {
+    if (authenticated) {
       router.push('/dashboard');
+    } else {
+      login();
     }
-  }, [ready, authenticated, router]);
+  };
 
   return (
     <div
@@ -359,17 +362,15 @@ export default function Landing() {
           borderBottom: '1px solid rgba(255,255,255,0.05)',
         }}
       >
-        <div className="flex items-center gap-2.5">
-          <div
-            className="w-8 h-8 rounded-xl flex items-center justify-center font-display font-bold text-lg"
-            style={{ background: '#00e87a', color: '#07070a' }}
-          >
-            S
-          </div>
-          <span className="font-display text-xl font-bold tracking-tight text-brand-secondary">
-            Sendzz
-          </span>
-        </div>
+        <Link href="/">
+          <Image
+            src="/logo.svg"
+            alt="Sendzz"
+            width={100}
+            height={30}
+            priority
+          />
+        </Link>
 
         <nav className="hidden md:flex items-center gap-8">
           {[
@@ -393,11 +394,11 @@ export default function Landing() {
         </nav>
 
         <button
-          onClick={login}
+          onClick={handleAction}
           className="btn-accent h-10 px-6 text-sm rounded-full font-semibold"
           style={{ height: '2.5rem' }}
         >
-          Get Started
+          {authenticated ? 'Dashboard' : 'Get Started'}
         </button>
       </header>
 
@@ -458,10 +459,10 @@ export default function Landing() {
           {/* CTA row */}
           <div className="animate-slide-up opacity-0 delay-400 mt-10 flex flex-col sm:flex-row gap-4 items-center justify-center">
             <button
-              onClick={login}
+              onClick={handleAction}
               className="btn-accent h-14 px-10 text-base font-bold rounded-full flex items-center gap-3 group"
             >
-              Start Sending Free
+              {authenticated ? 'Enter Dashboard' : 'Start Sending Free'}
               <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </button>
             <button
@@ -653,10 +654,10 @@ export default function Landing() {
               Join thousands who have moved beyond borders, banks, and barriers.
             </p>
             <button
-              onClick={login}
+              onClick={handleAction}
               className="btn-accent h-14 px-12 text-base font-bold rounded-full inline-flex items-center gap-3 group"
             >
-              Create Your Wallet
+              {authenticated ? 'Go to Dashboard' : 'Create Your Wallet'}
               <ArrowUpRight className="w-5 h-5 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
             </button>
           </div>
@@ -670,15 +671,13 @@ export default function Landing() {
       >
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
           <div className="flex items-center gap-2.5">
-            <div
-              className="w-7 h-7 rounded-lg flex items-center justify-center font-display font-bold text-sm"
-              style={{ background: '#00e87a', color: '#07070a' }}
-            >
-              S
-            </div>
-            <span className="font-display font-bold text-brand-secondary">
-              Sendzz
-            </span>
+            <Image
+              src="/logo.svg"
+              alt="Sendzz"
+              width={50}
+              height={15}
+              priority
+            />
             <span
               className="text-[11px] ml-2"
               style={{ color: 'rgba(248,248,246,0.2)' }}

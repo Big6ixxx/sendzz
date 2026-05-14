@@ -14,10 +14,21 @@ import {
   Users,
   Zap,
 } from 'lucide-react';
+import Image from 'next/image';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 export default function FeaturesPage() {
-  const { login } = usePrivy();
+  const { authenticated, login } = usePrivy();
+  const router = useRouter();
+
+  const handleAction = () => {
+    if (authenticated) {
+      router.push('/dashboard');
+    } else {
+      login();
+    }
+  };
 
   const features = [
     {
@@ -76,19 +87,20 @@ export default function FeaturesPage() {
       </div>
 
       <header className="fixed top-0 left-0 right-0 z-50 flex justify-between items-center py-5 px-6 md:px-12 bg-[#07070a]/60 backdrop-blur-xl border-b border-white/5">
-        <Link href="/" className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl flex items-center justify-center font-display font-bold text-lg bg-accent text-[#07070a]">
-            S
-          </div>
-          <span className="font-display text-xl font-bold tracking-tight text-brand-secondary">
-            Sendzz
-          </span>
+        <Link href="/">
+          <Image
+            src="/logo.svg"
+            alt="Sendzz"
+            width={100}
+            height={30}
+            priority
+          />
         </Link>
         <button
-          onClick={login}
+          onClick={handleAction}
           className="btn-accent h-10 px-6 text-sm rounded-full font-semibold"
         >
-          Get Started
+          {authenticated ? 'Dashboard' : 'Get Started'}
         </button>
       </header>
 
@@ -196,10 +208,10 @@ export default function FeaturesPage() {
           {/* CTA */}
           <div className="text-center py-12">
             <button
-              onClick={login}
+              onClick={handleAction}
               className="btn-accent h-16 px-12 text-lg rounded-full font-bold shadow-[0_20px_40px_rgba(0,232,122,0.15)]"
             >
-              Start Using Sendzz
+              {authenticated ? 'Enter Dashboard' : 'Start Using Sendzz'}
             </button>
           </div>
         </div>

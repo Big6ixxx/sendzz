@@ -11,10 +11,21 @@ import {
   Shield,
   ShieldCheck,
 } from 'lucide-react';
+import Image from 'next/image';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 export default function SecurityPage() {
-  const { login } = usePrivy();
+  const { authenticated, login } = usePrivy();
+  const router = useRouter();
+
+  const handleAction = () => {
+    if (authenticated) {
+      router.push('/dashboard');
+    } else {
+      login();
+    }
+  };
 
   const securityFeatures = [
     {
@@ -55,19 +66,20 @@ export default function SecurityPage() {
       </div>
 
       <header className="fixed top-0 left-0 right-0 z-50 flex justify-between items-center py-5 px-6 md:px-12 bg-[#07070a]/60 backdrop-blur-xl border-b border-white/5">
-        <Link href="/" className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl flex items-center justify-center font-display font-bold text-lg bg-accent text-[#07070a]">
-            S
-          </div>
-          <span className="font-display text-xl font-bold tracking-tight text-brand-secondary">
-            Sendzz
-          </span>
+        <Link href="/">
+          <Image
+            src="/logo.svg"
+            alt="Sendzz"
+            width={100}
+            height={30}
+            priority
+          />
         </Link>
         <button
-          onClick={login}
+          onClick={handleAction}
           className="btn-accent h-10 px-6 text-sm rounded-full font-semibold"
         >
-          Get Started
+          {authenticated ? 'Dashboard' : 'Get Started'}
         </button>
       </header>
 
@@ -165,7 +177,9 @@ export default function SecurityPage() {
                     </div>
                   </div>
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <Lock className="w-12 h-12 text-accent" />
+                    <div className="w-12 h-12 flex items-center justify-center text-accent">
+                      <Lock className="w-12 h-12" />
+                    </div>
                   </div>
                 </div>
               </div>

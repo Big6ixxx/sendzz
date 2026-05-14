@@ -7,13 +7,23 @@ import { format } from 'date-fns';
 import {
   ArrowDownLeft,
   ArrowUpRight,
+  History,
   Landmark,
-  Loader2,
   RefreshCw,
-  Wallet
+  Search,
+  Wallet,
 } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from './ui/select';
 
 export type ActivityType = 'sent' | 'received' | 'deposit' | 'withdrawal';
+export type SortType = 'date' | 'amount';
 
 export interface Activity {
   id: string;
@@ -35,26 +45,37 @@ const ACTIVITY_LABELS: Record<ActivityType, string> = {
   withdrawal: 'Withdrawal',
 };
 
+const PAGE_SIZE = 10;
+
 export function HistoryModule({
   userId,
   userEmail,
   limit,
   hideHeader = false,
   onTxClick,
+  showControls = false,
+  hideLoadMore = false,
 }: {
   userId: string;
   userEmail: string;
   limit?: number;
   hideHeader?: boolean;
   onTxClick?: (activity: Activity) => void;
+  showControls?: boolean;
+  hideLoadMore?: boolean;
 }) {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterType, setFilterType] = useState<ActivityType | 'all'>('all');
+  const [sortBy, setSortBy] = useState<SortType>('date');
+  const [visibleCount, setVisibleCount] = useState(limit || PAGE_SIZE);
+
   const {
-    data: activities,
+    data: allActivities,
     isLoading,
     refetch,
     isRefetching,
   } = useQuery({
-    queryKey: ['history', userEmail],
+    queryKey: ['history', userEmail], // Simplified key to prevent blinking during limit changes
     queryFn: async () => {
       const data = await getUserActivities(userEmail);
 
@@ -112,23 +133,63 @@ export function HistoryModule({
         })),
       ];
 
-      const sorted = unified.sort(
-        (a, b) =>
-          new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
-      );
-
-      return limit ? sorted.slice(0, limit) : sorted;
+      return unified;
     },
     enabled: !!userEmail,
     refetchInterval: 15000,
   });
 
+  const filteredAndSorted = useMemo(() => {
+    if (!allActivities) return [];
+
+    let result = [...allActivities];
+
+    // Filter by type
+    if (filterType !== 'all') {
+      result = result.filter((a) => a.type === filterType);
+    }
+
+    // Search
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(
+        (a) =>
+          a.details.toLowerCase().includes(q) ||
+          ACTIVITY_LABELS[a.type].toLowerCase().includes(q) ||
+          a.amount.toString().includes(q) ||
+          a.note?.toLowerCase().includes(q),
+      );
+    }
+
+    // Sort
+    result.sort((a, b) => {
+      if (sortBy === 'date') {
+        return (
+          new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        );
+      } else {
+        return b.amount - a.amount;
+      }
+    });
+
+    return result;
+  }, [allActivities, filterType, searchQuery, sortBy]);
+
+  const displayedActivities = useMemo(() => {
+    return filteredAndSorted.slice(0, limit || visibleCount);
+  }, [filteredAndSorted, limit, visibleCount]);
+
   if (isLoading) {
     return (
       <div className="p-12 flex flex-col items-center justify-center gap-6">
-        <Loader2 className="w-10 h-10 animate-spin text-brand-secondary/20" />
+        <div className="relative">
+          <div className="w-16 h-16 rounded-full border-2 border-accent/10 border-t-accent animate-spin" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <RefreshCw className="w-6 h-6 text-accent animate-pulse" />
+          </div>
+        </div>
         <p className="text-xs font-bold uppercase tracking-[0.3em] text-brand-secondary/20 animate-pulse">
-          Syncing History
+          Loading transactions...
         </p>
       </div>
     );
@@ -137,124 +198,215 @@ export function HistoryModule({
   return (
     <div className="space-y-6">
       {!hideHeader && (
-        <div className="flex justify-between items-end px-2">
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-2">
           <div className="space-y-1">
-            <h2 className="text-2xl font-display font-bold tracking-tight text-brand-secondary">
+            <h2 className="text-3xl font-display font-bold tracking-tight text-brand-secondary">
               Activity
             </h2>
             <p className="text-[10px] font-bold text-brand-secondary/30 uppercase tracking-[0.2em]">
-              Recent Transactions
+              Your global transaction history
             </p>
           </div>
-          <button
-            onClick={() => refetch()}
-            disabled={isRefetching}
-            className="p-3 bg-white/5 border border-white/8 rounded-xl transition-all hover:bg-white/10 group"
-          >
-            <RefreshCw
-              className={cn(
-                'w-4 h-4 text-brand-secondary/40 group-hover:text-accent',
-                isRefetching && 'animate-spin',
-              )}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => refetch()}
+              disabled={isRefetching}
+              className="h-10 px-4 bg-white/5 border border-white/8 rounded-xl transition-all hover:bg-white/10 group flex items-center gap-2"
+            >
+              <RefreshCw
+                className={cn(
+                  'w-3.5 h-3.5 text-brand-secondary/40 group-hover:text-accent',
+                  isRefetching && 'animate-spin',
+                )}
+              />
+              <span className="text-[10px] font-bold uppercase tracking-widest text-brand-secondary/40">
+                Refresh
+              </span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showControls && (
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 px-2">
+          <div className="md:col-span-6 relative">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-secondary/20" />
+            <input
+              type="text"
+              placeholder="Search transactions..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full h-12 pl-12 pr-4 rounded-2xl bg-white/3 border border-white/5 text-sm font-medium focus:outline-none focus:border-accent/30 transition-all"
             />
-          </button>
+          </div>
+          <div className="md:col-span-3">
+            <Select
+              value={filterType}
+              onValueChange={(v) => setFilterType(v as ActivityType)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="All Types" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Transactions</SelectItem>
+                <SelectItem value="sent">Transfers Sent</SelectItem>
+                <SelectItem value="received">Funds Received</SelectItem>
+                <SelectItem value="deposit">Deposits</SelectItem>
+                <SelectItem value="withdrawal">Withdrawals</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="md:col-span-3">
+            <Select
+              value={sortBy}
+              onValueChange={(v) => setSortBy(v as SortType)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Sort By" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="date">Latest First</SelectItem>
+                <SelectItem value="amount">Highest Amount</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       )}
 
       <div
         className={cn(
-          'overflow-hidden divide-y divide-white/4',
+          'overflow-hidden divide-y divide-white/4 transition-all duration-500',
           !hideHeader && 'card-glass p-0',
         )}
       >
-        {!activities || activities.length === 0 ? (
-          <div className="p-16 text-center">
-            <p
-              className="text-xs font-bold uppercase tracking-[0.2em]"
-              style={{ color: 'rgba(248,248,246,0.2)' }}
-            >
-              No transactions found
+        {!displayedActivities || displayedActivities.length === 0 ? (
+          <div className="p-20 text-center space-y-4">
+            <div className="w-16 h-16 rounded-full bg-white/3 border border-white/5 flex items-center justify-center mx-auto opacity-20">
+              <History className="w-8 h-8" />
+            </div>
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-brand-secondary/20">
+              No transactions match your criteria
             </p>
           </div>
         ) : (
-          activities.map((a) => (
-            <button
-              key={a.id}
-              onClick={() => onTxClick?.(a)}
-              className="w-full p-4 md:p-6 flex items-center gap-5 hover:bg-white/2 transition-all text-left group relative"
-            >
-              <div
-                className={cn(
-                  'w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 transition-all group-hover:scale-110 group-hover:rotate-3',
-                )}
-                style={{
-                  background:
-                    a.type === 'sent'
-                      ? 'rgba(248, 113, 113, 0.08)'
-                      : a.type === 'received'
-                        ? 'rgba(0, 232, 122, 0.08)'
-                        : a.type === 'deposit'
-                          ? 'rgba(59, 130, 246, 0.08)'
-                          : 'rgba(251, 146, 60, 0.08)',
-                  color:
-                    a.type === 'sent'
-                      ? '#f87171'
-                      : a.type === 'received'
-                        ? '#00e87a'
-                        : a.type === 'deposit'
-                          ? '#3b82f6'
-                          : '#fb923c',
-                  border: `1px solid ${
-                    a.type === 'sent'
-                      ? 'rgba(248, 113, 113, 0.15)'
-                      : a.type === 'received'
-                        ? 'rgba(0, 232, 122, 0.15)'
-                        : a.type === 'deposit'
-                          ? 'rgba(59, 130, 246, 0.15)'
-                          : 'rgba(251, 146, 60, 0.15)'
-                  }`,
-                }}
-              >
-                {a.type === 'sent' && <ArrowUpRight className="w-5 h-5" />}
-                {a.type === 'received' && <ArrowDownLeft className="w-5 h-5" />}
-                {a.type === 'deposit' && <Wallet className="w-5 h-5" />}
-                {a.type === 'withdrawal' && <Landmark className="w-5 h-5" />}
-              </div>
+          displayedActivities.map((a) => {
+            const isSettled =
+              a.status.toLowerCase() === 'settled' ||
+              a.status.toLowerCase() === 'completed' ||
+              a.status.toLowerCase() === 'confirmed' ||
+              a.status.toLowerCase() === 'success';
 
-              <div className="flex-1 min-w-0 space-y-1.5">
-                <div className="flex justify-between items-center gap-2">
-                  <p className="font-bold text-sm tracking-tight text-brand-secondary">
-                    {ACTIVITY_LABELS[a.type]}
-                  </p>
-                  <span
-                    className="text-sm font-bold tabular-nums"
-                    style={{
-                      color:
-                        a.type === 'sent' || a.type === 'withdrawal'
-                          ? '#f8f8f6'
-                          : '#00e87a',
-                    }}
-                  >
-                    {a.type === 'sent' || a.type === 'withdrawal' ? '-' : '+'}
-                    {a.amount.toLocaleString()}{' '}
-                    <span className="text-[10px] opacity-30 font-bold">
-                      {a.asset}
+            return (
+              <button
+                key={a.id}
+                onClick={() => onTxClick?.(a)}
+                className="w-full p-5 md:p-7 flex items-center gap-6 hover:bg-white/3 transition-all text-left group relative"
+              >
+                <div
+                  className={cn(
+                    'w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 transition-all duration-500 group-hover:scale-110 group-hover:rotate-6',
+                  )}
+                  style={{
+                    background: isSettled
+                      ? 'rgba(0, 232, 122, 0.08)'
+                      : a.type === 'sent'
+                        ? 'rgba(248, 113, 113, 0.08)'
+                        : a.type === 'received'
+                          ? 'rgba(0, 232, 122, 0.08)'
+                          : a.type === 'deposit'
+                            ? 'rgba(59, 130, 246, 0.08)'
+                            : 'rgba(251, 146, 60, 0.08)',
+                    color: isSettled
+                      ? '#00e87a'
+                      : a.type === 'sent'
+                        ? '#f87171'
+                        : a.type === 'received'
+                          ? '#00e87a'
+                          : a.type === 'deposit'
+                            ? '#3b82f6'
+                            : '#fb923c',
+                    border: `1px solid ${
+                      isSettled
+                        ? 'rgba(0, 232, 122, 0.15)'
+                        : a.type === 'sent'
+                          ? 'rgba(248, 113, 113, 0.15)'
+                          : a.type === 'received'
+                            ? 'rgba(0, 232, 122, 0.15)'
+                            : a.type === 'deposit'
+                              ? 'rgba(59, 130, 246, 0.15)'
+                              : 'rgba(251, 146, 60, 0.15)'
+                    }`,
+                  }}
+                >
+                  {a.type === 'sent' && <ArrowUpRight className="w-6 h-6" />}
+                  {a.type === 'received' && (
+                    <ArrowDownLeft className="w-6 h-6" />
+                  )}
+                  {a.type === 'deposit' && <Wallet className="w-6 h-6" />}
+                  {a.type === 'withdrawal' && <Landmark className="w-6 h-6" />}
+                </div>
+
+                <div className="flex-1 min-w-0 space-y-2">
+                  <div className="flex justify-between items-center gap-4">
+                    <p className="font-bold text-base tracking-tight text-brand-secondary">
+                      {ACTIVITY_LABELS[a.type]}
+                    </p>
+                    <span
+                      className="text-base font-bold tabular-nums"
+                      style={{
+                        color:
+                          a.type === 'sent' || a.type === 'withdrawal'
+                            ? '#f8f8f6'
+                            : '#00e87a',
+                      }}
+                    >
+                      {a.type === 'sent' || a.type === 'withdrawal' ? '-' : '+'}
+                      {a.amount.toLocaleString()}{' '}
+                      <span className="text-[10px] opacity-30 font-bold uppercase">
+                        {a.asset}
+                      </span>
                     </span>
-                  </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <p className="text-[11px] font-bold uppercase truncate tracking-[0.15em] text-brand-secondary/30">
+                      {a.details}
+                    </p>
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={cn(
+                          'text-[9px] px-2 py-0.5 rounded-md font-bold uppercase tracking-widest',
+                          isSettled
+                            ? 'bg-accent/10 text-accent border border-accent/20'
+                            : 'bg-white/5 text-brand-secondary/30 border border-white/10',
+                        )}
+                      >
+                        {a.status}
+                      </span>
+                      <span className="text-[10px] font-bold uppercase text-brand-secondary/20 whitespace-nowrap">
+                        {format(new Date(a.timestamp), 'MMM dd')}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex justify-between items-center">
-                  <p className="text-[10px] font-bold uppercase truncate tracking-widest text-brand-secondary/30">
-                    {a.details}
-                  </p>
-                  <span className="text-[10px] font-bold uppercase text-brand-secondary/20">
-                    {format(new Date(a.timestamp), 'MMM dd')}
-                  </span>
-                </div>
-              </div>
-            </button>
-          ))
+              </button>
+            );
+          })
         )}
       </div>
+
+      {!hideLoadMore && !limit && filteredAndSorted.length > visibleCount && (
+        <div className="pt-8 pb-4 flex justify-center">
+          <button
+            onClick={() => setVisibleCount((prev) => prev + PAGE_SIZE)}
+            className="group relative px-10 h-14 rounded-2xl overflow-hidden transition-all hover:scale-105 active:scale-95"
+          >
+            <div className="absolute inset-0 bg-white/5 group-hover:bg-white/8 border border-white/10 transition-colors" />
+            <span className="relative z-10 text-[10px] font-bold uppercase tracking-[0.3em] text-brand-secondary/60 group-hover:text-brand-secondary transition-colors">
+              Load More Transactions
+            </span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
