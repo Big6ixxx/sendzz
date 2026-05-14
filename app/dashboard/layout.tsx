@@ -1,12 +1,12 @@
-'use client';
+"use client";
 
-import { Sidebar } from '@/components/Sidebar';
-import { usePrivy } from '@privy-io/react-auth';
-import { Menu } from 'lucide-react';
-import Image from 'next/image';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { useState } from 'react';
+import { Sidebar } from "@/components/Sidebar";
+import { usePrivy } from "@privy-io/react-auth";
+import { Menu } from "lucide-react";
+import Image from "next/image";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useState } from "react";
 
 export default function DashboardLayout({
   children,
@@ -18,7 +18,7 @@ export default function DashboardLayout({
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   return (
-    <div className="flex min-h-screen" style={{ background: '#07070a' }}>
+    <div className="flex min-h-screen" style={{ background: "#07070a" }}>
       {/* Ambient glow — subtle, dashboard version */}
       <div
         className="fixed inset-0 pointer-events-none overflow-hidden"
@@ -27,19 +27,19 @@ export default function DashboardLayout({
         <div
           className="absolute top-[-10%] left-[20%] w-[500px] h-[500px] rounded-full opacity-[0.06] blur-[100px]"
           style={{
-            background: 'radial-gradient(circle, #00e87a, transparent 70%)',
+            background: "radial-gradient(circle, #00e87a, transparent 70%)",
           }}
         />
         <div
           className="absolute bottom-[5%] right-[10%] w-[400px] h-[400px] rounded-full opacity-[0.04] blur-[80px]"
           style={{
-            background: 'radial-gradient(circle, #3b82f6, transparent 70%)',
+            background: "radial-gradient(circle, #3b82f6, transparent 70%)",
           }}
         />
       </div>
 
       <Sidebar
-        userEmail={user?.email?.address || ''}
+        userEmail={user?.email?.address || ""}
         pathname={pathname}
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
@@ -52,12 +52,12 @@ export default function DashboardLayout({
         <header
           className="lg:hidden flex items-center justify-between p-4 sticky top-0 z-30"
           style={{
-            background: 'rgba(7, 7, 10, 0.75)',
-            backdropFilter: 'blur(24px) saturate(180%)',
-            borderBottom: '1px solid rgba(255,255,255,0.05)',
+            background: "rgba(7, 7, 10, 0.75)",
+            backdropFilter: "blur(24px) saturate(180%)",
+            borderBottom: "1px solid rgba(255,255,255,0.05)",
           }}
         >
-          <Link href="/dashboard">
+          <Link href="/">
             <Image
               src="/logo.svg"
               alt="Sendzz"
@@ -69,7 +69,7 @@ export default function DashboardLayout({
           <button
             onClick={() => setIsSidebarOpen(true)}
             className="p-2 rounded-xl transition-colors"
-            style={{ color: 'rgba(248,248,246,0.5)' }}
+            style={{ color: "rgba(248,248,246,0.5)" }}
           >
             <Menu className="w-5 h-5" />
           </button>

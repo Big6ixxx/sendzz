@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import { cn } from '@/lib/utils';
+import { cn } from "@/lib/utils";
 import {
   History,
   LayoutDashboard,
@@ -9,15 +9,15 @@ import {
   Settings,
   User,
   X,
-} from 'lucide-react';
-import Image from 'next/image';
-import Link from 'next/link';
+} from "lucide-react";
+import Image from "next/image";
+import Link from "next/link";
 
 const NAV_ITEMS = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Transfer', href: '/dashboard/transfer', icon: Send },
-  { name: 'History', href: '/dashboard/history', icon: History },
-  { name: 'Settings', href: '/dashboard/settings', icon: Settings },
+  { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { name: "Transfer", href: "/dashboard/transfer", icon: Send },
+  { name: "History", href: "/dashboard/history", icon: History },
+  { name: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
 
 interface SidebarProps {
@@ -42,8 +42,8 @@ export function Sidebar({
         <div
           className="fixed inset-0 z-40 lg:hidden"
           style={{
-            background: 'rgba(7,7,10,0.7)',
-            backdropFilter: 'blur(4px)',
+            background: "rgba(7,7,10,0.7)",
+            backdropFilter: "blur(4px)",
           }}
           onClick={onClose}
         />
@@ -52,19 +52,19 @@ export function Sidebar({
       {/* Sidebar Panel */}
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-50 w-64 transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0',
-          isOpen ? 'translate-x-0' : '-translate-x-full',
+          "fixed inset-y-0 left-0 z-50 w-64 transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0",
+          isOpen ? "translate-x-0" : "-translate-x-full",
         )}
         style={{
-          background: 'rgba(10, 10, 11, 0.7)',
-          backdropFilter: 'blur(32px) saturate(180%)',
-          borderRight: '1px solid rgba(255,255,255,0.06)',
+          background: "rgba(10, 10, 11, 0.7)",
+          backdropFilter: "blur(32px) saturate(180%)",
+          borderRight: "1px solid rgba(255,255,255,0.06)",
         }}
       >
         <div className="flex flex-col h-full p-5">
           {/* Logo */}
           <div className="flex items-center justify-between mb-10 px-2">
-            <Link href="/dashboard">
+            <Link href="/">
               <Image
                 src="/logo.svg"
                 alt="Sendzz"
@@ -76,12 +76,12 @@ export function Sidebar({
             <button
               onClick={onClose}
               className="p-1.5 rounded-lg transition-colors lg:hidden"
-              style={{ color: 'rgba(248,248,246,0.4)' }}
+              style={{ color: "rgba(248,248,246,0.4)" }}
               onMouseEnter={(e) =>
-                (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')
+                (e.currentTarget.style.background = "rgba(255,255,255,0.05)")
               }
               onMouseLeave={(e) =>
-                (e.currentTarget.style.background = 'transparent')
+                (e.currentTarget.style.background = "transparent")
               }
             >
               <X className="w-5 h-5" />
@@ -99,33 +99,33 @@ export function Sidebar({
                   onClick={onClose}
                   className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all relative"
                   style={{
-                    color: active ? '#f8f8f6' : 'rgba(248,248,246,0.4)',
+                    color: active ? "#f8f8f6" : "rgba(248,248,246,0.4)",
                     background: active
-                      ? 'rgba(255,255,255,0.07)'
-                      : 'transparent',
+                      ? "rgba(255,255,255,0.07)"
+                      : "transparent",
                     border: active
-                      ? '1px solid rgba(255,255,255,0.08)'
-                      : '1px solid transparent',
-                    backdropFilter: active ? 'blur(8px)' : 'none',
+                      ? "1px solid rgba(255,255,255,0.08)"
+                      : "1px solid transparent",
+                    backdropFilter: active ? "blur(8px)" : "none",
                   }}
                   onMouseEnter={(e) => {
                     if (!active) {
-                      e.currentTarget.style.color = 'rgba(248,248,246,0.8)';
+                      e.currentTarget.style.color = "rgba(248,248,246,0.8)";
                       e.currentTarget.style.background =
-                        'rgba(255,255,255,0.04)';
+                        "rgba(255,255,255,0.04)";
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (!active) {
-                      e.currentTarget.style.color = 'rgba(248,248,246,0.4)';
-                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.color = "rgba(248,248,246,0.4)";
+                      e.currentTarget.style.background = "transparent";
                     }
                   }}
                 >
                   {active && (
                     <div
                       className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-full"
-                      style={{ background: '#00e87a' }}
+                      style={{ background: "#00e87a" }}
                     />
                   )}
                   <item.icon className="w-4 h-4" />
@@ -138,21 +138,21 @@ export function Sidebar({
           {/* User + Sign out */}
           <div
             className="mt-auto pt-5 space-y-2"
-            style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}
+            style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
           >
             <div
               className="px-3 py-3 rounded-xl"
               style={{
-                background: 'rgba(255,255,255,0.04)',
-                border: '1px solid rgba(255,255,255,0.06)',
+                background: "rgba(255,255,255,0.04)",
+                border: "1px solid rgba(255,255,255,0.06)",
               }}
             >
               <div className="flex items-center gap-2.5">
                 <div
                   className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
                   style={{
-                    background: 'rgba(0, 232, 122, 0.15)',
-                    color: '#00e87a',
+                    background: "rgba(0, 232, 122, 0.15)",
+                    color: "#00e87a",
                   }}
                 >
                   <User className="w-3.5 h-3.5" />
@@ -160,13 +160,13 @@ export function Sidebar({
                 <div className="flex-1 min-w-0">
                   <p
                     className="text-xs font-semibold truncate"
-                    style={{ color: 'rgba(248,248,246,0.8)' }}
+                    style={{ color: "rgba(248,248,246,0.8)" }}
                   >
-                    {userEmail || 'Anonymous'}
+                    {userEmail || "Anonymous"}
                   </p>
                   <p
                     className="text-[9px] uppercase tracking-widest font-bold"
-                    style={{ color: 'rgba(248,248,246,0.25)' }}
+                    style={{ color: "rgba(248,248,246,0.25)" }}
                   >
                     Personal Account
                   </p>
@@ -177,14 +177,14 @@ export function Sidebar({
             <button
               onClick={onLogout}
               className="flex items-center gap-3 px-3 py-2.5 w-full rounded-xl text-sm font-medium transition-all"
-              style={{ color: 'rgba(248,248,246,0.35)' }}
+              style={{ color: "rgba(248,248,246,0.35)" }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.color = '#f87171';
-                e.currentTarget.style.background = 'rgba(248, 113, 113, 0.08)';
+                e.currentTarget.style.color = "#f87171";
+                e.currentTarget.style.background = "rgba(248, 113, 113, 0.08)";
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.color = 'rgba(248,248,246,0.35)';
-                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = "rgba(248,248,246,0.35)";
+                e.currentTarget.style.background = "transparent";
               }}
             >
               <LogOut className="w-4 h-4" />
