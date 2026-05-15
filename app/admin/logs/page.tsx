@@ -1,6 +1,6 @@
 'use client';
 
-import { getAdminLogs } from '@/lib/supabase/actions';
+import { getAdminLogs } from '@/lib/supabase/admin';
 import { cn } from '@/lib/utils';
 import { AdminLog, AuditLog, WebhookLog } from '@/types/admin';
 import { usePrivy } from '@privy-io/react-auth';

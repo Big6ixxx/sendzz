@@ -14,7 +14,7 @@ import {
 import {
   recordBridgeTransaction,
   updateBridgeStatus,
-} from '@/lib/supabase/actions';
+} from '@/lib/supabase/transactions';
 import { cn, truncateAddress } from '@/lib/utils';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { useQueryClient } from '@tanstack/react-query';

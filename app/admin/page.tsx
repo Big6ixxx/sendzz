@@ -29,7 +29,7 @@ import {
   YAxis,
 } from 'recharts';
 
-import { getAdminAnalytics, getAdminStats } from '@/lib/supabase/actions';
+import { getAdminAnalytics, getAdminStats } from '@/lib/supabase/admin';
 
 export default function AdminOverview() {
   const { user } = usePrivy();

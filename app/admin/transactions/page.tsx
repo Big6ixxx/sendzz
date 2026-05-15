@@ -1,6 +1,6 @@
 'use client';
 
-import { getAdminTransactions } from '@/lib/supabase/actions';
+import { getAdminTransactions } from '@/lib/supabase/admin';
 import { cn } from '@/lib/utils';
 import { AdminTransaction } from '@/types/admin';
 import { usePrivy } from '@privy-io/react-auth';

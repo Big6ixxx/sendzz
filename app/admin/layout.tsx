@@ -18,7 +18,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-import { checkIsAdmin } from '@/lib/supabase/actions';
+import { checkIsAdmin } from '@/lib/supabase/admin';
 
 const navItems = [
   { name: 'Overview', href: '/admin', icon: LayoutDashboard },

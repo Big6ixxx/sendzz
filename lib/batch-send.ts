@@ -1,5 +1,6 @@
 import { sendTransferEmail } from '@/lib/email/sendEmail';
-import { getUserAddressByEmail, recordTransfer } from '@/lib/supabase/actions';
+import { getUserAddressByEmail } from '@/lib/supabase/users';
+import { recordTransfer } from '@/lib/supabase/transactions';
 import { executeCircleGaslessBatchTransfer } from '@/lib/web3/circle-actions';
 import { EIP1193Provider } from '@privy-io/react-auth';
 

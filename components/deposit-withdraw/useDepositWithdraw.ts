@@ -10,7 +10,7 @@ import {
   initiateOnRamp,
   verifyBankAccount,
 } from '@/lib/actions/ramp';
-import { updateDepositStatus, updateWithdrawalStatus } from '@/lib/supabase/actions';
+import { updateDepositStatus, updateWithdrawalStatus } from '@/lib/supabase/transactions';
 import { type FiatCurrencyCode } from '@/lib/currency-config';
 import {
   PaycrestInstitution,

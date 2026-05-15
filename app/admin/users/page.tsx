@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
-import { getAdminUsers } from '@/lib/supabase/actions';
+import { getAdminUsers } from '@/lib/supabase/admin';
 
 const ITEMS_PER_PAGE = 20;
 

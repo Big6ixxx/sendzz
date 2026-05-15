@@ -13,35 +13,54 @@ import {
 } from '@/lib/currency-config';
 import { sendTransferEmail } from '@/lib/email/sendEmail';
 import { useExchangeRate } from '@/lib/hooks/useExchangeRate';
-import { getUserAddressByEmail } from '@/lib/supabase/actions';
+import { getUserContacts } from '@/lib/supabase/contacts';
 import { executeCircleGaslessTransfer } from '@/lib/web3/circle-actions';
 import { ConnectedWallet } from '@privy-io/react-auth';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Info, Loader2, MessageSquare, Send, ShieldCheck } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 export function TransferModule({
   smartAddress,
   embeddedProvider,
   balance,
   senderEmail,
+  initialRecipientEmail,
+  onClearInitialRecipient,
 }: {
   smartAddress: string;
   embeddedProvider?: ConnectedWallet;
   balance: string;
   senderEmail: string;
+  initialRecipientEmail?: string;
+  onClearInitialRecipient?: () => void;
 }) {
-  const [recipientEmail, setRecipientEmail] = useState('');
+  const [recipientEmail, setRecipientEmail] = useState(initialRecipientEmail || '');
   const [amount, setAmount] = useState('');
   const [currency, setCurrency] = useState<'USD' | FiatCurrencyCode>('USD');
   const [memo, setMemo] = useState('');
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string>('');
   const [isPendingClaim, setIsPendingClaim] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   const isFiat = currency !== 'USD';
   const { data: exchangeRate = 1 } = useExchangeRate(isFiat ? currency : 'NGN');
   const queryClient = useQueryClient();
+
+  const { data: contacts = [] } = useQuery({
+    queryKey: ['contacts', senderEmail],
+    queryFn: () => getUserContacts(senderEmail),
+    enabled: !!senderEmail,
+  });
+
+
+  useEffect(() => {
+    if (initialRecipientEmail) {
+      setRecipientEmail(initialRecipientEmail);
+      if (onClearInitialRecipient) onClearInitialRecipient();
+    }
+  }, [initialRecipientEmail, onClearInitialRecipient]);
 
   const amountUsdc = isFiat
     ? (parseFloat(amount || '0') / exchangeRate).toFixed(2)
@@ -56,6 +75,8 @@ export function TransferModule({
     setIsPendingClaim(false);
 
     try {
+      // Import the function dynamically here so we don't cause client/server import issues
+      const { getUserAddressByEmail } = await import('@/lib/supabase/users');
       let recipientAddress = await getUserAddressByEmail(recipientEmail);
 
       if (!recipientAddress) {
@@ -89,7 +110,7 @@ export function TransferModule({
 
       setStatus(`Success! Transfer completed.`);
 
-      const { recordTransfer } = await import('@/lib/supabase/actions');
+      const { recordTransfer } = await import('@/lib/supabase/transactions');
       await recordTransfer({
         senderEmail,
         recipientEmail,
@@ -160,14 +181,48 @@ export function TransferModule({
               </Tooltip>
             </TooltipProvider>
           </div>
-          <input
-            type="email"
-            value={recipientEmail}
-            onChange={(e) => setRecipientEmail(e.target.value)}
-            className="input-elegant h-14 text-lg font-medium"
-            placeholder="name@example.com"
-            required
-          />
+          <div className="relative z-50">
+            <input
+              type="email"
+              value={recipientEmail}
+              onChange={(e) => {
+                setRecipientEmail(e.target.value);
+                setShowSuggestions(true);
+              }}
+              onFocus={() => setShowSuggestions(true)}
+              onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+              className="input-elegant h-14 text-lg font-medium w-full"
+              placeholder="name@example.com"
+              required
+              autoComplete="off"
+            />
+            {showSuggestions && contacts.length > 0 && (
+              <div className="absolute left-0 right-0 top-full mt-2 bg-[#0a0a0b] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-[100] max-h-64 overflow-y-auto p-2">
+                {contacts
+                  .filter(
+                    (c) =>
+                      c.name.toLowerCase().includes(recipientEmail.toLowerCase()) ||
+                      c.email.toLowerCase().includes(recipientEmail.toLowerCase())
+                  )
+                  .map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setRecipientEmail(c.email);
+                        setShowSuggestions(false);
+                      }}
+                      className="w-full text-left px-4 py-3 rounded-xl hover:bg-white/5 transition-colors flex items-center justify-between group"
+                    >
+                      <span className="font-bold text-sm text-foreground group-hover:text-accent transition-colors">{c.name}</span>
+                      <span className="text-xs text-muted-foreground">{c.email}</span>
+                    </button>
+                  ))}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="space-y-4">

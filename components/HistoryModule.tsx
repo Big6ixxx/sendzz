@@ -1,6 +1,6 @@
 'use client';
 
-import { getUserActivities } from '@/lib/supabase/actions';
+import { getUserActivities } from '@/lib/supabase/transactions';
 import { cn } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import { format } from 'date-fns';

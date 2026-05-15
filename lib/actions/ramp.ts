@@ -51,7 +51,7 @@ export async function initiateOnRamp({
     });
 
     // Record in internal ledger
-    const { recordDeposit } = await import('@/lib/supabase/actions');
+    const { recordDeposit } = await import('@/lib/supabase/transactions');
     await recordDeposit({
       userEmail,
       amountFiat: Number(order.providerAccount?.amountToTransfer || amountFiat),
@@ -175,7 +175,7 @@ export async function finalizeOffRamp(
     });
 
     // Record in internal ledger
-    const { recordWithdrawal } = await import('@/lib/supabase/actions');
+    const { recordWithdrawal } = await import('@/lib/supabase/transactions');
     await recordWithdrawal({
       userEmail,
       amountUsdc,
