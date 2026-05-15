@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { BankSelector } from './BankSelector';
 import { useDepositWithdraw } from './useDepositWithdraw';
+import { PAYCREST_PARTNER_FEE_PERCENT } from '@/lib/paycrest/config';
 
 interface WithdrawFormProps {
   hook: ReturnType<typeof useDepositWithdraw>;
@@ -100,6 +101,10 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
             <span className="font-bold text-foreground">
               {getCurrencySymbol(hook.fiatCurrency)}{hook.quote.payoutAmount.toLocaleString()} {hook.fiatCurrency}
             </span>
+          </div>
+          <div className="flex justify-between text-sm pt-2 border-t border-border">
+            <span className="text-muted-foreground">Network Fee</span>
+            <span className="font-semibold text-foreground">{PAYCREST_PARTNER_FEE_PERCENT}%</span>
           </div>
         </div>
 

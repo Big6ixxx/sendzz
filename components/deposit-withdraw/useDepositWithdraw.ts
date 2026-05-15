@@ -18,6 +18,7 @@ import {
 } from '@/lib/paycrest/types';
 import { executeCircleGaslessTransfer } from '@/lib/web3/circle-actions';
 import { ConnectedWallet } from '@privy-io/react-auth';
+import { calculatePaycrestBaseAmount } from '@/lib/paycrest/config';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -167,8 +168,9 @@ export function useDepositWithdraw(
       return;
     }
 
-    // Check estimated USDC > 1
-    const estimatedUsdc = val / (rate || 1);
+    // Check estimated USDC > 1 (after fees)
+    const baseAmount = calculatePaycrestBaseAmount(val);
+    const estimatedUsdc = baseAmount / (rate || 1);
     if (estimatedUsdc <= 1) {
       toast.error('Estimated deposit must be greater than 1 USDC');
       return;
