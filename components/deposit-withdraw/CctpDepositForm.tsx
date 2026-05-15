@@ -3,6 +3,7 @@
 import {
   calculateMaxFee,
   CCTP_DOMAINS,
+  CHAIN_IDS,
   CHAIN_NAMES,
   fetchCctpFees,
   getCCTPDepositInstructions,
@@ -12,6 +13,8 @@ import {
   type SupportedChain,
 } from '@/lib/circle/gateway';
 import { cn } from '@/lib/utils';
+import { useWallets } from '@privy-io/react-auth';
+import { createPublicClient, createWalletClient, custom, parseAbi, parseUnits } from 'viem';
 import {
   ArrowRight,
   CheckCircle2,
@@ -31,6 +34,8 @@ interface CctpDepositFormProps {
 type CctpStep = 'configure' | 'instructions' | 'monitoring' | 'success';
 
 export function CctpDepositForm({ userAddress }: CctpDepositFormProps) {
+  const { wallets } = useWallets();
+  const [isExecuting, setIsExecuting] = useState(false);
   const [step, setStep] = useState<CctpStep>('configure');
   const [sourceChain, setSourceChain] = useState<SupportedChain>('arbitrum');
   const [amount, setAmount] = useState('');
@@ -86,18 +91,86 @@ export function CctpDepositForm({ userAddress }: CctpDepositFormProps) {
     ? getCCTPDepositInstructions(sourceChain, amount, userAddress)
     : null;
 
-  const handleContinueToInstructions = () => {
+  const handleBridge = async () => {
     if (!amount || parseFloat(amount) < 1) {
       setError('Minimum bridge amount is 1 USDC');
       return;
     }
+
+    setIsExecuting(true);
     setError('');
-    setStep('instructions');
+
+    try {
+      // 1. Get connected wallet
+      const wallet = wallets.find((w) => w.walletClientType !== 'privy') || wallets[0];
+      if (!wallet) throw new Error('No wallet connected. Please connect an external wallet to bridge.');
+
+      // 2. Switch to correct source chain
+      await wallet.switchChain(CHAIN_IDS[sourceChain]);
+      const provider = await wallet.getEthereumProvider();
+
+      const client = createWalletClient({
+        account: wallet.address as `0x${string}`,
+        transport: custom(provider),
+      });
+      const publicClient = createPublicClient({ transport: custom(provider) });
+
+      const amountRaw = parseUnits(amount, 6);
+      const usdcAddress = USDC_ADDRESSES[sourceChain] as `0x${string}`;
+
+      // 3. Approve USDC
+      setMonitorStatus('Requesting USDC approval...');
+      setStep('monitoring'); // Show monitoring UI early for feedback
+      
+      const approveHash = await client.writeContract({
+        chain: null,
+        address: usdcAddress,
+        abi: parseAbi(['function approve(address spender, uint256 amount) returns (bool)']),
+        functionName: 'approve',
+        args: [TOKEN_MESSENGER_V2, amountRaw],
+      });
+
+      setMonitorStatus('Waiting for approval to confirm...');
+      await publicClient.waitForTransactionReceipt({ hash: approveHash });
+
+      // 4. Deposit for Burn
+      setMonitorStatus('Requesting CCTP transfer...');
+      const maxFeeValue = BigInt(maxFeeRaw || '0');
+      const mintRecipient = ('0x' + '0'.repeat(24) + userAddress.slice(2).toLowerCase()) as `0x${string}`;
+      const destinationCaller = ('0x' + '0'.repeat(64)) as `0x${string}`;
+
+      const burnHash = await client.writeContract({
+        chain: null,
+        address: TOKEN_MESSENGER_V2 as `0x${string}`,
+        abi: parseAbi(['function depositForBurn(uint256 amount, uint32 destinationDomain, bytes32 mintRecipient, address burnToken, bytes32 destinationCaller, uint256 maxFee, uint32 minFinalityThreshold) returns (uint64)']),
+        functionName: 'depositForBurn',
+        args: [
+          amountRaw,
+          CCTP_DOMAINS.base,
+          mintRecipient,
+          usdcAddress,
+          destinationCaller,
+          maxFeeValue,
+          1000,
+        ],
+      });
+
+      setBurnTxHash(burnHash);
+      handleStartMonitoring(burnHash);
+
+    } catch (err) {
+      console.error(err);
+      setError(err instanceof Error ? err.message : 'Transaction failed');
+      setStep('configure');
+    } finally {
+      setIsExecuting(false);
+    }
   };
 
   // Poll Circle Iris for attestation via our lightweight server proxy
-  const handleStartMonitoring = async () => {
-    if (!messageHash && !burnTxHash.startsWith('0x')) {
+  const handleStartMonitoring = async (overrideHash?: string | React.MouseEvent) => {
+    const hashToPoll = (typeof overrideHash === 'string' ? overrideHash : null) || messageHash || burnTxHash;
+    if (!hashToPoll || !hashToPoll.startsWith('0x')) {
       setError('Please enter a valid burn transaction hash');
       return;
     }
@@ -105,9 +178,6 @@ export function CctpDepositForm({ userAddress }: CctpDepositFormProps) {
     setError('');
     setStep('monitoring');
     setMonitorStatus('Waiting for Circle attestation...');
-
-    // Use messageHash if provided, otherwise fallback to burnTxHash
-    const hashToPoll = messageHash || burnTxHash;
 
     let attempts = 0;
     const MAX_ATTEMPTS = 360; // 30 min at 5s intervals
@@ -264,12 +334,21 @@ export function CctpDepositForm({ userAddress }: CctpDepositFormProps) {
         )}
 
         <button
-          onClick={handleContinueToInstructions}
-          disabled={!amount}
+          onClick={handleBridge}
+          disabled={!amount || feeLoading || isExecuting}
           className="btn-accent w-full gap-2"
         >
-          Continue
-          <ArrowRight className="w-4 h-4" />
+          {isExecuting ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Bridging...
+            </>
+          ) : (
+            <>
+              Bridge USDC
+              <ArrowRight className="w-4 h-4" />
+            </>
+          )}
         </button>
       </div>
     );

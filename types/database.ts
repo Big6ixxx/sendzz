@@ -479,6 +479,14 @@ export interface Database {
         };
         Returns: string;
       };
+      finalize_withdrawal_success: {
+        Args: { p_paycrest_order_id: string };
+        Returns: boolean;
+      };
+      finalize_withdrawal_failed: {
+        Args: { p_paycrest_order_id: string; p_reason?: string | null };
+        Returns: boolean;
+      };
     };
     Enums: {
       asset_type: AssetType;
