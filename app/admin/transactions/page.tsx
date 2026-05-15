@@ -19,6 +19,18 @@ import { getAdminTransactions } from '@/lib/supabase/actions';
 
 const ITEMS_PER_PAGE = 20;
 
+interface AdminTx {
+  id: string;
+  tx_type: string;
+  recipient_email?: string;
+  sender_email?: string;
+  user_id?: string;
+  amount: number;
+  status: string;
+  created_at: string;
+  [key: string]: unknown;
+}
+
 export default function AdminTransactions() {
   const { user } = usePrivy();
   const [filterType, setFilterType] = useState<string | null>(null);
@@ -37,13 +49,14 @@ export default function AdminTransactions() {
   const transactions = data || [];
 
   const filteredTransactions = useMemo(() => {
-    return transactions.filter((tx: any) => {
+    const txList = (transactions || []) as AdminTx[];
+    return txList.filter((tx) => {
       if (!search) return true;
       const searchLower = search.toLowerCase();
       return (
         tx.id.toLowerCase().includes(searchLower) ||
-        (tx.recipient_email && tx.recipient_email.toLowerCase().includes(searchLower)) ||
-        (tx.sender_email && tx.sender_email.toLowerCase().includes(searchLower))
+        (tx.recipient_email ?? '').toLowerCase().includes(searchLower) ||
+        (tx.sender_email ?? '').toLowerCase().includes(searchLower)
       );
     });
   }, [transactions, search]);
@@ -165,7 +178,7 @@ export default function AdminTransactions() {
                   </td>
                 </tr>
               ) : (
-                currentItems.map((tx: any, i: number) => (
+                (currentItems as AdminTx[]).map((tx, i) => (
                   <motion.tr 
                     key={tx.id}
                     initial={{ opacity: 0, x: -10 }}

@@ -214,6 +214,7 @@ export async function getUserActivities(userEmail: string) {
       .select('*')
       .eq('user_id', internalId);
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const mapTransfer = (t: any) => ({
       ...t,
       sender_email: t.sender_email || t.sender?.email || 'Unknown Sender',

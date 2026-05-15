@@ -4,7 +4,6 @@ import { usePrivy } from "@privy-io/react-auth";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
-  Loader2,
   LayoutDashboard,
   ArrowLeftRight,
   Users,
@@ -21,6 +20,13 @@ import Image from "next/image";
 import { motion } from "framer-motion";
 
 import { checkIsAdmin } from "@/lib/supabase/actions";
+
+const navItems = [
+  { name: "Overview", href: "/admin", icon: LayoutDashboard },
+  { name: "Transactions", href: "/admin/transactions", icon: ArrowLeftRight },
+  { name: "Users", href: "/admin/users", icon: Users },
+  { name: "System Logs", href: "/admin/logs", icon: ShieldAlert },
+];
 
 export default function AdminLayout({
   children,
@@ -157,12 +163,6 @@ export default function AdminLayout({
     );
   }
 
-  const navItems = [
-    { name: "Overview", href: "/admin", icon: LayoutDashboard },
-    { name: "Transactions", href: "/admin/transactions", icon: ArrowLeftRight },
-    { name: "Users", href: "/admin/users", icon: Users },
-    { name: "System Logs", href: "/admin/logs", icon: ShieldAlert },
-  ];
 
   return (
     <div className="min-h-screen bg-[#0a0a0b] flex overflow-hidden">

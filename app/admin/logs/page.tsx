@@ -5,8 +5,6 @@ import {
   Terminal, 
   Webhook, 
   UserCheck, 
-  AlertTriangle, 
-  CheckCircle2, 
   Search,
   RefreshCw,
   Code2
@@ -34,7 +32,7 @@ export default function AdminLogs() {
 
   const logs = data || [];
 
-  const filteredLogs = logs.filter((log: any) => {
+  const filteredLogs = logs.filter((log: Record<string, unknown>) => {
     if (!search) return true;
     const searchLower = search.toLowerCase();
     const content = JSON.stringify(log).toLowerCase();
@@ -108,9 +106,9 @@ export default function AdminLogs() {
             <p className="text-white/20 font-medium">No log entries found.</p>
           </div>
         ) : (
-          filteredLogs.map((log: any, i: number) => (
+          filteredLogs.map((log: Record<string, any>, i: number) => (
             <motion.div
-              key={log.id}
+              key={log.id as string}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.03 }}
@@ -128,7 +126,7 @@ export default function AdminLogs() {
                 <div>
                   <div className="flex items-center gap-3">
                     <h4 className="text-sm font-bold text-white tracking-tight">
-                      {logType === 'webhooks' ? log.provider : log.action}
+                      {logType === 'webhooks' ? log.provider as string : log.action as string}
                     </h4>
                     {logType === 'webhooks' && (
                        <span className={cn(
@@ -140,7 +138,7 @@ export default function AdminLogs() {
                     )}
                   </div>
                   <p className="text-[10px] font-mono text-white/20 mt-1 uppercase tracking-widest">
-                    ID: {log.id.slice(0, 16)}... • {format(new Date(log.created_at), 'HH:mm:ss.SSS')}
+                    ID: {(log.id as string).slice(0, 16)}... • {format(new Date(log.created_at as string), 'HH:mm:ss.SSS')}
                   </p>
                 </div>
               </div>
