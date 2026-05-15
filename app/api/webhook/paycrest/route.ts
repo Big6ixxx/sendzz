@@ -1,0 +1,132 @@
+import { Database, Json } from '@/types/database';
+import { createClient } from '@supabase/supabase-js';
+import { Webhook } from 'standardwebhooks';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const supabaseAdmin = createClient<Database>(supabaseUrl, supabaseServiceRole);
+
+// We must use the Edge Runtime or Node runtime. standardwebhooks works in both.
+export const runtime = 'nodejs';
+
+export async function POST(req: Request) {
+  try {
+    const payload = await req.text();
+    const headers = Object.fromEntries(req.headers.entries());
+
+    const webhookSecret = process.env.PAYCREST_API_SECRET;
+
+    if (!webhookSecret) {
+      console.error('[Paycrest Webhook] Missing PAYCREST_API_SECRET');
+      return new Response('Webhook secret not configured', { status: 500 });
+    }
+
+    const wh = new Webhook(webhookSecret);
+
+    interface PaycrestEvent {
+      id?: string;
+      eventId?: string;
+      type?: string;
+      eventType?: string;
+      data?: {
+        id?: string;
+        status?: string;
+        failureReason?: string;
+        reason?: string;
+        [key: string]: unknown;
+      };
+      [key: string]: unknown;
+    }
+
+    let event: PaycrestEvent;
+    try {
+      event = wh.verify(payload, headers) as PaycrestEvent;
+    } catch (err) {
+      console.error('[Paycrest Webhook] Invalid signature:', err);
+      return new Response('Invalid signature', { status: 400 });
+    }
+
+    // The event payload structure usually has eventId, type, and data.
+    // E.g. eventType = "order.status.updated", data = { id: "order_id", status: "settled" }
+    const eventType = event.type || event.eventType;
+    const orderData = event.data;
+
+    if (!orderData || !orderData.id) {
+      return new Response('Invalid event data', { status: 400 });
+    }
+
+    const orderId = orderData.id;
+    const status = orderData.status;
+
+    console.log(
+      `[Paycrest Webhook] Received ${eventType} for order ${orderId} with status ${status}`,
+    );
+
+    // Track the webhook event in the database to prevent replay attacks and for audit
+    const { error: insertError } = await supabaseAdmin
+      .from('webhook_events')
+      .insert({
+        provider: 'paycrest',
+        event_id: event.id || event.eventId || `${orderId}-${status}`,
+        event_type: eventType,
+        payload_json: event as unknown as Json,
+      })
+      .select('id')
+      .single();
+
+    if (insertError) {
+      if (insertError.code === '23505') {
+        console.log(`[Paycrest Webhook] Event already processed`);
+        return new Response('Already processed', { status: 200 });
+      }
+      console.error(
+        '[Paycrest Webhook] Failed to log webhook event:',
+        insertError,
+      );
+    }
+
+    // Process the status update
+    if (status === 'settled' || status === 'completed') {
+      const { error } = await supabaseAdmin.rpc('finalize_withdrawal_success', {
+        p_paycrest_order_id: orderId,
+      });
+      if (error) {
+        console.error(
+          `[Paycrest Webhook] Failed to finalize success for ${orderId}:`,
+          error,
+        );
+        return new Response('Internal error', { status: 500 });
+      }
+      console.log(
+        `[Paycrest Webhook] Successfully finalized withdrawal ${orderId}`,
+      );
+    } else if (
+      status === 'failed' ||
+      status === 'refunded' ||
+      status === 'expired'
+    ) {
+      const { error } = await supabaseAdmin.rpc('finalize_withdrawal_failed', {
+        p_paycrest_order_id: orderId,
+        p_reason:
+          orderData.failureReason ||
+          orderData.reason ||
+          'Webhook reported failure status',
+      });
+      if (error) {
+        console.error(
+          `[Paycrest Webhook] Failed to finalize failure for ${orderId}:`,
+          error,
+        );
+        return new Response('Internal error', { status: 500 });
+      }
+      console.log(
+        `[Paycrest Webhook] Successfully refunded failed withdrawal ${orderId}`,
+      );
+    }
+
+    return new Response('OK', { status: 200 });
+  } catch (err) {
+    console.error('[Paycrest Webhook] Unhandled error:', err);
+    return new Response('Internal Server Error', { status: 500 });
+  }
+}
