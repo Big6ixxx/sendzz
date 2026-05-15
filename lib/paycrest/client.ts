@@ -42,7 +42,7 @@ export class PaycrestClient {
 
     const data = await res.json();
     console.log(`[Paycrest] Response:`, data);
-    return data;
+    return data as T;
   }
 
   /**

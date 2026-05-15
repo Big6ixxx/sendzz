@@ -168,6 +168,28 @@ export async function updateDepositStatus(
   }
 }
 
+export async function updateWithdrawalStatus(
+  paycrestOrderId: string,
+  status: 'completed' | 'failed',
+) {
+  try {
+    const { error } = await supabaseAdmin
+      .from('withdrawals')
+      .update({ status })
+      .eq('paycrest_order_id', paycrestOrderId);
+
+    if (error) throw error;
+    console.log(
+      `[Supabase] Withdrawal ${paycrestOrderId} status updated to ${status}`,
+    );
+  } catch (err) {
+    console.error(
+      '[Supabase Actions] Failed to update withdrawal status:',
+      err,
+    );
+  }
+}
+
 export async function recordWithdrawal(params: {
   userEmail: string;
   amountUsdc: number;

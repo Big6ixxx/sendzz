@@ -4,12 +4,13 @@ import {
   finalizeOffRamp,
   getInstitutions,
   getOffRampQuote,
+  getOffRampRate,
   getOnRampRate,
   getOrderStatus,
   initiateOnRamp,
   verifyBankAccount,
 } from '@/lib/actions/ramp';
-import { updateDepositStatus } from '@/lib/supabase/actions';
+import { updateDepositStatus, updateWithdrawalStatus } from '@/lib/supabase/actions';
 import { type FiatCurrencyCode } from '@/lib/currency-config';
 import {
   PaycrestInstitution,
@@ -42,6 +43,7 @@ export function useDepositWithdraw(
   const queryClient = useQueryClient();
   const [step, setStep] = useState(1);
   const [amount, setAmount] = useState('');
+  const [inputMode, setInputMode] = useState<'usdc' | 'fiat'>('usdc');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fiatCurrency, setFiatCurrency] = useState<FiatCurrencyCode>('NGN');
@@ -90,9 +92,14 @@ export function useDepositWithdraw(
     setBankDetails({ accountNumber: '', bankCode: '', accountName: '', bankName: '' });
     lastAttemptedRef.current = '';
 
+    setRateLoading(true);
     if (type === 'deposit') {
-      setRateLoading(true);
       getOnRampRate(fiatCurrency)
+        .then(setRate)
+        .catch(() => setRate(null))
+        .finally(() => setRateLoading(false));
+    } else {
+      getOffRampRate(fiatCurrency)
         .then(setRate)
         .catch(() => setRate(null))
         .finally(() => setRateLoading(false));
@@ -194,9 +201,18 @@ export function useDepositWithdraw(
   };
 
   const handleWithdrawQuote = async () => {
-    const val = parseFloat(amount);
-    if (isNaN(val) || val <= 1) {
-      toast.error('Minimum withdrawal must be greater than 1 USDC');
+    let val = parseFloat(amount);
+    
+    if (inputMode === 'fiat') {
+      if (!rate) {
+        toast.error('Exchange rate not available yet');
+        return;
+      }
+      val = val / rate;
+    }
+
+    if (isNaN(val) || val < 1) {
+      toast.error('Minimum withdrawal is 1 USDC');
       return;
     }
 
@@ -204,6 +220,13 @@ export function useDepositWithdraw(
       setError(`Insufficient balance. Max: ${balance} USDC`);
       return;
     }
+    
+    // Update state to USDC so finalization step uses correct amount
+    if (inputMode === 'fiat') {
+      setAmount(val.toFixed(2));
+      setInputMode('usdc');
+    }
+
     setLoading(true);
     setError(null);
     try {
@@ -257,9 +280,10 @@ export function useDepositWithdraw(
         order.providerAccount.receiveAddress,
         amount,
       );
-      toast.success('Transfer successful!');
+      toast.success('Transfer sent! Waiting for confirmation...');
       queryClient.invalidateQueries({ queryKey: ['balance', userAddress] });
-      setTimeout(() => onClose?.(), 2000);
+      setStep(4);
+      startPolling();
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'An unknown error occurred',
@@ -276,26 +300,42 @@ export function useDepositWithdraw(
       try {
         const result = await getOrderStatus(order.id);
         setTxStatus(result.status);
-        if (
-          [
-            'settled',
-            'refunded',
-            'expired',
-          ].includes(result.status)
-        ) {
+
+        const isWithdraw = type === 'withdraw';
+        const successStatuses = isWithdraw
+          ? ['settled', 'completed', 'validated', 'deposited']
+          : ['settled'];
+        const failureStatuses = ['refunded', 'expired', 'failed', 'refunding'];
+
+        const isSuccess = successStatuses.includes(result.status);
+        const isFailure = failureStatuses.includes(result.status);
+
+        if (isSuccess || isFailure) {
           if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
           setPolling(false);
 
-          // Update database status
-          if (result.status === 'settled') {
-            updateDepositStatus(order.id, 'confirmed');
-            toast.success('Funds received!');
-            queryClient.invalidateQueries({
-              queryKey: ['balance', userAddress],
-            });
-            setStep(3);
+          if (isSuccess) {
+            if (isWithdraw) {
+              updateWithdrawalStatus(order.id, 'completed');
+              toast.success('Withdrawal completed!');
+              queryClient.invalidateQueries({
+                queryKey: ['balance', userAddress],
+              });
+              setTimeout(() => onClose?.(), 2000);
+            } else {
+              updateDepositStatus(order.id, 'confirmed');
+              toast.success('Funds received!');
+              queryClient.invalidateQueries({
+                queryKey: ['balance', userAddress],
+              });
+              setStep(3);
+            }
           } else {
-            updateDepositStatus(order.id, 'failed');
+            if (isWithdraw) {
+              updateWithdrawalStatus(order.id, 'failed');
+            } else {
+              updateDepositStatus(order.id, 'failed');
+            }
             toast.error(`Transaction ${result.status}`);
           }
         }
@@ -303,7 +343,7 @@ export function useDepositWithdraw(
     };
     poll();
     pollIntervalRef.current = setInterval(poll, 8000);
-  }, [order?.id, queryClient, userAddress]);
+  }, [order?.id, queryClient, userAddress, type, onClose]);
 
   useEffect(() => {
     return () => {
@@ -316,6 +356,8 @@ export function useDepositWithdraw(
     setStep,
     amount,
     setAmount,
+    inputMode,
+    setInputMode,
     loading,
     error,
     fiatCurrency,

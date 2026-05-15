@@ -187,7 +187,13 @@ export async function fetchAttestation(
     if (res.status === 404) return { status: 'pending' };
     if (!res.ok) throw new Error(`Iris API error: ${res.statusText}`);
 
-    const data = await res.json();
+    const data = (await res.json()) as {
+      messages?: {
+        status: string;
+        attestation?: string;
+        forwardTxHash?: string;
+      }[];
+    };
     const message = data.messages?.[0];
 
     if (!message) return { status: 'pending' };

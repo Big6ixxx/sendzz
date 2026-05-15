@@ -52,7 +52,7 @@ function baseTemplate(content: string): string {
     <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 584px; margin: 0 auto; background-color: #F2FBF1;">
       <!-- Header -->
       <tr>
-        <td align="center" style="background-color: #0E2406; border-radius: 24px 24px 0 0; padding: 60px 20px; background-image: url('${APP_URL}/heqaderBg.svg'); background-repeat: no-repeat; background-position: center;">
+        <td align="center" style="background-color: #0E2406; border-radius: 24px 24px 0 0; padding: 60px 20px; background-image: url('${APP_URL}/headerBg.svg'); background-repeat: no-repeat; background-position: center;">
           <img src="${APP_URL}/logo.svg" alt="Sendzz" width="180" style="display: block;">
         </td>
       </tr>

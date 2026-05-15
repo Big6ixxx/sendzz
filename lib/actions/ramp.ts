@@ -104,10 +104,21 @@ export async function checkOrderById(orderId: string) {
   }
 }
 
+export async function getOffRampRate(fiat: string = 'NGN'): Promise<number> {
+  const paycrest = getPaycrestClient();
+  const rates = await paycrest.getRates('base', 'USDC', 1, fiat);
+  const sellRate = rates.data.sell?.rate;
+  if (!sellRate) throw new Error(`Could not fetch offramp rate for ${fiat}`);
+  return Number(sellRate);
+}
+
 /**
  * PAYCREST OFF-RAMP QUOTE (DEFAULT)
  */
-export async function getOffRampQuote(amountUsdc: number, fiat: string = 'NGN') {
+export async function getOffRampQuote(
+  amountUsdc: number,
+  fiat: string = 'NGN',
+) {
   const paycrest = getPaycrestClient();
 
   try {

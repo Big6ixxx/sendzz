@@ -86,7 +86,7 @@ export async function POST(req: Request) {
     }
 
     // Process the status update
-    if (status === 'settled' || status === 'completed') {
+    if (status === 'settled' || status === 'completed' || status === 'validated' || status === 'deposited') {
       const { error } = await supabaseAdmin.rpc('finalize_withdrawal_success', {
         p_paycrest_order_id: orderId,
       });
@@ -103,7 +103,8 @@ export async function POST(req: Request) {
     } else if (
       status === 'failed' ||
       status === 'refunded' ||
-      status === 'expired'
+      status === 'expired' ||
+      status === 'refunding'
     ) {
       const { error } = await supabaseAdmin.rpc('finalize_withdrawal_failed', {
         p_paycrest_order_id: orderId,
