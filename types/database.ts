@@ -406,7 +406,7 @@ export interface Database {
           user_id: string;
           source_chain: string;
           dest_chain: string;
-          amount_usdc: number;
+          amount: number;
           burn_tx_hash: string;
           attestation_status: 'pending' | 'complete' | 'failed';
           mint_tx_hash: string | null;
@@ -418,7 +418,7 @@ export interface Database {
           user_id: string;
           source_chain: string;
           dest_chain: string;
-          amount_usdc: number;
+          amount: number;
           burn_tx_hash: string;
           attestation_status?: 'pending' | 'complete' | 'failed';
           mint_tx_hash?: string | null;
@@ -430,7 +430,7 @@ export interface Database {
           user_id?: string;
           source_chain?: string;
           dest_chain?: string;
-          amount_usdc?: number;
+          amount?: number;
           burn_tx_hash?: string;
           attestation_status?: 'pending' | 'complete' | 'failed';
           mint_tx_hash?: string | null;

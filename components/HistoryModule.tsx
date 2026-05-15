@@ -22,7 +22,12 @@ import {
   SelectValue,
 } from './ui/select';
 
-export type ActivityType = 'sent' | 'received' | 'deposit' | 'withdrawal';
+export type ActivityType =
+  | 'sent'
+  | 'received'
+  | 'deposit'
+  | 'withdrawal'
+  | 'bridge';
 export type SortType = 'date' | 'amount';
 
 export interface Activity {
@@ -43,6 +48,7 @@ const ACTIVITY_LABELS: Record<ActivityType, string> = {
   received: 'Funds Received',
   deposit: 'Deposit',
   withdrawal: 'Withdrawal',
+  bridge: 'Bridge Transfer',
 };
 
 const PAGE_SIZE = 10;
@@ -125,11 +131,19 @@ export function HistoryModule({
           amount: w.amount_usdc,
           status: w.status,
           timestamp: w.created_at,
-          details: `To: ${w.fiat_currency} Bank`,
+          details: `To: ${w.bank_account_masked}`,
           asset: 'USDC',
-          txHash: w.paycrest_order_id?.startsWith('0x')
-            ? w.paycrest_order_id
-            : undefined,
+          txHash: w.paycrest_order_id || undefined,
+        })),
+        ...(data.bridges || []).map((b) => ({
+          id: b.id,
+          type: 'bridge' as ActivityType,
+          amount: b.amount,
+          status: b.attestation_status,
+          timestamp: b.created_at,
+          details: `From: ${b.source_chain.toUpperCase()}`,
+          asset: 'USDC',
+          txHash: b.burn_tx_hash,
         })),
       ];
 
@@ -178,6 +192,21 @@ export function HistoryModule({
   const displayedActivities = useMemo(() => {
     return filteredAndSorted.slice(0, limit || visibleCount);
   }, [filteredAndSorted, limit, visibleCount]);
+
+  const getActivityIcon = (type: ActivityType) => {
+    switch (type) {
+      case 'sent':
+        return <ArrowUpRight className="w-6 h-6" />;
+      case 'received':
+        return <ArrowDownLeft className="w-6 h-6" />;
+      case 'deposit':
+        return <Wallet className="w-6 h-6" />;
+      case 'withdrawal':
+        return <Landmark className="w-6 h-6" />;
+      case 'bridge':
+        return <RefreshCw className="w-6 h-6" />;
+    }
+  };
 
   if (isLoading) {
     return (
@@ -253,6 +282,7 @@ export function HistoryModule({
                 <SelectItem value="received">Funds Received</SelectItem>
                 <SelectItem value="deposit">Deposits</SelectItem>
                 <SelectItem value="withdrawal">Withdrawals</SelectItem>
+                <SelectItem value="bridge">Bridge Transfers</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -290,11 +320,15 @@ export function HistoryModule({
           </div>
         ) : (
           displayedActivities.map((a) => {
+            const statusLower = a.status.toLowerCase();
             const isSettled =
-              a.status.toLowerCase() === 'settled' ||
-              a.status.toLowerCase() === 'completed' ||
-              a.status.toLowerCase() === 'confirmed' ||
-              a.status.toLowerCase() === 'success';
+              statusLower === 'settled' ||
+              statusLower === 'completed' ||
+              statusLower === 'confirmed' ||
+              statusLower === 'success' ||
+              statusLower === 'complete';
+            const isPending =
+              statusLower === 'pending' || statusLower === 'processing';
 
             return (
               <button
@@ -315,16 +349,22 @@ export function HistoryModule({
                           ? 'rgba(0, 232, 122, 0.08)'
                           : a.type === 'deposit'
                             ? 'rgba(59, 130, 246, 0.08)'
-                            : 'rgba(251, 146, 60, 0.08)',
+                            : a.type === 'bridge'
+                              ? 'rgba(96, 165, 250, 0.08)'
+                              : 'rgba(251, 146, 60, 0.08)',
                     color: isSettled
                       ? '#00e87a'
-                      : a.type === 'sent'
-                        ? '#f87171'
-                        : a.type === 'received'
-                          ? '#00e87a'
-                          : a.type === 'deposit'
-                            ? '#3b82f6'
-                            : '#fb923c',
+                      : isPending
+                        ? '#3b82f6'
+                        : a.type === 'sent'
+                          ? '#f87171'
+                          : a.type === 'received'
+                            ? '#00e87a'
+                            : a.type === 'deposit'
+                              ? '#3b82f6'
+                              : a.type === 'bridge'
+                                ? '#60a5fa'
+                                : '#fb923c',
                     border: `1px solid ${
                       isSettled
                         ? 'rgba(0, 232, 122, 0.15)'
@@ -334,16 +374,13 @@ export function HistoryModule({
                             ? 'rgba(0, 232, 122, 0.15)'
                             : a.type === 'deposit'
                               ? 'rgba(59, 130, 246, 0.15)'
-                              : 'rgba(251, 146, 60, 0.15)'
+                              : a.type === 'bridge'
+                                ? 'rgba(96, 165, 250, 0.15)'
+                                : 'rgba(251, 146, 60, 0.15)'
                     }`,
                   }}
                 >
-                  {a.type === 'sent' && <ArrowUpRight className="w-6 h-6" />}
-                  {a.type === 'received' && (
-                    <ArrowDownLeft className="w-6 h-6" />
-                  )}
-                  {a.type === 'deposit' && <Wallet className="w-6 h-6" />}
-                  {a.type === 'withdrawal' && <Landmark className="w-6 h-6" />}
+                  {getActivityIcon(a.type)}
                 </div>
 
                 <div className="flex-1 min-w-0 space-y-2">
@@ -374,13 +411,18 @@ export function HistoryModule({
                     <div className="flex items-center gap-3">
                       <span
                         className={cn(
-                          'text-[9px] px-2 py-0.5 rounded-md font-bold uppercase tracking-widest',
+                          'text-[9px] px-2 py-0.5 rounded-md font-bold uppercase tracking-widest flex items-center gap-1.5',
                           isSettled
                             ? 'bg-accent/10 text-accent border border-accent/20'
-                            : 'bg-white/5 text-brand-secondary/30 border border-white/10',
+                            : isPending
+                              ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                              : 'bg-white/5 text-brand-secondary/30 border border-white/10',
                         )}
                       >
-                        {a.status}
+                        {isPending && (
+                          <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                        )}
+                        {isPending ? 'Processing' : a.status}
                       </span>
                       <span className="text-[10px] font-bold uppercase text-brand-secondary/20 whitespace-nowrap">
                         {format(new Date(a.timestamp), 'MMM dd')}

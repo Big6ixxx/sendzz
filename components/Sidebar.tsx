@@ -61,9 +61,9 @@ export function Sidebar({
           borderRight: "1px solid rgba(255,255,255,0.06)",
         }}
       >
-        <div className="flex flex-col h-full p-5">
+        <div className="flex flex-col h-full p-5 overflow-y-auto">
           {/* Logo */}
-          <div className="flex items-center justify-between mb-10 px-2">
+          <div className="flex items-center justify-between mb-10 px-2 shrink-0">
             <Link href="/">
               <Image
                 src="/logo.svg"

@@ -29,7 +29,7 @@ export default function DashboardLayout({
   }, [pathname]);
 
   return (
-    <div className="flex min-h-screen" style={{ background: "#07070a" }}>
+    <div className="flex h-screen overflow-hidden" style={{ background: "#07070a" }}>
       {/* Ambient glow — subtle, dashboard version */}
       <div
         className="fixed inset-0 pointer-events-none overflow-hidden"

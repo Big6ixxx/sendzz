@@ -1,28 +1,25 @@
-import { fetchAttestation } from '@/lib/circle/gateway';
+import { fetchAttestation, type SupportedChain } from '@/lib/circle/gateway';
 import { NextRequest, NextResponse } from 'next/server';
 
 /**
- * GET /api/bridge/status?messageHash=0x...
+ * GET /api/bridge/status?txHash=0x...&sourceChain=ethereum
  *
- * Polls Circle's Iris API for the attestation status of a CCTP burn.
- * Once Circle attests the burn, their own relayer automatically mints USDC
- * on Base — no server-side signer or hot wallet needed.
- *
- * The client can call this endpoint to show real-time bridge progress.
+ * Polls Circle's Iris API for the status of a CCTP burn using V2 endpoints.
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const messageHash = searchParams.get('messageHash');
+  const txHash = searchParams.get('txHash');
+  const sourceChain = searchParams.get('sourceChain') as SupportedChain;
 
-  if (!messageHash || !messageHash.startsWith('0x')) {
+  if (!txHash || !sourceChain) {
     return NextResponse.json(
-      { error: 'Missing or invalid messageHash' },
+      { error: 'Missing txHash or sourceChain' },
       { status: 400 },
     );
   }
 
   try {
-    const result = await fetchAttestation(messageHash);
+    const result = await fetchAttestation(sourceChain, txHash);
     return NextResponse.json(result);
   } catch (error) {
     console.error('[Bridge Status] Error:', error);
@@ -31,7 +28,7 @@ export async function GET(req: NextRequest) {
         status: 'pending',
         error: error instanceof Error ? error.message : 'Unknown error',
       },
-      { status: 200 }, // Return 200 so client keeps polling
+      { status: 200 },
     );
   }
 }
@@ -39,21 +36,20 @@ export async function GET(req: NextRequest) {
 /**
  * POST /api/bridge/status
  *
- * Accepts { messageHash } and returns the attestation status.
- * Equivalent to GET but usable from fetch with a body.
+ * Accepts { txHash, sourceChain } and returns the attestation status.
  */
 export async function POST(req: NextRequest) {
   try {
-    const { messageHash } = await req.json();
+    const { txHash, sourceChain } = await req.json();
 
-    if (!messageHash) {
+    if (!txHash || !sourceChain) {
       return NextResponse.json(
-        { error: 'Missing messageHash' },
+        { error: 'Missing txHash or sourceChain' },
         { status: 400 },
       );
     }
 
-    const result = await fetchAttestation(messageHash);
+    const result = await fetchAttestation(sourceChain, txHash);
     return NextResponse.json(result);
   } catch (error) {
     console.error('[Bridge Status] Error:', error);

@@ -14,7 +14,7 @@ import {
   Clock,
   RefreshCw,
   TrendingUp,
-  Users
+  Users,
 } from 'lucide-react';
 import { useState } from 'react';
 import {

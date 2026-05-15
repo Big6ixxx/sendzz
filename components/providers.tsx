@@ -3,21 +3,32 @@
 import { PrivyProvider } from '@privy-io/react-auth';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
-import { base, baseSepolia } from 'viem/chains';
+import {
+  arbitrum,
+  avalanche,
+  base,
+  baseSepolia,
+  mainnet,
+  optimism,
+  polygon,
+} from 'viem/chains';
 import { ReactNode, useState } from 'react';
 
 export function Providers({ children }: { children: ReactNode }) {
-  const [queryClient] = useState(() => new QueryClient({
-    defaultOptions: {
-      queries: {
-        refetchOnWindowFocus: true,
-        retry: 3,
-      },
-    },
-  }));
-  
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            refetchOnWindowFocus: true,
+            retry: 3,
+          },
+        },
+      }),
+  );
+
   const isProd = process.env.NEXT_PUBLIC_SIMULATION_MODE === 'false';
-  
+
   return (
     <QueryClientProvider client={queryClient}>
       <PrivyProvider
@@ -35,7 +46,15 @@ export function Providers({ children }: { children: ReactNode }) {
             },
           },
           defaultChain: isProd ? base : baseSepolia,
-          supportedChains: [base, baseSepolia],
+          supportedChains: [
+            mainnet,
+            arbitrum,
+            optimism,
+            polygon,
+            avalanche,
+            base,
+            baseSepolia,
+          ],
         }}
       >
         {children}

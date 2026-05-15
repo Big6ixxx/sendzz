@@ -21,6 +21,7 @@ const ACTIVITY_LABELS: Record<string, string> = {
   received: 'Funds Received',
   deposit: 'Deposit',
   withdrawal: 'Withdrawal',
+  bridge: 'Bridge Transfer',
 };
 
 const EXPLORER_BASE_URL = 'https://basescan.org/tx/';

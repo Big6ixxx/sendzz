@@ -1,26 +1,31 @@
-"use client";
+'use client';
 
-import { usePrivy } from "@privy-io/react-auth";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { cn } from '@/lib/utils';
+import { usePrivy } from '@privy-io/react-auth';
+import { motion } from 'framer-motion';
 import {
-  Loader2,
-  LayoutDashboard,
   ArrowLeftRight,
-  Users,
-  ShieldAlert,
+  LayoutDashboard,
+  Lock,
   LogOut,
   Menu,
+  ShieldAlert,
+  Users,
   X,
-  Lock,
-} from "lucide-react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { cn } from "@/lib/utils";
-import Image from "next/image";
-import { motion } from "framer-motion";
+} from 'lucide-react';
+import Image from 'next/image';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 
-import { checkIsAdmin } from "@/lib/supabase/actions";
+import { checkIsAdmin } from '@/lib/supabase/actions';
+
+const navItems = [
+  { name: 'Overview', href: '/admin', icon: LayoutDashboard },
+  { name: 'Transactions', href: '/admin/transactions', icon: ArrowLeftRight },
+  { name: 'Users', href: '/admin/users', icon: Users },
+  { name: 'System Logs', href: '/admin/logs', icon: ShieldAlert },
+];
 
 export default function AdminLayout({
   children,
@@ -34,7 +39,8 @@ export default function AdminLayout({
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
 
   useEffect(() => {
-    const section = navItems.find(item => item.href === pathname)?.name || 'Admin';
+    const section =
+      navItems.find((item) => item.href === pathname)?.name || 'Admin';
     document.title = `${section} | Sendzz`;
   }, [pathname]);
 
@@ -45,11 +51,11 @@ export default function AdminLayout({
           const result = await checkIsAdmin(user.email.address);
           setIsAdmin(result);
         } catch (err) {
-          console.error("[Admin Auth Error]", err);
+          console.error('[Admin Auth Error]', err);
           setIsAdmin(false);
         }
       } else if (ready && !authenticated) {
-        router.push("/");
+        router.push('/');
       }
     }
     verify();
@@ -57,12 +63,16 @@ export default function AdminLayout({
 
   if (!ready || isAdmin === null) {
     return (
-      <div className="min-h-screen bg-[#0a0a0b] flex flex-col items-center justify-center overflow-hidden relative">
-        <div className="fixed inset-0 pointer-events-none overflow-hidden" aria-hidden>
+      <div className="min-h-screen bg-brand-primary flex flex-col items-center justify-center overflow-hidden relative">
+        <div
+          className="fixed inset-0 pointer-events-none overflow-hidden"
+          aria-hidden
+        >
           <div
             className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full opacity-20 blur-[120px]"
             style={{
-              background: 'radial-gradient(circle, #00e87a 0%, transparent 70%)',
+              background:
+                'radial-gradient(circle, #00e87a 0%, transparent 70%)',
             }}
           />
         </div>
@@ -77,17 +87,20 @@ export default function AdminLayout({
             }}
             className="relative"
           >
-            <div className="absolute inset-0 rounded-full blur-2xl bg-[#00e87a]/20 scale-150 animate-pulse" />
-            <div className="relative w-24 h-24 rounded-3xl flex items-center justify-center bg-white/5 backdrop-blur-xl p-0 overflow-hidden border border-[#00e87a]/20">
-              <Image 
-                src="/logo.svg" 
-                alt="Sendzz" 
-                width={48} 
-                height={48} 
+            <div className="absolute inset-0 rounded-full blur-2xl bg-accent/20 scale-150 animate-pulse" />
+            <div className="relative w-24 h-24 rounded-3xl flex items-center justify-center bg-white/5 backdrop-blur-xl p-0 overflow-hidden border border-accent/20">
+              <Image
+                src="/logo.svg"
+                alt="Sendzz"
+                width={48}
+                height={48}
                 className="animate-pulse"
                 priority
               />
-              <div className="absolute inset-0 border-2 border-transparent border-t-[#00e87a] rounded-3xl animate-spin" style={{ animationDuration: '2s' }} />
+              <div
+                className="absolute inset-0 border-2 border-transparent border-t-accent rounded-3xl animate-spin"
+                style={{ animationDuration: '2s' }}
+              />
             </div>
           </motion.div>
 
@@ -98,10 +111,10 @@ export default function AdminLayout({
               transition={{ delay: 0.2 }}
             >
               <h2 className="font-display text-2xl font-bold tracking-tight text-white">
-                Syncing <span className="text-[#00e87a]">Admin</span>
+                Syncing <span className="text-accent">Admin</span>
               </h2>
             </motion.div>
-            
+
             <div className="flex items-center gap-2">
               {[0, 1, 2].map((i) => (
                 <motion.span
@@ -113,14 +126,14 @@ export default function AdminLayout({
                     duration: 1.5,
                     delay: i * 0.2,
                   }}
-                  className="w-2 h-2 rounded-full bg-[#00e87a]"
+                  className="w-2 h-2 rounded-full bg-accent"
                 />
               ))}
             </div>
           </div>
         </div>
 
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 1 }}
@@ -134,13 +147,14 @@ export default function AdminLayout({
     );
   }
 
-  if (!isAdmin) {
+  if (isAdmin === false) {
     return (
-      <div className="h-screen w-full flex flex-col items-center justify-center bg-[#0a0a0b] p-6 text-center">
-        <div className="w-20 h-20 bg-red-500/10 rounded-3xl flex items-center justify-center mb-8 border border-red-500/20">
-          <Lock className="w-10 h-10 text-red-500" />
+      <div className="min-h-screen bg-brand-primary flex flex-col items-center justify-center p-8 text-center relative overflow-hidden">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-red-500/5 blur-[120px] pointer-events-none" />
+        <div className="relative w-24 h-24 rounded-3xl flex items-center justify-center bg-red-400/5 backdrop-blur-xl border border-red-400/20 mb-8 shadow-2xl">
+          <Lock className="w-10 h-10 text-red-400" />
         </div>
-        <h1 className="text-4xl font-display font-bold text-white mb-3 tracking-tight">
+        <h1 className="text-4xl font-display font-black text-white mb-4 tracking-tighter">
           Access Restricted
         </h1>
         <p className="text-white/40 max-w-sm mb-10 font-medium leading-relaxed">
@@ -148,7 +162,7 @@ export default function AdminLayout({
           Your attempt has been logged for security.
         </p>
         <button
-          onClick={() => router.push("/dashboard")}
+          onClick={() => router.push('/dashboard')}
           className="px-8 py-4 rounded-2xl bg-white/5 border border-white/10 text-white font-bold hover:bg-white/10 transition-all active:scale-95"
         >
           Return to Dashboard
@@ -157,15 +171,8 @@ export default function AdminLayout({
     );
   }
 
-  const navItems = [
-    { name: "Overview", href: "/admin", icon: LayoutDashboard },
-    { name: "Transactions", href: "/admin/transactions", icon: ArrowLeftRight },
-    { name: "Users", href: "/admin/users", icon: Users },
-    { name: "System Logs", href: "/admin/logs", icon: ShieldAlert },
-  ];
-
   return (
-    <div className="min-h-screen bg-[#0a0a0b] flex overflow-hidden">
+    <div className="min-h-screen bg-brand-primary flex overflow-hidden">
       {/* Mobile Sidebar Toggle */}
       {!isSidebarOpen && (
         <button
@@ -179,8 +186,8 @@ export default function AdminLayout({
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-40 w-72 bg-[#0a0a0b] border-r border-white/5 transition-all duration-300 transform lg:relative lg:translate-x-0 shadow-[20px_0_50px_rgba(0,0,0,0.5)]",
-          !isSidebarOpen && "-translate-x-full",
+          'fixed inset-y-0 left-0 z-40 w-72 bg-brand-primary border-r border-white/5 transition-all duration-300 transform lg:relative lg:translate-x-0 shadow-[20px_0_50px_rgba(0,0,0,0.5)]',
+          !isSidebarOpen && '-translate-x-full',
         )}
       >
         <div className="h-full flex flex-col p-8">
@@ -210,24 +217,24 @@ export default function AdminLayout({
                   key={item.name}
                   href={item.href}
                   className={cn(
-                    "flex items-center gap-4 px-5 py-4 rounded-2xl transition-all duration-300 group relative overflow-hidden",
+                    'flex items-center gap-4 px-5 py-4 rounded-2xl transition-all duration-300 group relative overflow-hidden',
                     isActive
-                      ? "bg-[#00e87a]/10 text-[#00e87a] shadow-[0_0_20px_rgba(0,232,122,0.05)]"
-                      : "text-white/40 hover:text-white hover:bg-white/5",
+                      ? 'bg-accent/10 text-accent shadow-[0_0_20px_rgba(0,232,122,0.05)]'
+                      : 'text-white/40 hover:text-white hover:bg-white/5',
                   )}
                 >
                   {isActive && (
                     <motion.div
                       layoutId="nav-active"
-                      className="absolute left-0 top-0 bottom-0 w-1 bg-[#00e87a] rounded-r-full"
+                      className="absolute left-0 top-0 bottom-0 w-1 bg-accent rounded-r-full"
                     />
                   )}
                   <item.icon
                     className={cn(
-                      "w-5 h-5 transition-transform duration-300 group-hover:scale-110",
+                      'w-5 h-5 transition-transform duration-300 group-hover:scale-110',
                       isActive
-                        ? "text-[#00e87a]"
-                        : "text-white/20 group-hover:text-white/50",
+                        ? 'text-accent'
+                        : 'text-white/20 group-hover:text-white/50',
                     )}
                   />
                   <span className="font-bold tracking-tight">{item.name}</span>
@@ -237,14 +244,14 @@ export default function AdminLayout({
           </nav>
 
           <div className="pt-8 border-t border-white/5 space-y-4">
-            <div className="px-5 py-4 rounded-2xl bg-white/[0.03] border border-white/5 group hover:border-[#00e87a]/20 transition-all">
+            <div className="px-5 py-4 rounded-2xl bg-white/3 border border-white/5 group hover:border-accent/20 transition-all">
               <div className="flex items-center gap-2 mb-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-[#00e87a] animate-pulse" />
+                <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
                 <p className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em]">
                   Live Session
                 </p>
               </div>
-              <p className="text-xs font-bold text-white truncate group-hover:text-[#00e87a] transition-colors">
+              <p className="text-xs font-bold text-white truncate group-hover:text-accent transition-colors">
                 {user?.email?.address}
               </p>
             </div>
@@ -260,9 +267,9 @@ export default function AdminLayout({
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto bg-[#0a0a0b] relative">
+      <main className="flex-1 overflow-y-auto bg-brand-primary relative">
         <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-500/5 blur-[120px] rounded-full -translate-y-1/2 translate-x-1/2" />
-        <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-[#00e87a]/5 blur-[120px] rounded-full translate-y-1/2 -translate-x-1/2" />
+        <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-accent/5 blur-[120px] rounded-full translate-y-1/2 -translate-x-1/2" />
 
         <div className="p-8 lg:p-12 max-w-7xl mx-auto relative z-10">
           {children}

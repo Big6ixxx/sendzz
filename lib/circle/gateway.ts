@@ -168,29 +168,37 @@ export interface AttestationResponse {
 }
 
 /**
- * Poll Circle's Iris API for the attestation status of a burn transaction.
- * Once Circle attests the message, their relayer automatically mints on Base.
+ * Poll Circle's Iris API for the status of a CCTP V2 transfer.
+ * We use the /v2/messages endpoint which accepts a transaction hash.
  *
- * @param messageHash  The keccak256 hash of the MessageSent bytes
+ * @param sourceChain The chain where the burn occurred
+ * @param txHash      The transaction hash of the burn
  */
 export async function fetchAttestation(
-  messageHash: string,
+  sourceChain: SupportedChain,
+  txHash: string,
 ): Promise<AttestationResponse> {
   try {
+    const domain = CCTP_DOMAINS[sourceChain];
     const res = await fetch(
-      `${IRIS_API_BASE}/attestations/${messageHash}`,
+      `${IRIS_API_BASE}/messages/${domain}?transactionHash=${txHash}`,
     );
 
     if (res.status === 404) return { status: 'pending' };
     if (!res.ok) throw new Error(`Iris API error: ${res.statusText}`);
 
     const data = await res.json();
+    const message = data.messages?.[0];
+
+    if (!message) return { status: 'pending' };
+
     return {
-      status: data.status === 'complete' ? 'complete' : 'pending',
-      attestation: data.attestation,
-      mintTxHash: data.mintTxHash,
+      status: message.status === 'complete' ? 'complete' : 'pending',
+      attestation: message.attestation,
+      mintTxHash: message.forwardTxHash,
     };
-  } catch {
+  } catch (err) {
+    console.error('[Circle Gateway] fetchAttestation error:', err);
     return { status: 'pending' };
   }
 }

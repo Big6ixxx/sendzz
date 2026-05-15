@@ -66,7 +66,8 @@ export function DepositWithdrawDialog({
     <Dialog open={isOpen} onOpenChange={(val) => !val && onClose()}>
       <DialogContent
         showCloseButton={false}
-        className="sm:max-w-md p-0 overflow-hidden border-none rounded-4xl shadow-[0_32px_80px_rgba(0,0,0,0.5)] card-glass bg-brand-primary/90 backdrop-blur-3xl"
+        onInteractOutside={(e) => e.preventDefault()}
+        className="sm:max-w-md p-0 overflow-hidden border-none rounded-4xl shadow-[0_32px_80px_rgba(0,0,0,0.5)] card-glass bg-brand-primary/90 backdrop-blur-3xl flex flex-col max-h-[90vh]"
       >
         <DialogHeader className="p-8 pb-0 flex flex-row items-center justify-between">
           <div className="space-y-1.5">
@@ -101,11 +102,11 @@ export function DepositWithdrawDialog({
           </button>
         </DialogHeader>
 
-        <div className="p-8">
+        <div className="flex-1 flex flex-col min-h-0">
           {type === 'deposit' && (
-            <>
+            <div className="px-8 pt-8 pb-4 shrink-0">
               {/* Tab Switcher */}
-              <div className="flex bg-white/5 p-1 rounded-2xl mb-8 border border-white/5">
+              <div className="flex bg-white/5 p-1 rounded-2xl border border-white/5">
                 <button
                   onClick={() => setDepositTab('fiat')}
                   className={cn(
@@ -126,19 +127,31 @@ export function DepositWithdrawDialog({
                       : 'text-brand-secondary/40 hover:text-brand-secondary/60',
                   )}
                 >
-                  USDC Bridge
+                  USDC Deposit
                 </button>
               </div>
-
-              {depositTab === 'fiat' ? (
-                <DepositForm hook={hook} />
-              ) : (
-                <CctpDepositForm userAddress={userAddress} />
-              )}
-            </>
+            </div>
           )}
 
-          {type === 'withdraw' && <WithdrawForm hook={hook} />}
+          <div
+            className={cn(
+              'px-8 pb-8 overflow-y-auto flex-1',
+              type === 'withdraw' && 'pt-8',
+            )}
+          >
+            {type === 'deposit' ? (
+              depositTab === 'fiat' ? (
+                <DepositForm hook={hook} />
+              ) : (
+                <CctpDepositForm
+                  userAddress={userAddress}
+                  handleClose={onClose}
+                />
+              )
+            ) : (
+              <WithdrawForm hook={hook} />
+            )}
+          </div>
         </div>
       </DialogContent>
     </Dialog>

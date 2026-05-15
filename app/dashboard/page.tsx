@@ -169,7 +169,7 @@ export default function Dashboard() {
                     >
                       {smartAddress
                         ? `${smartAddress.slice(0, 6)}...${smartAddress.slice(-4)}`
-                        : 'Generating...'}
+                        : 'Loading...'}
                     </span>
                     <Copy
                       className="w-3 h-3"

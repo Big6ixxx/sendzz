@@ -72,6 +72,30 @@
     cursor: pointer;
   }
 
+  /* Custom Scrollbar */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--accent) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: var(--accent);
+    border-radius: 10px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: #00ff88;
+  }
+
   /* ===================== */
   /* GLASSMORPHISM SYSTEM  */
   /* ===================== */
@@ -219,14 +243,22 @@
     letter-spacing: -0.01em;
   }
 
-  .btn-accent:hover {
+  .btn-accent:hover:not(:disabled) {
     filter: brightness(1.08);
     transform: translateY(-2px);
     box-shadow: 0 12px 32px -4px rgba(0, 232, 122, 0.4);
   }
 
-  .btn-accent:active {
+  .btn-accent:active:not(:disabled) {
     transform: translateY(0);
+  }
+
+  .btn-accent:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+    filter: none;
   }
 
   .btn-secondary {

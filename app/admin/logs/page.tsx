@@ -1,22 +1,21 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
-import { 
-  Terminal, 
-  Webhook, 
-  UserCheck, 
-  AlertTriangle, 
-  CheckCircle2, 
-  Search,
-  RefreshCw,
-  Code2
-} from 'lucide-react';
-import { motion } from 'framer-motion';
-import { useState } from 'react';
-import { format } from 'date-fns';
-import { cn } from '@/lib/utils';
-import { usePrivy } from '@privy-io/react-auth';
 import { getAdminLogs } from '@/lib/supabase/actions';
+import { cn } from '@/lib/utils';
+import { AdminLog, AuditLog, WebhookLog } from '@/types/admin';
+import { usePrivy } from '@privy-io/react-auth';
+import { useQuery } from '@tanstack/react-query';
+import { format } from 'date-fns';
+import { motion } from 'framer-motion';
+import {
+  Code2,
+  RefreshCw,
+  Search,
+  Terminal,
+  UserCheck,
+  Webhook,
+} from 'lucide-react';
+import { useState } from 'react';
 
 export default function AdminLogs() {
   const { user } = usePrivy();
@@ -34,7 +33,7 @@ export default function AdminLogs() {
 
   const logs = data || [];
 
-  const filteredLogs = logs.filter((log: any) => {
+  const filteredLogs = logs.filter((log) => {
     if (!search) return true;
     const searchLower = search.toLowerCase();
     const content = JSON.stringify(log).toLowerCase();
@@ -46,16 +45,25 @@ export default function AdminLogs() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
-          <h1 className="text-3xl font-display font-bold text-white tracking-tight">System Logs</h1>
-          <p className="text-white/40 mt-1 font-medium">Monitoring internal operations and external webhooks.</p>
+          <h1 className="text-3xl font-display font-bold text-white tracking-tight">
+            System Logs
+          </h1>
+          <p className="text-white/40 mt-1 font-medium">
+            Monitoring internal operations and external webhooks.
+          </p>
         </div>
         <div className="flex items-center gap-3">
-          <button 
+          <button
             onClick={() => refetch()}
             disabled={isLoading || isRefetching}
             className="p-3 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white transition-colors"
           >
-            <RefreshCw className={cn("w-4 h-4", (isLoading || isRefetching) && "animate-spin")} />
+            <RefreshCw
+              className={cn(
+                'w-4 h-4',
+                (isLoading || isRefetching) && 'animate-spin',
+              )}
+            />
           </button>
         </div>
       </div>
@@ -66,8 +74,10 @@ export default function AdminLogs() {
           <button
             onClick={() => setLogType('webhooks')}
             className={cn(
-              "flex items-center gap-2 px-6 py-3 rounded-xl text-xs font-bold uppercase tracking-widest transition-all",
-              logType === 'webhooks' ? "bg-white/10 text-white shadow-xl" : "text-white/30 hover:text-white/60"
+              'flex items-center gap-2 px-6 py-3 rounded-xl text-xs font-bold uppercase tracking-widest transition-all',
+              logType === 'webhooks'
+                ? 'bg-white/10 text-white shadow-xl'
+                : 'text-white/30 hover:text-white/60',
             )}
           >
             <Webhook className="w-4 h-4" />
@@ -76,8 +86,10 @@ export default function AdminLogs() {
           <button
             onClick={() => setLogType('audit')}
             className={cn(
-              "flex items-center gap-2 px-6 py-3 rounded-xl text-xs font-bold uppercase tracking-widest transition-all",
-              logType === 'audit' ? "bg-white/10 text-white shadow-xl" : "text-white/30 hover:text-white/60"
+              'flex items-center gap-2 px-6 py-3 rounded-xl text-xs font-bold uppercase tracking-widest transition-all',
+              logType === 'audit'
+                ? 'bg-white/10 text-white shadow-xl'
+                : 'text-white/30 hover:text-white/60',
             )}
           >
             <UserCheck className="w-4 h-4" />
@@ -86,13 +98,13 @@ export default function AdminLogs() {
         </div>
 
         <div className="relative flex-1 group">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 group-focus-within:text-[#00e87a] transition-colors" />
-          <input 
-            type="text" 
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 group-focus-within:text-accent transition-colors" />
+          <input
+            type="text"
             placeholder="Filter log payload or content..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 text-sm text-white focus:outline-none focus:border-[#00e87a]/50 transition-all"
+            className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 text-sm text-white focus:outline-none focus:border-accent/50 transition-all"
           />
         </div>
       </div>
@@ -101,56 +113,83 @@ export default function AdminLogs() {
       <div className="space-y-4">
         {isLoading ? (
           Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-20 bg-white/5 rounded-2xl animate-pulse" />
+            <div
+              key={i}
+              className="h-20 bg-white/5 rounded-2xl animate-pulse"
+            />
           ))
         ) : filteredLogs.length === 0 ? (
           <div className="py-20 text-center card-glass">
             <p className="text-white/20 font-medium">No log entries found.</p>
           </div>
         ) : (
-          filteredLogs.map((log: any, i: number) => (
+          filteredLogs.map((log: AdminLog, i: number) => (
             <motion.div
               key={log.id}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.03 }}
-              className="card-glass p-5 flex flex-col md:flex-row md:items-center justify-between gap-6 hover:bg-white/[0.06] transition-all group"
+              className="card-glass p-5 flex flex-col md:flex-row md:items-center justify-between gap-6 hover:bg-white/6 transition-all group"
             >
               <div className="flex items-center gap-5">
-                <div className={cn(
-                  "w-10 h-10 rounded-xl flex items-center justify-center border",
-                  logType === 'webhooks' 
-                    ? (log.processed ? "bg-[#00e87a]/10 border-[#00e87a]/20 text-[#00e87a]" : "bg-amber-400/10 border-amber-400/20 text-amber-400")
-                    : "bg-blue-400/10 border-blue-400/20 text-blue-400"
-                )}>
-                  {logType === 'webhooks' ? <Webhook className="w-5 h-5" /> : <Terminal className="w-5 h-5" />}
+                <div
+                  className={cn(
+                    'w-10 h-10 rounded-xl flex items-center justify-center border',
+                    logType === 'webhooks'
+                      ? (log as WebhookLog).processed
+                        ? 'bg-accent/10 border-accent/20 text-accent'
+                        : 'bg-amber-400/10 border-amber-400/20 text-amber-400'
+                      : 'bg-blue-400/10 border-blue-400/20 text-blue-400',
+                  )}
+                >
+                  {logType === 'webhooks' ? (
+                    <Webhook className="w-5 h-5" />
+                  ) : (
+                    <Terminal className="w-5 h-5" />
+                  )}
                 </div>
                 <div>
                   <div className="flex items-center gap-3">
                     <h4 className="text-sm font-bold text-white tracking-tight">
-                      {logType === 'webhooks' ? log.provider : log.action}
+                      {logType === 'webhooks'
+                        ? (log as WebhookLog).provider
+                        : (log as AuditLog).action}
                     </h4>
                     {logType === 'webhooks' && (
-                       <span className={cn(
-                         "text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full",
-                         log.processed ? "bg-[#00e87a]/10 text-[#00e87a]" : "bg-amber-400/10 text-amber-400"
-                       )}>
-                         {log.processed ? 'Processed' : 'Pending'}
-                       </span>
+                      <span
+                        className={cn(
+                          'text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full',
+                          (log as WebhookLog).processed
+                            ? 'bg-accent/10 text-accent'
+                            : 'bg-amber-400/10 text-amber-400',
+                        )}
+                      >
+                        {(log as WebhookLog).processed
+                          ? 'Processed'
+                          : 'Pending'}
+                      </span>
                     )}
                   </div>
                   <p className="text-[10px] font-mono text-white/20 mt-1 uppercase tracking-widest">
-                    ID: {log.id.slice(0, 16)}... • {format(new Date(log.created_at), 'HH:mm:ss.SSS')}
+                    ID: {log.id.slice(0, 16)}... •{' '}
+                    {format(new Date(log.created_at), 'HH:mm:ss.SSS')}
                   </p>
                 </div>
               </div>
 
               <div className="flex items-center gap-4">
                 <div className="hidden lg:block">
-                   <p className="text-[10px] font-bold text-white/20 uppercase tracking-[0.2em] mb-1">Payload Insight</p>
-                   <p className="text-[10px] text-white/40 truncate max-w-[200px] italic">
-                     {JSON.stringify(logType === 'webhooks' ? log.payload_json : log.metadata_json).slice(0, 100)}...
-                   </p>
+                  <p className="text-[10px] font-bold text-white/20 uppercase tracking-[0.2em] mb-1">
+                    Payload Insight
+                  </p>
+                  <p className="text-[10px] text-white/40 truncate max-w-[200px] italic">
+                    {JSON.stringify(
+                      logType === 'webhooks'
+                        ? (log as WebhookLog).payload_json
+                        : (log as AuditLog).metadata_json,
+                    ).slice(0, 100)}
+                    ...
+                  </p>
                 </div>
                 <button className="p-3 rounded-xl bg-white/5 border border-white/10 text-white/40 hover:text-white hover:bg-white/10 transition-all">
                   <Code2 className="w-4 h-4" />
@@ -160,9 +199,11 @@ export default function AdminLogs() {
           ))
         )}
       </div>
-      
+
       <div className="flex items-center justify-center py-10">
-        <p className="text-[10px] font-bold text-white/10 uppercase tracking-[0.5em]">End of Log Stream</p>
+        <p className="text-[10px] font-bold text-white/10 uppercase tracking-[0.5em]">
+          End of Log Stream
+        </p>
       </div>
     </div>
   );
