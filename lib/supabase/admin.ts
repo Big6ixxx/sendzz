@@ -37,6 +37,8 @@ export async function getAdminStats(adminEmail: string) {
     { data: activeD },
     { data: activeW },
     { data: activeT },
+    { data: activeB },
+    { data: b },
   ] = await Promise.all([
     supabaseAdmin.from('deposits').select('amount_usdc, status'),
     supabaseAdmin.from('withdrawals').select('amount_usdc, status'),
@@ -45,6 +47,8 @@ export async function getAdminStats(adminEmail: string) {
     supabaseAdmin.from('deposits').select('user_id').gte('created_at', last24h),
     supabaseAdmin.from('withdrawals').select('user_id').gte('created_at', last24h),
     supabaseAdmin.from('transfers').select('sender_id, recipient_id').gte('created_at', last24h),
+    supabaseAdmin.from('bridge_transactions').select('user_id').gte('created_at', last24h),
+    supabaseAdmin.from('bridge_transactions').select('amount, attestation_status'),
   ]);
 
   const activeUserIds = new Set([
@@ -52,26 +56,32 @@ export async function getAdminStats(adminEmail: string) {
     ...(activeW || []).map((x) => x.user_id),
     ...(activeT || []).map((x) => x.sender_id),
     ...(activeT || []).map((x) => x.recipient_id).filter(Boolean),
+    ...(activeB || []).map((x) => x.user_id),
   ]);
 
   const confirmedDeposits = d?.filter((x) => x.status === 'confirmed') || [];
   const confirmedWithdrawals = w?.filter((x) => x.status === 'completed' || x.status === 'processing') || [];
   const confirmedTransfers = t?.filter((x) => x.status === 'completed') || [];
+  const confirmedBridges = b?.filter((x) => x.attestation_status === 'complete') || [];
 
   const totalDeposits = confirmedDeposits.reduce((acc, curr) => acc + (Number(curr.amount_usdc) || 0), 0);
   const totalWithdrawals = confirmedWithdrawals.reduce((acc, curr) => acc + (Number(curr.amount_usdc) || 0), 0);
   const totalTransfers = confirmedTransfers.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+  const totalBridges = confirmedBridges.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+
   const pendingDepositsCount = d?.filter((x) => x.status === 'pending').length || 0;
   const pendingWithdrawalsCount = w?.filter((x) => x.status === 'processing' || x.status === 'awaiting_verification').length || 0;
+  const pendingBridgesCount = b?.filter((x) => x.attestation_status === 'pending').length || 0;
 
   return {
     totalUsers: u || 0,
-    totalVolume: totalDeposits + totalWithdrawals + totalTransfers,
+    totalVolume: totalDeposits + totalWithdrawals + totalTransfers + totalBridges,
     totalDeposits,
     totalWithdrawals,
     totalTransfers,
+    totalBridges,
     activeUsers24h: activeUserIds.size,
-    pendingActions: pendingDepositsCount + pendingWithdrawalsCount,
+    pendingActions: pendingDepositsCount + pendingWithdrawalsCount + pendingBridgesCount,
   };
 }
 
@@ -81,17 +91,19 @@ export async function getAdminTransactions(
 ): Promise<AdminTransaction[]> {
   if (!(await verifyAdmin(adminEmail))) throw new Error('Unauthorized');
 
-  const [{ data: transfers }, { data: deposits }, { data: withdrawals }] =
+  const [{ data: transfers }, { data: deposits }, { data: withdrawals }, { data: bridges }] =
     await Promise.all([
       supabaseAdmin.from('transfers').select('*').order('created_at', { ascending: false }).limit(50),
       supabaseAdmin.from('deposits').select('*').order('created_at', { ascending: false }).limit(50),
       supabaseAdmin.from('withdrawals').select('*').order('created_at', { ascending: false }).limit(50),
+      supabaseAdmin.from('bridge_transactions').select('*').order('created_at', { ascending: false }).limit(50),
     ]);
 
   const all: AdminTransaction[] = [
     ...(transfers || []).map((t) => ({ ...t, tx_type: 'transfer' as const })),
     ...(deposits || []).map((d) => ({ ...d, tx_type: 'deposit' as const, amount: d.amount_usdc || 0 })),
     ...(withdrawals || []).map((w) => ({ ...w, tx_type: 'withdrawal' as const, amount: w.amount_usdc || 0 })),
+    ...(bridges || []).map((b) => ({ ...b, tx_type: 'bridge' as const, status: b.attestation_status })),
   ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
   return filterType ? all.filter((t) => t.tx_type === filterType) : all;
@@ -107,10 +119,11 @@ export async function getAdminUsers(adminEmail: string) {
 
   if (error) throw error;
 
-  const [{ data: d }, { data: w }, { data: t }] = await Promise.all([
+  const [{ data: d }, { data: w }, { data: t }, { data: b }] = await Promise.all([
     supabaseAdmin.from('deposits').select('user_id, amount_usdc, status'),
     supabaseAdmin.from('withdrawals').select('user_id, amount_usdc, status'),
     supabaseAdmin.from('transfers').select('sender_id, sender_email, recipient_id, recipient_email, amount, status'),
+    supabaseAdmin.from('bridge_transactions').select('user_id, amount, attestation_status'),
   ]);
 
   return users.map((user) => {
@@ -123,7 +136,9 @@ export async function getAdminUsers(adminEmail: string) {
     const total_sent = userTransfersSent.reduce((a, b) => a + (Number(b.amount) || 0), 0);
     const userTransfersReceived = t?.filter((x) => (x.recipient_id === user.id || x.recipient_email?.toLowerCase() === userEmail) && x.status === 'completed') || [];
     const total_received = userTransfersReceived.reduce((a, b) => a + (Number(b.amount) || 0), 0);
-    return { ...user, total_volume: total_deposits + total_withdrawals + total_sent + total_received, total_deposits, total_withdrawals, total_sent, total_received };
+    const userBridges = b?.filter((x) => x.user_id === user.id && x.attestation_status === 'complete') || [];
+    const total_bridge = userBridges.reduce((a, b) => a + (Number(b.amount) || 0), 0);
+    return { ...user, total_volume: total_deposits + total_withdrawals + total_sent + total_received + total_bridge, total_deposits, total_withdrawals, total_sent, total_received, total_bridge };
   });
 }
 
@@ -138,11 +153,12 @@ export async function getAdminAnalytics(
   startDate.setDate(startDate.getDate() - days);
   const startDateIso = startDate.toISOString();
 
-  const [{ data: transfers }, { data: deposits }, { data: withdrawals }, { data: newUsers }] =
+  const [{ data: transfers }, { data: deposits }, { data: withdrawals }, { data: bridges }, { data: newUsers }] =
     await Promise.all([
       supabaseAdmin.from('transfers').select('amount, status, created_at').gte('created_at', startDateIso),
       supabaseAdmin.from('deposits').select('amount_usdc, status, created_at').gte('created_at', startDateIso),
       supabaseAdmin.from('withdrawals').select('amount_usdc, status, created_at').gte('created_at', startDateIso),
+      supabaseAdmin.from('bridge_transactions').select('amount, attestation_status, created_at').gte('created_at', startDateIso),
       supabaseAdmin.from('users').select('created_at').gte('created_at', startDateIso),
     ]);
 
@@ -158,6 +174,7 @@ export async function getAdminAnalytics(
     ...(transfers || []).filter((x) => x.status === 'completed' && x.created_at).map((x) => ({ a: Number(x.amount), d: x.created_at })),
     ...(deposits || []).filter((x) => x.status === 'confirmed' && x.created_at).map((x) => ({ a: Number(x.amount_usdc), d: x.created_at })),
     ...(withdrawals || []).filter((x) => (x.status === 'completed' || x.status === 'processing') && x.created_at).map((x) => ({ a: Number(x.amount_usdc), d: x.created_at })),
+    ...(bridges || []).filter((x) => x.attestation_status === 'complete' && x.created_at).map((x) => ({ a: Number(x.amount), d: x.created_at })),
   ];
 
   txEvents.forEach((tx) => {

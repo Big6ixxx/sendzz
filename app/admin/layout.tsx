@@ -172,7 +172,7 @@ export default function AdminLayout({
   }
 
   return (
-    <div className="min-h-screen bg-brand-primary flex overflow-hidden">
+    <div className="min-h-screen bg-brand-primary flex overflow-x-hidden">
       {/* Mobile Sidebar Toggle */}
       {!isSidebarOpen && (
         <button
@@ -267,7 +267,7 @@ export default function AdminLayout({
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto bg-brand-primary relative">
+      <main className="flex-1 min-w-0 max-w-full overflow-y-auto overflow-x-hidden bg-brand-primary relative">
         <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-500/5 blur-[120px] rounded-full -translate-y-1/2 translate-x-1/2" />
         <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-accent/5 blur-[120px] rounded-full translate-y-1/2 -translate-x-1/2" />
 

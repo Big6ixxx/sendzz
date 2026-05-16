@@ -12,6 +12,7 @@ import {
   ArrowUpRight,
   BarChart3,
   Clock,
+  Link as LinkIcon,
   RefreshCw,
   TrendingUp,
   Users,
@@ -23,6 +24,10 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
+  Legend,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -57,6 +62,7 @@ export default function AdminOverview() {
     totalDeposits: 0,
     totalWithdrawals: 0,
     totalTransfers: 0,
+    totalBridges: 0,
     activeUsers24h: 0,
     pendingActions: 0,
   };
@@ -100,26 +106,36 @@ export default function AdminOverview() {
   const subMetrics = [
     {
       label: 'Deposits',
-      value: `$${metrics.totalDeposits.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
-      icon: ArrowDownLeft,
-      color: 'text-[#00e87a]',
-      barColor: 'bg-[#00e87a]',
+      value: metrics.totalDeposits || 0,
+      color: '#00e87a',
     },
     {
       label: 'Withdrawals',
-      value: `$${metrics.totalWithdrawals.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
-      icon: ArrowUpRight,
-      color: 'text-red-400',
-      barColor: 'bg-red-400',
+      value: metrics.totalWithdrawals || 0,
+      color: '#f87171', // red-400
     },
     {
       label: 'Transfers',
-      value: `$${metrics.totalTransfers.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
-      icon: ArrowLeftRight,
-      color: 'text-blue-400',
-      barColor: 'bg-blue-400',
+      value: metrics.totalTransfers || 0,
+      color: '#60a5fa', // blue-400
+    },
+    {
+      label: 'Bridges',
+      value: (metrics as any).totalBridges || 0,
+      color: '#a855f7', // purple-500
     },
   ];
+
+  const totalBreakdown = subMetrics.reduce((acc, curr) => acc + (Number(curr.value) || 0), 0);
+  
+  const chartData = subMetrics.map(m => ({
+    name: m.label,
+    value: Number(m.value) || 0,
+    color: m.color
+  })).filter(d => d.value > 0);
+
+  // Fallback for empty state
+  const displayData = chartData.length > 0 ? chartData : [{ name: 'No Data', value: 1, color: 'rgba(255,255,255,0.05)' }];
 
   return (
     <div className="space-y-10 pb-20">
@@ -199,7 +215,7 @@ export default function AdminOverview() {
           </motion.div>
         ))}
       </div>
-
+      
       {/* Analytics Charts */}
       <div className="grid lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-6">
@@ -351,38 +367,83 @@ export default function AdminOverview() {
             Activity Breakdown
           </h3>
         </div>
-        <div className="card-glass p-10">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-12">
-            {subMetrics.map((item) => (
-              <div key={item.label} className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <div className={cn('p-2 rounded-lg bg-white/5', item.color)}>
-                    <item.icon className="w-4 h-4" />
+        <div className="card-glass p-8 lg:p-12">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+            <div className="h-[320px] relative">
+              {statsLoading ? (
+                <div className="w-full h-full flex items-center justify-center">
+                  <Loader2 className="w-8 h-8 text-white/10" />
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={displayData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={80}
+                      outerRadius={120}
+                      paddingAngle={5}
+                      dataKey="value"
+                      stroke="none"
+                    >
+                      {displayData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'rgba(10,10,10,0.9)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '12px',
+                      }}
+                      itemStyle={{ color: '#fff', fontSize: '12px', fontWeight: 'bold' }}
+                      formatter={(value: any) => [`$${Number(value).toLocaleString()}`, 'Volume']}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
+              {/* Center Text */}
+              {!statsLoading && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <p className="text-[10px] font-bold text-white/20 uppercase tracking-widest">Total</p>
+                  <p className="text-xl font-display font-bold text-white tracking-tight">
+                    ${totalBreakdown.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-4">
+              {subMetrics.map((item) => {
+                const val = (metrics as any)[`total${item.label}`] || 0;
+                const percentage = totalBreakdown > 0 ? (val / totalBreakdown) * 100 : 0;
+                
+                return (
+                  <div key={item.label} className="group p-4 rounded-2xl bg-white/[0.02] border border-white/5 hover:bg-white/[0.04] transition-all">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div 
+                          className="w-3 h-3 rounded-full" 
+                          style={{ backgroundColor: item.color.startsWith('#') ? item.color : '' }}
+                        />
+                        <span className="text-sm font-bold text-white/60 group-hover:text-white transition-colors">
+                          {item.label}
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-bold text-white">
+                          ${val.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </p>
+                        <p className="text-[10px] font-medium text-white/20 uppercase tracking-widest">
+                          {percentage.toFixed(1)}% share
+                        </p>
+                      </div>
+                    </div>
                   </div>
-                  <span className="text-xs font-bold text-white/30 uppercase tracking-widest">
-                    {item.label}
-                  </span>
-                </div>
-                <p className="text-3xl font-display font-bold text-white tracking-tight">
-                  {statsLoading ? (
-                    <div className="h-8 w-20 bg-white/5 animate-pulse rounded-lg" />
-                  ) : (
-                    item.value
-                  )}
-                </p>
-                <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: '100%' }}
-                    transition={{ duration: 1.5, ease: 'easeOut' }}
-                    className={cn(
-                      'h-full shadow-[0_0_10px_rgba(0,0,0,0.5)]',
-                      item.barColor,
-                    )}
-                  />
-                </div>
-              </div>
-            ))}
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
