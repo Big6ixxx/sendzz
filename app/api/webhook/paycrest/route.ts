@@ -33,9 +33,9 @@ export async function POST(req: Request) {
         status?: string;
         failureReason?: string;
         reason?: string;
-        [key: string]: unknown;
+        [key: string]: Json | undefined;
       };
-      [key: string]: unknown;
+      [key: string]: Json | undefined;
     }
 
     let event: PaycrestEvent;
@@ -69,7 +69,7 @@ export async function POST(req: Request) {
         provider: 'paycrest',
         event_id: event.id || event.eventId || `${orderId}-${status}`,
         event_type: eventType,
-        payload_json: event as unknown as Json,
+        payload_json: event as Json,
       })
       .select('id')
       .single();

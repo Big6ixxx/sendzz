@@ -124,7 +124,7 @@ export function BatchSendDialog({
           )}
 
           <div className="flex-1 overflow-y-auto pr-1 -mr-1">
-            {hook.step === 'recipients' && <RecipientList hook={hook} />}
+            {hook.step === 'recipients' && <RecipientList hook={hook} senderEmail={senderEmail} />}
             {hook.step === 'amount' && (
               <AmountConfig hook={hook} maxAmount={maxAmount} />
             )}

@@ -2,6 +2,7 @@
 
 import { getBitnobClient } from '@/lib/bitnob/client';
 import { getPaycrestClient } from '@/lib/paycrest/client';
+import { calculatePaycrestBaseAmount } from '@/lib/paycrest/config';
 import { PaycrestCurrency } from '../paycrest/types';
 
 /**
@@ -30,9 +31,11 @@ export async function initiateOnRamp({
   const paycrest = getPaycrestClient();
 
   try {
+    const baseAmount = calculatePaycrestBaseAmount(amountFiat);
+    const roundedBase = Math.round(baseAmount * 100) / 100;
     const safeUserId = userId.replace(/[^a-z0-9]/gi, '');
     const order = await paycrest.createOrder({
-      amount: amountFiat.toString(),
+      amount: roundedBase.toFixed(2),
       amountIn: 'fiat',
       source: {
         type: 'fiat',
@@ -51,7 +54,7 @@ export async function initiateOnRamp({
     });
 
     // Record in internal ledger
-    const { recordDeposit } = await import('@/lib/supabase/actions');
+    const { recordDeposit } = await import('@/lib/supabase/transactions');
     await recordDeposit({
       userEmail,
       amountFiat: Number(order.providerAccount?.amountToTransfer || amountFiat),
@@ -175,7 +178,7 @@ export async function finalizeOffRamp(
     });
 
     // Record in internal ledger
-    const { recordWithdrawal } = await import('@/lib/supabase/actions');
+    const { recordWithdrawal } = await import('@/lib/supabase/transactions');
     await recordWithdrawal({
       userEmail,
       amountUsdc,

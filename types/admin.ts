@@ -1,6 +1,6 @@
 import { Database } from './database';
 
-export type TransactionType = 'transfer' | 'deposit' | 'withdrawal';
+export type TransactionType = 'transfer' | 'deposit' | 'withdrawal' | 'bridge';
 
 export type AdminTransfer = Database['public']['Tables']['transfers']['Row'] & {
   tx_type: 'transfer';
@@ -16,7 +16,12 @@ export type AdminWithdrawal = Database['public']['Tables']['withdrawals']['Row']
   amount: number | string;
 };
 
-export type AdminTransaction = AdminTransfer | AdminDeposit | AdminWithdrawal;
+export type AdminBridge = Database['public']['Tables']['bridge_transactions']['Row'] & {
+  tx_type: 'bridge';
+  status: string;
+};
+
+export type AdminTransaction = AdminTransfer | AdminDeposit | AdminWithdrawal | AdminBridge;
 
 export type WebhookLog = Database['public']['Tables']['webhook_events']['Row'];
 export type AuditLog = Database['public']['Tables']['audit_logs']['Row'];

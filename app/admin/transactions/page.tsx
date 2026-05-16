@@ -1,6 +1,6 @@
 'use client';
 
-import { getAdminTransactions } from '@/lib/supabase/actions';
+import { getAdminTransactions } from '@/lib/supabase/admin';
 import { cn } from '@/lib/utils';
 import { AdminTransaction } from '@/types/admin';
 import { usePrivy } from '@privy-io/react-auth';
@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  Link,
   Search,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -63,6 +64,7 @@ export default function AdminTransactions() {
       case 'completed':
       case 'claimed':
       case 'confirmed':
+      case 'complete':
         return 'bg-[#00e87a]/10 text-[#00e87a]';
       case 'pending':
       case 'pending_claim':
@@ -84,6 +86,8 @@ export default function AdminTransactions() {
         return <ArrowUpRight className="w-4 h-4 text-red-400" />;
       case 'transfer':
         return <ArrowLeftRight className="w-4 h-4 text-blue-400" />;
+      case 'bridge':
+        return <Link className="w-4 h-4 text-purple-400" />;
       default:
         return null;
     }
@@ -127,6 +131,7 @@ export default function AdminTransactions() {
             { label: 'Deposits', value: 'deposit' },
             { label: 'Withdrawals', value: 'withdrawal' },
             { label: 'Transfers', value: 'transfer' },
+            { label: 'Bridges', value: 'bridge' },
           ].map((type) => (
             <button
               key={type.label}
@@ -211,6 +216,8 @@ export default function AdminTransactions() {
                         <p className="text-sm font-medium text-white truncate max-w-[180px]">
                           {tx.tx_type === 'transfer'
                             ? tx.recipient_email
+                            : tx.tx_type === 'bridge'
+                            ? `${tx.source_chain} → ${tx.dest_chain}`
                             : (('user_id' in tx ? tx.user_id : '')?.slice(
                                 0,
                                 8,

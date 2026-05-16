@@ -4,16 +4,26 @@ import { cn } from '@/lib/utils';
 import { ChevronRight, FileText, Mail, Upload, X } from 'lucide-react';
 import * as React from 'react';
 import { toast } from 'sonner';
+import { getUserContacts } from '@/lib/supabase/contacts';
+import { useQuery } from '@tanstack/react-query';
 import { useBatchSend } from './useBatchSend';
 
 interface RecipientListProps {
   hook: ReturnType<typeof useBatchSend>;
+  senderEmail: string;
 }
 
-export function RecipientList({ hook }: RecipientListProps) {
+export function RecipientList({ hook, senderEmail }: RecipientListProps) {
   const [inputVal, setInputVal] = React.useState('');
   const [isDrag, setIsDrag] = React.useState(false);
+  const [showSuggestions, setShowSuggestions] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
+
+  const { data: contacts = [] } = useQuery({
+    queryKey: ['contacts', senderEmail],
+    queryFn: () => getUserContacts(senderEmail),
+    enabled: !!senderEmail,
+  });
 
   const parseRaw = (raw: string): string[] => {
     return raw
@@ -23,9 +33,13 @@ export function RecipientList({ hook }: RecipientListProps) {
   };
 
   const commitInput = React.useCallback(() => {
-    const emails = parseRaw(inputVal);
-    if (emails.length) hook.addRecipients(emails);
-    setInputVal('');
+    // Slight delay to allow clicking on suggestions
+    setTimeout(() => {
+      const emails = parseRaw(inputVal);
+      if (emails.length) hook.addRecipients(emails);
+      setInputVal('');
+      setShowSuggestions(false);
+    }, 150);
   }, [inputVal, hook]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -68,7 +82,7 @@ export function RecipientList({ hook }: RecipientListProps) {
   const invalid = hook.recipients.filter((r) => !r.valid);
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-48">
       <div
         className={cn(
           'min-h-[200px] p-6 rounded-2xl border-2 border-dashed transition-all cursor-text relative bg-muted/20',
@@ -111,7 +125,7 @@ export function RecipientList({ hook }: RecipientListProps) {
           ))}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 relative z-50">
           <Mail className="w-5 h-5 text-muted-foreground" />
           <input
             id="batch-input"
@@ -123,12 +137,44 @@ export function RecipientList({ hook }: RecipientListProps) {
                 : 'Add more...'
             }
             value={inputVal}
-            onChange={(e) => setInputVal(e.target.value)}
+            onChange={(e) => {
+              setInputVal(e.target.value);
+              setShowSuggestions(true);
+            }}
             onKeyDown={onKeyDown}
             onBlur={commitInput}
+            onFocus={() => setShowSuggestions(true)}
             autoComplete="off"
           />
         </div>
+
+        {showSuggestions && contacts.length > 0 && (
+          <div className="absolute left-0 right-0 top-full mt-2 bg-[#0a0a0b] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-[100] max-h-64 overflow-y-auto p-2">
+            {contacts
+              .filter(
+                (c) =>
+                  c.name.toLowerCase().includes(inputVal.toLowerCase()) ||
+                  c.email.toLowerCase().includes(inputVal.toLowerCase())
+              )
+              .map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    hook.addRecipients([c.email]);
+                    setInputVal('');
+                    setShowSuggestions(false);
+                  }}
+                  className="w-full text-left px-4 py-3 rounded-xl hover:bg-white/5 transition-colors flex items-center justify-between group"
+                >
+                  <span className="font-bold text-sm text-foreground group-hover:text-accent transition-colors">{c.name}</span>
+                  <span className="text-xs text-muted-foreground">{c.email}</span>
+                </button>
+              ))}
+          </div>
+        )}
 
         {isDrag && (
           <div className="absolute inset-0 bg-background/80 rounded-2xl flex items-center justify-center font-bold text-xl uppercase tracking-tighter">

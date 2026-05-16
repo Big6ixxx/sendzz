@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
-import { getAdminUsers } from '@/lib/supabase/actions';
+import { getAdminUsers } from '@/lib/supabase/admin';
 
 const ITEMS_PER_PAGE = 20;
 
@@ -110,6 +110,9 @@ export default function UserDirectory() {
                 <th className="px-6 py-5 text-[10px] font-bold text-red-400/60 uppercase tracking-[0.2em] text-center">
                   Withdrawals
                 </th>
+                <th className="px-6 py-5 text-[10px] font-bold text-purple-500/60 uppercase tracking-[0.2em] text-center">
+                  Bridges
+                </th>
                 <th className="px-6 py-5 text-[10px] font-bold text-white/30 uppercase tracking-[0.2em] text-right">
                   Total Vol
                 </th>
@@ -123,7 +126,7 @@ export default function UserDirectory() {
                 {isLoading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <tr key={i} className="animate-pulse">
-                      <td colSpan={8} className="px-6 py-8">
+                      <td colSpan={9} className="px-6 py-8">
                         <div className="h-4 bg-white/5 rounded w-full" />
                       </td>
                     </tr>
@@ -203,11 +206,24 @@ export default function UserDirectory() {
                         </p>
                       </td>
 
-                      {/* Withdrawals */}
                       <td className="px-6 py-6 text-center">
                         <p className="text-xs font-bold text-red-400 tabular-nums">
                           $
                           {(user.total_withdrawals || 0).toLocaleString(
+                            undefined,
+                            {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            },
+                          )}
+                        </p>
+                      </td>
+
+                      {/* Bridges */}
+                      <td className="px-6 py-6 text-center">
+                        <p className="text-xs font-bold text-purple-500 tabular-nums">
+                          $
+                          {(user.total_bridge || 0).toLocaleString(
                             undefined,
                             {
                               minimumFractionDigits: 2,
@@ -264,7 +280,7 @@ export default function UserDirectory() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={8} className="px-6 py-20 text-center">
+                    <td colSpan={9} className="px-6 py-20 text-center">
                       <div className="flex flex-col items-center gap-4 text-white/20">
                         <Search className="w-12 h-12" />
                         <p className="font-medium">

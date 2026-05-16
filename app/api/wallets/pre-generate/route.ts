@@ -1,4 +1,4 @@
-import { registerUserAddress } from '@/lib/supabase/actions';
+import { registerUserAddress } from '@/lib/supabase/users';
 import { computeCircleSmartAddress } from '@/lib/web3/circle-client';
 import { LinkedAccountEmbeddedWallet, PrivyClient } from '@privy-io/node';
 import { NextResponse } from 'next/server';

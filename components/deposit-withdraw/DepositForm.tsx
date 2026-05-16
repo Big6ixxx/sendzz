@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { AlertCircle, CheckCircle2, Clock, Copy, Loader2 } from 'lucide-react';
 import * as React from 'react';
 import { toast } from 'sonner';
+import { calculatePaycrestBaseAmount, PAYCREST_PARTNER_FEE_PERCENT } from '@/lib/paycrest/config';
 import { BankSelector } from './BankSelector';
 import { useDepositWithdraw } from './useDepositWithdraw';
 
@@ -18,7 +19,7 @@ export function DepositForm({ hook }: DepositFormProps) {
 
   const estimatedUsdc =
     hook.rate && hook.amount
-      ? (parseFloat(hook.amount) / hook.rate).toFixed(4)
+      ? (calculatePaycrestBaseAmount(parseFloat(hook.amount)) / hook.rate).toFixed(4)
       : null;
 
   // Countdown timer for order
@@ -84,7 +85,7 @@ export function DepositForm({ hook }: DepositFormProps) {
             </div>
             <div className="flex justify-between text-sm pt-2 border-t border-border">
               <span className="text-muted-foreground">Network Fee</span>
-              <span className="font-semibold text-green-500">Free</span>
+              <span className="font-semibold text-foreground">{PAYCREST_PARTNER_FEE_PERCENT}%</span>
             </div>
           </div>
         </div>

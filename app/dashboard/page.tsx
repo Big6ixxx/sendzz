@@ -11,7 +11,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { registerUserAddress } from '@/lib/supabase/actions';
+import { registerUserAddress } from '@/lib/supabase/users';
 import { cn } from '@/lib/utils';
 import { getUSDCBalance } from '@/lib/web3/actions';
 import { getCircleAddress } from '@/lib/web3/circle-client';
