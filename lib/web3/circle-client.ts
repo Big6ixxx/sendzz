@@ -6,12 +6,15 @@ import { EIP1193Provider } from '@privy-io/react-auth';
 import { createPublicClient, http, type Address, type Hex } from 'viem';
 import { createBundlerClient } from 'viem/account-abstraction';
 import {
-  chain,
+  chain as defaultChain,
   CIRCLE_CLIENT_KEY,
   CIRCLE_SEND_URL as CIRCLE_CLIENT_URL,
 } from './config';
+import { VIEM_CHAINS } from './multichain';
+import { SupportedChain } from '../circle/gateway';
+import { createPaymasterClient } from 'viem/account-abstraction';
 
-const CIRCLE_RPC_URL = `${CIRCLE_CLIENT_URL}/base`;
+const getCircleRpcUrl = (chainName: string = 'base') => `${CIRCLE_CLIENT_URL}/${chainName}`;
 
 // Build a viem custom account from Privy's provider
 // Privy supports eth_signTypedData_v4 but NOT raw signing
@@ -49,18 +52,20 @@ function privyToLocalAccount(provider: EIP1193Provider, address: Address) {
   };
 }
 
-export async function getCircleClient(provider: EIP1193Provider) {
+export async function getCircleClient(provider: EIP1193Provider, targetChain: string = 'base') {
   if (!CIRCLE_CLIENT_KEY) throw new Error('Circle Client Key not configured.');
   if (!CIRCLE_CLIENT_URL) throw new Error('Circle Client URL not configured.');
 
+  const chainObj = (VIEM_CHAINS as Record<string, any>)[targetChain] || defaultChain;
+  
   const modularTransport = toModularTransport(
-    CIRCLE_RPC_URL,
+    getCircleRpcUrl(targetChain),
     CIRCLE_CLIENT_KEY,
   );
 
   const publicClient = createPublicClient({
-    chain,
-    transport: modularTransport,
+    chain: chainObj,
+    transport: http(), // Use regular RPC for simulation/reading
   });
 
   // Get the EOA address from Privy
@@ -76,20 +81,36 @@ export async function getCircleClient(provider: EIP1193Provider) {
     owner: localAccount,
   });
 
+  const isArbitrum = targetChain === 'arbitrum';
+  
+  // Use Circle for Base, Alchemy for Arbitrum (Circle bundler is Base-only for now)
+  const bundlerTransport = isArbitrum 
+    ? http(`https://arb-mainnet.g.alchemy.com/v2/${process.env.NEXT_PUBLIC_ALCHEMY_API_KEY}`)
+    : modularTransport;
+
+  const paymasterClient = isArbitrum
+    ? createPaymasterClient({
+        transport: http(`https://arb-mainnet.g.alchemy.com/v2/${process.env.NEXT_PUBLIC_ALCHEMY_API_KEY}`),
+      })
+    : undefined;
+
   const bundlerClient = createBundlerClient({
-    chain,
-    transport: modularTransport,
+    chain: chainObj,
+    transport: bundlerTransport,
     account,
+    paymaster: paymasterClient,
   });
 
   return { bundlerClient, account, localAccount };
 }
 
-export async function getCircleAddress(provider: EIP1193Provider) {
+export async function getCircleAddress(provider: EIP1193Provider, targetChain: string = 'base') {
   if (!CIRCLE_CLIENT_KEY) throw new Error('Circle Client Key not configured.');
 
+  const chainObj = (VIEM_CHAINS as Record<string, any>)[targetChain] || defaultChain;
+
   const publicClient = createPublicClient({
-    chain,
+    chain: chainObj,
     transport: http(
       `https://base-mainnet.g.alchemy.com/v2/${process.env.NEXT_PUBLIC_ALCHEMY_API_KEY}`,
     ),
@@ -115,7 +136,7 @@ export async function getCircleAddress(provider: EIP1193Provider) {
  */
 export async function computeCircleSmartAddress(eoaAddress: string) {
   const publicClient = createPublicClient({
-    chain,
+    chain: defaultChain,
     transport: http(
       `https://base-mainnet.g.alchemy.com/v2/${process.env.NEXT_PUBLIC_ALCHEMY_API_KEY}`,
     ),

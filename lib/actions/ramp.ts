@@ -1,9 +1,9 @@
-'use server';
+"use server";
 
-import { getBitnobClient } from '@/lib/bitnob/client';
-import { getPaycrestClient } from '@/lib/paycrest/client';
-import { calculatePaycrestBaseAmount } from '@/lib/paycrest/config';
-import { PaycrestCurrency } from '../paycrest/types';
+import { getBitnobClient } from "@/lib/bitnob/client";
+import { getPaycrestClient } from "@/lib/paycrest/client";
+import { calculatePaycrestBaseAmount } from "@/lib/paycrest/config";
+import { PaycrestCurrency } from "../paycrest/types";
 
 /**
  * PAYCREST ON-RAMP (DEFAULT)
@@ -15,7 +15,7 @@ export async function initiateOnRamp({
   userAddress,
   userEmail,
   refundAccount,
-  fiatCurrency = 'NGN',
+  fiatCurrency = "NGN",
 }: {
   amountFiat: number;
   userId: string;
@@ -32,35 +32,34 @@ export async function initiateOnRamp({
 
   try {
     const baseAmount = calculatePaycrestBaseAmount(amountFiat);
-    const roundedBase = Math.round(baseAmount * 100) / 100;
-    const safeUserId = userId.replace(/[^a-z0-9]/gi, '');
+    const safeUserId = userId.replace(/[^a-z0-9]/gi, "");
     const order = await paycrest.createOrder({
-      amount: roundedBase.toFixed(2),
-      amountIn: 'fiat',
+      amount: baseAmount.toFixed(2),
+      amountIn: "fiat",
       source: {
-        type: 'fiat',
+        type: "fiat",
         currency: fiatCurrency,
         refundAccount,
       },
       destination: {
-        type: 'crypto',
-        currency: 'USDC',
+        type: "crypto",
+        currency: "USDC",
         recipient: {
           address: userAddress,
-          network: 'base',
+          network: "base",
         },
       },
       reference: `onramp${Date.now()}${safeUserId}`,
     });
 
     // Record in internal ledger
-    const { recordDeposit } = await import('@/lib/supabase/transactions');
+    const { recordDeposit } = await import("@/lib/supabase/transactions");
     await recordDeposit({
       userEmail,
       amountFiat: Number(order.providerAccount?.amountToTransfer || amountFiat),
       currencyFiat: fiatCurrency,
       amountUsdc: Number(order.amount),
-      status: 'pending',
+      status: "pending",
       paycrestTxId: order.id,
     });
 
@@ -78,9 +77,9 @@ export async function initiateOnRamp({
 /**
  * Get the live fiat→USDC buy rate from Paycrest
  */
-export async function getOnRampRate(fiat: string = 'NGN'): Promise<number> {
+export async function getOnRampRate(fiat: string = "NGN"): Promise<number> {
   const paycrest = getPaycrestClient();
-  const rates = await paycrest.getRates('base', 'USDC', 1, fiat);
+  const rates = await paycrest.getRates("base", "USDC", 1, fiat);
   const buyRate = rates.data.buy?.rate;
   if (!buyRate) throw new Error(`Could not fetch onramp rate for ${fiat}`);
   return Number(buyRate);
@@ -107,9 +106,9 @@ export async function checkOrderById(orderId: string) {
   }
 }
 
-export async function getOffRampRate(fiat: string = 'NGN'): Promise<number> {
+export async function getOffRampRate(fiat: string = "NGN"): Promise<number> {
   const paycrest = getPaycrestClient();
-  const rates = await paycrest.getRates('base', 'USDC', 1, fiat);
+  const rates = await paycrest.getRates("base", "USDC", 1, fiat);
   const sellRate = rates.data.sell?.rate;
   if (!sellRate) throw new Error(`Could not fetch offramp rate for ${fiat}`);
   return Number(sellRate);
@@ -120,16 +119,16 @@ export async function getOffRampRate(fiat: string = 'NGN'): Promise<number> {
  */
 export async function getOffRampQuote(
   amountUsdc: number,
-  fiat: string = 'NGN',
+  fiat: string = "NGN",
 ) {
   const paycrest = getPaycrestClient();
 
   try {
-    const rates = await paycrest.getRates('base', 'USDC', amountUsdc, fiat);
+    const rates = await paycrest.getRates("base", "USDC", amountUsdc, fiat);
     return {
       rate: rates.data.sell?.rate || 0,
       payoutAmount: amountUsdc * (rates.data.sell?.rate || 0),
-      provider: 'paycrest',
+      provider: "paycrest",
     };
   } catch (error: unknown) {
     const err = error as Error;
@@ -151,22 +150,22 @@ export async function finalizeOffRamp(
   accountName: string,
   userRefundAddress: string,
   userEmail: string,
-  fiat: PaycrestCurrency = 'NGN',
+  fiat: PaycrestCurrency = "NGN",
 ) {
   const paycrest = getPaycrestClient();
 
   try {
     const order = await paycrest.createOrder({
       amount: amountUsdc.toString(),
-      amountIn: 'crypto',
+      amountIn: "crypto",
       source: {
-        type: 'crypto',
-        currency: 'USDC',
-        network: 'base',
+        type: "crypto",
+        currency: "USDC",
+        network: "base",
         refundAddress: userRefundAddress,
       },
       destination: {
-        type: 'fiat',
+        type: "fiat",
         currency: fiat,
         recipient: {
           institution: bankCode,
@@ -178,14 +177,14 @@ export async function finalizeOffRamp(
     });
 
     // Record in internal ledger
-    const { recordWithdrawal } = await import('@/lib/supabase/transactions');
+    const { recordWithdrawal } = await import("@/lib/supabase/transactions");
     await recordWithdrawal({
       userEmail,
       amountUsdc,
       fiatCurrency: fiat,
-      bankAccountMasked: accountNumber.replace(/.(?=.{4})/g, '*'),
+      bankAccountMasked: accountNumber.replace(/.(?=.{4})/g, "*"),
       institutionCode: bankCode,
-      status: 'processing',
+      status: "processing",
       paycrestOrderId: order.id,
     });
 
@@ -242,8 +241,8 @@ export async function initiateBitnobOnRamp(
 export async function getBitnobOffRampQuote(amountUsdc: number) {
   const bitnob = getBitnobClient();
   return await bitnob.createOfframpQuote({
-    fromAsset: 'usdc',
-    toCurrency: 'ngn',
+    fromAsset: "usdc",
+    toCurrency: "ngn",
     amount: amountUsdc,
   });
 }
@@ -265,7 +264,7 @@ export async function finalizeBitnobOffRamp(
 /**
  * UTILITIES
  */
-export async function getInstitutions(currency: string = 'NGN') {
+export async function getInstitutions(currency: string = "NGN") {
   const paycrest = getPaycrestClient();
   return await paycrest.getInstitutions(currency);
 }

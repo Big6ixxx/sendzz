@@ -5,6 +5,7 @@ import {
   History,
   LayoutDashboard,
   LogOut,
+  Repeat,
   Send,
   Settings,
   User,
@@ -16,6 +17,7 @@ import Link from "next/link";
 const NAV_ITEMS = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Transfer", href: "/dashboard/transfer", icon: Send },
+  { name: "Smart Bridge", href: "/dashboard/bridge", icon: Repeat },
   { name: "History", href: "/dashboard/history", icon: History },
   { name: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
