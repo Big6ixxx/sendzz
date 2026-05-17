@@ -131,7 +131,14 @@ export function AdminActivityBreakdown({ metrics, isLoading }: AdminActivityBrea
 
           <div className="space-y-4">
             {subMetrics.map((item) => {
-              const val = (metrics as any)[`total${item.label}`] || 0;
+              const val =
+                item.label === 'Deposits'
+                  ? metrics.totalDeposits
+                  : item.label === 'Withdrawals'
+                    ? metrics.totalWithdrawals
+                    : item.label === 'Transfers'
+                      ? metrics.totalTransfers
+                      : metrics.totalBridges || 0;
               const percentage = totalBreakdown > 0 ? (val / totalBreakdown) * 100 : 0;
 
               return (

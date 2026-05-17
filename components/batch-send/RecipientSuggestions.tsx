@@ -1,10 +1,11 @@
 import * as React from 'react';
 import { ChevronRight, Plus } from 'lucide-react';
+import { type ContactRow } from '@/lib/supabase/contacts';
 
 interface RecipientSuggestionsProps {
   isOpen: boolean;
   inputVal: string;
-  contacts: any[];
+  contacts: ContactRow[];
   onSelect: (email: string) => void;
   onAddNew: () => void;
 }

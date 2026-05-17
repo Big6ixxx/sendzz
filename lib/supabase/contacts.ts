@@ -3,7 +3,7 @@
 import { Database } from '@/types/database';
 import { supabaseAdmin } from './adminClient';
 
-type ContactRow = Database['public']['Tables']['contacts']['Row'];
+export type ContactRow = Database['public']['Tables']['contacts']['Row'];
 
 async function resolveUserId(userEmail: string): Promise<string> {
   const { data: user } = await supabaseAdmin

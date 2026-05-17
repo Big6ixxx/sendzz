@@ -12,7 +12,7 @@ import {
 } from '@/lib/actions/ramp';
 import { updateDepositStatus, updateWithdrawalStatus } from '@/lib/supabase/transactions';
 import { type FiatCurrencyCode } from '@/lib/currency-config';
-import { getUserBankContacts, addBankContact } from '@/lib/supabase/bank-contacts';
+import { getUserBankContacts, addBankContact, type BankContactRow } from '@/lib/supabase/bank-contacts';
 import {
   PaycrestInstitution,
   PaycrestOrderResponse,
@@ -72,7 +72,7 @@ export function useDepositWithdraw(
     payoutAmount: number;
   } | null>(null);
   const [transferring, setTransferring] = useState(false);
-  const [bankContacts, setBankContacts] = useState<any[]>([]);
+  const [bankContacts, setBankContacts] = useState<BankContactRow[]>([]);
   const [showSavePrompt, setShowSavePrompt] = useState(false);
 
   // Polling for deposit status

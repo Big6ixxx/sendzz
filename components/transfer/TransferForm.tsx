@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/tooltip';
 import { getCurrencySymbol, type FiatCurrencyCode } from '@/lib/currency-config';
 import { Info, Loader2, MessageSquare, Send, ShieldCheck, Plus } from 'lucide-react';
+import { type ContactRow } from '@/lib/supabase/contacts';
 
 interface TransferFormProps {
   recipientEmail: string;
@@ -23,7 +24,7 @@ interface TransferFormProps {
   showSuggestions: boolean;
   setShowSuggestions: (show: boolean) => void;
   setIsAddingContact: (add: boolean) => void;
-  contacts: any[];
+  contacts: ContactRow[];
   amountUsdc: string;
   isFiat: boolean;
   exchangeRate: number;

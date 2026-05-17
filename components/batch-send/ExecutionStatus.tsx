@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { useBatchSend } from './useBatchSend';
 import { addContact, getUserContacts } from '@/lib/supabase/contacts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 interface ExecutionStatusProps {
   hook: ReturnType<typeof useBatchSend>;

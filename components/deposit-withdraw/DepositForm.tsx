@@ -3,7 +3,7 @@
 import { CurrencySelector } from '@/components/CurrencySelector';
 import { getCurrencySymbol } from '@/lib/currency-config';
 import { cn } from '@/lib/utils';
-import { AlertCircle, CheckCircle2, Clock, Copy, Loader2, Landmark, Plus } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clock, Copy, Loader2, Plus } from 'lucide-react';
 import * as React from 'react';
 import { toast } from 'sonner';
 import { calculatePaycrestBaseAmount, PAYCREST_PARTNER_FEE_PERCENT } from '@/lib/paycrest/config';
