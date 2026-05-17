@@ -22,7 +22,7 @@ export type TransferStatus =
   | 'cancelled'
   | 'expired';
 
-export type DepositStatus = 'pending' | 'confirmed' | 'failed' | 'reversed';
+export type DepositStatus = 'pending' | 'confirmed' | 'failed' | 'reversed' | 'expired';
 
 export type WithdrawalStatus =
   | 'awaiting_verification'
@@ -462,6 +462,44 @@ export interface Database {
           updated_at?: string;
         };
         Relationships: [];
+      };
+      bank_contacts: {
+        Row: {
+          id: string;
+          user_id: string;
+          bank_name: string;
+          bank_code: string;
+          account_number: string;
+          account_name: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          bank_name: string;
+          bank_code: string;
+          account_number: string;
+          account_name: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          bank_name?: string;
+          bank_code?: string;
+          account_number?: string;
+          account_name?: string;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "bank_contacts_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          }
+        ];
       };
     };
     Views: {

@@ -172,7 +172,7 @@ export default function AdminLayout({
   }
 
   return (
-    <div className="min-h-screen bg-brand-primary flex overflow-x-hidden">
+    <div className="h-screen max-h-screen w-full bg-brand-primary flex overflow-hidden">
       {/* Mobile Sidebar Toggle */}
       {!isSidebarOpen && (
         <button
@@ -186,8 +186,8 @@ export default function AdminLayout({
       {/* Sidebar */}
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-40 w-72 bg-brand-primary border-r border-white/5 transition-all duration-300 transform lg:relative lg:translate-x-0 shadow-[20px_0_50px_rgba(0,0,0,0.5)]',
-          !isSidebarOpen && '-translate-x-full',
+          'fixed inset-y-0 left-0 z-40 w-72 shrink-0 bg-brand-primary border-r border-white/5 transition-all duration-300 transform lg:sticky lg:top-0 lg:h-screen lg:w-72 lg:translate-x-0 shadow-[20px_0_50px_rgba(0,0,0,0.5)]',
+          !isSidebarOpen && '-translate-x-full lg:w-0',
         )}
       >
         <div className="h-full flex flex-col p-8">

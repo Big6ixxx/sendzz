@@ -3,7 +3,7 @@
 import { CurrencySelector } from '@/components/CurrencySelector';
 import { getCurrencySymbol } from '@/lib/currency-config';
 import { cn } from '@/lib/utils';
-import { AlertCircle, CheckCircle2, Clock, Copy, Loader2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clock, Copy, Loader2, Landmark, Plus } from 'lucide-react';
 import * as React from 'react';
 import { toast } from 'sonner';
 import { calculatePaycrestBaseAmount, PAYCREST_PARTNER_FEE_PERCENT } from '@/lib/paycrest/config';
@@ -84,7 +84,7 @@ export function DepositForm({ hook }: DepositFormProps) {
               </span>
             </div>
             <div className="flex justify-between text-sm pt-2 border-t border-border">
-              <span className="text-muted-foreground">Network Fee</span>
+              <span className="text-muted-foreground">Platform Fee</span>
               <span className="font-semibold text-foreground">{PAYCREST_PARTNER_FEE_PERCENT}%</span>
             </div>
           </div>
@@ -113,6 +113,8 @@ export function DepositForm({ hook }: DepositFormProps) {
             }
             accountName={hook.bankDetails.accountName}
             isVerifying={hook.verifyingBank}
+            contacts={hook.bankContacts}
+            userEmail={hook.userEmail}
           />
           <p className="text-[10px] text-muted-foreground mt-2 px-1">
             * In case of any issues, funds will be returned to this account.
@@ -247,6 +249,35 @@ export function DepositForm({ hook }: DepositFormProps) {
             Your funds have been deposited and are ready to use.
           </p>
         </div>
+
+        {hook.showSavePrompt && (
+          <div className="w-full max-w-sm p-6 bg-accent/5 border border-accent/20 rounded-3xl space-y-4 animate-in fade-in slide-in-from-top-4 duration-500">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-accent/10 rounded-xl">
+                <Plus className="w-5 h-5 text-accent" />
+              </div>
+              <div className="text-left">
+                <p className="font-bold text-sm">Save this refund bank?</p>
+                <p className="text-[10px] text-muted-foreground uppercase font-bold">Securely store your bank details for future refunds</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => hook.setShowSavePrompt(false)}
+                className="h-10 rounded-xl text-[10px] font-black uppercase tracking-widest border border-white/10 hover:bg-white/5 transition-colors text-foreground"
+              >
+                No, Thanks
+              </button>
+              <button
+                onClick={hook.handleSaveBankContact}
+                className="h-10 rounded-xl text-[10px] font-black uppercase tracking-widest bg-accent text-accent-foreground hover:scale-[1.02] transition-all shadow-lg shadow-accent/20"
+              >
+                Yes, Save
+              </button>
+            </div>
+          </div>
+        )}
+
         <button
           onClick={() => window.location.reload()}
           className="btn-secondary px-10"

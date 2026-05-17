@@ -41,8 +41,18 @@ export function DepositWithdrawDialog({
 }: DepositWithdrawDialogProps) {
   const [depositTab, setDepositTab] = useState<DepositTab>('fiat');
 
-  const hook = useDepositWithdraw(
-    type,
+  const depositHook = useDepositWithdraw(
+    'deposit',
+    userAddress,
+    userEmail,
+    userId,
+    balance,
+    embeddedProvider,
+    onClose,
+  );
+
+  const withdrawHook = useDepositWithdraw(
+    'withdraw',
     userAddress,
     userEmail,
     userId,
@@ -141,7 +151,7 @@ export function DepositWithdrawDialog({
           >
             {type === 'deposit' ? (
               depositTab === 'fiat' ? (
-                <DepositForm hook={hook} />
+                <DepositForm hook={depositHook} />
               ) : (
                 <CctpDepositForm
                   userAddress={userAddress}
@@ -149,7 +159,7 @@ export function DepositWithdrawDialog({
                 />
               )
             ) : (
-              <WithdrawForm hook={hook} />
+              <WithdrawForm hook={withdrawHook} />
             )}
           </div>
         </div>
