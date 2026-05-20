@@ -4,7 +4,8 @@ import { PaycrestInstitution } from '@/lib/paycrest/types';
 import { cn } from '@/lib/utils';
 import { CheckCircle2, ChevronDown, Loader2 } from 'lucide-react';
 import * as React from 'react';
-import { BankContactRow } from '@/lib/supabase/bank-contacts';
+import { toast } from 'sonner';
+import { BankContactRow, deleteBankContact } from '@/lib/supabase/bank-contacts';
 import { AddBankContactModal } from './AddBankContactModal';
 import { BankSelectorDropdown } from './BankSelectorDropdown';
 import { BankSelectorSuggestions } from './BankSelectorSuggestions';
@@ -13,6 +14,7 @@ interface BankSelectorProps {
   institutions: PaycrestInstitution[];
   selectedBankCode: string;
   onSelect: (bank: { code: string; name: string }) => void;
+  onSelectContact?: (contact: { bankCode: string; bankName: string; accountNumber: string; accountName: string }) => void;
   accountNumber: string;
   onAccountNumberChange: (value: string) => void;
   accountName: string;
@@ -21,12 +23,14 @@ interface BankSelectorProps {
   disabled?: boolean;
   contacts?: BankContactRow[];
   userEmail?: string;
+  onContactsChanged?: () => void;
 }
 
 export function BankSelector({
   institutions,
   selectedBankCode,
   onSelect,
+  onSelectContact,
   accountNumber,
   onAccountNumberChange,
   accountName,
@@ -35,6 +39,7 @@ export function BankSelector({
   disabled,
   contacts = [],
   userEmail = '',
+  onContactsChanged,
 }: BankSelectorProps) {
   const [open, setOpen] = React.useState(false);
   const [showSuggestions, setShowSuggestions] = React.useState(false);
@@ -46,35 +51,20 @@ export function BankSelector({
     return institutions.filter((i) => i.name.toLowerCase().includes(search.toLowerCase()));
   }, [institutions, search]);
 
+  const handleDeleteContact = React.useCallback(async (contactId: string) => {
+    if (!userEmail) return;
+    try {
+      await deleteBankContact(userEmail, contactId);
+      toast.success('Account removed');
+      onContactsChanged?.();
+    } catch {
+      toast.error('Failed to remove account');
+    }
+  }, [userEmail, onContactsChanged]);
+
   return (
     <div className="space-y-4">
-      <div className="relative">
-        <label className="text-sm font-semibold mb-1.5 block text-muted-foreground">{label}</label>
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => setOpen(!open)}
-          className="input-elegant flex items-center justify-between group"
-          style={{ background: '#141416', border: '1px solid rgba(255,255,255,0.1)' }}
-        >
-          <span className={cn(selectedBank ? 'text-foreground' : 'text-muted-foreground')}>
-            {selectedBank?.name || 'Select a bank'}
-          </span>
-          <ChevronDown className={cn('w-4 h-4 transition-transform opacity-50', open && 'rotate-180')} />
-        </button>
-        <BankSelectorDropdown
-          isOpen={open}
-          search={search}
-          onSearchChange={setSearch}
-          filteredInstitutions={filtered}
-          onSelect={(bank) => {
-            onSelect(bank);
-            setOpen(false);
-            setSearch('');
-          }}
-        />
-      </div>
-
+      {/* Account Number — first */}
       <div className="relative">
         <label className="text-sm font-semibold mb-1.5 block text-muted-foreground">Account Number</label>
         <div className="relative">
@@ -103,8 +93,15 @@ export function BankSelector({
             isOpen={showSuggestions}
             accountNumber={accountNumber}
             contacts={contacts}
-            onSelect={onSelect}
-            onAccountNumberChange={onAccountNumberChange}
+            onSelectContact={(contact) => {
+              if (onSelectContact) {
+                onSelectContact(contact);
+              } else {
+                onSelect({ code: contact.bankCode, name: contact.bankName });
+                onAccountNumberChange(contact.accountNumber);
+              }
+            }}
+            onDeleteContact={handleDeleteContact}
             onClose={() => setShowSuggestions(false)}
             onAddNew={() => {
               setIsAddingContact(true);
@@ -114,12 +111,41 @@ export function BankSelector({
         </div>
       </div>
 
+      {/* Bank selector — second */}
+      <div className="relative">
+        <label className="text-sm font-semibold mb-1.5 block text-muted-foreground">{label}</label>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => setOpen(!open)}
+          className="input-elegant flex items-center justify-between group"
+          style={{ background: '#141416', border: '1px solid rgba(255,255,255,0.1)' }}
+        >
+          <span className={cn(selectedBank ? 'text-foreground' : 'text-muted-foreground')}>
+            {selectedBank?.name || 'Select a bank'}
+          </span>
+          <ChevronDown className={cn('w-4 h-4 transition-transform opacity-50', open && 'rotate-180')} />
+        </button>
+        <BankSelectorDropdown
+          isOpen={open}
+          search={search}
+          onSearchChange={setSearch}
+          filteredInstitutions={filtered}
+          onSelect={(bank) => {
+            onSelect(bank);
+            setOpen(false);
+            setSearch('');
+          }}
+        />
+      </div>
+
       <AddBankContactModal
         isOpen={isAddingContact}
         onClose={() => setIsAddingContact(false)}
         userEmail={userEmail}
         defaultAccountNumber={accountNumber}
         institutions={institutions}
+        onSuccess={onContactsChanged}
       />
 
       {accountName && (

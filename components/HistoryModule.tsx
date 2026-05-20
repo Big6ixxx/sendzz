@@ -41,6 +41,9 @@ export interface Activity {
   txHash?: string;
   senderEmail?: string;
   note?: string;
+  fiatAmount?: number;
+  fiatCurrency?: string;
+  exchangeRate?: number;
 }
 
 const ACTIVITY_LABELS: Record<ActivityType, string> = {
@@ -121,9 +124,9 @@ export function HistoryModule({
           timestamp: d.created_at,
           details: `Via: ${d.currency_fiat} Gateway`,
           asset: 'USDC',
-          txHash: d.paycrest_tx_id?.startsWith('0x')
-            ? d.paycrest_tx_id
-            : undefined,
+          txHash: d.tx_hash || undefined,
+          fiatAmount: d.amount_fiat ?? undefined,
+          fiatCurrency: d.currency_fiat ?? undefined,
         })),
         ...(data.withdrawals || []).map((w) => ({
           id: w.id,
@@ -133,7 +136,10 @@ export function HistoryModule({
           timestamp: w.created_at,
           details: `To: ${w.bank_account_masked}`,
           asset: 'USDC',
-          txHash: w.paycrest_order_id || undefined,
+          txHash: w.tx_hash || undefined,
+          fiatAmount: w.fiat_amount ?? undefined,
+          fiatCurrency: w.fiat_currency ?? undefined,
+          exchangeRate: w.exchange_rate ?? undefined,
         })),
         ...(data.bridges || []).map((b) => ({
           id: b.id,

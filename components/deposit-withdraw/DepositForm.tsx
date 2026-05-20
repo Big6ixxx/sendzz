@@ -9,6 +9,8 @@ import { toast } from 'sonner';
 import { calculatePaycrestBaseAmount, PAYCREST_PARTNER_FEE_PERCENT } from '@/lib/paycrest/config';
 import { BankSelector } from './BankSelector';
 import { useDepositWithdraw } from './useDepositWithdraw';
+import { ReceiptActions } from '@/components/receipt/ReceiptActions';
+import { ReceiptData } from '@/lib/receipt/types';
 
 interface DepositFormProps {
   hook: ReturnType<typeof useDepositWithdraw>;
@@ -92,7 +94,7 @@ export function DepositForm({ hook }: DepositFormProps) {
 
         <div className="pt-4 border-t border-border">
           <BankSelector
-            label="Refund Bank Account"
+            label="Bank"
             institutions={hook.institutions}
             selectedBankCode={hook.bankDetails.bankCode}
             onSelect={(b) =>
@@ -101,6 +103,14 @@ export function DepositForm({ hook }: DepositFormProps) {
                 bankCode: b.code,
                 bankName: b.name,
                 accountName: '',
+              })
+            }
+            onSelectContact={(contact) =>
+              hook.setBankDetails({
+                bankCode: contact.bankCode,
+                bankName: contact.bankName,
+                accountNumber: contact.accountNumber,
+                accountName: contact.accountName,
               })
             }
             accountNumber={hook.bankDetails.accountNumber}
@@ -115,6 +125,7 @@ export function DepositForm({ hook }: DepositFormProps) {
             isVerifying={hook.verifyingBank}
             contacts={hook.bankContacts}
             userEmail={hook.userEmail}
+            onContactsChanged={hook.refreshBankContacts}
           />
           <p className="text-[10px] text-muted-foreground mt-2 px-1">
             * In case of any issues, funds will be returned to this account.
@@ -236,6 +247,21 @@ export function DepositForm({ hook }: DepositFormProps) {
   }
 
   if (hook.step === 3) {
+    const depositReceipt: ReceiptData = {
+      id: hook.order?.id ?? `dep-${Date.now().toString(36)}`,
+      type: 'deposit',
+      status: 'confirmed',
+      timestamp: new Date().toISOString(),
+      amountUsdc:
+        hook.rate && hook.amount
+          ? calculatePaycrestBaseAmount(parseFloat(hook.amount)) / hook.rate
+          : 0,
+      fiatAmount: parseFloat(hook.amount),
+      fiatCurrency: hook.fiatCurrency,
+      exchangeRate: hook.rate ?? undefined,
+      orderId: hook.order?.id,
+    };
+
     return (
       <div className="flex flex-col items-center justify-center py-10 text-center space-y-6 animate-in zoom-in duration-500">
         <div className="w-20 h-20 bg-green-500 text-background rounded-full flex items-center justify-center shadow-lg shadow-green-200 dark:shadow-green-900/20">
@@ -248,6 +274,13 @@ export function DepositForm({ hook }: DepositFormProps) {
           <p className="text-muted-foreground">
             Your funds have been deposited and are ready to use.
           </p>
+        </div>
+
+        <div className="w-full space-y-1.5">
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60 text-center">
+            Transaction Receipt
+          </p>
+          <ReceiptActions data={depositReceipt} variant="light" />
         </div>
 
         {hook.showSavePrompt && (
@@ -279,7 +312,7 @@ export function DepositForm({ hook }: DepositFormProps) {
         )}
 
         <button
-          onClick={() => window.location.reload()}
+          onClick={() => hook.onClose?.()}
           className="btn-secondary px-10"
         >
           View Dashboard

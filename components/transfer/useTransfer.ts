@@ -6,6 +6,7 @@ import { ConnectedWallet } from '@privy-io/react-auth';
 import { executeCircleGaslessTransfer } from '@/lib/web3/circle-actions';
 import { sendTransferEmail } from '@/lib/email/sendEmail';
 import { type FiatCurrencyCode } from '@/lib/currency-config';
+import { ReceiptData } from '@/lib/receipt/types';
 
 interface UseTransferProps {
   smartAddress: string;
@@ -35,6 +36,7 @@ export function useTransfer({
   const [isAddingContact, setIsAddingContact] = useState(false);
   const [showSavePrompt, setShowSavePrompt] = useState(false);
   const [lastRecipient, setLastRecipient] = useState('');
+  const [lastCompletedTransfer, setLastCompletedTransfer] = useState<ReceiptData | null>(null);
 
   const isFiat = currency !== 'USD';
   const { data: exchangeRate = 1 } = useExchangeRate(isFiat ? currency : 'NGN');
@@ -62,6 +64,7 @@ export function useTransfer({
     if (!amount || !recipientEmail || !embeddedProvider) return;
 
     setLoading(true);
+    setLastCompletedTransfer(null);
     setStatus('Looking up recipient...');
     setIsPendingClaim(false);
 
@@ -99,6 +102,18 @@ export function useTransfer({
       );
 
       setStatus('Success! Transfer completed.');
+
+      setLastCompletedTransfer({
+        id: (txHash as string) || `txn-${Date.now().toString(36)}`,
+        type: 'sent',
+        status: 'completed',
+        timestamp: new Date().toISOString(),
+        amountUsdc: parseFloat(amountUsdc),
+        senderEmail,
+        recipientEmail,
+        note: memo || undefined,
+        txHash: txHash as string,
+      });
 
       const { recordTransfer } = await import('@/lib/supabase/transactions');
       await recordTransfer({
@@ -162,6 +177,7 @@ export function useTransfer({
     showSavePrompt,
     setShowSavePrompt,
     lastRecipient,
+    lastCompletedTransfer,
     contacts,
     amountUsdc,
     isFiat,

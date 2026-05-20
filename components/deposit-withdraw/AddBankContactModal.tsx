@@ -13,6 +13,7 @@ interface AddBankContactModalProps {
   userEmail: string;
   defaultAccountNumber: string;
   institutions: PaycrestInstitution[];
+  onSuccess?: () => void;
 }
 
 export function AddBankContactModal({
@@ -21,6 +22,7 @@ export function AddBankContactModal({
   userEmail,
   defaultAccountNumber,
   institutions,
+  onSuccess,
 }: AddBankContactModalProps) {
   const [newAccountNumber, setNewAccountNumber] = React.useState(defaultAccountNumber);
   const [newAccountName, setNewAccountName] = React.useState('');
@@ -64,6 +66,7 @@ export function AddBankContactModal({
       setNewAccountName('');
       setNewBank(null);
       queryClient.invalidateQueries({ queryKey: ['bank_contacts', userEmail] });
+      onSuccess?.();
       onClose();
     } catch (err) {
       setAddError(err instanceof Error ? err.message : 'Failed to add bank account');

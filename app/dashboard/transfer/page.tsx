@@ -11,15 +11,11 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, ShieldCheck, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { ContactsModule } from "@/components/ContactsModule";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 export default function TransfersPage() {
   const { ready, authenticated, user } = usePrivy();
   const { wallets } = useWallets();
   const [smartAddress, setSmartAddress] = useState<string>("");
   const [batchSendDialogOpen, setBatchSendDialogOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState("transfer");
-  const [selectedContactEmail, setSelectedContactEmail] = useState("");
 
   const { data: balance = "0.00" } = useQuery({
     queryKey: ["balance", smartAddress],
@@ -54,49 +50,14 @@ export default function TransfersPage() {
 
         <div className="grid lg:grid-cols-12 gap-8">
           <div className="lg:col-span-7">
-            <Tabs
-              value={activeTab}
-              onValueChange={setActiveTab}
-              className="w-full"
-            >
-              <TabsList className="grid w-full grid-cols-2 mb-8 !h-16 bg-white/5 border border-white/10 rounded-2xl p-1.5">
-                <TabsTrigger
-                  value="transfer"
-                  className="rounded-xl h-full text-xs md:text-sm font-black uppercase tracking-widest data-[state=active]:bg-accent data-[state=active]:text-accent-foreground transition-all"
-                >
-                  New Transfer
-                </TabsTrigger>
-                <TabsTrigger
-                  value="contacts"
-                  className="rounded-xl h-full text-xs md:text-sm font-black uppercase tracking-widest data-[state=active]:bg-accent data-[state=active]:text-accent-foreground transition-all"
-                >
-                  Contacts
-                </TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="transfer" className="mt-0">
-                <TransferModule
-                  smartAddress={smartAddress}
-                  embeddedProvider={wallets.find(
-                    (w) => w.walletClientType === "privy",
-                  )}
-                  balance={balance}
-                  senderEmail={user?.email?.address || ""}
-                  initialRecipientEmail={selectedContactEmail}
-                  onClearInitialRecipient={() => setSelectedContactEmail("")}
-                />
-              </TabsContent>
-
-              <TabsContent value="contacts" className="mt-0">
-                <ContactsModule
-                  userEmail={user?.email?.address || ""}
-                  onSelectContact={(email) => {
-                    setSelectedContactEmail(email);
-                    setActiveTab("transfer");
-                  }}
-                />
-              </TabsContent>
-            </Tabs>
+            <TransferModule
+              smartAddress={smartAddress}
+              embeddedProvider={wallets.find(
+                (w) => w.walletClientType === "privy",
+              )}
+              balance={balance}
+              senderEmail={user?.email?.address || ""}
+            />
           </div>
 
           <div className="lg:col-span-5 space-y-6">

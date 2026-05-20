@@ -9,6 +9,8 @@ import {
 import { getCurrencySymbol, type FiatCurrencyCode } from '@/lib/currency-config';
 import { Info, Loader2, MessageSquare, Send, ShieldCheck, Plus } from 'lucide-react';
 import { type ContactRow } from '@/lib/supabase/contacts';
+import { ReceiptActions } from '@/components/receipt/ReceiptActions';
+import { ReceiptData } from '@/lib/receipt/types';
 
 interface TransferFormProps {
   recipientEmail: string;
@@ -32,6 +34,7 @@ interface TransferFormProps {
   isZeroBalance: boolean;
   handleTransfer: (e: React.FormEvent) => void;
   smartAddress: string;
+  lastCompletedTransfer?: ReceiptData | null;
 }
 
 export function TransferForm({
@@ -56,6 +59,7 @@ export function TransferForm({
   isZeroBalance,
   handleTransfer,
   smartAddress,
+  lastCompletedTransfer,
 }: TransferFormProps) {
   return (
     <form
@@ -268,6 +272,15 @@ export function TransferForm({
             }`}
           >
             {status}
+          </div>
+        )}
+
+        {lastCompletedTransfer && (
+          <div className="space-y-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-center text-muted-foreground/60">
+              Transaction Receipt
+            </p>
+            <ReceiptActions data={lastCompletedTransfer} variant="light" />
           </div>
         )}
       </div>

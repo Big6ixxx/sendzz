@@ -174,6 +174,7 @@ export interface Database {
           id: string;
           user_id: string;
           paycrest_tx_id: string | null;
+          tx_hash: string | null;
           amount_fiat: number | null;
           currency_fiat: string | null;
           amount_usdc: number | null;
@@ -185,6 +186,7 @@ export interface Database {
           id?: string;
           user_id: string;
           paycrest_tx_id?: string | null;
+          tx_hash?: string | null;
           amount_fiat?: number | null;
           currency_fiat?: string | null;
           amount_usdc?: number | null;
@@ -196,6 +198,7 @@ export interface Database {
           id?: string;
           user_id?: string;
           paycrest_tx_id?: string | null;
+          tx_hash?: string | null;
           amount_fiat?: number | null;
           currency_fiat?: string | null;
           amount_usdc?: number | null;
@@ -210,7 +213,10 @@ export interface Database {
           id: string;
           user_id: string;
           paycrest_order_id: string | null;
+          tx_hash: string | null;
           amount_usdc: number;
+          fiat_amount: number | null;
+          exchange_rate: number | null;
           fiat_currency: string;
           institution_code: string;
           bank_account_masked: string;
@@ -225,7 +231,10 @@ export interface Database {
           id?: string;
           user_id: string;
           paycrest_order_id?: string | null;
+          tx_hash?: string | null;
           amount_usdc: number;
+          fiat_amount?: number | null;
+          exchange_rate?: number | null;
           fiat_currency: string;
           institution_code: string;
           bank_account_masked: string;
@@ -240,7 +249,10 @@ export interface Database {
           id?: string;
           user_id?: string;
           paycrest_order_id?: string | null;
+          tx_hash?: string | null;
           amount_usdc?: number;
+          fiat_amount?: number | null;
+          exchange_rate?: number | null;
           fiat_currency?: string;
           institution_code?: string;
           bank_account_masked?: string;

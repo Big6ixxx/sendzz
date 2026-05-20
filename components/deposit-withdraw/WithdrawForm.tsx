@@ -21,6 +21,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { ReceiptActions } from '@/components/receipt/ReceiptActions';
+import { ReceiptData } from '@/lib/receipt/types';
 
 interface WithdrawFormProps {
   hook: ReturnType<typeof useDepositWithdraw>;
@@ -131,7 +133,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
 
         <div className="space-y-4">
           <BankSelector
-            label="Destination Bank Account"
+            label="Bank"
             institutions={hook.institutions}
             selectedBankCode={hook.bankDetails.bankCode}
             onSelect={(b) =>
@@ -140,6 +142,14 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
                 bankCode: b.code,
                 bankName: b.name,
                 accountName: '',
+              })
+            }
+            onSelectContact={(contact) =>
+              hook.setBankDetails({
+                bankCode: contact.bankCode,
+                bankName: contact.bankName,
+                accountNumber: contact.accountNumber,
+                accountName: contact.accountName,
               })
             }
             accountNumber={hook.bankDetails.accountNumber}
@@ -154,6 +164,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
             isVerifying={hook.verifyingBank}
             contacts={hook.bankContacts}
             userEmail={hook.userEmail}
+            onContactsChanged={hook.refreshBankContacts}
           />
         </div>
 
@@ -268,6 +279,30 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
                 Your funds have been sent to your bank account.
               </p>
             </div>
+
+            {hook.order && (() => {
+              const receiptData: ReceiptData = {
+                id: hook.order.id,
+                type: 'withdrawal',
+                status: 'completed',
+                timestamp: new Date().toISOString(),
+                amountUsdc: parseFloat(hook.amount),
+                fiatCurrency: hook.fiatCurrency,
+                fiatPayoutAmount: hook.quote?.payoutAmount,
+                exchangeRate: hook.quote?.rate,
+                bankAccount: hook.bankDetails.accountNumber,
+                bankName: hook.bankDetails.bankName || hook.bankDetails.bankCode,
+                orderId: hook.order.id,
+              };
+              return (
+                <div className="w-full space-y-1.5 animate-in fade-in duration-500">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30 text-center">
+                    Transaction Receipt
+                  </p>
+                  <ReceiptActions data={receiptData} />
+                </div>
+              );
+            })()}
 
             {hook.showSavePrompt && (
               <div className="p-6 bg-accent/5 border border-accent/20 rounded-3xl space-y-4 animate-in fade-in slide-in-from-top-4 duration-500">

@@ -9,12 +9,16 @@ import {
   History,
   Landmark,
   MessageSquare,
+  Receipt,
   Wallet,
   X,
 } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { Activity } from './HistoryModule';
+import { ReceiptActions } from './receipt/ReceiptActions';
+import { activityToReceiptData } from '@/lib/receipt/utils';
+import { getOffRampRate } from '@/lib/actions/ramp';
 
 const ACTIVITY_LABELS: Record<string, string> = {
   sent: 'Transfer Sent',
@@ -38,6 +42,20 @@ export function ActivityDetailModal({
   onClose,
 }: ActivityDetailModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
+  const [estimatedFiatRate, setEstimatedFiatRate] = useState<number | null>(null);
+
+  // For old withdrawal records that predate fiat_amount being saved, fetch the
+  // current off-ramp rate so the receipt can show an approximate fiat payout.
+  useEffect(() => {
+    if (!activity || activity.type !== 'withdrawal' || activity.fiatAmount != null) {
+      setEstimatedFiatRate(null);
+      return;
+    }
+    const currency = activity.fiatCurrency || 'NGN';
+    getOffRampRate(currency)
+      .then(setEstimatedFiatRate)
+      .catch(() => setEstimatedFiatRate(null));
+  }, [activity?.id]);
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -209,6 +227,25 @@ export function ActivityDetailModal({
                 </p>
               </div>
             )}
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/20 text-center flex items-center justify-center gap-2">
+              <Receipt className="w-3 h-3" /> Receipt
+            </p>
+            <ReceiptActions data={(() => {
+              const base = activityToReceiptData(activity);
+              // For old withdrawals without saved fiat_amount, fill in an estimate
+              // from the current off-ramp rate so the receipt always shows a fiat figure.
+              if (activity.type === 'withdrawal' && base.fiatPayoutAmount == null && estimatedFiatRate) {
+                return {
+                  ...base,
+                  fiatPayoutAmount: Math.round(activity.amount * estimatedFiatRate),
+                  exchangeRate: estimatedFiatRate,
+                };
+              }
+              return base;
+            })()} />
           </div>
 
           <div className="flex gap-3">

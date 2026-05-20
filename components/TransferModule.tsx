@@ -40,6 +40,7 @@ export function TransferModule({
     showSavePrompt,
     setShowSavePrompt,
     lastRecipient,
+    lastCompletedTransfer,
     contacts,
     amountUsdc,
     isFiat,
@@ -94,6 +95,7 @@ export function TransferModule({
         isZeroBalance={isZeroBalance}
         handleTransfer={handleTransfer}
         smartAddress={smartAddress}
+        lastCompletedTransfer={lastCompletedTransfer}
       />
 
       <TransferAddContactModal

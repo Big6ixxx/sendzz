@@ -1,13 +1,13 @@
 import * as React from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { BankContactRow } from '@/lib/supabase/bank-contacts';
 
 interface BankSelectorSuggestionsProps {
   isOpen: boolean;
   accountNumber: string;
   contacts: BankContactRow[];
-  onSelect: (bank: { code: string; name: string }) => void;
-  onAccountNumberChange: (value: string) => void;
+  onSelectContact: (contact: { bankCode: string; bankName: string; accountNumber: string; accountName: string }) => void;
+  onDeleteContact: (contactId: string) => void;
   onClose: () => void;
   onAddNew: () => void;
 }
@@ -16,8 +16,8 @@ export function BankSelectorSuggestions({
   isOpen,
   accountNumber,
   contacts,
-  onSelect,
-  onAccountNumberChange,
+  onSelectContact,
+  onDeleteContact,
   onClose,
   onAddNew,
 }: BankSelectorSuggestionsProps) {
@@ -64,25 +64,42 @@ export function BankSelectorSuggestions({
           </div>
           <div className="max-h-48 overflow-y-auto space-y-1">
             {filteredContacts.map((c) => (
-              <button
+              <div
                 key={c.id}
-                type="button"
-                onClick={() => {
-                  onSelect({ code: c.bank_code, name: c.bank_name });
-                  onAccountNumberChange(c.account_number);
-                  onClose();
-                }}
-                className="w-full text-left p-3 rounded-lg hover:bg-white/5 transition-colors flex items-center justify-between group"
+                className="w-full flex items-center gap-2 group"
               >
-                <div className="min-w-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSelectContact({
+                      bankCode: c.bank_code,
+                      bankName: c.bank_name,
+                      accountNumber: c.account_number,
+                      accountName: c.account_name,
+                    });
+                    onClose();
+                  }}
+                  className="flex-1 text-left p-3 rounded-lg hover:bg-white/5 transition-colors"
+                >
                   <p className="font-bold text-xs text-foreground group-hover:text-accent transition-colors truncate">
                     {c.account_name}
                   </p>
                   <p className="text-[10px] text-muted-foreground font-mono">
                     {c.bank_name} • {c.account_number}
                   </p>
-                </div>
-              </button>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteContact(c.id);
+                  }}
+                  className="p-2 text-white/20 hover:text-red-400 transition-colors shrink-0 rounded-lg hover:bg-red-400/10"
+                  title="Remove saved account"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
             ))}
           </div>
         </>

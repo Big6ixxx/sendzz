@@ -10,7 +10,7 @@ import {
   initiateOnRamp,
   verifyBankAccount,
 } from '@/lib/actions/ramp';
-import { updateDepositStatus, updateWithdrawalStatus } from '@/lib/supabase/transactions';
+import { updateDepositStatus, updateWithdrawalStatus, saveWithdrawalTxHash, saveDepositTxHash } from '@/lib/supabase/transactions';
 import { type FiatCurrencyCode } from '@/lib/currency-config';
 import { getUserBankContacts, addBankContact, type BankContactRow } from '@/lib/supabase/bank-contacts';
 import {
@@ -78,6 +78,7 @@ export function useDepositWithdraw(
   // Polling for deposit status
   const [polling, setPolling] = useState(false);
   const [txStatus, setTxStatus] = useState<string | null>(null);
+  const [withdrawalTxHash, setWithdrawalTxHash] = useState<string | null>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Fetch institutions & rates when fiatCurrency changes
@@ -265,6 +266,8 @@ export function useDepositWithdraw(
         userAddress,
         userEmail,
         fiatCurrency,
+        quote?.payoutAmount,
+        quote?.rate,
       );
       setOrder(res);
       setStep(3);
@@ -282,11 +285,15 @@ export function useDepositWithdraw(
     setTransferring(true);
     try {
       const provider = await embeddedProvider.getEthereumProvider();
-      await executeCircleGaslessTransfer(
+      const txHash = await executeCircleGaslessTransfer(
         provider,
         order.providerAccount.receiveAddress,
         amount,
       );
+      setWithdrawalTxHash(txHash);
+      if (order.id && txHash) {
+        saveWithdrawalTxHash(order.id, txHash).catch(console.error);
+      }
       toast.success('Transfer sent! Waiting for confirmation...');
       queryClient.invalidateQueries({ queryKey: ['balance', userAddress] });
       setStep(4);
@@ -325,7 +332,7 @@ export function useDepositWithdraw(
             if (isWithdraw) {
               updateWithdrawalStatus(order.id, 'completed');
               toast.success('Withdrawal completed!');
-              
+
               // Check if bank is already in contacts
               const exists = bankContacts.some(c => c.account_number === bankDetails.accountNumber);
               if (!exists) {
@@ -341,6 +348,11 @@ export function useDepositWithdraw(
               }
             } else {
               updateDepositStatus(order.id, 'confirmed');
+              // Try to capture settlement tx hash from Paycrest order status
+              const settlementTxHash = result.txHash || result.settlementTxHash || result.transactionHash;
+              if (settlementTxHash && order.id) {
+                saveDepositTxHash(order.id, settlementTxHash).catch(console.error);
+              }
               toast.success('Funds received!');
               
               // Check if bank is already in contacts (for refund)
@@ -375,6 +387,13 @@ export function useDepositWithdraw(
     };
   }, []);
 
+  const refreshBankContacts = useCallback(async () => {
+    if (userEmail) {
+      const contacts = await getUserBankContacts(userEmail).catch(() => []);
+      setBankContacts(contacts);
+    }
+  }, [userEmail]);
+
   return {
     step,
     setStep,
@@ -397,11 +416,13 @@ export function useDepositWithdraw(
     transferring,
     polling,
     txStatus,
+    withdrawalTxHash,
     bankContacts,
     showSavePrompt,
     setShowSavePrompt,
     userEmail,
     userAddress,
+    refreshBankContacts,
     handleDepositInitiate,
     handleWithdrawQuote,
     handleWithdrawFinalize,
@@ -418,7 +439,6 @@ export function useDepositWithdraw(
         });
         toast.success('Bank account saved!');
         setShowSavePrompt(false);
-        // Refresh contacts
         getUserBankContacts(userEmail).then(setBankContacts).catch(console.error);
         if (type === 'withdraw') {
           setTimeout(() => onClose?.(), 1000);
@@ -440,6 +460,7 @@ export function useDepositWithdraw(
     },
     goBack: () => {
       setStep(prev => prev > 1 ? prev - 1 : 1);
-    }
+    },
+    onClose,
   };
 }
