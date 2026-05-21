@@ -37,7 +37,7 @@ export default function SecurityPage() {
     {
       title: 'Non-Custodial Design',
       description:
-        'Sendzz never has access to your funds. You maintain full ownership and control through your own secure smart account.',
+        "Sendzz uses Privy's MPC technology to ensure your funds are truly yours. Your private key is never stored in one place; instead, it's split into multiple shares. This means Sendzz never has access to your assets, giving you full ownership with institutional-grade security.",
       icon: ShieldCheck,
     },
     {

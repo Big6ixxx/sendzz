@@ -11,14 +11,18 @@ import {
   MessageSquare,
   Receipt,
   Wallet,
-  X,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { Activity } from './HistoryModule';
 import { ReceiptActions } from './receipt/ReceiptActions';
 import { activityToReceiptData } from '@/lib/receipt/utils';
 import { getOffRampRate } from '@/lib/actions/ramp';
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 const ACTIVITY_LABELS: Record<string, string> = {
   sent: 'Transfer Sent',
@@ -41,7 +45,6 @@ export function ActivityDetailModal({
   isOpen,
   onClose,
 }: ActivityDetailModalProps) {
-  const modalRef = useRef<HTMLDivElement>(null);
   const [estimatedFiatRate, setEstimatedFiatRate] = useState<number | null>(null);
 
   // For old withdrawal records that predate fiat_amount being saved, fetch the
@@ -57,29 +60,7 @@ export function ActivityDetailModal({
       .catch(() => setEstimatedFiatRate(null));
   }, [activity?.id]);
 
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-      window.addEventListener('keydown', handleEscape);
-      // Accessibility: Focus the modal container when it opens
-      modalRef.current?.focus();
-    } else {
-      document.body.style.overflow = 'unset';
-    }
-
-    return () => {
-      document.body.style.overflow = 'unset';
-      window.removeEventListener('keydown', handleEscape);
-    };
-  }, [isOpen, onClose]);
-
-  if (!isOpen || !activity) return null;
+  if (!activity) return null;
 
   const isSuccess =
     activity.status.toLowerCase() === 'settled' ||
@@ -88,35 +69,14 @@ export function ActivityDetailModal({
     activity.status.toLowerCase() === 'success';
 
   return (
-    <div
-      className="fixed inset-0 z-100 flex items-center justify-center p-4 animate-in fade-in duration-300"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="modal-title"
-    >
-      {/* Overlay / Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/80 backdrop-blur-xl"
-        onClick={onClose}
-        aria-hidden="true"
-      />
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-sm p-0 overflow-hidden">
+        {/* Visually hidden title for accessibility */}
+        <DialogTitle className="sr-only">
+          {activity ? ACTIVITY_LABELS[activity.type] : 'Activity Detail'}
+        </DialogTitle>
 
-      {/* Modal Content */}
-      <div
-        ref={modalRef}
-        tabIndex={-1}
-        className="card-glass w-full max-w-sm p-0 overflow-hidden animate-in zoom-in-95 duration-300 relative z-10 shadow-[0_32px_80px_rgba(0,0,0,0.8)] border-white/10 focus:outline-none"
-      >
         <div className="p-8 text-center space-y-8">
-          {/* Close Button */}
-          <button
-            onClick={onClose}
-            aria-label="Close details"
-            className="absolute top-4 right-4 p-2 rounded-full bg-white/5 border border-white/10 text-brand-secondary/40 hover:text-brand-secondary transition-colors outline-none focus:ring-2 focus:ring-accent/50"
-          >
-            <X className="w-4 h-4" />
-          </button>
-
           <div className="flex justify-center">
             <div
               className="w-20 h-20 rounded-4xl flex items-center justify-center shadow-2xl relative group"
@@ -173,7 +133,6 @@ export function ActivityDetailModal({
               {ACTIVITY_LABELS[activity.type]}
             </p>
             <h3
-              id="modal-title"
               className="font-display text-4xl font-bold tracking-tighter text-brand-secondary"
             >
               {activity.amount.toLocaleString()}{' '}
@@ -267,7 +226,7 @@ export function ActivityDetailModal({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

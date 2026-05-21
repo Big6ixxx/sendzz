@@ -1,11 +1,11 @@
 'use client';
 
-import { DashboardPageHeader } from '@/components/DashboardPageHeader';
+import { DashboardPageHeader } from '@/components/layout/DashboardPageHeader';
 import { AddBankContactModal } from '@/components/deposit-withdraw/AddBankContactModal';
 import { DeleteConfirmDialog } from '@/components/contacts/DeleteConfirmDialog';
 import { getUserBankContacts, deleteBankContact, type BankContactRow } from '@/lib/supabase/bank-contacts';
 import { getUserContacts, deleteContact, type ContactRow } from '@/lib/supabase/contacts';
-import { AddEmailContactModal } from '@/components/contacts/AddEmailContactModal';
+import { AddContactModal } from '@/components/contacts/AddContactModal';
 import { getInstitutions } from '@/lib/actions/ramp';
 import { PaycrestInstitution } from '@/lib/paycrest/types';
 import { usePrivy } from '@privy-io/react-auth';
@@ -168,9 +168,12 @@ export default function SettingsPage() {
                 <p className="text-xs font-bold uppercase tracking-widest text-brand-secondary/30">
                   No saved recipients
                 </p>
-                <p className="text-[10px] text-brand-secondary/20">
-                  Recipients are saved automatically when you send a transfer.
-                </p>
+                <button
+                  onClick={() => setAddEmailModalOpen(true)}
+                  className="text-[10px] font-black uppercase tracking-widest text-accent hover:text-accent/80 transition-colors"
+                >
+                  + Add your first recipient
+                </button>
               </div>
             ) : (
               <div className="divide-y divide-white/4">
@@ -285,6 +288,13 @@ export default function SettingsPage() {
           </button>
         </div>
       </div>
+
+      <AddContactModal
+        isOpen={addEmailModalOpen}
+        onClose={() => setAddEmailModalOpen(false)}
+        senderEmail={userEmail}
+        onSuccess={fetchContacts}
+      />
 
       <AddBankContactModal
         isOpen={addBankModalOpen}

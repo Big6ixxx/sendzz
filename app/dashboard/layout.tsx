@@ -1,6 +1,6 @@
 "use client";
 
-import { Sidebar } from "@/components/Sidebar";
+import { Sidebar } from "@/components/layout/Sidebar";
 import { usePrivy } from "@privy-io/react-auth";
 import { Menu } from "lucide-react";
 import Image from "next/image";

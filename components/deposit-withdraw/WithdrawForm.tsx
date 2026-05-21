@@ -186,7 +186,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
   if (hook.step === 3 && hook.order) {
     return (
       <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500 text-center">
-        <div className="flex items-center justify-start mb-[-1rem]">
+        <div className="flex items-center justify-start -mb-4">
           <button 
             onClick={hook.goBack}
             disabled={hook.transferring}

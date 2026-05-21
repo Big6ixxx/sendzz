@@ -371,8 +371,7 @@ export function HistoryModule({
                               : a.type === 'bridge'
                                 ? '#60a5fa'
                                 : '#fb923c',
-                    border: `1px solid ${
-                      isSettled
+                    border: `1px solid ${isSettled
                         ? 'rgba(0, 232, 122, 0.15)'
                         : a.type === 'sent'
                           ? 'rgba(248, 113, 113, 0.15)'
@@ -383,7 +382,7 @@ export function HistoryModule({
                               : a.type === 'bridge'
                                 ? 'rgba(96, 165, 250, 0.15)'
                                 : 'rgba(251, 146, 60, 0.15)'
-                    }`,
+                      }`,
                   }}
                 >
                   {getActivityIcon(a.type)}
@@ -410,11 +409,11 @@ export function HistoryModule({
                       </span>
                     </span>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <p className="text-[11px] font-bold uppercase truncate tracking-[0.15em] text-brand-secondary/30">
+                  <div className="flex justify-between items-center gap-4">
+                    <p className="text-[11px] font-bold uppercase truncate tracking-[0.15em] text-brand-secondary/30 flex-1 min-w-0 max-w-[120px] md:max-w-none">
                       {a.details}
                     </p>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 shrink-0">
                       <span
                         className={cn(
                           'text-[9px] px-2 py-0.5 rounded-md font-bold uppercase tracking-widest flex items-center gap-1.5',

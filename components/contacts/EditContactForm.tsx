@@ -24,7 +24,7 @@ export function EditContactForm({
   return (
     <form
       onSubmit={onSubmit}
-      className="p-4 rounded-2xl bg-white/[0.04] border border-accent/20 flex flex-col md:flex-row items-start md:items-center gap-4 transition-colors"
+      className="p-4 rounded-2xl bg-white/4 border border-accent/20 flex flex-col md:flex-row items-start md:items-center gap-4 transition-colors"
     >
       <div className="flex-1 space-y-3 w-full">
         <input

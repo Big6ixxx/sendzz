@@ -144,7 +144,7 @@ export function AdminActivityBreakdown({ metrics, isLoading }: AdminActivityBrea
               return (
                 <div
                   key={item.label}
-                  className="group p-4 rounded-2xl bg-white/[0.02] border border-white/5 hover:bg-white/[0.04] transition-all"
+                  className="group p-4 rounded-2xl bg-white/2 border border-white/5 hover:bg-white/4 transition-all"
                 >
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-3">

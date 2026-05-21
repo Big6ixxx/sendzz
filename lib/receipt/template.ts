@@ -47,9 +47,9 @@ function buildRows(data: ReceiptData): [string, string][] {
  * Inner visual markup for the receipt — used both by printReceipt (in a full HTML page)
  * and captureReceiptCanvas (rendered via html2canvas).
  *
- * @param illustrationSrc  URL or data-URI for the bottom illustration image.
+ * @param logoSrc URL or data-URI for the logo image.
  */
-export function receiptBodyMarkup(data: ReceiptData, illustrationSrc: string, logoSrc: string): string {
+export function receiptBodyMarkup(data: ReceiptData, logoSrc: string): string {
   const ok = isSuccess(data.status);
   const statusText = data.status.toUpperCase();
   // Solid filled badge: green for success, amber for pending, red for failed
@@ -105,18 +105,6 @@ export function receiptBodyMarkup(data: ReceiptData, illustrationSrc: string, lo
 
   ${scallopDiv}
 
-  <div style="padding:24px 48px 16px;text-align:center;">
-    <p style="font-size:14px;color:#2c7a18;font-weight:600;line-height:1.8;margin:0;font-family:'Geist',sans-serif;">
-      Its secured to your email and ready for your bank.<br>
-      No codes or waiting<br>
-      Click above to get your money now
-    </p>
-  </div>
-
-  <div style="line-height:0;font-size:0;">
-    <img src="${illustrationSrc}" width="480" style="display:block;width:100%;height:auto;" alt="">
-  </div>
-
 </div>`;
 }
 
@@ -158,8 +146,8 @@ export const FONT_STYLES = `
  * Complete HTML document for the print window.
  * Loads Kollektif and Geist from CDN, waits for document.fonts.ready before printing.
  */
-export function receiptHTMLPage(data: ReceiptData, illustrationSrc: string, logoSrc: string): string {
-  const body = receiptBodyMarkup(data, illustrationSrc, logoSrc);
+export function receiptHTMLPage(data: ReceiptData, logoSrc: string): string {
+  const body = receiptBodyMarkup(data, logoSrc);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
