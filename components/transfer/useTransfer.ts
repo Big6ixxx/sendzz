@@ -39,7 +39,7 @@ export function useTransfer({
   const [lastCompletedTransfer, setLastCompletedTransfer] = useState<ReceiptData | null>(null);
 
   const isFiat = currency !== 'USD';
-  const { data: exchangeRate = 1 } = useExchangeRate(isFiat ? currency : 'NGN');
+  const { data: exchangeRate = 1 } = useExchangeRate(isFiat ? currency : 'USD');
   const queryClient = useQueryClient();
 
   const { data: contacts = [] } = useQuery({

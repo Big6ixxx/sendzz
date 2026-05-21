@@ -9,6 +9,8 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-accent: var(--accent);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
 
   --color-brand-primary: #0a0a0b;
   --color-brand-secondary: #f8f8f6;

@@ -77,9 +77,15 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
             <span>
               Payout in {getCurrencySymbol(hook.fiatCurrency)} ({hook.fiatCurrency})
             </span>
-            {hook.rate && hook.amount && !isNaN(parseFloat(hook.amount)) && (
-              <span className="font-medium text-foreground">
-                ≈ {getCurrencySymbol(hook.fiatCurrency)}{(parseFloat(hook.amount) * hook.rate).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+            {hook.amount && !isNaN(parseFloat(hook.amount)) && (
+              <span className="font-medium text-foreground flex items-center gap-1.5">
+                {hook.rateLoading ? (
+                  <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
+                ) : hook.rate ? (
+                  <>≈ {getCurrencySymbol(hook.fiatCurrency)}{(parseFloat(hook.amount) * hook.rate).toLocaleString(undefined, { maximumFractionDigits: 2 })}</>
+                ) : (
+                  <span className="text-red-400 font-bold uppercase text-[9px] tracking-widest">Rate Unavailable</span>
+                )}
               </span>
             )}
           </p>
@@ -87,7 +93,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
 
         <button
           onClick={hook.handleWithdrawQuote}
-          disabled={hook.loading || !hook.amount}
+          disabled={hook.loading || hook.rateLoading || !hook.amount}
           className="btn-primary w-full gap-2"
         >
           {hook.loading ? (
