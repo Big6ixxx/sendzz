@@ -2,135 +2,85 @@
 
 import { PaycrestInstitution } from '@/lib/paycrest/types';
 import { cn } from '@/lib/utils';
-import { CheckCircle2, ChevronDown, Loader2, Search } from 'lucide-react';
+import { CheckCircle2, ChevronDown, Loader2 } from 'lucide-react';
 import * as React from 'react';
+import { toast } from 'sonner';
+import { BankContactRow, deleteBankContact } from '@/lib/supabase/bank-contacts';
+import { AddBankContactModal } from './AddBankContactModal';
+import { BankSelectorDropdown } from './BankSelectorDropdown';
+import { BankSelectorSuggestions } from './BankSelectorSuggestions';
 
 interface BankSelectorProps {
   institutions: PaycrestInstitution[];
   selectedBankCode: string;
   onSelect: (bank: { code: string; name: string }) => void;
+  onSelectContact?: (contact: { bankCode: string; bankName: string; accountNumber: string; accountName: string }) => void;
   accountNumber: string;
   onAccountNumberChange: (value: string) => void;
   accountName: string;
   isVerifying: boolean;
   label: string;
   disabled?: boolean;
+  contacts?: BankContactRow[];
+  userEmail?: string;
+  onContactsChanged?: () => void;
 }
 
 export function BankSelector({
   institutions,
   selectedBankCode,
   onSelect,
+  onSelectContact,
   accountNumber,
   onAccountNumberChange,
   accountName,
   isVerifying,
   label,
   disabled,
+  contacts = [],
+  userEmail = '',
+  onContactsChanged,
 }: BankSelectorProps) {
   const [open, setOpen] = React.useState(false);
+  const [showSuggestions, setShowSuggestions] = React.useState(false);
   const [search, setSearch] = React.useState('');
-
-  const selectedBank = institutions.find(
-    (i) => (i.institutionCode || i.code) === selectedBankCode,
-  );
-
+  const [isAddingContact, setIsAddingContact] = React.useState(false);
+  const selectedBank = institutions.find((i) => (i.institutionCode || i.code) === selectedBankCode);
   const filtered = React.useMemo(() => {
     if (!search) return institutions;
-    return institutions.filter((i) =>
-      i.name.toLowerCase().includes(search.toLowerCase()),
-    );
+    return institutions.filter((i) => i.name.toLowerCase().includes(search.toLowerCase()));
   }, [institutions, search]);
+
+  const handleDeleteContact = React.useCallback(async (contactId: string) => {
+    if (!userEmail) return;
+    try {
+      await deleteBankContact(userEmail, contactId);
+      toast.success('Account removed');
+      onContactsChanged?.();
+    } catch {
+      toast.error('Failed to remove account');
+    }
+  }, [userEmail, onContactsChanged]);
 
   return (
     <div className="space-y-4">
+      {/* Account Number — first */}
       <div className="relative">
-        <label className="text-sm font-semibold mb-1.5 block text-muted-foreground">
-          {label}
-        </label>
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => setOpen(!open)}
-          className="input-elegant flex items-center justify-between group"
-          style={{ background: '#141416', border: '1px solid rgba(255,255,255,0.1)' }}
-        >
-          <span
-            className={cn(
-              selectedBank ? 'text-foreground' : 'text-muted-foreground',
-            )}
-          >
-            {selectedBank?.name || 'Select a bank'}
-          </span>
-          <ChevronDown
-            className={cn(
-              'w-4 h-4 transition-transform opacity-50',
-              open && 'rotate-180',
-            )}
-          />
-        </button>
-
-        {open && (
-          <div 
-            className="absolute z-50 top-full left-0 right-0 mt-2 border rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200"
-            style={{ background: '#1a1a1c', borderColor: 'rgba(255,255,255,0.1)' }}
-          >
-            <div className="p-2 border-b border-border bg-muted/30">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <input
-                  type="text"
-                  placeholder="Search banks..."
-                  className="w-full bg-transparent pl-9 pr-3 py-2 text-sm outline-none"
-                  autoFocus
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
-            </div>
-            <div className="max-h-60 overflow-y-auto">
-              {filtered.map((inst) => (
-                <button
-                  key={inst.code}
-                  type="button"
-                  onClick={() => {
-                    onSelect({
-                      code: inst.institutionCode || inst.code,
-                      name: inst.name,
-                    });
-                    setOpen(false);
-                    setSearch('');
-                  }}
-                  className="w-full text-left px-4 py-3 text-sm hover:bg-muted transition-colors border-b border-border/50 last:border-0"
-                >
-                  {inst.name}
-                </button>
-              ))}
-              {filtered.length === 0 && (
-                <div className="p-8 text-center text-sm text-muted-foreground">
-                  No banks found
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="relative">
-        <label className="text-sm font-semibold mb-1.5 block text-muted-foreground">
-          Account Number
-        </label>
+        <label className="text-sm font-semibold mb-1.5 block text-muted-foreground">Account Number</label>
         <div className="relative">
           <input
             type="text"
             maxLength={10}
-            disabled={!selectedBankCode || disabled}
+            disabled={disabled}
             placeholder="0123456789"
             className="input-elegant tracking-widest font-mono"
             value={accountNumber}
-            onChange={(e) =>
-              onAccountNumberChange(e.target.value.replace(/\D/g, ''))
-            }
+            onChange={(e) => {
+              onAccountNumberChange(e.target.value.replace(/\D/g, ''));
+              setShowSuggestions(true);
+            }}
+            onFocus={() => setShowSuggestions(true)}
+            onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
           />
           <div className="absolute right-3 top-1/2 -translate-y-1/2">
             {isVerifying ? (
@@ -139,8 +89,64 @@ export function BankSelector({
               <CheckCircle2 className="w-5 h-5 text-green-500" />
             ) : null}
           </div>
+          <BankSelectorSuggestions
+            isOpen={showSuggestions}
+            accountNumber={accountNumber}
+            contacts={contacts}
+            onSelectContact={(contact) => {
+              if (onSelectContact) {
+                onSelectContact(contact);
+              } else {
+                onSelect({ code: contact.bankCode, name: contact.bankName });
+                onAccountNumberChange(contact.accountNumber);
+              }
+            }}
+            onDeleteContact={handleDeleteContact}
+            onClose={() => setShowSuggestions(false)}
+            onAddNew={() => {
+              setIsAddingContact(true);
+              setShowSuggestions(false);
+            }}
+          />
         </div>
       </div>
+
+      {/* Bank selector — second */}
+      <div className="relative">
+        <label className="text-sm font-semibold mb-1.5 block text-muted-foreground">{label}</label>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => setOpen(!open)}
+          className="input-elegant flex items-center justify-between group"
+          style={{ background: '#141416', border: '1px solid rgba(255,255,255,0.1)' }}
+        >
+          <span className={cn(selectedBank ? 'text-foreground' : 'text-muted-foreground')}>
+            {selectedBank?.name || 'Select a bank'}
+          </span>
+          <ChevronDown className={cn('w-4 h-4 transition-transform opacity-50', open && 'rotate-180')} />
+        </button>
+        <BankSelectorDropdown
+          isOpen={open}
+          search={search}
+          onSearchChange={setSearch}
+          filteredInstitutions={filtered}
+          onSelect={(bank) => {
+            onSelect(bank);
+            setOpen(false);
+            setSearch('');
+          }}
+        />
+      </div>
+
+      <AddBankContactModal
+        isOpen={isAddingContact}
+        onClose={() => setIsAddingContact(false)}
+        userEmail={userEmail}
+        defaultAccountNumber={accountNumber}
+        institutions={institutions}
+        onSuccess={onContactsChanged}
+      />
 
       {accountName && (
         <div className="p-4 bg-muted/50 rounded-xl border border-border animate-in fade-in slide-in-from-top-2 duration-300">

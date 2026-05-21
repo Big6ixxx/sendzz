@@ -123,6 +123,8 @@ export async function recordWithdrawal(params: {
   userEmail: string;
   amountUsdc: number;
   fiatCurrency: string;
+  fiatAmount?: number;
+  exchangeRate?: number;
   bankAccountMasked: string;
   institutionCode: string;
   status: 'processing' | 'completed';
@@ -141,6 +143,8 @@ export async function recordWithdrawal(params: {
       user_id: user.id,
       amount_usdc: params.amountUsdc,
       fiat_currency: params.fiatCurrency,
+      fiat_amount: params.fiatAmount ?? null,
+      exchange_rate: params.exchangeRate ?? null,
       bank_account_masked: params.bankAccountMasked,
       institution_code: params.institutionCode,
       status: params.status,
@@ -171,6 +175,38 @@ export async function updateWithdrawalStatus(
     if (error) throw error;
   } catch (err) {
     console.error('[Supabase] Failed to update withdrawal status:', err);
+  }
+}
+
+export async function saveWithdrawalTxHash(
+  paycrestOrderId: string,
+  txHash: string,
+): Promise<void> {
+  try {
+    const { error } = await supabaseAdmin
+      .from('withdrawals')
+      .update({ tx_hash: txHash })
+      .eq('paycrest_order_id', paycrestOrderId);
+
+    if (error) throw error;
+  } catch (err) {
+    console.error('[Supabase] Failed to save withdrawal tx hash:', err);
+  }
+}
+
+export async function saveDepositTxHash(
+  paycrestTxId: string,
+  txHash: string,
+): Promise<void> {
+  try {
+    const { error } = await supabaseAdmin
+      .from('deposits')
+      .update({ tx_hash: txHash })
+      .eq('paycrest_tx_id', paycrestTxId);
+
+    if (error) throw error;
+  } catch (err) {
+    console.error('[Supabase] Failed to save deposit tx hash:', err);
   }
 }
 

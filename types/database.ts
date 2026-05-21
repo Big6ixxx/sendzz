@@ -22,7 +22,7 @@ export type TransferStatus =
   | 'cancelled'
   | 'expired';
 
-export type DepositStatus = 'pending' | 'confirmed' | 'failed' | 'reversed';
+export type DepositStatus = 'pending' | 'confirmed' | 'failed' | 'reversed' | 'expired';
 
 export type WithdrawalStatus =
   | 'awaiting_verification'
@@ -174,6 +174,7 @@ export interface Database {
           id: string;
           user_id: string;
           paycrest_tx_id: string | null;
+          tx_hash: string | null;
           amount_fiat: number | null;
           currency_fiat: string | null;
           amount_usdc: number | null;
@@ -185,6 +186,7 @@ export interface Database {
           id?: string;
           user_id: string;
           paycrest_tx_id?: string | null;
+          tx_hash?: string | null;
           amount_fiat?: number | null;
           currency_fiat?: string | null;
           amount_usdc?: number | null;
@@ -196,6 +198,7 @@ export interface Database {
           id?: string;
           user_id?: string;
           paycrest_tx_id?: string | null;
+          tx_hash?: string | null;
           amount_fiat?: number | null;
           currency_fiat?: string | null;
           amount_usdc?: number | null;
@@ -210,7 +213,10 @@ export interface Database {
           id: string;
           user_id: string;
           paycrest_order_id: string | null;
+          tx_hash: string | null;
           amount_usdc: number;
+          fiat_amount: number | null;
+          exchange_rate: number | null;
           fiat_currency: string;
           institution_code: string;
           bank_account_masked: string;
@@ -225,7 +231,10 @@ export interface Database {
           id?: string;
           user_id: string;
           paycrest_order_id?: string | null;
+          tx_hash?: string | null;
           amount_usdc: number;
+          fiat_amount?: number | null;
+          exchange_rate?: number | null;
           fiat_currency: string;
           institution_code: string;
           bank_account_masked: string;
@@ -240,7 +249,10 @@ export interface Database {
           id?: string;
           user_id?: string;
           paycrest_order_id?: string | null;
+          tx_hash?: string | null;
           amount_usdc?: number;
+          fiat_amount?: number | null;
+          exchange_rate?: number | null;
           fiat_currency?: string;
           institution_code?: string;
           bank_account_masked?: string;
@@ -462,6 +474,44 @@ export interface Database {
           updated_at?: string;
         };
         Relationships: [];
+      };
+      bank_contacts: {
+        Row: {
+          id: string;
+          user_id: string;
+          bank_name: string;
+          bank_code: string;
+          account_number: string;
+          account_name: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          bank_name: string;
+          bank_code: string;
+          account_number: string;
+          account_name: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          bank_name?: string;
+          bank_code?: string;
+          account_number?: string;
+          account_name?: string;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "bank_contacts_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          }
+        ];
       };
     };
     Views: {

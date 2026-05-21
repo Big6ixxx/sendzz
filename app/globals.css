@@ -313,12 +313,13 @@
   /* Hide number input spin buttons globally */
   input[type="number"]::-webkit-inner-spin-button,
   input[type="number"]::-webkit-outer-spin-button {
-    -webkit-appearance: none;
-    margin: 0;
+    -webkit-appearance: none !important;
+    margin: 0 !important;
   }
   
   input[type="number"] {
-    -moz-appearance: textfield;
+    -moz-appearance: textfield !important;
+    appearance: textfield !important;
   }
 
   /* ===================== */

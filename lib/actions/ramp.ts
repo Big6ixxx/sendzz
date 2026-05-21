@@ -150,7 +150,9 @@ export async function finalizeOffRamp(
   accountName: string,
   userRefundAddress: string,
   userEmail: string,
-  fiat: PaycrestCurrency = "NGN",
+  fiat: PaycrestCurrency = 'NGN',
+  fiatAmount?: number,
+  exchangeRate?: number,
 ) {
   const paycrest = getPaycrestClient();
 
@@ -182,7 +184,9 @@ export async function finalizeOffRamp(
       userEmail,
       amountUsdc,
       fiatCurrency: fiat,
-      bankAccountMasked: accountNumber.replace(/.(?=.{4})/g, "*"),
+      fiatAmount,
+      exchangeRate,
+      bankAccountMasked: accountNumber.replace(/.(?=.{4})/g, '*'),
       institutionCode: bankCode,
       status: "processing",
       paycrestOrderId: order.id,

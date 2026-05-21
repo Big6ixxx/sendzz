@@ -147,5 +147,6 @@ export function useBatchSend(
     batchResults,
     progress,
     handleConfirm,
+    senderEmail,
   };
 }

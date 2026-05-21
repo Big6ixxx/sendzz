@@ -80,6 +80,9 @@ export interface PaycrestOrderResponse {
   };
   amount: string;
   createdAt: string;
+  txHash?: string;
+  settlementTxHash?: string;
+  transactionHash?: string;
 }
 
 export interface PaycrestRate {

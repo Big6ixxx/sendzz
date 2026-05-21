@@ -1,13 +1,12 @@
 'use client';
 
-import { addContact, deleteContact, getUserContacts, updateContact } from '@/lib/supabase/contacts';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BookUser, Loader2, Plus } from 'lucide-react';
-import { useState } from 'react';
+import { BookUser, Plus } from 'lucide-react';
 import { AddContactForm } from './contacts/AddContactForm';
-import { ContactCard } from './contacts/ContactCard';
 import { DeleteConfirmDialog } from './contacts/DeleteConfirmDialog';
-import { Contact, ContactToDelete } from './contacts/types';
+import { Contact } from './contacts/types';
+import { MailContactList } from './contacts/MailContactList';
+import { BankContactList } from './contacts/BankContactList';
+import { useContacts } from './contacts/useContacts';
 
 interface ContactsModuleProps {
   userEmail: string;
@@ -15,82 +14,39 @@ interface ContactsModuleProps {
 }
 
 export function ContactsModule({ userEmail, onSelectContact }: ContactsModuleProps) {
-  const [isAdding, setIsAdding] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [newEmail, setNewEmail] = useState('');
-  const [error, setError] = useState('');
-
-  const [editingContactId, setEditingContactId] = useState<string | null>(null);
-  const [editName, setEditName] = useState('');
-  const [editEmail, setEditEmail] = useState('');
-
-  const [contactToDelete, setContactToDelete] = useState<ContactToDelete | null>(null);
-
-  const queryClient = useQueryClient();
-  const queryKey = ['contacts', userEmail];
-
-  const { data: contacts = [], isLoading } = useQuery({
-    queryKey,
-    queryFn: () => getUserContacts(userEmail),
-    enabled: !!userEmail,
-  });
-
-  const addMutation = useMutation({
-    mutationFn: () => addContact({ userEmail, contactEmail: newEmail, contactName: newName }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey });
-      setIsAdding(false);
-      setNewName('');
-      setNewEmail('');
-      setError('');
-    },
-    onError: (err: Error) => setError(err.message || 'Failed to add contact'),
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (contactId: string) => deleteContact(userEmail, contactId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey });
-      setContactToDelete(null);
-    },
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: () => {
-      if (!editingContactId) return Promise.resolve({ success: true as const });
-      return updateContact({ userEmail, contactId: editingContactId, contactEmail: editEmail, contactName: editName });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey });
-      setEditingContactId(null);
-      setError('');
-    },
-    onError: (err: Error) => setError(err.message || 'Failed to update contact'),
-  });
-
-  const handleAddSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newName || !newEmail) return;
-    addMutation.mutate();
-  };
-
-  const handleEditSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editName || !editEmail) return;
-    updateMutation.mutate();
-  };
-
-  const handleStartEdit = (contact: Contact) => {
-    setEditingContactId(contact.id);
-    setEditName(contact.name);
-    setEditEmail(contact.email);
-    setError('');
-    setIsAdding(false);
-  };
+  const {
+    activeTab,
+    setActiveTab,
+    isAdding,
+    setIsAdding,
+    newName,
+    setNewName,
+    newEmail,
+    setNewEmail,
+    error,
+    setError,
+    editingContactId,
+    setEditingContactId,
+    editName,
+    setEditName,
+    editEmail,
+    setEditEmail,
+    contactToDelete,
+    setContactToDelete,
+    contacts,
+    isLoading,
+    bankContacts,
+    isBankLoading,
+    addMutation,
+    deleteMutation,
+    updateMutation,
+    handleAddSubmit,
+    handleEditSubmit,
+    handleStartEdit,
+  } = useContacts(userEmail);
 
   return (
     <div className="card-elegant p-8 md:p-12 bg-background border-border relative overflow-hidden">
-      {/* Header */}
       <div className="flex items-center justify-between gap-4 mb-10 border-b border-border/50 pb-6">
         <div className="flex items-center gap-4">
           <div className="p-3 bg-foreground text-background rounded-2xl shadow-lg">
@@ -103,7 +59,7 @@ export function ContactsModule({ userEmail, onSelectContact }: ContactsModulePro
             </p>
           </div>
         </div>
-        {!isAdding && (
+        {!isAdding && activeTab === 'mail' && (
           <button
             onClick={() => setIsAdding(true)}
             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-accent/10 text-accent font-bold text-xs uppercase tracking-widest hover:bg-accent/20 transition-all"
@@ -114,7 +70,29 @@ export function ContactsModule({ userEmail, onSelectContact }: ContactsModulePro
         )}
       </div>
 
-      {/* Add Form */}
+      <div className="flex bg-white/5 p-1 rounded-2xl border border-white/5 mb-8 max-w-sm">
+        <button
+          onClick={() => { setActiveTab('mail'); setIsAdding(false); }}
+          className={`flex-1 py-3 text-[10px] font-bold uppercase tracking-[0.2em] rounded-xl transition-all ${
+            activeTab === 'mail'
+              ? 'bg-accent text-[#07070a] shadow-lg'
+              : 'text-white/40 hover:text-white/60'
+          }`}
+        >
+          Mail Contacts
+        </button>
+        <button
+          onClick={() => { setActiveTab('bank'); setIsAdding(false); }}
+          className={`flex-1 py-3 text-[10px] font-bold uppercase tracking-[0.2em] rounded-xl transition-all ${
+            activeTab === 'bank'
+              ? 'bg-accent text-[#07070a] shadow-lg'
+              : 'text-white/40 hover:text-white/60'
+          }`}
+        >
+          Bank Contacts
+        </button>
+      </div>
+
       {isAdding && (
         <AddContactForm
           name={newName}
@@ -128,38 +106,32 @@ export function ContactsModule({ userEmail, onSelectContact }: ContactsModulePro
         />
       )}
 
-      {/* Contact List */}
       <div className="space-y-4">
-        {isLoading ? (
-          <div className="flex justify-center py-10">
-            <Loader2 className="w-6 h-6 animate-spin text-accent" />
-          </div>
-        ) : contacts.length === 0 ? (
-          <div className="text-center py-10">
-            <p className="text-muted-foreground text-sm font-medium">No contacts found.</p>
-          </div>
+        {activeTab === 'mail' ? (
+          <MailContactList
+            contacts={contacts as Contact[]}
+            isLoading={isLoading}
+            editingContactId={editingContactId}
+            editName={editName}
+            editEmail={editEmail}
+            isUpdatePending={updateMutation.isPending}
+            onSelectContact={onSelectContact}
+            onStartEdit={handleStartEdit}
+            onEditNameChange={setEditName}
+            onEditEmailChange={setEditEmail}
+            onEditSubmit={handleEditSubmit}
+            onCancelEdit={() => { setEditingContactId(null); setError(''); }}
+            onDeleteRequest={setContactToDelete}
+          />
         ) : (
-          (contacts as Contact[]).map((contact) => (
-            <ContactCard
-              key={contact.id}
-              contact={contact}
-              editingContactId={editingContactId}
-              editName={editName}
-              editEmail={editEmail}
-              isUpdatePending={updateMutation.isPending}
-              onSelectContact={onSelectContact}
-              onStartEdit={handleStartEdit}
-              onEditNameChange={setEditName}
-              onEditEmailChange={setEditEmail}
-              onEditSubmit={handleEditSubmit}
-              onCancelEdit={() => { setEditingContactId(null); setError(''); }}
-              onDeleteRequest={setContactToDelete}
-            />
-          ))
+          <BankContactList
+            bankContacts={bankContacts}
+            isLoading={isBankLoading}
+            onDeleteRequest={setContactToDelete}
+          />
         )}
       </div>
 
-      {/* Delete Confirmation */}
       <DeleteConfirmDialog
         contactToDelete={contactToDelete}
         isPending={deleteMutation.isPending}

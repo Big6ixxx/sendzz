@@ -10,8 +10,9 @@ import {
   initiateOnRamp,
   verifyBankAccount,
 } from '@/lib/actions/ramp';
-import { updateDepositStatus, updateWithdrawalStatus } from '@/lib/supabase/transactions';
+import { updateDepositStatus, updateWithdrawalStatus, saveWithdrawalTxHash, saveDepositTxHash } from '@/lib/supabase/transactions';
 import { type FiatCurrencyCode } from '@/lib/currency-config';
+import { getUserBankContacts, addBankContact, type BankContactRow } from '@/lib/supabase/bank-contacts';
 import {
   PaycrestInstitution,
   PaycrestOrderResponse,
@@ -71,10 +72,13 @@ export function useDepositWithdraw(
     payoutAmount: number;
   } | null>(null);
   const [transferring, setTransferring] = useState(false);
+  const [bankContacts, setBankContacts] = useState<BankContactRow[]>([]);
+  const [showSavePrompt, setShowSavePrompt] = useState(false);
 
   // Polling for deposit status
   const [polling, setPolling] = useState(false);
   const [txStatus, setTxStatus] = useState<string | null>(null);
+  const [withdrawalTxHash, setWithdrawalTxHash] = useState<string | null>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Fetch institutions & rates when fiatCurrency changes
@@ -105,7 +109,12 @@ export function useDepositWithdraw(
         .catch(() => setRate(null))
         .finally(() => setRateLoading(false));
     }
-  }, [type, fiatCurrency]);
+
+    // Fetch bank contacts
+    if (userEmail) {
+      getUserBankContacts(userEmail).then(setBankContacts).catch(console.error);
+    }
+  }, [type, fiatCurrency, userEmail]);
 
   // Bank Auto-Verification
   const handleVerifyBank = useCallback(async (details: BankDetails) => {
@@ -152,19 +161,19 @@ export function useDepositWithdraw(
   // Flow Handlers
   const handleDepositInitiate = async () => {
     if (!bankDetails.accountName) {
-      setError('Please verify your refund bank account');
+      toast.error('Please verify your refund bank account');
       return;
     }
     
     const val = parseFloat(amount);
     if (isNaN(val) || val <= 0) {
-      setError('Enter a valid amount');
+      toast.error('Enter a valid amount');
       return;
     }
     
     // Minimums
     if (fiatCurrency === 'NGN' && val < 1000) {
-      setError('Minimum deposit is 1,000 NGN');
+      toast.error('Minimum deposit is 1,000 NGN');
       return;
     }
 
@@ -177,7 +186,6 @@ export function useDepositWithdraw(
     }
 
     setLoading(true);
-    setError(null);
     try {
       const res = await initiateOnRamp({
         amountFiat: val,
@@ -194,7 +202,7 @@ export function useDepositWithdraw(
       setOrder(res);
       setStep(2);
     } catch (err) {
-      setError(
+      toast.error(
         err instanceof Error ? err.message : 'An unknown error occurred',
       );
     } finally {
@@ -219,7 +227,7 @@ export function useDepositWithdraw(
     }
 
     if (val > parseFloat(balance)) {
-      setError(`Insufficient balance. Max: ${balance} USDC`);
+      toast.error(`Insufficient balance. Max: ${balance} USDC`);
       return;
     }
     
@@ -230,13 +238,12 @@ export function useDepositWithdraw(
     }
 
     setLoading(true);
-    setError(null);
     try {
       const res = await getOffRampQuote(val, fiatCurrency);
       setQuote(res);
       setStep(2);
     } catch (err) {
-      setError(
+      toast.error(
         err instanceof Error ? err.message : 'An unknown error occurred',
       );
     } finally {
@@ -246,11 +253,10 @@ export function useDepositWithdraw(
 
   const handleWithdrawFinalize = async () => {
     if (!bankDetails.accountName) {
-      setError('Please verify destination account');
+      toast.error('Please verify destination account');
       return;
     }
     setLoading(true);
-    setError(null);
     try {
       const res = await finalizeOffRamp(
         parseFloat(amount),
@@ -260,11 +266,13 @@ export function useDepositWithdraw(
         userAddress,
         userEmail,
         fiatCurrency,
+        quote?.payoutAmount,
+        quote?.rate,
       );
       setOrder(res);
       setStep(3);
     } catch (err) {
-      setError(
+      toast.error(
         err instanceof Error ? err.message : 'An unknown error occurred',
       );
     } finally {
@@ -277,17 +285,21 @@ export function useDepositWithdraw(
     setTransferring(true);
     try {
       const provider = await embeddedProvider.getEthereumProvider();
-      await executeCircleGaslessTransfer(
+      const txHash = await executeCircleGaslessTransfer(
         provider,
         order.providerAccount.receiveAddress,
         amount,
       );
+      setWithdrawalTxHash(txHash);
+      if (order.id && txHash) {
+        saveWithdrawalTxHash(order.id, txHash).catch(console.error);
+      }
       toast.success('Transfer sent! Waiting for confirmation...');
       queryClient.invalidateQueries({ queryKey: ['balance', userAddress] });
       setStep(4);
       startPolling();
     } catch (err) {
-      setError(
+      toast.error(
         err instanceof Error ? err.message : 'An unknown error occurred',
       );
     } finally {
@@ -320,13 +332,35 @@ export function useDepositWithdraw(
             if (isWithdraw) {
               updateWithdrawalStatus(order.id, 'completed');
               toast.success('Withdrawal completed!');
+
+              // Check if bank is already in contacts
+              const exists = bankContacts.some(c => c.account_number === bankDetails.accountNumber);
+              if (!exists) {
+                setShowSavePrompt(true);
+              }
+
               queryClient.invalidateQueries({
                 queryKey: ['balance', userAddress],
               });
-              setTimeout(() => onClose?.(), 2000);
+              // Only close if not showing save prompt
+              if (exists) {
+                setTimeout(() => onClose?.(), 2000);
+              }
             } else {
               updateDepositStatus(order.id, 'confirmed');
+              // Try to capture settlement tx hash from Paycrest order status
+              const settlementTxHash = result.txHash || result.settlementTxHash || result.transactionHash;
+              if (settlementTxHash && order.id) {
+                saveDepositTxHash(order.id, settlementTxHash).catch(console.error);
+              }
               toast.success('Funds received!');
+              
+              // Check if bank is already in contacts (for refund)
+              const exists = bankContacts.some(c => c.account_number === bankDetails.accountNumber);
+              if (!exists) {
+                setShowSavePrompt(true);
+              }
+
               queryClient.invalidateQueries({
                 queryKey: ['balance', userAddress],
               });
@@ -353,6 +387,13 @@ export function useDepositWithdraw(
     };
   }, []);
 
+  const refreshBankContacts = useCallback(async () => {
+    if (userEmail) {
+      const contacts = await getUserBankContacts(userEmail).catch(() => []);
+      setBankContacts(contacts);
+    }
+  }, [userEmail]);
+
   return {
     step,
     setStep,
@@ -375,10 +416,51 @@ export function useDepositWithdraw(
     transferring,
     polling,
     txStatus,
+    withdrawalTxHash,
+    bankContacts,
+    showSavePrompt,
+    setShowSavePrompt,
+    userEmail,
+    userAddress,
+    refreshBankContacts,
     handleDepositInitiate,
     handleWithdrawQuote,
     handleWithdrawFinalize,
     executeTransfer,
     startPolling,
+    handleSaveBankContact: async () => {
+      try {
+        await addBankContact({
+          userEmail,
+          bankName: bankDetails.bankName,
+          bankCode: bankDetails.bankCode,
+          accountNumber: bankDetails.accountNumber,
+          accountName: bankDetails.accountName,
+        });
+        toast.success('Bank account saved!');
+        setShowSavePrompt(false);
+        getUserBankContacts(userEmail).then(setBankContacts).catch(console.error);
+        if (type === 'withdraw') {
+          setTimeout(() => onClose?.(), 1000);
+        }
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Failed to save bank');
+      }
+    },
+    reset: () => {
+      setStep(1);
+      setAmount('');
+      setOrder(null);
+      setQuote(null);
+      setTxStatus(null);
+      setPolling(false);
+      setShowSavePrompt(false);
+      setBankDetails({ accountNumber: '', bankCode: '', accountName: '', bankName: '' });
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    },
+    goBack: () => {
+      setStep(prev => prev > 1 ? prev - 1 : 1);
+    },
+    onClose,
   };
 }

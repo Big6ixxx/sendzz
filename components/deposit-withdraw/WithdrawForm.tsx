@@ -8,10 +8,21 @@ import {
   Landmark,
   Loader2,
   ShieldCheck,
+  Plus,
+  ArrowLeft,
+  Info,
 } from 'lucide-react';
 import { BankSelector } from './BankSelector';
 import { useDepositWithdraw } from './useDepositWithdraw';
 import { PAYCREST_PARTNER_FEE_PERCENT } from '@/lib/paycrest/config';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { ReceiptActions } from '@/components/receipt/ReceiptActions';
+import { ReceiptData } from '@/lib/receipt/types';
 
 interface WithdrawFormProps {
   hook: ReturnType<typeof useDepositWithdraw>;
@@ -23,28 +34,36 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
       <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
         <div>
           <div className="flex items-center justify-between mb-1.5">
+            <label className="text-sm font-semibold text-muted-foreground">
+              Amount (USDC)
+            </label>
             <div className="flex items-center gap-2">
-              <label className="text-sm font-semibold text-muted-foreground">
-                Amount ({hook.inputMode === 'usdc' ? 'USDC' : hook.fiatCurrency})
-              </label>
-              <button
-                type="button"
-                onClick={() => hook.setInputMode(hook.inputMode === 'usdc' ? 'fiat' : 'usdc')}
-                className="text-[10px] text-primary hover:underline font-medium"
-              >
-                Use {hook.inputMode === 'usdc' ? hook.fiatCurrency : 'USDC'}
-              </button>
+              <TooltipProvider>
+                <Tooltip delayDuration={100}>
+                  <TooltipTrigger asChild>
+                    <button type="button" className="text-muted-foreground hover:text-foreground transition-colors cursor-help">
+                      <Info className="w-4 h-4 opacity-70" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="bg-[#1a1a1c] border border-white/10 text-white">
+                    <p className="max-w-[200px] text-center font-medium leading-relaxed">
+                      Select your local currency. Your USDC will be converted and paid out to your bank account in this currency.
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+
+              <CurrencySelector
+                selected={hook.fiatCurrency}
+                onChange={hook.setFiatCurrency}
+                includeUsd={false}
+                size="sm"
+              />
             </div>
-            <CurrencySelector
-              selected={hook.fiatCurrency}
-              onChange={hook.setFiatCurrency}
-              includeUsd={false}
-              size="sm"
-            />
           </div>
           <div className="relative">
             <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-muted-foreground">
-              {hook.inputMode === 'usdc' ? '$' : getCurrencySymbol(hook.fiatCurrency)}
+              $
             </span>
             <input
               type="number"
@@ -56,16 +75,11 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
           </div>
           <p className="text-[10px] text-muted-foreground mt-2 px-1 flex justify-between">
             <span>
-              {hook.inputMode === 'usdc' 
-                ? `Payout in ${getCurrencySymbol(hook.fiatCurrency)} (${hook.fiatCurrency})`
-                : `Withdrawal from USDC balance`}
+              Payout in {getCurrencySymbol(hook.fiatCurrency)} ({hook.fiatCurrency})
             </span>
             {hook.rate && hook.amount && !isNaN(parseFloat(hook.amount)) && (
               <span className="font-medium text-foreground">
-                ≈ {hook.inputMode === 'usdc' 
-                  ? `${getCurrencySymbol(hook.fiatCurrency)}${(parseFloat(hook.amount) * hook.rate).toLocaleString()}`
-                  : `$${(parseFloat(hook.amount) / hook.rate).toLocaleString(undefined, {maximumFractionDigits: 2})}`
-                }
+                ≈ {getCurrencySymbol(hook.fiatCurrency)}{(parseFloat(hook.amount) * hook.rate).toLocaleString(undefined, { maximumFractionDigits: 2 })}
               </span>
             )}
           </p>
@@ -88,7 +102,16 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
 
   if (hook.step === 2 && hook.quote) {
     return (
-      <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
+        <div className="flex items-center mb-2">
+          <button 
+            onClick={hook.goBack}
+            className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="w-3 h-3" />
+            Back
+          </button>
+        </div>
         <div className="p-4 bg-muted/30 rounded-2xl border border-border space-y-3">
           <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">Exchange Rate</span>
@@ -110,7 +133,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
 
         <div className="space-y-4">
           <BankSelector
-            label="Destination Bank Account"
+            label="Bank"
             institutions={hook.institutions}
             selectedBankCode={hook.bankDetails.bankCode}
             onSelect={(b) =>
@@ -119,6 +142,14 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
                 bankCode: b.code,
                 bankName: b.name,
                 accountName: '',
+              })
+            }
+            onSelectContact={(contact) =>
+              hook.setBankDetails({
+                bankCode: contact.bankCode,
+                bankName: contact.bankName,
+                accountNumber: contact.accountNumber,
+                accountName: contact.accountName,
               })
             }
             accountNumber={hook.bankDetails.accountNumber}
@@ -131,6 +162,9 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
             }
             accountName={hook.bankDetails.accountName}
             isVerifying={hook.verifyingBank}
+            contacts={hook.bankContacts}
+            userEmail={hook.userEmail}
+            onContactsChanged={hook.refreshBankContacts}
           />
         </div>
 
@@ -151,7 +185,18 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
 
   if (hook.step === 3 && hook.order) {
     return (
-      <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 text-center">
+      <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500 text-center">
+        <div className="flex items-center justify-start mb-[-1rem]">
+          <button 
+            onClick={hook.goBack}
+            disabled={hook.transferring}
+            className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+          >
+            <ArrowLeft className="w-3 h-3" />
+            Back
+          </button>
+        </div>
+
         <div className="w-20 h-20 bg-muted rounded-full flex items-center justify-center mx-auto shadow-sm">
           <Landmark className="w-10 h-10 text-foreground" />
         </div>
@@ -234,6 +279,58 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
                 Your funds have been sent to your bank account.
               </p>
             </div>
+
+            {hook.order && (() => {
+              const receiptData: ReceiptData = {
+                id: hook.order.id,
+                type: 'withdrawal',
+                status: 'completed',
+                timestamp: new Date().toISOString(),
+                amountUsdc: parseFloat(hook.amount),
+                fiatCurrency: hook.fiatCurrency,
+                fiatPayoutAmount: hook.quote?.payoutAmount,
+                exchangeRate: hook.quote?.rate,
+                bankAccount: hook.bankDetails.accountNumber,
+                bankName: hook.bankDetails.bankName || hook.bankDetails.bankCode,
+                orderId: hook.order.id,
+              };
+              return (
+                <div className="w-full space-y-1.5 animate-in fade-in duration-500">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30 text-center">
+                    Transaction Receipt
+                  </p>
+                  <ReceiptActions data={receiptData} />
+                </div>
+              );
+            })()}
+
+            {hook.showSavePrompt && (
+              <div className="p-6 bg-accent/5 border border-accent/20 rounded-3xl space-y-4 animate-in fade-in slide-in-from-top-4 duration-500">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-accent/10 rounded-xl">
+                    <Plus className="w-5 h-5 text-accent" />
+                  </div>
+                  <div className="text-left">
+                    <p className="font-bold text-sm">Save this bank account?</p>
+                    <p className="text-[10px] text-muted-foreground uppercase font-bold">Quickly withdraw to this bank next time</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => hook.setShowSavePrompt(false)}
+                    className="h-10 rounded-xl text-[10px] font-black uppercase tracking-widest border border-white/10 hover:bg-white/5 transition-colors"
+                  >
+                    No, Thanks
+                  </button>
+                  <button
+                    onClick={hook.handleSaveBankContact}
+                    className="h-10 rounded-xl text-[10px] font-black uppercase tracking-widest bg-accent text-accent-foreground hover:scale-[1.02] transition-all shadow-lg shadow-accent/20"
+                  >
+                    Yes, Save
+                  </button>
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>
