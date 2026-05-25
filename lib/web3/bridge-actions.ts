@@ -1,14 +1,14 @@
-import { 
-  parseUnits, 
-  encodeFunctionData 
+import {
+  parseUnits,
+  encodeFunctionData
 } from 'viem';
 import { type BundlerClient } from 'viem/account-abstraction';
 import { type ConnectedWallet } from '@privy-io/react-auth';
 import { VIEM_CHAINS } from './multichain';
-import { 
-  TOKEN_MESSENGER_V2, 
-  USDC_ADDRESSES, 
-  CCTP_DOMAINS, 
+import {
+  TOKEN_MESSENGER_V2,
+  USDC_ADDRESSES,
+  CCTP_DOMAINS,
   type SupportedChain,
   calculateMaxFee
 } from '../circle/gateway';
@@ -90,7 +90,7 @@ export async function executeSmartBridge(
 
     // Gas policy IDs per chain — set in .env
     const GAS_POLICY_IDS: Record<string, string | undefined> = {
-      arbitrum: process.env.NEXT_PUBLIC_CIRCLE_ARBITRUM_GAS_POLICY_ID || process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_ARBITRUM,
+      arbitrum: process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_ARBITRUM,
       avalanche: process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_AVALANCHE,
       ethereum: process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_ETHEREUM,
     };
@@ -140,9 +140,9 @@ export async function executeSmartBridge(
           abi: TOKEN_MESSENGER_ABI,
           functionName: 'depositForBurn',
           args: [
-            amountRaw, 
-            destinationDomain, 
-            mintRecipient as `0x${string}`, 
+            amountRaw,
+            destinationDomain,
+            mintRecipient as `0x${string}`,
             usdcAddress as `0x${string}`,
             destinationCaller,
             maxFee,
