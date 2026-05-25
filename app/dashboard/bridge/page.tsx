@@ -1,6 +1,6 @@
 'use client';
 
-import { DashboardPageHeader } from '@/components/DashboardPageHeader';
+import { DashboardPageHeader } from '@/components/layout/DashboardPageHeader';
 import { SmartBridgeModule } from '@/components/SmartBridgeModule';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { getCircleAddress } from '@/lib/web3/circle-client';
@@ -46,9 +46,9 @@ export default function SmartBridgePage() {
           subtitle="Consolidate your funds from other chains to Base instantly."
         />
 
-        <SmartBridgeModule 
-          smartAddress={smartAddress} 
-          userEmail={user.email?.address || ''} 
+        <SmartBridgeModule
+          smartAddress={smartAddress}
+          userEmail={user.email?.address || ''}
         />
       </div>
     </TooltipProvider>
