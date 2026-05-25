@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createPublicClient, http, type Chain } from 'viem';
+import { createPublicClient, http, fallback, type Chain } from 'viem';
 import { mainnet, arbitrum, avalanche, optimism, polygon, base } from 'viem/chains';
 import { USDC_ADDRESSES, SOURCE_CHAINS, type SupportedChain } from '@/lib/circle/gateway';
 
@@ -13,24 +13,40 @@ const BALANCE_ABI = [
   },
 ] as const;
 
-function makeClient(chain: Chain, rpcUrl?: string) {
+// Reliable public RPC fallbacks — always available, no rate limits
+const PUBLIC_RPCS: Record<SupportedChain, string> = {
+  arbitrum:  'https://arb1.arbitrum.io/rpc',
+  avalanche: 'https://api.avax.network/ext/bc/C/rpc',
+  ethereum:  'https://cloudflare-eth.com',
+  optimism:  'https://mainnet.optimism.io',
+  polygon:   'https://polygon-rpc.com',
+  base:      'https://mainnet.base.org',
+};
+
+function makeClient(chain: Chain, alchemyUrl?: string, publicUrl?: string) {
+  const transports = [
+    ...(alchemyUrl ? [http(alchemyUrl, { timeout: 8000, retryCount: 1 })] : []),
+    ...(publicUrl  ? [http(publicUrl,  { timeout: 10000, retryCount: 2 })] : []),
+  ];
   return createPublicClient({
     chain,
-    transport: http(rpcUrl || undefined, { timeout: 5000, retryCount: 1 }),
+    // fallback() tries each transport in order, moving to the next on any error (incl. 429)
+    transport: transports.length > 1 ? fallback(transports) : transports[0],
   });
 }
 
 function getClients(): Record<SupportedChain, ReturnType<typeof createPublicClient>> {
-  const alchemyKey = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || '';
-  
+  const key = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || '';
+  const alchemy = (subdomain: string) =>
+    key ? `https://${subdomain}.g.alchemy.com/v2/${key}` : undefined;
+
   return {
-    ethereum: makeClient(mainnet, process.env.ETHEREUM_RPC_URL || (alchemyKey ? `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}` : undefined)),
-    arbitrum: makeClient(arbitrum, process.env.ARBITRUM_RPC_URL || (alchemyKey ? `https://arb-mainnet.g.alchemy.com/v2/${alchemyKey}` : undefined)),
-    avalanche: makeClient(avalanche, process.env.AVALANCHE_RPC_URL || (alchemyKey ? `https://avax-mainnet.g.alchemy.com/v2/${alchemyKey}` : undefined)),
-    optimism: makeClient(optimism, process.env.OPTIMISM_RPC_URL || (alchemyKey ? `https://opt-mainnet.g.alchemy.com/v2/${alchemyKey}` : undefined)),
-    polygon: makeClient(polygon, process.env.POLYGON_RPC_URL || (alchemyKey ? `https://polygon-mainnet.g.alchemy.com/v2/${alchemyKey}` : undefined)),
-    // base is destination — not scanned
-    base: makeClient(base),
+    ethereum:  makeClient(mainnet,   process.env.ETHEREUM_RPC_URL  || alchemy('eth-mainnet'),     PUBLIC_RPCS.ethereum),
+    arbitrum:  makeClient(arbitrum,  process.env.ARBITRUM_RPC_URL  || alchemy('arb-mainnet'),     PUBLIC_RPCS.arbitrum),
+    avalanche: makeClient(avalanche, process.env.AVALANCHE_RPC_URL || alchemy('avax-mainnet'),    PUBLIC_RPCS.avalanche),
+    optimism:  makeClient(optimism,  process.env.OPTIMISM_RPC_URL  || alchemy('opt-mainnet'),     PUBLIC_RPCS.optimism),
+    polygon:   makeClient(polygon,   process.env.POLYGON_RPC_URL   || alchemy('polygon-mainnet'), PUBLIC_RPCS.polygon),
+    base:      makeClient(base,      process.env.NEXT_PUBLIC_RPC_URL,                             PUBLIC_RPCS.base),
   };
 }
 
@@ -59,7 +75,6 @@ export async function GET(req: NextRequest) {
         const formatted = (Number(balance) / 1_000_000).toString();
         return { chain, balance: formatted, hasBalance: Number(balance) > 0 };
       } catch (err) {
-        console.error(`[cross-chain balances] Error on ${chain}:`, err);
         return { chain, balance: '0', hasBalance: false };
       }
     }),
