@@ -1,7 +1,7 @@
 'use client';
 
 import { ActivityDetailModal } from '@/components/ActivityDetailModal';
-import { DashboardPageHeader } from '@/components/DashboardPageHeader';
+import { DashboardPageHeader } from '@/components/layout/DashboardPageHeader';
 import { Activity, HistoryModule } from '@/components/HistoryModule';
 import { usePrivy } from '@privy-io/react-auth';
 import { Loader2 } from 'lucide-react';

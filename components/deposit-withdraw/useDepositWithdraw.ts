@@ -23,6 +23,7 @@ import { calculatePaycrestBaseAmount } from '@/lib/paycrest/config';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { useCurrencies } from '@/lib/hooks/useCurrencies';
 
 export type FlowType = 'deposit' | 'withdraw';
 
@@ -43,12 +44,23 @@ export function useDepositWithdraw(
   onClose?: () => void,
 ) {
   const queryClient = useQueryClient();
+  const { data: currencies } = useCurrencies();
   const [step, setStep] = useState(1);
   const [amount, setAmount] = useState('');
   const [inputMode, setInputMode] = useState<'usdc' | 'fiat'>('usdc');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fiatCurrency, setFiatCurrency] = useState<FiatCurrencyCode>('NGN');
+
+  // Sync fiatCurrency with available currencies if current one is not supported
+  useEffect(() => {
+    if (currencies && currencies.length > 0) {
+      const isSupported = currencies.some(c => c.code === fiatCurrency);
+      if (!isSupported) {
+        setFiatCurrency(currencies[0].code);
+      }
+    }
+  }, [currencies, fiatCurrency]);
 
   // Institutions & Rates
   const [institutions, setInstitutions] = useState<PaycrestInstitution[]>([]);
@@ -96,6 +108,7 @@ export function useDepositWithdraw(
     // Reset bank details when currency changes
     setBankDetails({ accountNumber: '', bankCode: '', accountName: '', bankName: '' });
     lastAttemptedRef.current = '';
+    setRate(null);
 
     setRateLoading(true);
     if (type === 'deposit') {
@@ -164,13 +177,13 @@ export function useDepositWithdraw(
       toast.error('Please verify your refund bank account');
       return;
     }
-    
+
     const val = parseFloat(amount);
     if (isNaN(val) || val <= 0) {
       toast.error('Enter a valid amount');
       return;
     }
-    
+
     // Minimums
     if (fiatCurrency === 'NGN' && val < 1000) {
       toast.error('Minimum deposit is 1,000 NGN');
@@ -212,7 +225,7 @@ export function useDepositWithdraw(
 
   const handleWithdrawQuote = async () => {
     let val = parseFloat(amount);
-    
+
     if (inputMode === 'fiat') {
       if (!rate) {
         toast.error('Exchange rate not available yet');
@@ -230,7 +243,7 @@ export function useDepositWithdraw(
       toast.error(`Insufficient balance. Max: ${balance} USDC`);
       return;
     }
-    
+
     // Update state to USDC so finalization step uses correct amount
     if (inputMode === 'fiat') {
       setAmount(val.toFixed(2));
@@ -354,7 +367,7 @@ export function useDepositWithdraw(
                 saveDepositTxHash(order.id, settlementTxHash).catch(console.error);
               }
               toast.success('Funds received!');
-              
+
               // Check if bank is already in contacts (for refund)
               const exists = bankContacts.some(c => c.account_number === bankDetails.accountNumber);
               if (!exists) {
@@ -375,7 +388,7 @@ export function useDepositWithdraw(
             toast.error(`Transaction ${result.status}`);
           }
         }
-      } catch {}
+      } catch { }
     };
     poll();
     pollIntervalRef.current = setInterval(poll, 8000);

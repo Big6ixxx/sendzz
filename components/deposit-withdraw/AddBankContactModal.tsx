@@ -1,11 +1,17 @@
 import * as React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, Loader2, Landmark, Plus, Search, X } from 'lucide-react';
+import { ChevronDown, Loader2, Landmark, Plus, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { addBankContact } from '@/lib/supabase/bank-contacts';
 import { verifyBankAccount } from '@/lib/actions/ramp';
 import { PaycrestInstitution } from '@/lib/paycrest/types';
 import { cn } from '@/lib/utils';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface AddBankContactModalProps {
   isOpen: boolean;
@@ -46,8 +52,6 @@ export function AddBankContactModal({
     );
   }, [institutions, newBankSearch]);
 
-  if (!isOpen) return null;
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newBank || !newAccountName) return;
@@ -76,36 +80,32 @@ export function AddBankContactModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 md:p-6 animate-in fade-in duration-300">
-      <div className="absolute inset-0 bg-[#07070a]/90 backdrop-blur-md" onClick={onClose} />
-      <div className="relative w-full max-w-sm card-glass p-8 bg-[#0a0a0b] animate-in zoom-in-95 duration-300">
-        <button
-          onClick={onClose}
-          className="absolute top-6 right-6 text-white/20 hover:text-white transition-colors"
-        >
-          <X className="w-6 h-6" />
-        </button>
-
-        <div className="flex items-center gap-4 mb-8">
-          <div className="w-12 h-12 rounded-2xl bg-accent/10 flex items-center justify-center">
-            <Landmark className="w-6 h-6 text-accent" />
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-accent/10 flex items-center justify-center shrink-0">
+              <Landmark className="w-6 h-6 text-accent" />
+            </div>
+            <div>
+              <DialogTitle className="text-xl font-bold">Save Bank Account</DialogTitle>
+              <p className="text-xs text-muted-foreground uppercase tracking-widest font-medium mt-0.5">
+                Add to your address book
+              </p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-xl font-bold text-white">Save Bank Account</h3>
-            <p className="text-xs text-white/40 uppercase tracking-widest font-medium">Add to your address book</p>
-          </div>
-        </div>
+        </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-6 mt-2">
           <div className="space-y-2 relative">
-            <label className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em]">Select Bank</label>
+            <label className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em]">Select Bank</label>
             <div className="relative">
               <button
                 type="button"
                 onClick={() => setNewBankDropdownOpen(!newBankDropdownOpen)}
-                className="w-full h-14 rounded-xl bg-white/5 border border-white/10 px-4 text-sm font-bold text-white flex items-center justify-between outline-none focus:border-accent/50 transition-colors"
+                className="w-full h-14 rounded-xl bg-white/5 border border-white/10 px-4 text-sm font-bold text-foreground flex items-center justify-between outline-none focus:border-accent/50 transition-colors"
               >
-                <span className={newBank ? 'text-white' : 'text-white/40'}>
+                <span className={newBank ? 'text-foreground' : 'text-muted-foreground'}>
                   {newBank?.name || 'Select a bank'}
                 </span>
                 <ChevronDown className={cn('w-4 h-4 opacity-50 transition-transform', newBankDropdownOpen && 'rotate-180')} />
@@ -113,7 +113,7 @@ export function AddBankContactModal({
 
               {newBankDropdownOpen && (
                 <div
-                  className="absolute z-[400] top-full left-0 right-0 mt-2 border rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+                  className="absolute z-400 top-full left-0 right-0 mt-2 border rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200"
                   style={{ background: '#1a1a1c', borderColor: 'rgba(255,255,255,0.1)' }}
                 >
                   <div className="p-2 border-b border-border bg-muted/30">
@@ -150,7 +150,7 @@ export function AddBankContactModal({
                               .finally(() => setIsVerifyingNew(false));
                           }
                         }}
-                        className="w-full text-left px-4 py-3 text-sm font-normal hover:bg-muted transition-colors border-b border-border/50 last:border-0 text-white"
+                        className="w-full text-left px-4 py-3 text-sm font-normal hover:bg-muted transition-colors border-b border-border/50 last:border-0 text-foreground"
                       >
                         {inst.name}
                       </button>
@@ -167,7 +167,7 @@ export function AddBankContactModal({
           </div>
 
           <div className="space-y-2">
-            <label className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em]">Account Number</label>
+            <label className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em]">Account Number</label>
             <div className="relative">
               <input
                 type="text"
@@ -198,7 +198,7 @@ export function AddBankContactModal({
           {newAccountName && (
             <div className="p-4 rounded-xl bg-accent/5 border border-accent/20 animate-in fade-in zoom-in-95 duration-300">
               <p className="text-[9px] font-black text-accent/50 uppercase tracking-widest mb-1">Account Holder</p>
-              <p className="text-sm font-bold text-white uppercase truncate">{newAccountName}</p>
+              <p className="text-sm font-bold uppercase truncate">{newAccountName}</p>
             </div>
           )}
 
@@ -217,7 +217,7 @@ export function AddBankContactModal({
             Save Bank Account
           </button>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

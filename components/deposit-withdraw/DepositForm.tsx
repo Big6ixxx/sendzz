@@ -75,14 +75,20 @@ export function DepositForm({ hook }: DepositFormProps) {
                 ) : hook.rate ? (
                   `1 USDC = ${hook.rate.toLocaleString()} ${hook.fiatCurrency}`
                 ) : (
-                  'Unavailable'
+                  <span className="text-red-400 font-bold uppercase text-[10px] tracking-widest">Unavailable</span>
                 )}
               </span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Estimated Received</span>
               <span className="font-bold text-foreground">
-                {estimatedUsdc ? `${estimatedUsdc} USDC` : '—'}
+                {hook.rateLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin inline" />
+                ) : estimatedUsdc ? (
+                  `${estimatedUsdc} USDC`
+                ) : (
+                  '—'
+                )}
               </span>
             </div>
             <div className="flex justify-between text-sm pt-2 border-t border-border">
@@ -135,7 +141,7 @@ export function DepositForm({ hook }: DepositFormProps) {
         <button
           onClick={() => hook.handleDepositInitiate()}
           disabled={
-            hook.loading || !hook.amount || !hook.bankDetails.accountName
+            hook.loading || hook.rateLoading || !hook.amount || !hook.bankDetails.accountName
           }
           className="btn-primary w-full gap-2 mt-4"
         >

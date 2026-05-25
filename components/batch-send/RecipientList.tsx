@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import { ChevronRight, Mail, X } from 'lucide-react';
 import * as React from 'react';
 import { useBatchSend } from './useBatchSend';
-import { BatchAddContactModal } from './BatchAddContactModal';
+import { AddContactModal } from '../contacts/AddContactModal';
 import { RecipientSuggestions } from './RecipientSuggestions';
 import { ImportFromFile } from './ImportFromFile';
 import { useRecipientList } from './useRecipientList';
@@ -137,7 +137,7 @@ export function RecipientList({ hook, senderEmail }: RecipientListProps) {
         <ChevronRight className="w-5 h-5" />
       </button>
 
-      <BatchAddContactModal
+      <AddContactModal
         isOpen={isAddingContact}
         onClose={() => setIsAddingContact(false)}
         senderEmail={senderEmail}

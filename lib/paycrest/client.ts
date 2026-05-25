@@ -1,4 +1,5 @@
 import {
+  PaycrestCurrencyDetail,
   PaycrestInstitution,
   PaycrestOrderRequest,
   PaycrestOrderResponse,
@@ -97,6 +98,13 @@ export class PaycrestClient {
       `/v2/sender/orders/${orderId}`,
     );
     return res.data;
+  }
+
+  /**
+   * Fetches supported fiat currencies
+   */
+  async getCurrencies(): Promise<{ data: PaycrestCurrencyDetail[] }> {
+    return this.request<{ data: PaycrestCurrencyDetail[] }>('/v2/currencies');
   }
 
   /**

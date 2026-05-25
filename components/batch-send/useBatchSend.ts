@@ -38,7 +38,7 @@ export function useBatchSend(
   const [note, setNote] = useState('');
 
   const isFiat = currency !== 'USD';
-  const { data: exchangeRate = 1 } = useExchangeRate(isFiat ? currency : 'NGN');
+  const { data: exchangeRate = 1 } = useExchangeRate(isFiat ? currency : 'USD');
 
   const [batchResults, setBatchResults] = useState<SendResult[]>([]);
   const [progress, setProgress] = useState({ done: 0, total: 0 });

@@ -3,13 +3,10 @@
 import { ReceiptData } from './types';
 import { PAGE_BG, receiptBodyMarkup, receiptHTMLPage, FONT_STYLES } from './template';
 
-const ILLUSTRATION_PATH = '/receipt-bottom-illustration.svg';
 const LOGO_PATH = '/logo-black.svg';
 
 async function captureReceiptDataUrl(data: ReceiptData): Promise<string> {
-  const svgText = await fetch(ILLUSTRATION_PATH).then((r) => r.text());
   const logoSvgText = await fetch(LOGO_PATH).then((r) => r.text());
-  const illustrationSrc = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgText)}`;
   const logoSrc = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(logoSvgText)}`;
 
   // Inject font declarations into <head> so document.fonts picks them up
@@ -19,7 +16,7 @@ async function captureReceiptDataUrl(data: ReceiptData): Promise<string> {
 
   const container = document.createElement('div');
   container.style.cssText = 'position:absolute;left:-9999px;top:0;width:480px;';
-  container.innerHTML = receiptBodyMarkup(data, illustrationSrc, logoSrc);
+  container.innerHTML = receiptBodyMarkup(data, logoSrc);
   document.body.appendChild(container);
 
   try {
@@ -66,9 +63,8 @@ export async function downloadReceiptImage(data: ReceiptData): Promise<void> {
 }
 
 export function printReceipt(data: ReceiptData): void {
-  const illustrationSrc = `${window.location.origin}${ILLUSTRATION_PATH}`;
   const logoSrc = `${window.location.origin}${LOGO_PATH}`;
-  const html = receiptHTMLPage(data, illustrationSrc, logoSrc);
+  const html = receiptHTMLPage(data, logoSrc);
   const win = window.open('', '_blank', 'width=560,height=960');
   if (!win) return;
   win.document.write(html);

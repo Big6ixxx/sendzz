@@ -5,7 +5,7 @@
  * Used across TransferModule, DepositForm, WithdrawForm, etc.
  */
 
-export type FiatCurrencyCode = 'NGN' | 'KES' | 'GHS';
+export type FiatCurrencyCode = string;
 
 export interface FiatCurrency {
   code: FiatCurrencyCode;
@@ -14,22 +14,36 @@ export interface FiatCurrency {
   flag: string;
 }
 
-export const SUPPORTED_FIAT_CURRENCIES: FiatCurrency[] = [
-  { code: 'NGN', name: 'Nigerian Naira', symbol: '₦', flag: '🇳🇬' },
-  { code: 'KES', name: 'Kenyan Shilling', symbol: 'KSh', flag: '🇰🇪' },
-  { code: 'GHS', name: 'Ghanaian Cedi', symbol: 'GH₵', flag: '🇬🇭' },
-];
-
-export const FIAT_CURRENCY_MAP: Record<FiatCurrencyCode, FiatCurrency> = {
-  NGN: SUPPORTED_FIAT_CURRENCIES[0],
-  KES: SUPPORTED_FIAT_CURRENCIES[1],
-  GHS: SUPPORTED_FIAT_CURRENCIES[2],
+// Map for quick lookup of symbols if we have the detail objects
+const CURRENCY_SYMBOL_CACHE: Record<string, string> = {
+  NGN: '₦',
+  KES: 'KSh',
+  GHS: 'GH₵',
+  UGX: 'USh',
+  TZS: 'TSh',
+  MWK: 'MK',
+  BRL: 'R$',
 };
 
 /**
  * Get the currency symbol for a given fiat code
  */
 export function getCurrencySymbol(code: string): string {
-  const currency = FIAT_CURRENCY_MAP[code as FiatCurrencyCode];
-  return currency?.symbol || code;
+  return CURRENCY_SYMBOL_CACHE[code] || code;
+}
+
+/**
+ * Helper to get flag emoji for a currency code
+ */
+export function getCurrencyFlag(code: string): string {
+  const flags: Record<string, string> = {
+    NGN: '🇳🇬',
+    KES: '🇰🇪',
+    GHS: '🇬🇭',
+    UGX: '🇺🇬',
+    TZS: '🇹🇿',
+    MWK: '🇲🇼',
+    BRL: '🇧🇷',
+  };
+  return flags[code] || '🏳️';
 }

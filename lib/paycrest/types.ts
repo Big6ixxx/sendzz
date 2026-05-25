@@ -1,4 +1,12 @@
-export type PaycrestCurrency = 'NGN' | 'KES' | 'GHS' | 'USDT' | 'USDC';
+export type PaycrestCurrency = string;
+
+export interface PaycrestCurrencyDetail {
+  code: string;
+  name: string;
+  country: string;
+  symbol: string;
+  channels: string[];
+}
 export type PaycrestNetwork = 'base' | 'polygon' | 'ethereum';
 export type PaycrestOrderType = 'crypto' | 'fiat';
 export type PaycrestOrderStatus =

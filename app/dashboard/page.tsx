@@ -1,7 +1,7 @@
 'use client';
 
 import { ActivityDetailModal } from '@/components/ActivityDetailModal';
-import { BatchSendDialog } from '@/components/BatchSendDialog';
+import { BatchSendDialog } from '@/components/batch-send/BatchSendDialog';
 import { BridgeNudge } from '@/components/BridgeNudge';
 import { DepositWithdrawDialog } from '@/components/deposit-withdraw/DepositWithdrawDialog';
 import { Activity, HistoryModule } from '@/components/HistoryModule';
@@ -188,6 +188,15 @@ export default function Dashboard() {
                     >
                       Non-Custodial
                     </span>
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <Info className="w-3 h-3 opacity-30 hover:opacity-100 cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-[280px] text-xs leading-relaxed p-4">
+                        <p className="font-bold mb-1 text-accent">Secure MPC Architecture</p>
+                        We use Privy's MPC technology to ensure your funds are truly yours. Your keys are split into shares, meaning no single party—including Sendzz—ever has access to your full private key. This provides self-custody with the ease of a traditional login.
+                      </TooltipContent>
+                    </Tooltip>
                   </div>
                 </div>
               </div>
@@ -223,7 +232,7 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
-          
+
           <BridgeNudge smartAddress={smartAddress} />
         </section>
 
@@ -297,7 +306,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="lg:col-span-5 space-y-4">
+          <div className="lg:col-span-5 space-y-4 min-w-0 w-full max-w-full">
             <div className="flex items-center justify-between px-1">
               <h3
                 className="text-xs font-bold uppercase tracking-[0.2em]"
@@ -313,14 +322,16 @@ export default function Dashboard() {
                 View All
               </button>
             </div>
-            <div className="card-glass p-1 rounded-3xl">
-              <HistoryModule
-                userId={user.id}
-                userEmail={user.email?.address || ''}
-                limit={5}
-                hideHeader={true}
-                onTxClick={setSelectedActivity}
-              />
+            <div className="card-glass p-1 rounded-3xl overflow-x-auto overflow-y-hidden relative w-full">
+              <div className="min-w-max">
+                <HistoryModule
+                  userId={user.id}
+                  userEmail={user.email?.address || ''}
+                  limit={5}
+                  hideHeader={true}
+                  onTxClick={setSelectedActivity}
+                />
+              </div>
             </div>
           </div>
         </div>

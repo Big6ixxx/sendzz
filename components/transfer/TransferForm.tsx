@@ -100,7 +100,7 @@ export function TransferForm({
             autoComplete="off"
           />
           {showSuggestions && (
-            <div className="absolute left-0 right-0 top-full mt-2 bg-[#0a0a0b] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-[100] max-h-64 overflow-y-auto p-2">
+            <div className="absolute left-0 right-0 top-full mt-2 bg-brand-primary border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-100 max-h-64 overflow-y-auto p-2">
               {contacts.length === 0 ? (
                 <div className="px-4 py-6 text-center">
                   <p className="text-xs font-bold text-white/30 uppercase tracking-widest mb-4">

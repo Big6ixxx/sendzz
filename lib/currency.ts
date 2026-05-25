@@ -6,21 +6,19 @@
  */
 
 import { getOnRampRate } from './actions/ramp';
-
-// Default fallback rate (used when API is unavailable)
-export const DEFAULT_EXCHANGE_RATE_USD_NGN = 1300;
+import { type FiatCurrencyCode } from './currency-config';
 
 // Rate cache for client-side usage
 const cachedRates: Map<string, { rate: number; timestamp: number }> = new Map();
 const CACHE_DURATION_MS = 10 * 60 * 1000; // 10 minutes
 
-export type CurrencyCode = 'USD' | 'NGN' | 'KES' | 'GHS' | 'USDC';
+export type CurrencyCode = 'USD' | 'USDC' | FiatCurrencyCode;
 
 /**
  * Get the current exchange rate (with caching for client-side)
  */
 export async function fetchExchangeRate(
-  fiatCurrency: CurrencyCode = 'NGN',
+  fiatCurrency: CurrencyCode,
 ): Promise<number> {
   // If USD/USDC, it's 1:1
   if (fiatCurrency === 'USD' || fiatCurrency === 'USDC') return 1;
@@ -44,45 +42,22 @@ export async function fetchExchangeRate(
     );
   }
 
-  return DEFAULT_EXCHANGE_RATE_USD_NGN;
+  // Fallback to 1 if we can't get a rate, though ideally we should handle this in UI
+  return 1;
 }
 
 /**
  * Format amount as currency
  */
 export function formatCurrency(amount: number, currency: CurrencyCode): string {
-  const currencyMap: Record<string, string> = {
-    USD: 'USD',
-    USDC: 'USD',
-    NGN: 'NGN',
-    KES: 'KES',
-    GHS: 'GHS',
-  };
-
   const formatter = new Intl.NumberFormat('en-US', {
     style: 'currency',
-    currency: currencyMap[currency] || 'USD',
+    currency: currency === 'USDC' ? 'USD' : currency,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
 
   return formatter.format(amount);
-}
-
-/**
- * Convert USD/USDC to NGN (using default rate for sync operations)
- * For live rates, use fetchExchangeRate() instead
- */
-export function convertUsdToNgn(amountUsd: number): number {
-  return amountUsd * DEFAULT_EXCHANGE_RATE_USD_NGN;
-}
-
-/**
- * Convert NGN to USD/USDC (using default rate for sync operations)
- * For live rates, use fetchExchangeRate() instead
- */
-export function convertNgnToUsd(amountNgn: number): number {
-  return amountNgn / DEFAULT_EXCHANGE_RATE_USD_NGN;
 }
 
 /**

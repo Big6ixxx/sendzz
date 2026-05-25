@@ -16,7 +16,7 @@ export function BankContactCard({
   onDeleteRequest,
 }: BankContactCardProps) {
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 gap-4 rounded-2xl bg-white/[0.02] border border-white/5 hover:bg-white/[0.04] transition-colors">
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 gap-4 rounded-2xl bg-white/2 border border-white/5 hover:bg-white/4 transition-colors">
       <div className="flex items-center gap-4">
         <div className="w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center text-accent shrink-0">
           <Landmark className="w-5 h-5" />

@@ -77,12 +77,18 @@ export async function initiateOnRamp({
 /**
  * Get the live fiat→USDC buy rate from Paycrest
  */
-export async function getOnRampRate(fiat: string = "NGN"): Promise<number> {
+export async function getOnRampRate(fiat: string = 'NGN'): Promise<number | null> {
   const paycrest = getPaycrestClient();
-  const rates = await paycrest.getRates("base", "USDC", 1, fiat);
-  const buyRate = rates.data.buy?.rate;
-  if (!buyRate) throw new Error(`Could not fetch onramp rate for ${fiat}`);
-  return Number(buyRate);
+  try {
+    const rates = await paycrest.getRates('base', 'USDC', 1, fiat);
+    const buyRate = rates.data.buy?.rate;
+    return buyRate ? Number(buyRate) : null;
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('404')) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 /**
@@ -271,4 +277,9 @@ export async function finalizeBitnobOffRamp(
 export async function getInstitutions(currency: string = "NGN") {
   const paycrest = getPaycrestClient();
   return await paycrest.getInstitutions(currency);
+}
+
+export async function getCurrencies() {
+  const paycrest = getPaycrestClient();
+  return await paycrest.getCurrencies();
 }

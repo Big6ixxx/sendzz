@@ -1,7 +1,7 @@
 "use client";
 
-import { BatchSendDialog } from "@/components/BatchSendDialog";
-import { DashboardPageHeader } from "@/components/DashboardPageHeader";
+import { BatchSendDialog } from "@/components/batch-send/BatchSendDialog";
+import { DashboardPageHeader } from "@/components/layout/DashboardPageHeader";
 import { TransferModule } from "@/components/TransferModule";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { getUSDCBalance } from "@/lib/web3/actions";

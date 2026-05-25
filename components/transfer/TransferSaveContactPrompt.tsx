@@ -43,12 +43,12 @@ export function TransferSaveContactPrompt({
   };
 
   return (
-    <div className="fixed inset-0 z-[210] flex items-center justify-center p-4 md:p-6">
+    <div className="fixed inset-0 z-210 flex items-center justify-center p-4 md:p-6">
       <div
         className="absolute inset-0 bg-[#07070a]/80 backdrop-blur-md"
         onClick={onClose}
       />
-      <div className="relative w-full max-w-sm card-glass p-8 bg-[#0a0a0b] animate-in fade-in zoom-in-95 duration-300 text-center">
+      <div className="relative w-full max-w-sm card-glass p-8 bg-brand-primary animate-in fade-in zoom-in-95 duration-300 text-center">
         <div className="w-16 h-16 rounded-full bg-accent/10 flex items-center justify-center mx-auto mb-6">
           <UserPlus className="w-8 h-8 text-accent" />
         </div>

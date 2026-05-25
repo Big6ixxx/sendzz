@@ -4,7 +4,7 @@ import { ConnectedWallet } from "@privy-io/react-auth";
 import { Send } from "lucide-react";
 import { useTransfer } from "./transfer/useTransfer";
 import { TransferForm } from "./transfer/TransferForm";
-import { TransferAddContactModal } from "./transfer/TransferAddContactModal";
+import { AddContactModal } from "./contacts/AddContactModal";
 import { TransferSaveContactPrompt } from "./transfer/TransferSaveContactPrompt";
 
 export function TransferModule({
@@ -99,7 +99,7 @@ export function TransferModule({
         lastCompletedTransfer={lastCompletedTransfer}
       />
 
-      <TransferAddContactModal
+      <AddContactModal
         isOpen={isAddingContact}
         onClose={() => setIsAddingContact(false)}
         senderEmail={senderEmail}

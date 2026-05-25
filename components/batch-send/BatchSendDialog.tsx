@@ -10,12 +10,12 @@ import {
 import { cn } from '@/lib/utils';
 import { ConnectedWallet } from '@privy-io/react-auth';
 import { Users, X } from 'lucide-react';
-import { AmountConfig } from './batch-send/AmountConfig';
-import { ConfirmStep } from './batch-send/ConfirmStep';
-import { ExecutionStatus } from './batch-send/ExecutionStatus';
-import { RecipientList } from './batch-send/RecipientList';
-import { ReviewSummary } from './batch-send/ReviewSummary';
-import { Step, useBatchSend } from './batch-send/useBatchSend';
+import { AmountConfig } from './AmountConfig';
+import { ConfirmStep } from './ConfirmStep';
+import { ExecutionStatus } from './ExecutionStatus';
+import { RecipientList } from './RecipientList';
+import { ReviewSummary } from './ReviewSummary';
+import { Step, useBatchSend } from './useBatchSend';
 
 interface BatchSendDialogProps {
   open: boolean;
