@@ -270,7 +270,7 @@ export function CctpDepositForm({
       setMonitorStatus('Requesting CCTP transfer from Smart Wallet...');
       setStep('monitoring');
 
-      const burnTxHashResult = await executeSmartBridge(
+      const { userOpHash, txHashPromise } = await executeSmartBridge(
         embeddedWallet,
         sourceChain,
         amount,
@@ -278,17 +278,21 @@ export function CctpDepositForm({
       );
 
       const email = user?.email?.address || '';
+      // Record immediately with the userOp hash; update to the real tx hash once resolved
       await recordBridgeTransaction({
         userEmail: email,
         sourceChain,
         destChain: 'base',
         amountUsdc: parseFloat(amount),
-        burnTxHash: burnTxHashResult,
+        burnTxHash: userOpHash,
       });
 
       queryClient.invalidateQueries({ queryKey: ['history'] });
-      setBurnTxHash(burnTxHashResult);
-      handleStartMonitoring(burnTxHashResult);
+      setBurnTxHash(userOpHash);
+      handleStartMonitoring(userOpHash);
+
+      // Resolve the actual on-chain tx hash in the background
+      txHashPromise.catch((e) => console.warn('[CctpDepositForm] tx hash resolution failed:', e));
     } catch (err) {
       console.error('[SmartBridge Error]', err);
       setError(getFriendlyErrorMessage(err));

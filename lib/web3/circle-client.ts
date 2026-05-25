@@ -64,7 +64,7 @@ export async function getCircleClient(provider: EIP1193Provider, targetChain: st
   if (!CIRCLE_CLIENT_KEY) throw new Error('Circle Client Key not configured.');
   if (!CIRCLE_CLIENT_URL) throw new Error('Circle Client URL not configured.');
 
-  const chainObj = (VIEM_CHAINS as Record<string, any>)[targetChain] || defaultChain;
+  const chainObj = VIEM_CHAINS[targetChain as SupportedChain] ?? defaultChain;
   
   const modularTransport = toModularTransport(
     getCircleRpcUrl(targetChain),
@@ -102,7 +102,7 @@ export async function getCircleClient(provider: EIP1193Provider, targetChain: st
 export async function getCircleAddress(provider: EIP1193Provider, targetChain: string = 'base') {
   if (!CIRCLE_CLIENT_KEY) throw new Error('Circle Client Key not configured.');
 
-  const chainObj = (VIEM_CHAINS as Record<string, any>)[targetChain] || defaultChain;
+  const chainObj = VIEM_CHAINS[targetChain as SupportedChain] ?? defaultChain;
 
   const publicClient = createPublicClient({
     chain: chainObj,

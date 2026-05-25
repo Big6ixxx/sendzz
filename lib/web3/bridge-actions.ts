@@ -2,6 +2,8 @@ import {
   parseUnits, 
   encodeFunctionData 
 } from 'viem';
+import { type BundlerClient } from 'viem/account-abstraction';
+import { type ConnectedWallet } from '@privy-io/react-auth';
 import { VIEM_CHAINS } from './multichain';
 import { 
   TOKEN_MESSENGER_V2, 
@@ -15,7 +17,7 @@ import { modularWalletActions } from '@circle-fin/modular-wallets-core';
 import { toast } from 'sonner';
 
 export async function resolveUserOpToTxHash(
-  bundlerClient: any,
+  bundlerClient: BundlerClient,
   userOpHash: `0x${string}`,
   timeoutMs = 300_000,
 ): Promise<string> {
@@ -66,7 +68,7 @@ const TOKEN_MESSENGER_ABI = [
 ] as const;
 
 export async function executeSmartBridge(
-  embeddedWallet: any,
+  embeddedWallet: ConnectedWallet,
   sourceChain: SupportedChain,
   amountUSDC: string,
   recipientAddress: string
@@ -165,19 +167,20 @@ export async function executeSmartBridge(
       .catch((e) => console.warn('[SmartBridge] tx resolution failed:', e));
 
     return { userOpHash: bridgeOpHash, txHashPromise };
-  } catch (error: any) {
+  } catch (error: unknown) {
     // Full error dump — copy from console for easy debugging
+    const err = error as Record<string, unknown>;
     console.error('[SmartBridge] ❌ Execution error:', error);
-    console.error('[SmartBridge] message:', error?.message);
-    console.error('[SmartBridge] cause:', error?.cause);
-    console.error('[SmartBridge] details:', error?.details);
-    console.error('[SmartBridge] shortMessage:', error?.shortMessage);
-    console.error('[SmartBridge] metaMessages:', error?.metaMessages);
-    console.error('[SmartBridge] data:', error?.data);
+    console.error('[SmartBridge] message:', err?.message);
+    console.error('[SmartBridge] cause:', err?.cause);
+    console.error('[SmartBridge] details:', err?.details);
+    console.error('[SmartBridge] shortMessage:', err?.shortMessage);
+    console.error('[SmartBridge] metaMessages:', err?.metaMessages);
+    console.error('[SmartBridge] data:', err?.data);
     console.error('[SmartBridge] full JSON:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
 
     // Better rejection message
-    const errorMsg = error.message || '';
+    const errorMsg = typeof err?.message === 'string' ? err.message : '';
     if (errorMsg.toLowerCase().includes('user rejected') || errorMsg.toLowerCase().includes('denied')) {
       toast.error('Transaction cancelled by user');
       throw new Error('User cancelled');
@@ -185,9 +188,9 @@ export async function executeSmartBridge(
 
     // Show the most descriptive message available
     const displayMsg =
-      error?.shortMessage ||
-      error?.details ||
-      error?.message ||
+      (typeof err?.shortMessage === 'string' && err.shortMessage) ||
+      (typeof err?.details === 'string' && err.details) ||
+      errorMsg ||
       'Bridge failed';
 
     toast.error(displayMsg);

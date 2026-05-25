@@ -206,16 +206,18 @@ export function TransferForm({
               </Tooltip>
             </TooltipProvider>
           </div>
-          <CurrencySelector selected={currency} onChange={setCurrency} />
-          {parseFloat(balance) > 0 && (
-            <button
-              type="button"
-              onClick={() => setAmount(currency === 'USD' ? balance : (parseFloat(balance) * exchangeRate).toFixed(2))}
-              className="px-3 py-1 rounded-lg bg-accent/10 text-accent text-[10px] font-black uppercase tracking-widest hover:bg-accent/20 transition-colors"
-            >
-              MAX
-            </button>
-          )}
+          <div className="flex flex-row gap-2 items-center">
+            <CurrencySelector selected={currency} onChange={setCurrency} />
+            {parseFloat(balance) > 0 && currency === "USD" && (
+              <button
+                type="button"
+                onClick={() => setAmount(currency === 'USD' ? balance : (parseFloat(balance) * exchangeRate).toFixed(2))}
+                className="px-3 py-1 rounded-lg bg-accent/10 text-accent text-[10px] font-black uppercase tracking-widest hover:bg-accent/20 transition-colors"
+              >
+                MAX
+              </button>
+            )}
+          </div>
         </div>
         <div className="relative">
           <span className="absolute left-4 top-1/2 -translate-y-1/2 text-2xl font-black opacity-20">
@@ -276,11 +278,10 @@ export function TransferForm({
 
         {status && (
           <div
-            className={`p-4 rounded-xl text-xs font-bold uppercase tracking-tight text-center animate-in fade-in slide-in-from-top-2 duration-300 ${
-              status.includes('Error')
-                ? 'bg-red-50 text-red-600'
-                : 'bg-muted/50 text-muted-foreground'
-            }`}
+            className={`p-4 rounded-xl text-xs font-bold uppercase tracking-tight text-center animate-in fade-in slide-in-from-top-2 duration-300 ${status.includes('Error')
+              ? 'bg-red-50 text-red-600'
+              : 'bg-muted/50 text-muted-foreground'
+              }`}
           >
             {status}
           </div>

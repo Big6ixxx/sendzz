@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createPublicClient, http } from 'viem';
-import { mainnet, arbitrum, avalanche, optimism, polygon } from 'viem/chains';
+import { createPublicClient, http, type Chain } from 'viem';
+import { mainnet, arbitrum, avalanche, optimism, polygon, base } from 'viem/chains';
 import { USDC_ADDRESSES, SOURCE_CHAINS, type SupportedChain } from '@/lib/circle/gateway';
 
 const BALANCE_ABI = [
@@ -13,7 +13,7 @@ const BALANCE_ABI = [
   },
 ] as const;
 
-function makeClient(chain: any, rpcUrl?: string) {
+function makeClient(chain: Chain, rpcUrl?: string) {
   return createPublicClient({
     chain,
     transport: http(rpcUrl || undefined, { timeout: 5000, retryCount: 1 }),
@@ -30,8 +30,8 @@ function getClients(): Record<SupportedChain, ReturnType<typeof createPublicClie
     optimism: makeClient(optimism, process.env.OPTIMISM_RPC_URL || (alchemyKey ? `https://opt-mainnet.g.alchemy.com/v2/${alchemyKey}` : undefined)),
     polygon: makeClient(polygon, process.env.POLYGON_RPC_URL || (alchemyKey ? `https://polygon-mainnet.g.alchemy.com/v2/${alchemyKey}` : undefined)),
     // base is destination — not scanned
-    base: makeClient(mainnet),
-  } as any;
+    base: makeClient(base),
+  };
 }
 
 export async function GET(req: NextRequest) {
