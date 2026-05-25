@@ -322,8 +322,8 @@ export default function Dashboard() {
                 View All
               </button>
             </div>
-            <div className="card-glass p-1 rounded-3xl overflow-x-auto overflow-y-hidden relative w-full">
-              <div className="min-w-max">
+            <div className="card-glass p-1 rounded-3xl overflow-hidden relative w-full">
+              <div className="w-full">
                 <HistoryModule
                   userId={user.id}
                   userEmail={user.email?.address || ''}
