@@ -1,12 +1,14 @@
 'use client';
 
 import { useCrossChainBalances } from '@/hooks/useCrossChainBalances';
+import { SMART_BRIDGE_CHAINS } from '@/lib/circle/gateway';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 
 export function BridgeNudge({ smartAddress }: { smartAddress: string }) {
-  const { data: bridges } = useCrossChainBalances(smartAddress);
+  const { data: allBridges } = useCrossChainBalances(smartAddress);
+  const bridges = allBridges?.filter(b => SMART_BRIDGE_CHAINS.includes(b.chain));
   const hasFundsElsewhere = bridges && bridges.length > 0;
 
   return (

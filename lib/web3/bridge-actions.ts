@@ -1,11 +1,8 @@
 import { 
-  createWalletClient, 
-  custom, 
   parseUnits, 
-  type PublicClient,
   encodeFunctionData 
 } from 'viem';
-import { MULTICHAIN_CLIENTS, VIEM_CHAINS } from './multichain';
+import { VIEM_CHAINS } from './multichain';
 import { 
   TOKEN_MESSENGER_V2, 
   USDC_ADDRESSES, 
@@ -14,7 +11,28 @@ import {
   calculateMaxFee
 } from '../circle/gateway';
 import { getCircleClient } from './circle-client';
+import { modularWalletActions } from '@circle-fin/modular-wallets-core';
 import { toast } from 'sonner';
+
+export async function resolveUserOpToTxHash(
+  bundlerClient: any,
+  userOpHash: `0x${string}`,
+  timeoutMs = 300_000,
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const receipt = await bundlerClient.getUserOperationReceipt({ hash: userOpHash });
+      if (receipt?.receipt?.transactionHash) {
+        return receipt.receipt.transactionHash;
+      }
+    } catch {
+      // receipt not yet available
+    }
+    await new Promise((r) => setTimeout(r, 3_000));
+  }
+  throw new Error(`UserOperation ${userOpHash} not confirmed within ${timeoutMs / 1000}s`);
+}
 
 const ERC20_ABI = [
   {
@@ -52,7 +70,7 @@ export async function executeSmartBridge(
   sourceChain: SupportedChain,
   amountUSDC: string,
   recipientAddress: string
-) {
+): Promise<{ userOpHash: `0x${string}`; txHashPromise: Promise<string> }> {
   try {
     const chain = VIEM_CHAINS[sourceChain];
     const usdcAddress = USDC_ADDRESSES[sourceChain];
@@ -60,15 +78,33 @@ export async function executeSmartBridge(
 
     if (!chain || !usdcAddress) throw new Error('Unsupported chain config');
 
-    // 1. Get Circle Smart Account Client for the source chain
     toast.info(`Preparing gasless transfer on ${sourceChain}...`);
     const ethereumProvider = await embeddedWallet.getEthereumProvider();
     const { bundlerClient, account } = await getCircleClient(ethereumProvider, sourceChain);
 
     const amountRaw = parseUnits(amountUSDC, 6);
-    const mintRecipient = '0x' + '0'.repeat(24) + recipientAddress.slice(2).toLowerCase();
+    const mintRecipient = `0x${'0'.repeat(24)}${recipientAddress.slice(2).toLowerCase()}` as `0x${string}`;
+    const destinationCaller = `0x${'0'.repeat(64)}` as `0x${string}`;
 
-    // 2. Execute Approve
+    // Gas policy IDs per chain — set in .env
+    const GAS_POLICY_IDS: Record<string, string | undefined> = {
+      arbitrum: process.env.NEXT_PUBLIC_CIRCLE_ARBITRUM_GAS_POLICY_ID || process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_ARBITRUM,
+      avalanche: process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_AVALANCHE,
+      ethereum: process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_ETHEREUM,
+    };
+    const policyId = GAS_POLICY_IDS[sourceChain];
+
+    const modularClient = bundlerClient.extend(modularWalletActions);
+    const gasPrices = await modularClient.getUserOperationGasPrice().catch(() => null);
+    const gasLevel = gasPrices?.medium ?? gasPrices?.high ?? null;
+
+    const maxPriorityFeePerGas = gasLevel?.maxPriorityFeePerGas
+      ? BigInt(gasLevel.maxPriorityFeePerGas)
+      : 1_000_000n;
+    const maxFeePerGas = gasLevel?.maxFeePerGas
+      ? BigInt(gasLevel.maxFeePerGas)
+      : undefined;
+
     toast.info('Approving USDC transfer...');
     const approveOpHash = await bundlerClient.sendUserOperation({
       account,
@@ -80,14 +116,19 @@ export async function executeSmartBridge(
           args: [TOKEN_MESSENGER_V2 as `0x${string}`, amountRaw],
         }),
       }],
+      maxFeePerGas,
+      maxPriorityFeePerGas,
+      // @ts-ignore: Circle extension allows boolean for gas sponsorship
+      paymaster: true,
+      paymasterContext: policyId ? { policyId } : undefined,
     });
-    await bundlerClient.waitForUserOperationReceipt({ hash: approveOpHash });
+    // Use our polling helper — Circle's bundler transport ignores the timeout param
+    await resolveUserOpToTxHash(bundlerClient, approveOpHash);
     toast.success('Approval confirmed');
 
     // 3. Execute Deposit for Burn
     toast.info('Initiating bridge transfer...');
     const maxFee = await calculateMaxFee(sourceChain, amountUSDC);
-    const destinationCaller = ('0x' + '0'.repeat(64)) as `0x${string}`;
 
     const bridgeOpHash = await bundlerClient.sendUserOperation({
       account,
@@ -107,20 +148,34 @@ export async function executeSmartBridge(
           ],
         }),
       }],
+      maxFeePerGas,
+      maxPriorityFeePerGas,
+      // @ts-ignore: Circle extension allows boolean for gas sponsorship
+      paymaster: true,
+      paymasterContext: policyId ? { policyId } : undefined,
     });
 
     toast.info('Bridge transaction sent! Finalizing...');
-    
-    // 4. Wait for the UserOperation to be included
-    const receipt = await bundlerClient.waitForUserOperationReceipt({
-      hash: bridgeOpHash,
-    });
 
-    toast.success('Bridge transaction confirmed!');
-    return receipt.receipt.transactionHash;
+    // 4. Return immediately with the userOp hash and a background promise for the tx hash.
+    // waitForUserOperationReceipt can be slow on Arbitrum — we don't block the UI on it.
+    const txHashPromise = resolveUserOpToTxHash(bundlerClient, bridgeOpHash);
+    txHashPromise
+      .then(() => toast.success('Bridge transaction confirmed on-chain!'))
+      .catch((e) => console.warn('[SmartBridge] tx resolution failed:', e));
+
+    return { userOpHash: bridgeOpHash, txHashPromise };
   } catch (error: any) {
-    console.error('[SmartBridge] Execution error:', error);
-    
+    // Full error dump — copy from console for easy debugging
+    console.error('[SmartBridge] ❌ Execution error:', error);
+    console.error('[SmartBridge] message:', error?.message);
+    console.error('[SmartBridge] cause:', error?.cause);
+    console.error('[SmartBridge] details:', error?.details);
+    console.error('[SmartBridge] shortMessage:', error?.shortMessage);
+    console.error('[SmartBridge] metaMessages:', error?.metaMessages);
+    console.error('[SmartBridge] data:', error?.data);
+    console.error('[SmartBridge] full JSON:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+
     // Better rejection message
     const errorMsg = error.message || '';
     if (errorMsg.toLowerCase().includes('user rejected') || errorMsg.toLowerCase().includes('denied')) {
@@ -128,7 +183,14 @@ export async function executeSmartBridge(
       throw new Error('User cancelled');
     }
 
-    toast.error(error.message || 'Bridge failed');
+    // Show the most descriptive message available
+    const displayMsg =
+      error?.shortMessage ||
+      error?.details ||
+      error?.message ||
+      'Bridge failed';
+
+    toast.error(displayMsg);
     throw error;
   }
 }

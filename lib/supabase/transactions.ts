@@ -2,6 +2,7 @@
 
 import { Database } from '@/types/database';
 import { supabaseAdmin } from './adminClient';
+import { fetchAttestation, type SupportedChain } from '@/lib/circle/gateway';
 
 type TransferRow = Database['public']['Tables']['transfers']['Row'];
 
@@ -294,6 +295,22 @@ export async function getUserActivities(userEmail: string) {
       supabaseAdmin.from('withdrawals').select('*').eq('user_id', internalId),
       supabaseAdmin.from('bridge_transactions').select('*').eq('user_id', internalId),
     ]);
+
+    // Check for any pending bridges and update them if they're actually complete
+    const pendingBridges = (bridges || []).filter(b => b.attestation_status === 'pending');
+    if (pendingBridges.length > 0) {
+      await Promise.all(pendingBridges.map(async (b) => {
+        try {
+          const result = await fetchAttestation(b.source_chain as SupportedChain, b.burn_tx_hash);
+          if (result.status === 'complete') {
+            await updateBridgeStatus(b.burn_tx_hash, 'complete', result.mintTxHash);
+            b.attestation_status = 'complete';
+          }
+        } catch (e) {
+          console.error('[Supabase] Failed to auto-update bridge status:', e);
+        }
+      }));
+    }
 
     interface JoinedSender {
       email: string;

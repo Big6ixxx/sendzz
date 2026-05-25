@@ -1,7 +1,7 @@
 "use client";
 
 import { useCrossChainBalances } from "@/hooks/useCrossChainBalances";
-import { CHAIN_NAMES, type SupportedChain } from "@/lib/circle/gateway";
+import { CHAIN_EXPLORERS, CHAIN_NAMES, SMART_BRIDGE_CHAINS, type SupportedChain } from "@/lib/circle/gateway";
 import { recordBridgeTransaction } from "@/lib/supabase/transactions";
 import { executeSmartBridge } from "@/lib/web3/bridge-actions";
 import { cn } from "@/lib/utils";
@@ -36,10 +36,13 @@ export function SmartBridgeModule({
   const queryClient = useQueryClient();
   const embeddedWallet = wallets.find((w) => w.walletClientType === "privy");
   const {
-    data: bridges,
+    data: allBridges,
     isLoading,
+    isFetching,
     refetch,
   } = useCrossChainBalances(smartAddress);
+
+  const bridges = allBridges?.filter(b => SMART_BRIDGE_CHAINS.includes(b.chain));
 
   const [bridgingChain, setBridgingChain] = useState<SupportedChain | null>(
     null,
@@ -65,7 +68,19 @@ export function SmartBridgeModule({
         if (data.status === 'complete') {
           setIsComplete(true);
           clearInterval(interval);
+
+          // Update the bridge status in Supabase so history shows "confirmed"
+          await fetch('/api/bridge/complete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              burnTxHash: monitoringTx.hash,
+              mintTxHash: data.mintTxHash,
+            }),
+          });
+
           queryClient.invalidateQueries({ queryKey: ['history'] });
+          queryClient.invalidateQueries({ queryKey: ['cross-chain-balances'] });
           toast.success('Bridge complete! Funds are now on Base.');
         }
       } catch (err) {
@@ -81,12 +96,17 @@ export function SmartBridgeModule({
 
     setBridgingChain(chain);
     try {
-      const burnTxHash = await executeSmartBridge(
+      const { userOpHash, txHashPromise } = await executeSmartBridge(
         embeddedWallet,
         chain,
         amount,
         smartAddress,
       );
+
+      toast.success('Bridge submitted! Waiting for on-chain confirmation...');
+
+      // Resolve the actual tx hash in the background (can take time on Arbitrum)
+      const burnTxHash = await txHashPromise;
 
       // Record the transaction in Supabase
       await recordBridgeTransaction({
@@ -102,7 +122,7 @@ export function SmartBridgeModule({
       
       setMonitoringTx({ hash: burnTxHash, chain });
       toast.success('Bridge sequence initiated! Monitoring progress...');
-      refetch(); // Refresh balances
+      refetch();
     } catch (err) {
       console.error("Bridge failed:", err);
     } finally {
@@ -114,49 +134,7 @@ export function SmartBridgeModule({
     <div className="space-y-8">
       {/* Scanning State */}
       <AnimatePresence mode="wait">
-        {isLoading ? (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="card-glass p-12 flex flex-col items-center justify-center text-center space-y-6"
-          >
-            <div className="relative">
-              <div className="absolute inset-0 bg-accent/20 rounded-full blur-2xl animate-pulse scale-150" />
-              <div className="relative w-20 h-20 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden">
-                <Network className="w-10 h-10 text-accent animate-pulse" />
-                <motion.div
-                  className="absolute inset-0 border-2 border-transparent border-t-accent rounded-3xl"
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <h3 className="text-xl font-display font-bold text-white tracking-tight">
-                Scanning Multi-Chain
-              </h3>
-              <p className="text-sm text-white/40 max-w-xs mx-auto">
-                Checking your smart wallet for stray USDC on Arbitrum, Optimism,
-                Polygon, and more...
-              </p>
-            </div>
-            <div className="flex gap-1">
-              {[0, 1, 2].map((i) => (
-                <motion.div
-                  key={i}
-                  className="w-1.5 h-1.5 rounded-full bg-accent"
-                  animate={{ opacity: [0.2, 1, 0.2] }}
-                  transition={{
-                    duration: 1.5,
-                    repeat: Infinity,
-                    delay: i * 0.2,
-                  }}
-                />
-              ))}
-            </div>
-          </motion.div>
-        ) : monitoringTx ? (
+        {monitoringTx ? (
           <motion.div 
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -185,12 +163,13 @@ export function SmartBridgeModule({
             
             <div className="flex flex-col gap-3 w-full max-w-xs">
               <a 
-                href={`https://basescan.org/tx/${monitoringTx.hash}`} 
+                href={`${CHAIN_EXPLORERS[monitoringTx.chain]}/${monitoringTx.hash}`} 
                 target="_blank"
+                rel="noopener noreferrer"
                 className="btn-secondary h-11 rounded-xl flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest"
               >
                 <ExternalLink className="w-3.5 h-3.5" />
-                View Burn Tx
+                View on {CHAIN_NAMES[monitoringTx.chain]}
               </a>
               {isComplete && (
                 <button 
@@ -204,6 +183,48 @@ export function SmartBridgeModule({
                   Bridge More
                 </button>
               )}
+            </div>
+          </motion.div>
+        ) : isLoading ? (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="card-glass p-12 flex flex-col items-center justify-center text-center space-y-6"
+          >
+            <div className="relative">
+              <div className="absolute inset-0 bg-accent/20 rounded-full blur-2xl animate-pulse scale-150" />
+              <div className="relative w-20 h-20 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden">
+                <Network className="w-10 h-10 text-accent animate-pulse" />
+                <motion.div
+                  className="absolute inset-0 border-2 border-transparent border-t-accent rounded-3xl"
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-xl font-display font-bold text-white tracking-tight">
+                Scanning Multi-Chain
+              </h3>
+              <p className="text-sm text-white/40 max-w-xs mx-auto">
+                Checking your smart wallet for stray USDC on Arbitrum, Avalanche,
+                Ethereum, and more...
+              </p>
+            </div>
+            <div className="flex gap-1">
+              {[0, 1, 2].map((i) => (
+                <motion.div
+                  key={i}
+                  className="w-1.5 h-1.5 rounded-full bg-accent"
+                  animate={{ opacity: [0.2, 1, 0.2] }}
+                  transition={{
+                    duration: 1.5,
+                    repeat: Infinity,
+                    delay: i * 0.2,
+                  }}
+                />
+              ))}
             </div>
           </motion.div>
         ) : bridges && bridges.length > 0 ? (
@@ -300,9 +321,11 @@ export function SmartBridgeModule({
             </div>
             <button
               onClick={() => refetch()}
-              className="px-6 py-2.5 rounded-xl bg-white/5 border border-white/10 text-[10px] font-bold uppercase tracking-widest text-white/40 hover:text-white hover:bg-white/10 transition-all"
+              disabled={isFetching}
+              className="px-6 py-2.5 rounded-xl bg-white/5 border border-white/10 text-[10px] font-bold uppercase tracking-widest text-white/40 hover:text-white hover:bg-white/10 transition-all flex items-center gap-2 mx-auto disabled:opacity-50"
             >
-              Scan Again
+              {isFetching && <Loader2 className="w-3 h-3 animate-spin" />}
+              {isFetching ? 'Scanning...' : 'Scan Again'}
             </button>
           </motion.div>
         )}
@@ -319,9 +342,9 @@ export function SmartBridgeModule({
           </h5>
           <p className="text-[11px] text-white/40 leading-relaxed font-medium">
             Smart Bridge detects funds held by your embedded smart wallet on
-            other networks. Because your smart address is consistent across
-            chains, we can safely bridge these funds to Base. No gas required on
-            Base.
+            Arbitrum, Avalanche, and Ethereum. Because your smart address is
+            consistent across chains, we can safely bridge these funds to Base.
+            No gas required on any chain.
           </p>
         </div>
       </div>

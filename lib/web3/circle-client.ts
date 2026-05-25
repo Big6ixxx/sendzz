@@ -14,6 +14,14 @@ import { VIEM_CHAINS } from './multichain';
 import { SupportedChain } from '../circle/gateway';
 import { createPaymasterClient } from 'viem/account-abstraction';
 
+// Per-chain public RPC URLs for gas estimation
+const CHAIN_RPC_URLS: Record<string, string | undefined> = {
+  base: process.env.NEXT_PUBLIC_RPC_URL,
+  arbitrum: process.env.NEXT_PUBLIC_ARBITRUM_RPC_URL || 'https://arb1.arbitrum.io/rpc',
+  avalanche: process.env.NEXT_PUBLIC_AVALANCHE_RPC_URL || 'https://api.avax.network/ext/bc/C/rpc',
+  ethereum: process.env.NEXT_PUBLIC_ETHEREUM_RPC_URL || 'https://cloudflare-eth.com',
+};
+
 const getCircleRpcUrl = (chainName: string = 'base') => `${CIRCLE_CLIENT_URL}/${chainName}`;
 
 // Build a viem custom account from Privy's provider
@@ -65,7 +73,7 @@ export async function getCircleClient(provider: EIP1193Provider, targetChain: st
 
   const publicClient = createPublicClient({
     chain: chainObj,
-    transport: http(), // Use regular RPC for simulation/reading
+    transport: http(CHAIN_RPC_URLS[targetChain] || undefined), // Use chain-specific RPC for accurate gas estimation
   });
 
   // Get the EOA address from Privy
@@ -81,24 +89,11 @@ export async function getCircleClient(provider: EIP1193Provider, targetChain: st
     owner: localAccount,
   });
 
-  const isArbitrum = targetChain === 'arbitrum';
-  
-  // Use Circle for Base, Alchemy for Arbitrum (Circle bundler is Base-only for now)
-  const bundlerTransport = isArbitrum 
-    ? http(`https://arb-mainnet.g.alchemy.com/v2/${process.env.NEXT_PUBLIC_ALCHEMY_API_KEY}`)
-    : modularTransport;
-
-  const paymasterClient = isArbitrum
-    ? createPaymasterClient({
-        transport: http(`https://arb-mainnet.g.alchemy.com/v2/${process.env.NEXT_PUBLIC_ALCHEMY_API_KEY}`),
-      })
-    : undefined;
-
+  // Circle's modularTransport handles the Paymaster and Gas Station natively across all supported chains
   const bundlerClient = createBundlerClient({
     chain: chainObj,
-    transport: bundlerTransport,
+    transport: modularTransport,
     account,
-    paymaster: paymasterClient,
   });
 
   return { bundlerClient, account, localAccount };

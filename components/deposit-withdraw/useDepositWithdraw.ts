@@ -399,6 +399,7 @@ export function useDepositWithdraw(
     setStep,
     amount,
     setAmount,
+    balance,
     inputMode,
     setInputMode,
     loading,

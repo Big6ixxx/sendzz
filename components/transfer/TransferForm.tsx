@@ -34,6 +34,7 @@ interface TransferFormProps {
   isZeroBalance: boolean;
   handleTransfer: (e: React.FormEvent) => void;
   smartAddress: string;
+  balance: string;
   lastCompletedTransfer?: ReceiptData | null;
 }
 
@@ -59,6 +60,7 @@ export function TransferForm({
   isZeroBalance,
   handleTransfer,
   smartAddress,
+  balance,
   lastCompletedTransfer,
 }: TransferFormProps) {
   return (
@@ -205,6 +207,15 @@ export function TransferForm({
             </TooltipProvider>
           </div>
           <CurrencySelector selected={currency} onChange={setCurrency} />
+          {parseFloat(balance) > 0 && (
+            <button
+              type="button"
+              onClick={() => setAmount(currency === 'USD' ? balance : (parseFloat(balance) * exchangeRate).toFixed(2))}
+              className="px-3 py-1 rounded-lg bg-accent/10 text-accent text-[10px] font-black uppercase tracking-widest hover:bg-accent/20 transition-colors"
+            >
+              MAX
+            </button>
+          )}
         </div>
         <div className="relative">
           <span className="absolute left-4 top-1/2 -translate-y-1/2 text-2xl font-black opacity-20">

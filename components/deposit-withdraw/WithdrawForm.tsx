@@ -72,6 +72,15 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
               className="input-elegant pl-14 text-xl font-bold"
               placeholder="100.00"
             />
+            {parseFloat(hook.balance) > 0 && (
+              <button
+                type="button"
+                onClick={() => hook.setAmount(parseFloat(hook.balance).toFixed(2))}
+                className="absolute right-4 top-1/2 -translate-y-1/2 px-3 py-1 rounded-lg bg-accent/10 text-accent text-[10px] font-black uppercase tracking-widest hover:bg-accent/20 transition-colors"
+              >
+                MAX
+              </button>
+            )}
           </div>
           <p className="text-[10px] text-muted-foreground mt-2 px-1 flex justify-between">
             <span>
