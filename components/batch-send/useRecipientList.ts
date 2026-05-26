@@ -1,8 +1,7 @@
 import * as React from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { toast } from 'sonner';
-import { getUserContacts } from '@/lib/supabase/contacts';
+import { useUserContacts } from '@/components/contacts/useContacts';
 import { useBatchSend } from './useBatchSend';
+import { toast } from 'sonner';
 
 interface UseRecipientListProps {
   hook: ReturnType<typeof useBatchSend>;
@@ -15,11 +14,7 @@ export function useRecipientList({ hook, senderEmail }: UseRecipientListProps) {
   const [showSuggestions, setShowSuggestions] = React.useState(false);
   const [isAddingContact, setIsAddingContact] = React.useState(false);
 
-  const { data: contacts = [] } = useQuery({
-    queryKey: ['contacts', senderEmail],
-    queryFn: () => getUserContacts(senderEmail),
-    enabled: !!senderEmail,
-  });
+  const { data: contacts = [] } = useUserContacts(senderEmail);
 
   const parseRaw = (raw: string): string[] => {
     return raw

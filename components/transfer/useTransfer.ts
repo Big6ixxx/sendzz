@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getUserContacts } from '@/lib/supabase/contacts';
+import { useQueryClient } from '@tanstack/react-query';
+import { useUserContacts } from '@/components/contacts/useContacts';
 import { useExchangeRate } from '@/lib/hooks/useExchangeRate';
 import { ConnectedWallet } from '@privy-io/react-auth';
 import { executeCircleGaslessTransfer } from '@/lib/web3/circle-actions';
@@ -55,11 +55,7 @@ export function useTransfer({
   const { data: exchangeRate = 1 } = useExchangeRate(isFiat ? currency : 'USD');
   const queryClient = useQueryClient();
 
-  const { data: contacts = [] } = useQuery({
-    queryKey: ['contacts', senderEmail],
-    queryFn: () => getUserContacts(senderEmail),
-    enabled: !!senderEmail,
-  });
+  const { data: contacts = [] } = useUserContacts(senderEmail);
 
   useEffect(() => {
     if (initialRecipientEmail) {

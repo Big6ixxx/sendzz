@@ -124,3 +124,12 @@ export function useContacts(userEmail: string) {
     handleStartEdit,
   };
 }
+
+export function useUserContacts(userEmail: string) {
+  return useQuery({
+    queryKey: ['contacts', userEmail],
+    queryFn: () => getUserContacts(userEmail),
+    enabled: !!userEmail,
+  });
+}
+

@@ -5,7 +5,7 @@ import { ChevronRight, Mail, X } from 'lucide-react';
 import * as React from 'react';
 import { useBatchSend } from './useBatchSend';
 import { AddContactModal } from '../contacts/AddContactModal';
-import { RecipientSuggestions } from './RecipientSuggestions';
+import { RecipientSuggestions } from '@/components/contacts/RecipientSuggestions';
 import { ImportFromFile } from './ImportFromFile';
 import { useRecipientList } from './useRecipientList';
 

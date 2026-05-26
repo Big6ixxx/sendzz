@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ChevronRight, Plus } from 'lucide-react';
+import { ChevronRight, Plus, Send } from 'lucide-react';
 import { type ContactRow } from '@/lib/supabase/contacts';
 
 interface RecipientSuggestionsProps {
@@ -8,6 +8,7 @@ interface RecipientSuggestionsProps {
   contacts: ContactRow[];
   onSelect: (email: string) => void;
   onAddNew: () => void;
+  actionIcon?: 'chevron' | 'send';
 }
 
 export function RecipientSuggestions({
@@ -16,6 +17,7 @@ export function RecipientSuggestions({
   contacts,
   onSelect,
   onAddNew,
+  actionIcon = 'chevron',
 }: RecipientSuggestionsProps) {
   if (!isOpen) return null;
 
@@ -55,28 +57,40 @@ export function RecipientSuggestions({
               + New
             </button>
           </div>
-          {filteredContacts.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onSelect(c.email);
-              }}
-              className="w-full text-left px-4 py-3 rounded-xl hover:bg-white/5 transition-colors flex items-center justify-between group"
-            >
-              <div className="flex flex-col">
-                <span className="font-bold text-sm text-foreground group-hover:text-accent transition-colors">
-                  {c.name}
-                </span>
-                <span className="text-[10px] text-muted-foreground/60">{c.email}</span>
-              </div>
-              <div className="w-6 h-6 rounded-full bg-white/5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                <ChevronRight className="w-3 h-3 text-accent" />
-              </div>
-            </button>
-          ))}
+          {filteredContacts.length === 0 ? (
+            <div className="px-4 py-6 text-center">
+              <p className="text-xs font-bold text-white/30 uppercase tracking-widest">
+                No contacts match your filter
+              </p>
+            </div>
+          ) : (
+            filteredContacts.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onSelect(c.email);
+                }}
+                className="w-full text-left px-4 py-3 rounded-xl hover:bg-white/5 transition-colors flex items-center justify-between group"
+              >
+                <div className="flex flex-col">
+                  <span className="font-bold text-sm text-foreground group-hover:text-accent transition-colors">
+                    {c.name}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground/60">{c.email}</span>
+                </div>
+                <div className="w-6 h-6 rounded-full bg-white/5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  {actionIcon === 'send' ? (
+                    <Send className="w-3 h-3 text-accent" />
+                  ) : (
+                    <ChevronRight className="w-3 h-3 text-accent" />
+                  )}
+                </div>
+              </button>
+            ))
+          )}
         </>
       )}
     </div>

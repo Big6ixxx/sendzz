@@ -12,7 +12,6 @@ import {
 } from './config';
 import { VIEM_CHAINS } from './multichain';
 import { SupportedChain } from '../circle/gateway';
-import { createPaymasterClient } from 'viem/account-abstraction';
 
 // Per-chain public RPC URLs for gas estimation
 const CHAIN_RPC_URLS: Record<string, string | undefined> = {
