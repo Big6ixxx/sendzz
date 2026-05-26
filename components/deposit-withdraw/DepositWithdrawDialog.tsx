@@ -13,10 +13,13 @@ import { ArrowDownLeft, ArrowUpRight, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { CctpDepositForm } from './CctpDepositForm';
 import { DepositForm } from './DepositForm';
+import { SolanaCctpForm } from './SolanaCctpForm';
+import { StellarCctpForm } from './StellarCctpForm';
 import { FlowType, useDepositWithdraw } from './useDepositWithdraw';
 import { WithdrawForm } from './WithdrawForm';
 
 type DepositTab = 'fiat' | 'usdc';
+type UsdcChainTab = 'evm' | 'solana' | 'stellar';
 
 interface DepositWithdrawDialogProps {
   isOpen: boolean;
@@ -40,6 +43,7 @@ export function DepositWithdrawDialog({
   embeddedProvider,
 }: DepositWithdrawDialogProps) {
   const [depositTab, setDepositTab] = useState<DepositTab>('fiat');
+  const [usdcChainTab, setUsdcChainTab] = useState<UsdcChainTab>('evm');
 
   const depositHook = useDepositWithdraw(
     'deposit',
@@ -153,10 +157,35 @@ export function DepositWithdrawDialog({
               depositTab === 'fiat' ? (
                 <DepositForm hook={depositHook} />
               ) : (
-                <CctpDepositForm
-                  userAddress={userAddress}
-                  handleClose={onClose}
-                />
+                <div className="space-y-5">
+                  {/* Chain sub-tabs */}
+                  <div className="flex bg-white/5 p-1 rounded-xl border border-white/5">
+                    {(['evm', 'solana', 'stellar'] as UsdcChainTab[]).map((chain) => (
+                      <button
+                        key={chain}
+                        onClick={() => setUsdcChainTab(chain)}
+                        className={cn(
+                          'flex-1 py-2 text-[10px] font-bold uppercase tracking-[0.15em] rounded-lg transition-all',
+                          usdcChainTab === chain
+                            ? 'bg-white/10 text-brand-secondary shadow'
+                            : 'text-brand-secondary/30 hover:text-brand-secondary/50',
+                        )}
+                      >
+                        {chain === 'evm' ? 'EVM' : chain === 'solana' ? 'Solana' : 'Stellar'}
+                      </button>
+                    ))}
+                  </div>
+
+                  {usdcChainTab === 'evm' && (
+                    <CctpDepositForm userAddress={userAddress} handleClose={onClose} />
+                  )}
+                  {usdcChainTab === 'solana' && (
+                    <SolanaCctpForm userAddress={userAddress} handleClose={onClose} />
+                  )}
+                  {usdcChainTab === 'stellar' && (
+                    <StellarCctpForm userAddress={userAddress} handleClose={onClose} />
+                  )}
+                </div>
               )
             ) : (
               <WithdrawForm hook={withdrawHook} />

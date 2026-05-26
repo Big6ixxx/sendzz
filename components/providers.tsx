@@ -1,6 +1,7 @@
 'use client';
 
 import { PrivyProvider } from '@privy-io/react-auth';
+import { toSolanaWalletConnectors } from '@privy-io/react-auth/solana';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import {
@@ -13,6 +14,8 @@ import {
   polygon,
 } from 'viem/chains';
 import { ReactNode, useState } from 'react';
+
+const solanaConnectors = toSolanaWalletConnectors({ shouldAutoConnect: true });
 
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
@@ -43,6 +46,11 @@ export function Providers({ children }: { children: ReactNode }) {
           embeddedWallets: {
             ethereum: {
               createOnLogin: 'users-without-wallets',
+            },
+          },
+          externalWallets: {
+            solana: {
+              connectors: solanaConnectors,
             },
           },
           defaultChain: isProd ? base : baseSepolia,
