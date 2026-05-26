@@ -95,6 +95,7 @@ export function TransferModule({
         isZeroBalance={isZeroBalance}
         handleTransfer={handleTransfer}
         smartAddress={smartAddress}
+        balance={balance}
         lastCompletedTransfer={lastCompletedTransfer}
       />
 

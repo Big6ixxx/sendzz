@@ -18,6 +18,7 @@ import {
 import { cn, truncateAddress } from '@/lib/utils';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { useQueryClient } from '@tanstack/react-query';
+import { useCrossChainBalances } from '@/hooks/useCrossChainBalances';
 import {
   ArrowRight,
   CheckCircle2,
@@ -83,6 +84,11 @@ export function CctpDepositForm({
   const [fee, setFee] = useState<{ bps: number; usdc: string } | null>(null);
   const [feeLoading, setFeeLoading] = useState(false);
   const [maxFeeRaw, setMaxFeeRaw] = useState<string>('');
+
+  const { data: bridges } = useCrossChainBalances(userAddress);
+  const smartWalletBalance = bridges?.find((b) => b.chain === sourceChain)?.balance || '0';
+  const hasSmartWalletBalance = parseFloat(smartWalletBalance) > 0;
+  const isSmartWalletSufficient = amount && parseFloat(amount) > 0 && parseFloat(amount) <= parseFloat(smartWalletBalance);
 
   // Fetch live fee from Circle Iris API when chain or amount changes
   useEffect(() => {
@@ -239,6 +245,56 @@ export function CctpDepositForm({
       handleStartMonitoring(burnHash);
     } catch (err) {
       console.error('[CCTP Bridge Error]', err);
+      setError(getFriendlyErrorMessage(err));
+      setStep('configure');
+    } finally {
+      setIsExecuting(false);
+    }
+  };
+
+  const handleSmartBridge = async () => {
+    if (!amount || parseFloat(amount) < 1) {
+      setError('Minimum bridge amount is 1 USDC');
+      return;
+    }
+
+    setIsExecuting(true);
+    setError('');
+
+    try {
+      const embeddedWallet = wallets.find((w) => w.walletClientType === 'privy');
+      if (!embeddedWallet) throw new Error('Smart wallet not connected');
+
+      const { executeSmartBridge } = await import('@/lib/web3/bridge-actions');
+
+      setMonitorStatus('Requesting CCTP transfer from Smart Wallet...');
+      setStep('monitoring');
+
+      const { userOpHash, txHashPromise } = await executeSmartBridge(
+        embeddedWallet,
+        sourceChain,
+        amount,
+        userAddress
+      );
+
+      const email = user?.email?.address || '';
+      // Record immediately with the userOp hash; update to the real tx hash once resolved
+      await recordBridgeTransaction({
+        userEmail: email,
+        sourceChain,
+        destChain: 'base',
+        amountUsdc: parseFloat(amount),
+        burnTxHash: userOpHash,
+      });
+
+      queryClient.invalidateQueries({ queryKey: ['history'] });
+      setBurnTxHash(userOpHash);
+      handleStartMonitoring(userOpHash);
+
+      // Resolve the actual on-chain tx hash in the background
+      txHashPromise.catch((e) => console.warn('[CctpDepositForm] tx hash resolution failed:', e));
+    } catch (err) {
+      console.error('[SmartBridge Error]', err);
       setError(getFriendlyErrorMessage(err));
       setStep('configure');
     } finally {
@@ -471,13 +527,32 @@ export function CctpDepositForm({
                 </p>
               )}
 
-              {!hasExternalWallet ? (
+              {!hasExternalWallet && !isSmartWalletSufficient ? (
                 <button
                   onClick={connectWallet}
                   className="btn-accent w-full gap-2"
                 >
                   Connect Wallet to Bridge
                   <ArrowRight className="w-4 h-4" />
+                </button>
+              ) : isSmartWalletSufficient ? (
+                <button
+                  onClick={handleSmartBridge}
+                  disabled={feeLoading || isExecuting}
+                  className="btn-accent w-full gap-2"
+                  style={{ background: '#00e87a', color: '#07070a' }}
+                >
+                  {isExecuting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Bridging from Smart Wallet...
+                    </>
+                  ) : (
+                    <>
+                      Bridge from Smart Wallet (Gasless)
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
                 </button>
               ) : (
                 <button
@@ -497,6 +572,12 @@ export function CctpDepositForm({
                     </>
                   )}
                 </button>
+              )}
+
+              {hasSmartWalletBalance && !isSmartWalletSufficient && amount && parseFloat(amount) > 0 && (
+                <p className="text-[10px] text-center mt-2 font-bold uppercase tracking-widest text-accent">
+                  Smart Wallet has {smartWalletBalance} USDC on {CHAIN_NAMES[sourceChain]}.
+                </p>
               )}
             </div>
           </div>

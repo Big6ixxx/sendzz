@@ -2,6 +2,7 @@
 
 import { ActivityDetailModal } from '@/components/ActivityDetailModal';
 import { BatchSendDialog } from '@/components/batch-send/BatchSendDialog';
+import { BridgeNudge } from '@/components/BridgeNudge';
 import { DepositWithdrawDialog } from '@/components/deposit-withdraw/DepositWithdrawDialog';
 import { Activity, HistoryModule } from '@/components/HistoryModule';
 import { TransferModule } from '@/components/TransferModule';
@@ -231,6 +232,8 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
+
+          <BridgeNudge smartAddress={smartAddress} />
         </section>
 
         {/* Main Grid: Clean & Segmented */}
@@ -319,8 +322,8 @@ export default function Dashboard() {
                 View All
               </button>
             </div>
-            <div className="card-glass p-1 rounded-3xl overflow-x-auto overflow-y-hidden relative w-full">
-              <div className="min-w-max">
+            <div className="card-glass p-1 rounded-3xl overflow-hidden relative w-full">
+              <div className="w-full">
                 <HistoryModule
                   userId={user.id}
                   userEmail={user.email?.address || ''}
