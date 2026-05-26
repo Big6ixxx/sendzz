@@ -21,6 +21,10 @@ import { WithdrawForm } from './WithdrawForm';
 type DepositTab = 'fiat' | 'usdc';
 type UsdcChainTab = 'evm' | 'solana' | 'stellar';
 
+/** Solana and Stellar bridges are untested — hidden in prod until validated. */
+const EXPERIMENTAL_BRIDGES_ENABLED =
+  process.env.NEXT_PUBLIC_ENABLE_EXPERIMENTAL_BRIDGES === 'true';
+
 interface DepositWithdrawDialogProps {
   isOpen: boolean;
   onClose: () => void;
@@ -147,34 +151,40 @@ export function DepositWithdrawDialog({
                 <DepositForm hook={depositHook} />
               ) : (
                 <div className="space-y-5">
-                  {/* Chain sub-tabs */}
-                  <div className="flex bg-white/5 p-1 rounded-xl border border-white/5">
-                    {(['evm', 'solana', 'stellar'] as UsdcChainTab[]).map((chain) => (
-                      <button
-                        key={chain}
-                        onClick={() => setUsdcChainTab(chain)}
-                        className={cn(
-                          'flex-1 py-2 text-[10px] font-bold uppercase tracking-[0.15em] rounded-lg transition-all',
-                          usdcChainTab === chain
-                            ? 'bg-white/10 text-brand-secondary shadow'
-                            : 'text-brand-secondary/30 hover:text-brand-secondary/50',
-                        )}
-                      >
-                        {chain === 'evm' ? 'EVM' : chain === 'solana' ? 'Solana' : 'Stellar'}
-                      </button>
-                    ))}
-                  </div>
+                  {/* Chain sub-tabs — Solana/Stellar hidden behind flag until tested in prod */}
+                  {EXPERIMENTAL_BRIDGES_ENABLED && (
+                    <div className="flex bg-white/5 p-1 rounded-xl border border-white/5">
+                      {(['evm', 'solana', 'stellar'] as UsdcChainTab[]).map((chain) => (
+                        <button
+                          key={chain}
+                          onClick={() => setUsdcChainTab(chain)}
+                          className={cn(
+                            'flex-1 py-2 text-[10px] font-bold uppercase tracking-[0.15em] rounded-lg transition-all',
+                            usdcChainTab === chain
+                              ? 'bg-white/10 text-brand-secondary shadow'
+                              : 'text-brand-secondary/30 hover:text-brand-secondary/50',
+                          )}
+                        >
+                          {chain === 'evm' ? 'EVM' : chain === 'solana' ? 'Solana' : 'Stellar'}
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
                   {/* Keep all forms mounted so tab switches don't replay entrance animations */}
                   <div className={usdcChainTab === 'evm' ? undefined : 'hidden'}>
                     <CctpDepositForm userAddress={userAddress} handleClose={onClose} />
                   </div>
-                  <div className={usdcChainTab === 'solana' ? undefined : 'hidden'}>
-                    <SolanaCctpForm userAddress={userAddress} handleClose={onClose} />
-                  </div>
-                  <div className={usdcChainTab === 'stellar' ? undefined : 'hidden'}>
-                    <StellarCctpForm userAddress={userAddress} handleClose={onClose} />
-                  </div>
+                  {EXPERIMENTAL_BRIDGES_ENABLED && (
+                    <>
+                      <div className={usdcChainTab === 'solana' ? undefined : 'hidden'}>
+                        <SolanaCctpForm userAddress={userAddress} handleClose={onClose} />
+                      </div>
+                      <div className={usdcChainTab === 'stellar' ? undefined : 'hidden'}>
+                        <StellarCctpForm userAddress={userAddress} handleClose={onClose} />
+                      </div>
+                    </>
+                  )}
                 </div>
               )
             ) : (

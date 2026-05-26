@@ -15,7 +15,12 @@ import {
 } from 'viem/chains';
 import { ReactNode, useState } from 'react';
 
-const solanaConnectors = toSolanaWalletConnectors({ shouldAutoConnect: true });
+const EXPERIMENTAL_BRIDGES_ENABLED =
+  process.env.NEXT_PUBLIC_ENABLE_EXPERIMENTAL_BRIDGES === 'true';
+
+const solanaConnectors = EXPERIMENTAL_BRIDGES_ENABLED
+  ? toSolanaWalletConnectors({ shouldAutoConnect: true })
+  : undefined;
 
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
@@ -48,11 +53,11 @@ export function Providers({ children }: { children: ReactNode }) {
               createOnLogin: 'users-without-wallets',
             },
           },
-          externalWallets: {
-            solana: {
-              connectors: solanaConnectors,
+          ...(solanaConnectors && {
+            externalWallets: {
+              solana: { connectors: solanaConnectors },
             },
-          },
+          }),
           defaultChain: isProd ? base : baseSepolia,
           supportedChains: [
             mainnet,
