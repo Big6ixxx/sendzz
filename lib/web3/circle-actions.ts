@@ -65,12 +65,12 @@ export async function executeCircleGaslessBatchTransfer(
   });
 
   // 4. Send UserOperation in one batch
+  // Note: Circle's modularTransport handles gas sponsorship natively via the
+  // configured gas policy — do NOT pass paymaster:true here, which would tell
+  // viem to call ERC-7677 pm_getPaymasterData methods that Circle doesn't expose.
   console.log(`[BatchTransfer] Sending UserOp with ${calls.length} calls...`);
 
-  const userOpHash = await bundlerClient.sendUserOperation({
-    calls,
-    paymaster: true,
-  });
+  const userOpHash = await bundlerClient.sendUserOperation({ calls });
 
   console.log('[BatchTransfer] UserOp Hash:', userOpHash);
 

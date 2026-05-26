@@ -252,12 +252,7 @@ export function TransferForm({
         </button>
 
         {status && (
-          <div
-            className={`p-4 rounded-xl text-xs font-bold uppercase tracking-tight text-center animate-in fade-in slide-in-from-top-2 duration-300 ${status.includes('Error')
-              ? 'bg-red-50 text-red-600'
-              : 'bg-muted/50 text-muted-foreground'
-              }`}
-          >
+          <div className="p-4 rounded-xl text-xs font-bold uppercase tracking-tight text-center break-words animate-in fade-in slide-in-from-top-2 duration-300 bg-muted/50 text-muted-foreground">
             {status}
           </div>
         )}

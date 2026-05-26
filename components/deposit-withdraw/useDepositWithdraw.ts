@@ -18,6 +18,7 @@ import {
   PaycrestOrderResponse,
 } from '@/lib/paycrest/types';
 import { executeCircleGaslessTransfer } from '@/lib/web3/circle-actions';
+import { parseFriendlyError } from '@/components/transfer/useTransfer';
 import { ConnectedWallet } from '@privy-io/react-auth';
 import { calculatePaycrestBaseAmount } from '@/lib/paycrest/config';
 import { useQueryClient } from '@tanstack/react-query';
@@ -312,9 +313,7 @@ export function useDepositWithdraw(
       setStep(4);
       startPolling();
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : 'An unknown error occurred',
-      );
+      toast.error(parseFriendlyError(err));
     } finally {
       setTransferring(false);
     }

@@ -6,6 +6,36 @@ import { ConnectedWallet } from '@privy-io/react-auth';
 import { executeCircleGaslessTransfer } from '@/lib/web3/circle-actions';
 import { type FiatCurrencyCode } from '@/lib/currency-config';
 import { ReceiptData } from '@/lib/receipt/types';
+import { toast } from 'sonner';
+
+/** Convert raw viem / Circle / network errors into short user-readable strings. */
+export function parseFriendlyError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+
+  // Circle / viem UserOperation errors contain multi-KB hex calldata — catch first
+  if (raw.includes('executing user operation') || raw.includes('UserOperation')) {
+    if (raw.includes('JSON is not a valid request object'))
+      return 'Transfer service is temporarily unavailable. Please try again shortly.';
+    if (raw.includes('AA21') || raw.includes("didn't pay prefund"))
+      return 'Insufficient funds to cover the network fee.';
+    if (raw.includes('AA25') || raw.includes('invalid account nonce'))
+      return 'Transaction conflict — please wait a moment and retry.';
+    if (/rejected|denied/i.test(raw))
+      return 'Transaction rejected by network.';
+    return 'Transfer failed. Please try again.';
+  }
+
+  if (/user rejected|user denied|cancelled/i.test(raw)) return 'Transaction cancelled.';
+  if (/insufficient funds|insufficient balance/i.test(raw))
+    return 'Insufficient balance to complete this transfer.';
+  if (/network|fetch|ECONNREFUSED|timeout/i.test(raw))
+    return 'Network error. Please check your connection and try again.';
+  if (raw.includes('Circle Client Key not configured'))
+    return 'Transfer service is not configured. Please contact support.';
+
+  // Only surface the raw message if it's short enough to be readable
+  return raw.length <= 120 ? raw : 'Transfer failed. Please try again.';
+}
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -152,7 +182,8 @@ export function useTransfer({
         amountUsdc,
       );
 
-      setStatus('Success! Transfer completed.');
+      toast.success('Transfer completed!');
+      setStatus('');
 
       setLastCompletedTransfer({
         id: (txHash as string) || `txn-${Date.now().toString(36)}`,
@@ -191,12 +222,10 @@ export function useTransfer({
       setRecipientEmail('');
       setMemo('');
       setIsPendingClaim(false);
-      setTimeout(() => setStatus(''), 5000);
     } catch (err) {
       console.error('[Transfer] Fatal Error:', err);
-      setStatus(
-        `Error: ${err instanceof Error ? err.message : 'Unknown error'}`,
-      );
+      toast.error(parseFriendlyError(err));
+      setStatus('');
     }
     setLoading(false);
   };
