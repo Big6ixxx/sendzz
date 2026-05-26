@@ -62,6 +62,30 @@ const ACTIVITY_LABELS: Record<ActivityType, string> = {
 
 const PAGE_SIZE = 10;
 
+/** Truncates an email address to fit in tight spaces: "us***@domain.com" */
+function truncateEmail(email: string, maxLength = 22): string {
+  if (email.length <= maxLength) return email;
+  const atIdx = email.indexOf('@');
+  if (atIdx === -1) return email.slice(0, maxLength - 1) + '…';
+  const local = email.slice(0, atIdx);
+  const domain = email.slice(atIdx); // includes @
+  const keep = Math.max(2, maxLength - domain.length - 3);
+  return local.slice(0, keep) + '…' + domain;
+}
+
+/** Formats a details string, truncating any email address inside it */
+function formatDetails(details: string): string {
+  // Matches "Label: value" pattern
+  const match = details.match(/^([^:]+:\s*)(.+)$/);
+  if (!match) return details;
+  const [, prefix, value] = match;
+  // Only truncate if it looks like an email
+  if (value.includes('@')) {
+    return prefix + truncateEmail(value);
+  }
+  return details;
+}
+
 export function HistoryModule({
   userId,
   userEmail,
@@ -493,11 +517,12 @@ export function HistoryModule({
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <div className="flex justify-between items-center gap-4">
-                      <p className="text-[11px] font-bold uppercase truncate tracking-[0.15em] text-brand-secondary/30 flex-1 min-w-0 max-w-[120px] md:max-w-none">
-                        {a.details}
+                      {/* formatDetails truncates long email addresses gracefully */}
+                      <p className="text-[11px] font-bold uppercase truncate tracking-[0.15em] text-brand-secondary/30 flex-1 min-w-0 max-w-[180px]">
+                        {formatDetails(a.details)}
                       </p>
                       <div className="flex items-center gap-3 shrink-0">
-                        {/* Status badge */}
+                        {/* Status badge — full pending_claim / reclaim / accept states */}
                         <span
                           className={cn(
                             'text-[9px] px-2 py-0.5 rounded-md font-bold uppercase tracking-widest flex items-center gap-1.5',

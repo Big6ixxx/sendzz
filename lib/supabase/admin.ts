@@ -88,15 +88,30 @@ export async function getAdminStats(adminEmail: string) {
 export async function getAdminTransactions(
   adminEmail: string,
   filterType?: string,
+  dateRange?: '7d' | '30d' | '6m' | '1y' | 'all',
 ): Promise<AdminTransaction[]> {
   if (!(await verifyAdmin(adminEmail))) throw new Error('Unauthorized');
 
+  let startDate: string | undefined;
+  if (dateRange && dateRange !== 'all') {
+    const now = new Date();
+    if (dateRange === '7d') now.setDate(now.getDate() - 7);
+    else if (dateRange === '30d') now.setDate(now.getDate() - 30);
+    else if (dateRange === '6m') now.setMonth(now.getMonth() - 6);
+    else if (dateRange === '1y') now.setFullYear(now.getFullYear() - 1);
+    startDate = now.toISOString();
+  }
+
+  const applyDateFilter = <T extends { gte: (col: string, val: string) => T }>(
+    query: T,
+  ): T => (startDate ? query.gte('created_at', startDate) : query);
+
   const [{ data: transfers }, { data: deposits }, { data: withdrawals }, { data: bridges }] =
     await Promise.all([
-      supabaseAdmin.from('transfers').select('*').order('created_at', { ascending: false }).limit(50),
-      supabaseAdmin.from('deposits').select('*').order('created_at', { ascending: false }).limit(50),
-      supabaseAdmin.from('withdrawals').select('*').order('created_at', { ascending: false }).limit(50),
-      supabaseAdmin.from('bridge_transactions').select('*').order('created_at', { ascending: false }).limit(50),
+      applyDateFilter(supabaseAdmin.from('transfers').select('*').order('created_at', { ascending: false })),
+      applyDateFilter(supabaseAdmin.from('deposits').select('*').order('created_at', { ascending: false })),
+      applyDateFilter(supabaseAdmin.from('withdrawals').select('*').order('created_at', { ascending: false })),
+      applyDateFilter(supabaseAdmin.from('bridge_transactions').select('*').order('created_at', { ascending: false })),
     ]);
 
   const all: AdminTransaction[] = [

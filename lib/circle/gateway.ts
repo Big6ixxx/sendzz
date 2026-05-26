@@ -1,24 +1,3 @@
-/**
- * Circle CCTP V2 Gateway
- *
- * Uses Circle's Cross-Chain Transfer Protocol V2 with the Iris API for
- * attestation polling. Circle's infrastructure handles the relay and minting
- * on the destination chain — no hot wallet / BRIDGE_SIGNER_PRIVATE_KEY needed.
- *
- * Flow (simplified):
- * 1. User calls approve() + depositForBurn() on source chain TokenMessengerV2
- * 2. We poll Circle's Iris API for attestation status
- * 3. Once attested, Circle's relayer automatically mints USDC on Base
- *
- * Fee model:
- * - Fast Transfer: 0–14 bps (e.g., $0–$1.40 per $1,000)
- * - Standard Transfer: fee switch applies on some chains
- * - Always fetch current fee via /v2/burn/USDC/fees before initiating
- *
- * Docs: https://developers.circle.com/cctp/concepts/fees
- */
-
-// CCTP V2 Domain IDs (EVM chains only)
 export const CCTP_DOMAINS = {
   ethereum: 0,
   avalanche: 1,
@@ -38,37 +17,54 @@ export const TOKEN_MESSENGER_V2 =
 export const USDC_ADDRESSES: Record<SupportedChain, string> = {
   ethereum: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
   avalanche: '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E',
+  optimism: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
   arbitrum: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
   base: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
   polygon: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
-  optimism: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
 };
 
 export const CHAIN_NAMES: Record<SupportedChain, string> = {
   ethereum: 'Ethereum',
   avalanche: 'Avalanche',
+  optimism: 'Optimism',
   arbitrum: 'Arbitrum',
   base: 'Base',
   polygon: 'Polygon',
-  optimism: 'Optimism',
 };
 
 export const CHAIN_IDS: Record<SupportedChain, number> = {
   ethereum: 1,
   avalanche: 43114,
+  optimism: 10,
   arbitrum: 42161,
   base: 8453,
   polygon: 137,
-  optimism: 10,
+};
+
+/** Block explorer tx URL for each chain */
+export const CHAIN_EXPLORERS: Record<SupportedChain, string> = {
+  ethereum: 'https://etherscan.io/tx',
+  avalanche: 'https://snowtrace.io/tx',
+  optimism: 'https://optimistic.etherscan.io/tx',
+  arbitrum: 'https://arbiscan.io/tx',
+  base: 'https://basescan.org/tx',
+  polygon: 'https://polygonscan.com/tx',
 };
 
 // Source chains the user can bridge FROM (Base is the destination)
+// Circle sponsors gas with USDC on these chains
 export const SOURCE_CHAINS: SupportedChain[] = [
-  'ethereum',
   'arbitrum',
-  'polygon',
-  'optimism',
   'avalanche',
+  'ethereum',
+  'optimism',
+  'polygon',
+];
+
+export const SMART_BRIDGE_CHAINS: SupportedChain[] = [
+  'arbitrum',
+  'avalanche',
+  'ethereum',
 ];
 
 // Circle Iris API base URL (mainnet)
