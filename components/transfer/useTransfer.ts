@@ -1,12 +1,21 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getUserContacts } from '@/lib/supabase/contacts';
 import { useExchangeRate } from '@/lib/hooks/useExchangeRate';
 import { ConnectedWallet } from '@privy-io/react-auth';
 import { executeCircleGaslessTransfer } from '@/lib/web3/circle-actions';
-import { sendTransferEmail } from '@/lib/email/sendEmail';
 import { type FiatCurrencyCode } from '@/lib/currency-config';
 import { ReceiptData } from '@/lib/receipt/types';
+
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+export interface RecipientCheckState {
+  status: 'idle' | 'loading' | 'done';
+  exists: boolean;
+  priorTransactionCount: number;
+}
 
 interface UseTransferProps {
   smartAddress: string;
@@ -37,6 +46,10 @@ export function useTransfer({
   const [showSavePrompt, setShowSavePrompt] = useState(false);
   const [lastRecipient, setLastRecipient] = useState('');
   const [lastCompletedTransfer, setLastCompletedTransfer] = useState<ReceiptData | null>(null);
+  const [recipientCheck, setRecipientCheck] = useState<RecipientCheckState | null>(null);
+
+  // Cache recipient check results for 30s to avoid hammering on keystrokes
+  const checkCacheRef = useRef<Map<string, { data: { exists: boolean; priorTransactionCount: number }; ts: number }>>(new Map());
 
   const isFiat = currency !== 'USD';
   const { data: exchangeRate = 1 } = useExchangeRate(isFiat ? currency : 'USD');
@@ -54,6 +67,48 @@ export function useTransfer({
       if (onClearInitialRecipient) onClearInitialRecipient();
     }
   }, [initialRecipientEmail, onClearInitialRecipient]);
+
+  // Debounced recipient check — fires 500ms after the email field settles
+  useEffect(() => {
+    const emailLower = recipientEmail.toLowerCase().trim();
+
+    if (!emailLower || !isValidEmail(emailLower)) {
+      setRecipientCheck(null);
+      return;
+    }
+    // Don't warn when sending to yourself
+    if (emailLower === senderEmail.toLowerCase()) {
+      setRecipientCheck(null);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      // Check 30-second cache first
+      const cached = checkCacheRef.current.get(emailLower);
+      if (cached && Date.now() - cached.ts < 30_000) {
+        setRecipientCheck({ status: 'done', ...cached.data });
+        return;
+      }
+
+      setRecipientCheck({ status: 'loading', exists: false, priorTransactionCount: 0 });
+      try {
+        const res = await fetch(
+          `/api/transfer/check-recipient?email=${encodeURIComponent(emailLower)}`,
+        );
+        if (res.ok) {
+          const data = await res.json();
+          checkCacheRef.current.set(emailLower, { data, ts: Date.now() });
+          setRecipientCheck({ status: 'done', ...data });
+        } else {
+          setRecipientCheck(null);
+        }
+      } catch {
+        setRecipientCheck(null);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [recipientEmail, senderEmail]);
 
   const amountUsdc = isFiat
     ? (parseFloat(amount || '0') / exchangeRate).toFixed(2)
@@ -136,10 +191,6 @@ export function useTransfer({
       queryClient.invalidateQueries({ queryKey: ['balance', smartAddress] });
       queryClient.invalidateQueries({ queryKey: ['history', senderEmail] });
 
-      sendTransferEmail(recipientEmail, amountUsdc, senderEmail).catch(
-        console.error,
-      );
-
       setAmount('');
       setRecipientEmail('');
       setMemo('');
@@ -185,5 +236,6 @@ export function useTransfer({
     isOverBalance,
     isZeroBalance,
     handleTransfer,
+    recipientCheck,
   };
 }

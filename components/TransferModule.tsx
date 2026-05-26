@@ -48,6 +48,7 @@ export function TransferModule({
     isOverBalance,
     isZeroBalance,
     handleTransfer,
+    recipientCheck,
   } = useTransfer({
     smartAddress,
     embeddedProvider,
@@ -96,6 +97,7 @@ export function TransferModule({
         handleTransfer={handleTransfer}
         smartAddress={smartAddress}
         lastCompletedTransfer={lastCompletedTransfer}
+        recipientCheck={recipientCheck}
       />
 
       <AddContactModal

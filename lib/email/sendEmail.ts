@@ -1,7 +1,7 @@
 'use server';
 
 import { Resend } from 'resend';
-import { transferReceivedTemplate } from './templates';
+import { claimTransferTemplate, transferReceivedTemplate } from './templates';
 
 export interface SendEmailOptions {
   to: string | string[];
@@ -55,16 +55,38 @@ export async function sendEmail(
   }
 }
 
+/**
+ * Send the appropriate transfer notification email.
+ *
+ * - pending_claim: recipient gets a "Claim Your Funds" email with a one-time link.
+ * - completed:     recipient gets an instant "Funds Received" email.
+ */
 export async function sendTransferEmail(
   recipientEmail: string,
   amountUSDC: string,
   senderEmail: string,
+  options: {
+    isPendingClaim: boolean;
+    /** Raw (un-hashed) claim token — only required when isPendingClaim is true */
+    rawToken?: string;
+    note?: string;
+  } = { isPendingClaim: false },
 ) {
-  const result = await sendEmail({
-    to: recipientEmail,
-    subject: `You received ${amountUSDC} USDC on Sendzz`,
-    html: transferReceivedTemplate(amountUSDC, senderEmail),
-  });
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.sendzz.io';
+
+  let subject: string;
+  let html: string;
+
+  if (options.isPendingClaim && options.rawToken) {
+    const claimUrl = `${appUrl}/claim?token=${options.rawToken}`;
+    subject = `${senderEmail} sent you ${amountUSDC} USDC — claim it now`;
+    html = claimTransferTemplate(amountUSDC, senderEmail, claimUrl, options.note);
+  } else {
+    subject = `You received ${amountUSDC} USDC on Sendzz`;
+    html = transferReceivedTemplate(amountUSDC, senderEmail, options.note);
+  }
+
+  const result = await sendEmail({ to: recipientEmail, subject, html });
 
   if (!result.success) {
     console.error('[sendTransferEmail] Failed:', result.error);

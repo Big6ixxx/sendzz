@@ -537,6 +537,27 @@ export interface Database {
         Args: { p_paycrest_order_id: string; p_reason?: string | null };
         Returns: boolean;
       };
+      claim_transfer: {
+        Args: {
+          p_recipient_id: string;
+          p_claim_token_hash: string;
+        };
+        Returns: string;
+      };
+      reclaim_transfer: {
+        Args: {
+          p_transfer_id: string;
+          p_sender_id: string;
+        };
+        Returns: void;
+      };
+      accept_transfer: {
+        Args: {
+          p_transfer_id: string;
+          p_recipient_id: string;
+        };
+        Returns: void;
+      };
     };
     Enums: {
       asset_type: AssetType;

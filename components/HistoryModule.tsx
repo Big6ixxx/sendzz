@@ -2,18 +2,22 @@
 
 import { getUserActivities } from '@/lib/supabase/transactions';
 import { cn } from '@/lib/utils';
-import { useQuery } from '@tanstack/react-query';
-import { format } from 'date-fns';
+import { useQueryClient, useQuery } from '@tanstack/react-query';
+import { format, formatDistanceToNow } from 'date-fns';
 import {
   ArrowDownLeft,
   ArrowUpRight,
+  CheckCircle2,
+  Clock,
   History,
   Landmark,
   RefreshCw,
   Search,
+  Undo2,
   Wallet,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import {
   Select,
   SelectContent,
@@ -44,6 +48,8 @@ export interface Activity {
   fiatAmount?: number;
   fiatCurrency?: string;
   exchangeRate?: number;
+  /** ISO timestamp — present on outgoing pending_claim transfers */
+  expiresAt?: string;
 }
 
 const ACTIVITY_LABELS: Record<ActivityType, string> = {
@@ -77,6 +83,57 @@ export function HistoryModule({
   const [filterType, setFilterType] = useState<ActivityType | 'all'>('all');
   const [sortBy, setSortBy] = useState<SortType>('date');
   const [visibleCount, setVisibleCount] = useState(limit || PAGE_SIZE);
+  const [reclaimingId, setReclaimingId] = useState<string | null>(null);
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  async function handleAccept(transferId: string) {
+    setAcceptingId(transferId);
+    try {
+      const res = await fetch('/api/transfer/accept', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transferId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || 'Could not accept payment');
+      } else {
+        toast.success('Payment accepted! Funds added to your balance');
+        queryClient.invalidateQueries({ queryKey: ['history', userEmail] });
+        queryClient.invalidateQueries({ queryKey: ['balance'] });
+        queryClient.invalidateQueries({ queryKey: ['pending-incoming', userEmail] });
+      }
+    } catch {
+      toast.error('Something went wrong. Please try again.');
+    } finally {
+      setAcceptingId(null);
+    }
+  }
+
+  async function handleReclaim(transferId: string) {
+    setReclaimingId(transferId);
+    try {
+      const res = await fetch('/api/transfer/reclaim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transferId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || 'Could not reclaim transfer');
+      } else {
+        toast.success('Funds returned to your balance');
+        // Invalidate both history and balance queries
+        queryClient.invalidateQueries({ queryKey: ['history', userEmail] });
+        queryClient.invalidateQueries({ queryKey: ['balance'] });
+      }
+    } catch {
+      toast.error('Something went wrong. Please try again.');
+    } finally {
+      setReclaimingId(null);
+    }
+  }
 
   const {
     data: allActivities,
@@ -100,6 +157,7 @@ export function HistoryModule({
           txHash: t.tx_hash || (t.note?.startsWith('0x') ? t.note : undefined),
           senderEmail: t.sender_email,
           note: t.note && !t.note.startsWith('0x') ? t.note : undefined,
+          expiresAt: t.expires_at ?? undefined,
         })),
         ...(data.received || [])
           .filter((t) => t.sender_id !== userId)
@@ -335,12 +393,36 @@ export function HistoryModule({
               statusLower === 'complete';
             const isPending =
               statusLower === 'pending' || statusLower === 'processing';
+            const isPendingClaim = statusLower === 'pending_claim';
+            const isExpiredOrReclaimed =
+              statusLower === 'expired';
+
+            // A sender can reclaim when: status is pending_claim AND expires_at has passed
+            const canReclaim =
+              a.type === 'sent' &&
+              isPendingClaim &&
+              !!a.expiresAt &&
+              new Date(a.expiresAt) < new Date();
+
+            // Show remaining time or "overdue" for pending_claim transfers
+            const expiryLabel =
+              isPendingClaim && a.expiresAt
+                ? canReclaim
+                  ? 'Expired — reclaim available'
+                  : `Expires ${formatDistanceToNow(new Date(a.expiresAt), { addSuffix: true })}`
+                : null;
 
             return (
-              <button
+              <div
                 key={a.id}
+                role={onTxClick ? 'button' : undefined}
+                tabIndex={onTxClick ? 0 : undefined}
                 onClick={() => onTxClick?.(a)}
-                className="w-full p-5 md:p-7 flex items-center gap-6 hover:bg-white/3 transition-all text-left group relative"
+                onKeyDown={(e) => e.key === 'Enter' && onTxClick?.(a)}
+                className={cn(
+                  'w-full p-5 md:p-7 flex items-center gap-6 transition-all text-left group relative',
+                  onTxClick && 'cursor-pointer hover:bg-white/3',
+                )}
               >
                 <div
                   className={cn(
@@ -409,33 +491,113 @@ export function HistoryModule({
                       </span>
                     </span>
                   </div>
-                  <div className="flex justify-between items-center gap-4">
-                    <p className="text-[11px] font-bold uppercase truncate tracking-[0.15em] text-brand-secondary/30 flex-1 min-w-0 max-w-[120px] md:max-w-none">
-                      {a.details}
-                    </p>
-                    <div className="flex items-center gap-3 shrink-0">
-                      <span
-                        className={cn(
-                          'text-[9px] px-2 py-0.5 rounded-md font-bold uppercase tracking-widest flex items-center gap-1.5',
-                          isSettled
-                            ? 'bg-accent/10 text-accent border border-accent/20'
-                            : isPending
-                              ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                              : 'bg-white/5 text-brand-secondary/30 border border-white/10',
-                        )}
-                      >
-                        {isPending && (
-                          <RefreshCw className="w-2.5 h-2.5 animate-spin" />
-                        )}
-                        {isPending ? 'Processing' : a.status}
-                      </span>
-                      <span className="text-[10px] font-bold uppercase text-brand-secondary/20 whitespace-nowrap">
-                        {format(new Date(a.timestamp), 'MMM dd')}
-                      </span>
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex justify-between items-center gap-4">
+                      <p className="text-[11px] font-bold uppercase truncate tracking-[0.15em] text-brand-secondary/30 flex-1 min-w-0 max-w-[120px] md:max-w-none">
+                        {a.details}
+                      </p>
+                      <div className="flex items-center gap-3 shrink-0">
+                        {/* Status badge */}
+                        <span
+                          className={cn(
+                            'text-[9px] px-2 py-0.5 rounded-md font-bold uppercase tracking-widest flex items-center gap-1.5',
+                            isSettled
+                              ? 'bg-accent/10 text-accent border border-accent/20'
+                              : isPending
+                                ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                                : isPendingClaim
+                                  ? canReclaim
+                                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                    : 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'
+                                  : isExpiredOrReclaimed
+                                    ? 'bg-white/5 text-brand-secondary/20 border border-white/8'
+                                    : 'bg-white/5 text-brand-secondary/30 border border-white/10',
+                          )}
+                        >
+                          {isPending && <RefreshCw className="w-2.5 h-2.5 animate-spin" />}
+                          {isPendingClaim && <Clock className="w-2.5 h-2.5" />}
+                          {isPending
+                            ? 'Processing'
+                            : isPendingClaim
+                              ? canReclaim
+                                ? 'Reclaim Available'
+                                : 'Awaiting Claim'
+                              : a.status}
+                        </span>
+                        <span className="text-[10px] font-bold uppercase text-brand-secondary/20 whitespace-nowrap">
+                          {format(new Date(a.timestamp), 'MMM dd')}
+                        </span>
+                      </div>
                     </div>
+
+                    {/* Expiry label + Reclaim button row */}
+                    {(expiryLabel || canReclaim) && (
+                      <div className="flex items-center justify-between gap-2">
+                        {expiryLabel && (
+                          <p
+                            className="text-[10px] font-semibold"
+                            style={{ color: canReclaim ? '#f59e0b' : 'rgba(248,248,246,0.25)' }}
+                          >
+                            {expiryLabel}
+                          </p>
+                        )}
+                        {canReclaim && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleReclaim(a.id);
+                            }}
+                            disabled={reclaimingId === a.id}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-widest transition-all disabled:opacity-50"
+                            style={{
+                              background: 'rgba(245,158,11,0.12)',
+                              color: '#f59e0b',
+                              border: '1px solid rgba(245,158,11,0.25)',
+                            }}
+                          >
+                            {reclaimingId === a.id
+                              ? <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                              : <Undo2 className="w-2.5 h-2.5" />
+                            }
+                            {reclaimingId === a.id ? 'Reclaiming…' : 'Reclaim Funds'}
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Accept Payment button — for received pending_claim transfers */}
+                    {a.type === 'received' && isPendingClaim && (
+                      <div className="flex items-center justify-between gap-2 mt-1">
+                        <p
+                          className="text-[10px] font-semibold"
+                          style={{ color: 'rgba(0,232,122,0.6)' }}
+                        >
+                          Waiting for your acceptance
+                        </p>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleAccept(a.id);
+                          }}
+                          disabled={acceptingId === a.id}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-widest transition-all disabled:opacity-50"
+                          style={{
+                            background: 'rgba(0,232,122,0.1)',
+                            color: '#00e87a',
+                            border: '1px solid rgba(0,232,122,0.2)',
+                          }}
+                        >
+                          {acceptingId === a.id
+                            ? <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                            : <CheckCircle2 className="w-2.5 h-2.5" />
+                          }
+                          {acceptingId === a.id ? 'Accepting…' : 'Accept Payment'}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
-              </button>
+              </div>
             );
           })
         )}

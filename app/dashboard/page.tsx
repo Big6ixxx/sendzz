@@ -4,6 +4,7 @@ import { ActivityDetailModal } from '@/components/ActivityDetailModal';
 import { BatchSendDialog } from '@/components/batch-send/BatchSendDialog';
 import { DepositWithdrawDialog } from '@/components/deposit-withdraw/DepositWithdrawDialog';
 import { Activity, HistoryModule } from '@/components/HistoryModule';
+import { PendingIncomingPanel } from '@/components/PendingIncomingPanel';
 import { TransferModule } from '@/components/TransferModule';
 import {
   Tooltip,
@@ -232,6 +233,12 @@ export default function Dashboard() {
             </div>
           </div>
         </section>
+
+        {/* Pending Incoming Payments — shown only when there are payments awaiting acceptance */}
+        <PendingIncomingPanel
+          userId={user.id}
+          userEmail={user.email?.address || ''}
+        />
 
         {/* Main Grid: Clean & Segmented */}
         <div className="grid lg:grid-cols-12 gap-12 items-start">

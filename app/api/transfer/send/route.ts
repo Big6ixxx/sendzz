@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     const senderEmail = user.email!;
     const adminSupabase = createAdminClient();
 
-    // 2. Generate claim token (only used if recipient doesn't exist)
+    // 2. Generate claim token — required for all transfers (universal escrow)
     const rawToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = crypto
       .createHash('sha256')
@@ -59,31 +59,22 @@ export async function POST(req: Request) {
       );
     }
 
-    // 4. Check if the transfer resulted in a "pending_claim" status
-    const { data: transfer } = await adminSupabase
-      .from('transfers')
-      .select('status, recipient_id')
-      .eq('id', transferId)
-      .single();
-
-    const claimRequired = transfer?.status === 'pending_claim';
-
-    // 5. Send Notification Email
+    // 4. Send Notification Email — all transfers are now pending_claim (universal escrow)
     try {
-      await sendTransferEmail(recipientEmail, amount, senderEmail);
-      // If claim is required, we could send a specific link with the rawToken
-      // For now, sendTransferEmail uses a generic template
+      await sendTransferEmail(recipientEmail, amount, senderEmail, {
+        isPendingClaim: true,
+        rawToken,
+        note: note || undefined,
+      });
     } catch (emailErr) {
       console.error('[Transfer API] Email notification failed:', emailErr);
-      // We don't fail the whole request if email fails, but we log it
+      // Don't fail the whole request if email fails
     }
 
     return NextResponse.json({
       success: true,
       transferId,
-      claimRequired,
-      // In a real app, you might return the txHash if it was a blockchain tx
-      // Here we rely on the internal ledger for now
+      claimRequired: true,
     });
   } catch (error) {
     console.error('[Transfer API] Critical Error:', error);
