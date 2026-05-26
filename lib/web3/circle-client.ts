@@ -13,14 +13,6 @@ import {
 import { VIEM_CHAINS } from './multichain';
 import { SupportedChain } from '../circle/gateway';
 
-// Per-chain public RPC URLs for gas estimation
-const CHAIN_RPC_URLS: Record<string, string | undefined> = {
-  base: process.env.NEXT_PUBLIC_RPC_URL,
-  arbitrum: process.env.NEXT_PUBLIC_ARBITRUM_RPC_URL || 'https://arb1.arbitrum.io/rpc',
-  avalanche: process.env.NEXT_PUBLIC_AVALANCHE_RPC_URL || 'https://api.avax.network/ext/bc/C/rpc',
-  ethereum: process.env.NEXT_PUBLIC_ETHEREUM_RPC_URL || 'https://cloudflare-eth.com',
-};
-
 const getCircleRpcUrl = (chainName: string = 'base') => `${CIRCLE_CLIENT_URL}/${chainName}`;
 
 // Build a viem custom account from Privy's provider
