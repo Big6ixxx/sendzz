@@ -18,6 +18,11 @@ export function parseFriendlyError(err: unknown): string {
       return 'Transfer service is temporarily unavailable. Please try again shortly.';
     if (raw.includes('AA21') || raw.includes("didn't pay prefund"))
       return 'Insufficient funds to cover the network fee.';
+    if (
+      raw.includes('precheck failed') ||
+      raw.includes('sender balance and deposit together')
+    )
+      return 'Transfer failed. Please try again.';
     if (raw.includes('AA25') || raw.includes('invalid account nonce'))
       return 'Transaction conflict — please wait a moment and retry.';
     if (/rejected|denied/i.test(raw))
