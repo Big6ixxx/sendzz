@@ -14,6 +14,10 @@ export function parseFriendlyError(err: unknown): string {
 
   // Circle / viem UserOperation errors contain multi-KB hex calldata — catch first
   if (raw.includes('executing user operation') || raw.includes('UserOperation')) {
+    // Must be checked before the generic "JSON is not a valid request object" branch —
+    // Circle wraps this specific error inside that same outer message.
+    if (raw.includes('Cannot find target wallet') || raw.includes("wallet doesn't exist"))
+      return 'Wallet not registered with transfer service. Please try again — your wallet is being set up.';
     if (raw.includes('JSON is not a valid request object'))
       return 'Transfer service is temporarily unavailable. Please try again shortly.';
     if (raw.includes('AA21') || raw.includes("didn't pay prefund"))

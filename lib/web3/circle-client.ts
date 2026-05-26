@@ -70,9 +70,14 @@ export async function getCircleClient(provider: EIP1193Provider, targetChain: st
     CIRCLE_CLIENT_KEY,
   );
 
+  // IMPORTANT: toCircleSmartAccount checks client.transport.key === MODULAR_WALLETS_TRANSPORT_KEY.
+  // When true, it calls Circle's wallet management API (getModularWalletAddress) to register
+  // the smart account in Circle's system. Without this, the account is only computed locally
+  // and Circle's bundler/paymaster cannot find it — causing "Cannot find target wallet" errors
+  // for counterfactual (not-yet-deployed) accounts when paymaster:true is used.
   const publicClient = createPublicClient({
     chain: chainObj,
-    transport: http(CHAIN_RPC_URLS[targetChain] || undefined), // Use chain-specific RPC for accurate gas estimation
+    transport: modularTransport,
   });
 
   // Get the EOA address from Privy
