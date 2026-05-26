@@ -10,7 +10,7 @@ import {
 import { cn } from '@/lib/utils';
 import { ConnectedWallet } from '@privy-io/react-auth';
 import { ArrowDownLeft, ArrowUpRight, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { CctpDepositForm } from './CctpDepositForm';
 import { DepositForm } from './DepositForm';
 import { SolanaCctpForm } from './SolanaCctpForm';
@@ -64,17 +64,6 @@ export function DepositWithdrawDialog({
     embeddedProvider,
     onClose,
   );
-
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'unset';
-    }
-    return () => {
-      document.body.style.overflow = 'unset';
-    };
-  }, [isOpen]);
 
   return (
     <Dialog open={isOpen} onOpenChange={(val) => !val && onClose()}>
@@ -176,15 +165,16 @@ export function DepositWithdrawDialog({
                     ))}
                   </div>
 
-                  {usdcChainTab === 'evm' && (
+                  {/* Keep all forms mounted so tab switches don't replay entrance animations */}
+                  <div className={usdcChainTab === 'evm' ? undefined : 'hidden'}>
                     <CctpDepositForm userAddress={userAddress} handleClose={onClose} />
-                  )}
-                  {usdcChainTab === 'solana' && (
+                  </div>
+                  <div className={usdcChainTab === 'solana' ? undefined : 'hidden'}>
                     <SolanaCctpForm userAddress={userAddress} handleClose={onClose} />
-                  )}
-                  {usdcChainTab === 'stellar' && (
+                  </div>
+                  <div className={usdcChainTab === 'stellar' ? undefined : 'hidden'}>
                     <StellarCctpForm userAddress={userAddress} handleClose={onClose} />
-                  )}
+                  </div>
                 </div>
               )
             ) : (

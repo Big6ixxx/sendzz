@@ -85,10 +85,11 @@ export function CctpDepositForm({
   const [feeLoading, setFeeLoading] = useState(false);
   const [maxFeeRaw, setMaxFeeRaw] = useState<string>('');
 
-  const { data: bridges } = useCrossChainBalances(userAddress);
+  const { data: bridges, isSuccess: bridgesLoaded } = useCrossChainBalances(userAddress);
   const smartWalletBalance = bridges?.find((b) => b.chain === sourceChain)?.balance || '0';
-  const hasSmartWalletBalance = parseFloat(smartWalletBalance) > 0;
-  const isSmartWalletSufficient = amount && parseFloat(amount) > 0 && parseFloat(amount) <= parseFloat(smartWalletBalance);
+  const hasSmartWalletBalance = bridgesLoaded && parseFloat(smartWalletBalance) > 0;
+  // Only promote gasless path once data has loaded — prevents button swap flash on initial render
+  const isSmartWalletSufficient = bridgesLoaded && !!amount && parseFloat(amount) > 0 && parseFloat(amount) <= parseFloat(smartWalletBalance);
 
   // Fetch live fee from Circle Iris API when chain or amount changes
   useEffect(() => {
