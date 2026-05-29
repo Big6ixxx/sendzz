@@ -4,6 +4,7 @@ import { useUserContacts } from '@/components/contacts/useContacts';
 import { useExchangeRate } from '@/lib/hooks/useExchangeRate';
 import { ConnectedWallet } from '@privy-io/react-auth';
 import { executeCircleGaslessTransfer } from '@/lib/web3/circle-actions';
+import { sendTransferEmail } from '@/lib/email/sendEmail';
 import { type FiatCurrencyCode } from '@/lib/currency-config';
 import { ReceiptData } from '@/lib/receipt/types';
 import { toast } from 'sonner';
@@ -215,6 +216,14 @@ export function useTransfer({
         note: memo,
         txHash,
       });
+
+      // Notify recipient — fire-and-forget so a failed email never blocks the transfer
+      sendTransferEmail(recipientEmail, amountUsdc, senderEmail, {
+        isPendingClaim,
+        note: memo || undefined,
+      }).catch((err) =>
+        console.error('[Transfer] Email notification failed:', err),
+      );
 
       const isExisting = contacts.some(
         (c) => c.email.toLowerCase() === recipientEmail.toLowerCase(),
