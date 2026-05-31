@@ -23,4 +23,6 @@ export interface ReceiptData {
   // Bridge
   sourceChain?: string;
   destChain?: string;
+  burnTxHash?: string;
+  mintTxHash?: string;
 }

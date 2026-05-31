@@ -82,13 +82,6 @@ export default function Error({
           </button>
         </motion.div>
       </div>
-
-      <div className="fixed bottom-12 left-1/2 -translate-x-1/2 flex items-center gap-2">
-        <AlertCircle className="w-3 h-3 text-red-500/40" />
-        <p className="text-[10px] font-bold uppercase tracking-[0.4em] text-brand-secondary/10">
-          Redundancy Active
-        </p>
-      </div>
     </div>
   );
 }

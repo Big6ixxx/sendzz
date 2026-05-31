@@ -71,18 +71,6 @@ export default function Loading() {
           </div>
         </div>
       </div>
-
-      {/* Bottom status text */}
-      <motion.div 
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 1 }}
-        className="fixed bottom-12 left-1/2 -translate-x-1/2"
-      >
-        <p className="text-[10px] font-bold uppercase tracking-[0.4em] text-brand-secondary/20">
-          Securing your capital
-        </p>
-      </motion.div>
     </div>
   );
 }

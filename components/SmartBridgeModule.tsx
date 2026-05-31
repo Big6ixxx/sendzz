@@ -13,8 +13,6 @@ import {
   CircleDollarSign,
   Loader2,
   Network,
-  Repeat,
-  ShieldCheck,
   Zap,
   CheckCircle2,
   AlertCircle,
@@ -49,6 +47,7 @@ export function SmartBridgeModule({
   );
   const [monitoringTx, setMonitoringTx] = useState<{ hash: string; chain: SupportedChain } | null>(null);
   const [isComplete, setIsComplete] = useState(false);
+  const [mintTxHash, setMintTxHash] = useState<string | null>(null);
 
   // Poll for completion if we are monitoring a transaction
   useEffect(() => {
@@ -67,6 +66,7 @@ export function SmartBridgeModule({
         const data = await res.json();
         if (data.status === 'complete') {
           setIsComplete(true);
+          setMintTxHash(data.mintTxHash || null);
           clearInterval(interval);
 
           // Update the bridge status in Supabase so history shows "confirmed"
@@ -96,7 +96,7 @@ export function SmartBridgeModule({
 
     setBridgingChain(chain);
     try {
-      const { userOpHash, txHashPromise } = await executeSmartBridge(
+      const { txHashPromise } = await executeSmartBridge(
         embeddedWallet,
         chain,
         amount,
@@ -121,6 +121,7 @@ export function SmartBridgeModule({
       queryClient.invalidateQueries({ queryKey: ['history'] });
       
       setMonitoringTx({ hash: burnTxHash, chain });
+      setMintTxHash(null);
       toast.success('Bridge sequence initiated! Monitoring progress...');
       refetch();
     } catch (err) {
@@ -162,19 +163,49 @@ export function SmartBridgeModule({
             </div>
             
             <div className="flex flex-col gap-3 w-full max-w-xs">
-              <a 
-                href={`${CHAIN_EXPLORERS[monitoringTx.chain]}/${monitoringTx.hash}`} 
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn-secondary h-11 rounded-xl flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                View on {CHAIN_NAMES[monitoringTx.chain]}
-              </a>
+              {isComplete ? (
+                <div className="grid grid-cols-2 gap-3 w-full">
+                  <a 
+                    href={`${CHAIN_EXPLORERS[monitoringTx.chain]}/${monitoringTx.hash}`} 
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-secondary h-11 rounded-xl flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    Burn Tx
+                  </a>
+                  {mintTxHash ? (
+                    <a 
+                      href={`https://basescan.org/tx/${mintTxHash}`} 
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn-secondary h-11 rounded-xl flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      Mint Tx
+                    </a>
+                  ) : (
+                    <div className="h-11 rounded-xl flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest bg-white/2 text-white/20 border border-white/5 cursor-not-allowed select-none">
+                      Mint Pending
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <a 
+                  href={`${CHAIN_EXPLORERS[monitoringTx.chain]}/${monitoringTx.hash}`} 
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-secondary h-11 rounded-xl flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  View on {CHAIN_NAMES[monitoringTx.chain]}
+                </a>
+              )}
               {isComplete && (
                 <button 
                   onClick={() => {
                     setMonitoringTx(null);
+                    setMintTxHash(null);
                     setIsComplete(false);
                     refetch();
                   }}
@@ -315,7 +346,7 @@ export function SmartBridgeModule({
                 All Funds are Local
               </h3>
               <p className="text-sm text-white/30 max-w-xs mx-auto leading-relaxed">
-                We didn't find any stray USDC on other chains for this smart
+                We didn&apos;t find any stray USDC on other chains for this smart
                 wallet. All your assets are currently on Base.
               </p>
             </div>
@@ -332,7 +363,7 @@ export function SmartBridgeModule({
       </AnimatePresence>
 
       {/* Info Card */}
-      <div className="card-glass p-6 border-blue-500/20 bg-blue-500/[0.02] flex gap-4">
+      <div className="card-glass p-6 border-blue-500/20 bg-blue-500/2 flex gap-4">
         <div className="p-2 h-fit rounded-lg bg-blue-500/10">
           <AlertCircle className="w-4 h-4 text-blue-400" />
         </div>
