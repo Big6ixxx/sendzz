@@ -28,6 +28,8 @@ import {
   RefreshCw,
   ShieldCheck,
   Users,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -45,6 +47,20 @@ export default function Dashboard() {
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(
     null,
   );
+  const [hideBalance, setHideBalance] = useState(false);
+
+  useEffect(() => {
+    const stored = localStorage.getItem('hideBalance');
+    if (stored === 'true') {
+      setHideBalance(true);
+    }
+  }, []);
+
+  const toggleBalanceVisibility = () => {
+    const newValue = !hideBalance;
+    setHideBalance(newValue);
+    localStorage.setItem('hideBalance', String(newValue));
+  };
 
   const {
     data: balance = '0.00',
@@ -128,9 +144,20 @@ export default function Dashboard() {
                     className="font-display text-5xl md:text-7xl font-bold tracking-tighter leading-none"
                     style={{ color: '#f8f8f6' }}
                   >
-                    ${balance}
+                    ${hideBalance ? '****' : balance}
                   </h2>
                   <div className="flex items-center gap-2">
+                    <button
+                      onClick={toggleBalanceVisibility}
+                      className="p-2 rounded-full transition-all hover:bg-white/5"
+                      style={{ color: 'rgba(248,248,246,0.3)' }}
+                    >
+                      {hideBalance ? (
+                        <EyeOff className="w-5 h-5" />
+                      ) : (
+                        <Eye className="w-5 h-5" />
+                      )}
+                    </button>
                     <span
                       className="text-xl font-bold uppercase tracking-tighter"
                       style={{ color: 'rgba(248,248,246,0.2)' }}

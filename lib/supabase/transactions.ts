@@ -312,6 +312,56 @@ export async function getUserActivities(userEmail: string) {
       }));
     }
 
+    // Check for pending deposits and update them
+    const pendingDeposits = (deposits || []).filter(d => d.status === 'pending' && d.paycrest_tx_id);
+    if (pendingDeposits.length > 0) {
+      await Promise.all(pendingDeposits.map(async (d) => {
+        try {
+          const { getOrderStatus } = await import('@/lib/actions/ramp');
+          const result = await getOrderStatus(d.paycrest_tx_id!);
+          const statusLower = result?.status?.toLowerCase();
+          
+          if (statusLower === 'settled' || statusLower === 'completed') {
+            await updateDepositStatus(d.paycrest_tx_id!, 'confirmed');
+            d.status = 'confirmed';
+            
+            const settlementTxHash = result.txHash || result.settlementTxHash || result.transactionHash;
+            if (settlementTxHash) {
+              await saveDepositTxHash(d.paycrest_tx_id!, settlementTxHash);
+              d.tx_hash = settlementTxHash;
+            }
+          } else if (statusLower && ['refunded', 'expired', 'failed', 'refunding'].includes(statusLower)) {
+             await updateDepositStatus(d.paycrest_tx_id!, 'failed');
+             d.status = 'failed';
+          }
+        } catch (e) {
+          console.error('[Supabase] Failed to auto-update deposit status:', e);
+        }
+      }));
+    }
+
+    // Check for pending withdrawals and update them
+    const pendingWithdrawals = (withdrawals || []).filter(w => w.status === 'processing' && w.paycrest_order_id);
+    if (pendingWithdrawals.length > 0) {
+      await Promise.all(pendingWithdrawals.map(async (w) => {
+        try {
+          const { getOrderStatus } = await import('@/lib/actions/ramp');
+          const result = await getOrderStatus(w.paycrest_order_id!);
+          const statusLower = result?.status?.toLowerCase();
+          
+          if (statusLower && ['settled', 'completed', 'validated', 'deposited'].includes(statusLower)) {
+            await updateWithdrawalStatus(w.paycrest_order_id!, 'completed');
+            w.status = 'completed';
+          } else if (statusLower && ['refunded', 'expired', 'failed', 'refunding'].includes(statusLower)) {
+            await updateWithdrawalStatus(w.paycrest_order_id!, 'failed');
+            w.status = 'failed';
+          }
+        } catch (e) {
+          console.error('[Supabase] Failed to auto-update withdrawal status:', e);
+        }
+      }));
+    }
+
     interface JoinedSender {
       email: string;
     }
