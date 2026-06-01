@@ -46,6 +46,8 @@ export function activityToReceiptData(activity: Activity): ReceiptData {
       return {
         ...base,
         sourceChain: activity.details.replace('From: ', ''),
+        burnTxHash: activity.txHash,
+        mintTxHash: activity.mintTxHash,
       };
     default:
       return base;

@@ -2,7 +2,7 @@ import type { ReceiptData } from './types';
 
 export const PAGE_BG = '#EFF8E9';
 
-const MONO_LABELS = new Set(['reference id', 'blockchain tx', 'order id', 'tx hash']);
+const MONO_LABELS = new Set(['reference id', 'blockchain tx', 'order id', 'tx hash', 'burn tx hash', 'mint tx hash']);
 
 function isSuccess(status: string): boolean {
   const s = status.toLowerCase();
@@ -38,7 +38,20 @@ function buildRows(data: ReceiptData): [string, string][] {
   if (data.bankAccount) rows.push(['Account', data.bankAccount]);
   if (data.sourceChain) rows.push(['Source Chain', data.sourceChain.toUpperCase()]);
   if (data.destChain) rows.push(['Dest Chain', data.destChain.toUpperCase()]);
-  if (data.txHash) rows.push(['Blockchain TX', data.txHash]);
+  
+  if (data.type === 'bridge') {
+    if (data.burnTxHash || data.txHash) {
+      rows.push(['Burn Tx Hash', data.burnTxHash || data.txHash || '']);
+    }
+    if (data.mintTxHash) {
+      rows.push(['Mint Tx Hash', data.mintTxHash]);
+    } else {
+      rows.push(['Mint Tx Hash', 'Pending Claim / Mint']);
+    }
+  } else {
+    if (data.txHash) rows.push(['Blockchain TX', data.txHash]);
+  }
+  
   if (data.orderId) rows.push(['Order ID', data.orderId]);
   return rows;
 }

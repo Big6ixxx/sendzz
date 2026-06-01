@@ -120,7 +120,6 @@ export async function executeSmartBridge(
       }],
       maxFeePerGas,
       maxPriorityFeePerGas,
-      // @ts-ignore: Circle extension allows boolean for gas sponsorship
       paymaster: true,
       paymasterContext: policyId ? { policyId } : undefined,
     });
@@ -152,7 +151,6 @@ export async function executeSmartBridge(
       }],
       maxFeePerGas,
       maxPriorityFeePerGas,
-      // @ts-ignore: Circle extension allows boolean for gas sponsorship
       paymaster: true,
       paymasterContext: policyId ? { policyId } : undefined,
     });
@@ -196,4 +194,52 @@ export async function executeSmartBridge(
     toast.error(displayMsg);
     throw error;
   }
+}
+
+const MESSAGE_TRANSMITTER_ABI = [
+  {
+    name: 'receiveMessage',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'message', type: 'bytes' },
+      { name: 'attestation', type: 'bytes' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
+  },
+] as const;
+
+/**
+ * Gaslessly submit a receiveMessage transaction on Base using the user's Privy smart account.
+ * Completes CCTP burn-and-mint transfers for non-EVM source chains (Stellar/Solana).
+ */
+export async function executeReceiveMessage(
+  embeddedWallet: ConnectedWallet,
+  messageHex: string,
+  attestationHex: string,
+): Promise<string> {
+  const MESSAGE_TRANSMITTER =
+    process.env.NEXT_PUBLIC_SIMULATION_MODE === 'true'
+      ? '0x81D40F2169b009c9103C280963d76e4B4d4c464B'
+      : '0x81D40F21F12A8F0E3252Bccb954D722d4c464B64';
+
+  const provider = await embeddedWallet.getEthereumProvider();
+  const { bundlerClient, account } = await getCircleClient(provider, 'base');
+
+  const userOpHash = await bundlerClient.sendUserOperation({
+    account,
+    calls: [
+      {
+        to: MESSAGE_TRANSMITTER as `0x${string}`,
+        data: encodeFunctionData({
+          abi: MESSAGE_TRANSMITTER_ABI,
+          functionName: 'receiveMessage',
+          args: [messageHex as `0x${string}`, attestationHex as `0x${string}`],
+        }),
+      },
+    ],
+    paymaster: true,
+  });
+
+  return resolveUserOpToTxHash(bundlerClient, userOpHash);
 }

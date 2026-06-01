@@ -3,6 +3,20 @@
 import { Database } from '@/types/database';
 import { supabaseAdmin } from './adminClient';
 import { fetchAttestation, type SupportedChain } from '@/lib/circle/gateway';
+import { fetchSolanaAttestation } from '@/lib/circle/solana-gateway';
+import { fetchStellarAttestation } from '@/lib/circle/stellar-gateway';
+
+type ExtendedChain = SupportedChain | 'solana' | 'stellar';
+
+async function getAttestation(sourceChain: ExtendedChain, txHash: string) {
+  if (sourceChain === 'solana') {
+    return fetchSolanaAttestation(txHash);
+  }
+  if (sourceChain === 'stellar') {
+    return fetchStellarAttestation(txHash);
+  }
+  return fetchAttestation(sourceChain as SupportedChain, txHash);
+}
 
 type TransferRow = Database['public']['Tables']['transfers']['Row'];
 
@@ -301,7 +315,7 @@ export async function getUserActivities(userEmail: string) {
     if (pendingBridges.length > 0) {
       await Promise.all(pendingBridges.map(async (b) => {
         try {
-          const result = await fetchAttestation(b.source_chain as SupportedChain, b.burn_tx_hash);
+          const result = await getAttestation(b.source_chain as ExtendedChain, b.burn_tx_hash);
           if (result.status === 'complete') {
             await updateBridgeStatus(b.burn_tx_hash, 'complete', result.mintTxHash);
             b.attestation_status = 'complete';

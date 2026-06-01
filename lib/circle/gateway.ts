@@ -159,6 +159,7 @@ export type AttestationStatus = 'pending' | 'complete';
 export interface AttestationResponse {
   status: AttestationStatus;
   attestation?: string;
+  messageBytes?: string;
   /** Returned when Circle's relayer has submitted the mint tx */
   mintTxHash?: string;
 }
@@ -187,6 +188,7 @@ export async function fetchAttestation(
       messages?: {
         status: string;
         attestation?: string;
+        message?: string;
         forwardTxHash?: string;
       }[];
     };
@@ -197,6 +199,7 @@ export async function fetchAttestation(
     return {
       status: message.status === 'complete' ? 'complete' : 'pending',
       attestation: message.attestation,
+      messageBytes: message.message,
       mintTxHash: message.forwardTxHash,
     };
   } catch (err) {

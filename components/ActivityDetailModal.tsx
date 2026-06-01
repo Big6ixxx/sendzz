@@ -10,6 +10,7 @@ import {
   Landmark,
   MessageSquare,
   Receipt,
+  RefreshCw,
   Wallet,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -23,6 +24,7 @@ import {
   DialogContent,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { CHAIN_META } from '@/components/deposit-withdraw/deposit-shared';
 
 const ACTIVITY_LABELS: Record<string, string> = {
   sent: 'Transfer Sent',
@@ -45,20 +47,41 @@ export function ActivityDetailModal({
   isOpen,
   onClose,
 }: ActivityDetailModalProps) {
+  const [prevActivityId, setPrevActivityId] = useState<string | null>(null);
   const [estimatedFiatRate, setEstimatedFiatRate] = useState<number | null>(null);
+
+  // Adjust state during render if activity changes to prevent cascading renders in useEffect
+  const currentActivityId = activity?.id || null;
+  if (currentActivityId !== prevActivityId) {
+    setPrevActivityId(currentActivityId);
+    setEstimatedFiatRate(null);
+  }
+
+  // Extract primitive properties to satisfy ESLint exhaustive-deps safely without reference comparisons
+  const activityId = activity?.id;
+  const activityType = activity?.type;
+  const activityFiatAmount = activity?.fiatAmount;
+  const activityFiatCurrency = activity?.fiatCurrency;
 
   // For old withdrawal records that predate fiat_amount being saved, fetch the
   // current off-ramp rate so the receipt can show an approximate fiat payout.
   useEffect(() => {
-    if (!activity || activity.type !== 'withdrawal' || activity.fiatAmount != null) {
-      setEstimatedFiatRate(null);
+    if (!activityId || activityType !== 'withdrawal' || activityFiatAmount != null) {
       return;
     }
-    const currency = activity.fiatCurrency || 'NGN';
+    let active = true;
+    const currency = activityFiatCurrency || 'NGN';
     getOffRampRate(currency)
-      .then(setEstimatedFiatRate)
-      .catch(() => setEstimatedFiatRate(null));
-  }, [activity?.id]);
+      .then((rate) => {
+        if (active) setEstimatedFiatRate(rate);
+      })
+      .catch(() => {
+        if (active) setEstimatedFiatRate(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [activityId, activityType, activityFiatAmount, activityFiatCurrency]);
 
   if (!activity) return null;
 
@@ -89,7 +112,9 @@ export function ActivityDetailModal({
                       ? 'rgba(0, 232, 122, 0.1)'
                       : activity.type === 'deposit'
                         ? 'rgba(59, 130, 246, 0.1)'
-                        : 'rgba(251, 146, 60, 0.1)',
+                        : activity.type === 'bridge'
+                          ? 'rgba(96, 165, 250, 0.1)'
+                          : 'rgba(251, 146, 60, 0.1)',
                 color: isSuccess
                   ? '#00e87a'
                   : activity.type === 'sent'
@@ -98,7 +123,9 @@ export function ActivityDetailModal({
                       ? '#00e87a'
                       : activity.type === 'deposit'
                         ? '#3b82f6'
-                        : '#fb923c',
+                        : activity.type === 'bridge'
+                          ? '#60a5fa'
+                          : '#fb923c',
                 border: `1px solid ${
                   isSuccess
                     ? 'rgba(0, 232, 122, 0.2)'
@@ -108,7 +135,9 @@ export function ActivityDetailModal({
                         ? 'rgba(0, 232, 122, 0.2)'
                         : activity.type === 'deposit'
                           ? 'rgba(59, 130, 246, 0.2)'
-                          : 'rgba(251, 146, 60, 0.2)'
+                          : activity.type === 'bridge'
+                            ? 'rgba(96, 165, 250, 0.2)'
+                            : 'rgba(251, 146, 60, 0.2)'
                 }`,
               }}
             >
@@ -124,6 +153,9 @@ export function ActivityDetailModal({
               )}
               {activity.type === 'withdrawal' && (
                 <Landmark className="w-10 h-10 relative z-10" />
+              )}
+              {activity.type === 'bridge' && (
+                <RefreshCw className="w-10 h-10 relative z-10" />
               )}
             </div>
           </div>
@@ -207,20 +239,57 @@ export function ActivityDetailModal({
             })()} />
           </div>
 
-          <div className="flex gap-3">
-            {activity.txHash && (
-              <a
-                href={`${EXPLORER_BASE_URL}${activity.txHash}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest transition-all bg-white/6 text-brand-secondary border border-white/10 hover:bg-white/10 outline-none focus:ring-2 focus:ring-accent/50"
-              >
-                <ExternalLink className="w-3.5 h-3.5" /> Explorer
-              </a>
-            )}
+          <div className="flex flex-col gap-3">
+            <div className="flex gap-3">
+              {activity.type === 'bridge' ? (
+                <>
+                  {activity.txHash && (() => {
+                    const chainKey = activity.sourceChain?.toLowerCase() || '';
+                    const meta = CHAIN_META[chainKey];
+                    const explorerUrl = meta ? meta.explorerTx(activity.txHash) : `${EXPLORER_BASE_URL}${activity.txHash}`;
+                    return (
+                      <a
+                        href={explorerUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest transition-all bg-white/6 text-brand-secondary border border-white/10 hover:bg-white/10 outline-none focus:ring-2 focus:ring-accent/50"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" /> Burn Tx
+                      </a>
+                    );
+                  })()}
+
+                  {activity.mintTxHash ? (
+                    <a
+                      href={`${EXPLORER_BASE_URL}${activity.mintTxHash}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest transition-all bg-white/6 text-brand-secondary border border-white/10 hover:bg-white/10 outline-none focus:ring-2 focus:ring-accent/50"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" /> Mint Tx
+                    </a>
+                  ) : (
+                    <div className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest bg-white/2 text-brand-secondary/20 border border-white/5 cursor-not-allowed select-none">
+                      Mint Pending
+                    </div>
+                  )}
+                </>
+              ) : (
+                activity.txHash && (
+                  <a
+                    href={`${EXPLORER_BASE_URL}${activity.txHash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest transition-all bg-white/6 text-brand-secondary border border-white/10 hover:bg-white/10 outline-none focus:ring-2 focus:ring-accent/50"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" /> Explorer
+                  </a>
+                )
+              )}
+            </div>
             <button
               onClick={onClose}
-              className="btn-accent flex-1 h-12 rounded-xl text-[10px] font-bold outline-none focus:ring-2 focus:ring-accent/50"
+              className="btn-accent w-full h-12 rounded-xl text-[10px] font-bold uppercase tracking-widest outline-none focus:ring-2 focus:ring-accent/50"
             >
               Close
             </button>
