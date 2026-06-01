@@ -116,6 +116,7 @@ export function TransferForm({
               setIsAddingContact(true);
               setShowSuggestions(false);
             }}
+            onClose={() => setShowSuggestions(false)}
           />
         </div>
 

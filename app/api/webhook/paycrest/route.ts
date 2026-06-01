@@ -33,6 +33,10 @@ export async function POST(req: Request) {
         status?: string;
         failureReason?: string;
         reason?: string;
+        direction?: string;
+        txHash?: string;
+        settlementTxHash?: string;
+        transactionHash?: string;
         [key: string]: Json | undefined;
       };
       [key: string]: Json | undefined;
@@ -85,44 +89,71 @@ export async function POST(req: Request) {
       );
     }
 
-    // Process the status update
-    if (status === 'settled' || status === 'completed' || status === 'validated' || status === 'deposited') {
-      const { error } = await supabaseAdmin.rpc('finalize_withdrawal_success', {
-        p_paycrest_order_id: orderId,
-      });
-      if (error) {
-        console.error(
-          `[Paycrest Webhook] Failed to finalize success for ${orderId}:`,
-          error,
-        );
-        return new Response('Internal error', { status: 500 });
+    const direction = orderData.direction || 'offramp';
+
+    if (direction === 'onramp') {
+      // Process DEPOSIT
+      if (status && ['settled', 'completed', 'validated', 'deposited'].includes(status)) {
+        const { error } = await supabaseAdmin
+          .from('deposits')
+          .update({
+            status: 'confirmed',
+            tx_hash: orderData.txHash || orderData.settlementTxHash || orderData.transactionHash || null,
+          })
+          .eq('paycrest_tx_id', orderId);
+        
+        if (error) {
+          console.error(`[Paycrest Webhook] Failed to confirm deposit ${orderId}:`, error);
+          return new Response('Internal error', { status: 500 });
+        }
+        console.log(`[Paycrest Webhook] Successfully confirmed deposit ${orderId}`);
+      } else if (status && ['failed', 'refunded', 'expired', 'refunding'].includes(status)) {
+        const { error } = await supabaseAdmin
+          .from('deposits')
+          .update({ status: 'failed' })
+          .eq('paycrest_tx_id', orderId);
+
+        if (error) {
+          console.error(`[Paycrest Webhook] Failed to fail deposit ${orderId}:`, error);
+          return new Response('Internal error', { status: 500 });
+        }
+        console.log(`[Paycrest Webhook] Successfully marked deposit ${orderId} as failed`);
       }
-      console.log(
-        `[Paycrest Webhook] Successfully finalized withdrawal ${orderId}`,
-      );
-    } else if (
-      status === 'failed' ||
-      status === 'refunded' ||
-      status === 'expired' ||
-      status === 'refunding'
-    ) {
-      const { error } = await supabaseAdmin.rpc('finalize_withdrawal_failed', {
-        p_paycrest_order_id: orderId,
-        p_reason:
-          orderData.failureReason ||
-          orderData.reason ||
-          'Webhook reported failure status',
-      });
-      if (error) {
-        console.error(
-          `[Paycrest Webhook] Failed to finalize failure for ${orderId}:`,
-          error,
+    } else {
+      // Process WITHDRAWAL (offramp)
+      if (status && ['settled', 'completed', 'validated', 'deposited'].includes(status)) {
+        const { error } = await supabaseAdmin.rpc('finalize_withdrawal_success', {
+          p_paycrest_order_id: orderId,
+        });
+        if (error) {
+          console.error(
+            `[Paycrest Webhook] Failed to finalize success for withdrawal ${orderId}:`,
+            error,
+          );
+          return new Response('Internal error', { status: 500 });
+        }
+        console.log(
+          `[Paycrest Webhook] Successfully finalized withdrawal ${orderId}`,
         );
-        return new Response('Internal error', { status: 500 });
+      } else if (status && ['failed', 'refunded', 'expired', 'refunding'].includes(status)) {
+        const { error } = await supabaseAdmin.rpc('finalize_withdrawal_failed', {
+          p_paycrest_order_id: orderId,
+          p_reason:
+            orderData.failureReason ||
+            orderData.reason ||
+            'Webhook reported failure status',
+        });
+        if (error) {
+          console.error(
+            `[Paycrest Webhook] Failed to finalize failure for withdrawal ${orderId}:`,
+            error,
+          );
+          return new Response('Internal error', { status: 500 });
+        }
+        console.log(
+          `[Paycrest Webhook] Successfully marked failed withdrawal ${orderId}`,
+        );
       }
-      console.log(
-        `[Paycrest Webhook] Successfully refunded failed withdrawal ${orderId}`,
-      );
     }
 
     return new Response('OK', { status: 200 });

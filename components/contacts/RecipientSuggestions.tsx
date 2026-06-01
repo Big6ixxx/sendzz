@@ -8,6 +8,7 @@ interface RecipientSuggestionsProps {
   contacts: ContactRow[];
   onSelect: (email: string) => void;
   onAddNew: () => void;
+  onClose?: () => void;
   actionIcon?: 'chevron' | 'send';
 }
 
@@ -17,6 +18,7 @@ export function RecipientSuggestions({
   contacts,
   onSelect,
   onAddNew,
+  onClose,
   actionIcon = 'chevron',
 }: RecipientSuggestionsProps) {
   if (!isOpen) return null;
@@ -34,14 +36,25 @@ export function RecipientSuggestions({
           <p className="text-xs font-bold text-white/30 uppercase tracking-widest mb-4">
             No contacts saved
           </p>
-          <button
-            type="button"
-            onClick={onAddNew}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-accent text-accent-foreground font-black text-[10px] uppercase tracking-widest hover:scale-105 transition-all shadow-lg"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Add Contact
-          </button>
+          <div className="flex items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={onAddNew}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-accent text-accent-foreground font-black text-[10px] uppercase tracking-widest hover:scale-105 transition-all shadow-lg"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Add Contact
+            </button>
+            {onClose && (
+              <button
+                type="button"
+                onClick={onClose}
+                className="inline-flex items-center px-4 py-2 rounded-xl bg-white/5 text-white/40 font-black text-[10px] uppercase tracking-widest hover:bg-white/10 hover:text-white transition-all shadow-lg"
+              >
+                Close
+              </button>
+            )}
+          </div>
         </div>
       ) : (
         <>
@@ -49,13 +62,24 @@ export function RecipientSuggestions({
             <span className="text-[9px] font-black text-white/20 uppercase tracking-widest">
               Suggestions
             </span>
-            <button
-              type="button"
-              onClick={onAddNew}
-              className="text-[9px] font-black text-accent uppercase tracking-widest hover:text-accent-dim transition-colors"
-            >
-              + New
-            </button>
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={onAddNew}
+                className="text-[9px] font-black text-accent uppercase tracking-widest hover:text-accent-dim transition-colors"
+              >
+                + New
+              </button>
+              {onClose && (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="text-[9px] font-black text-white/40 uppercase tracking-widest hover:text-white transition-colors"
+                >
+                  Close
+                </button>
+              )}
+            </div>
           </div>
           {filteredContacts.length === 0 ? (
             <div className="px-4 py-6 text-center">

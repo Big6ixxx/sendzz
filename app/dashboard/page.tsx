@@ -141,7 +141,7 @@ export default function Dashboard() {
                 </div>
                 <div className="flex items-baseline flex-wrap gap-x-4 gap-y-2">
                   <h2
-                    className="font-display text-5xl md:text-7xl font-bold tracking-tighter leading-none"
+                    className="font-display text-5xl md:text-7xl font-bold tracking-tighter leading-none min-w-[200px] md:min-w-[320px]"
                     style={{ color: '#f8f8f6' }}
                   >
                     ${hideBalance ? '****' : balance}
