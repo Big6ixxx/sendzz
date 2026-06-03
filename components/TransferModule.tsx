@@ -6,6 +6,7 @@ import { useTransfer } from "./transfer/useTransfer";
 import { TransferForm } from "./transfer/TransferForm";
 import { AddContactModal } from "./contacts/AddContactModal";
 import { TransferSaveContactPrompt } from "./transfer/TransferSaveContactPrompt";
+import { TwoFactorModal } from "./TwoFactorModal";
 
 export function TransferModule({
   smartAddress,
@@ -49,6 +50,12 @@ export function TransferModule({
     isZeroBalance,
     handleTransfer,
     recipientCheck,
+    twoFaModalOpen,
+    setTwoFaModalOpen,
+    twoFaLoading,
+    twoFaError,
+    handleTwoFaSubmit,
+    handleTwoFaResend,
   } = useTransfer({
     smartAddress,
     embeddedProvider,
@@ -113,6 +120,15 @@ export function TransferModule({
         onClose={() => setShowSavePrompt(false)}
         senderEmail={senderEmail}
         recipientEmail={lastRecipient}
+      />
+
+      <TwoFactorModal
+        isOpen={twoFaModalOpen}
+        onClose={() => setTwoFaModalOpen(false)}
+        onSubmit={handleTwoFaSubmit}
+        onResend={handleTwoFaResend}
+        loading={twoFaLoading}
+        error={twoFaError}
       />
 
       <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-muted/20 rounded-full blur-3xl z-0" />

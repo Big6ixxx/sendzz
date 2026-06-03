@@ -13,29 +13,34 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[];
 
-export type AssetType = 'USDC';
+export type AssetType = "USDC";
 
 export type TransferStatus =
-  | 'pending_claim'
-  | 'claimed'
-  | 'completed'
-  | 'cancelled'
-  | 'expired';
+  | "pending_claim"
+  | "claimed"
+  | "completed"
+  | "cancelled"
+  | "expired";
 
-export type DepositStatus = 'pending' | 'confirmed' | 'failed' | 'reversed' | 'expired';
+export type DepositStatus =
+  | "pending"
+  | "confirmed"
+  | "failed"
+  | "reversed"
+  | "expired";
 
 export type WithdrawalStatus =
-  | 'awaiting_verification'
-  | 'processing'
-  | 'completed'
-  | 'failed'
-  | 'reversed';
+  | "awaiting_verification"
+  | "processing"
+  | "completed"
+  | "failed"
+  | "reversed";
 
-export type WithdrawalVerificationStatus = 'pending' | 'verified' | 'expired';
+export type WithdrawalVerificationStatus = "pending" | "verified" | "expired";
 
-export type OtpPurpose = 'login' | 'withdrawal_verification';
+export type OtpPurpose = "login" | "withdrawal_verification";
 
-export type WebhookProvider = 'paycrest';
+export type WebhookProvider = "paycrest";
 
 export interface Database {
   public: {
@@ -420,7 +425,7 @@ export interface Database {
           dest_chain: string;
           amount: number;
           burn_tx_hash: string;
-          attestation_status: 'pending' | 'complete' | 'failed';
+          attestation_status: "pending" | "complete" | "failed";
           mint_tx_hash: string | null;
           created_at: string;
           updated_at: string;
@@ -432,7 +437,7 @@ export interface Database {
           dest_chain: string;
           amount: number;
           burn_tx_hash: string;
-          attestation_status?: 'pending' | 'complete' | 'failed';
+          attestation_status?: "pending" | "complete" | "failed";
           mint_tx_hash?: string | null;
           created_at?: string;
           updated_at?: string;
@@ -444,7 +449,7 @@ export interface Database {
           dest_chain?: string;
           amount?: number;
           burn_tx_hash?: string;
-          attestation_status?: 'pending' | 'complete' | 'failed';
+          attestation_status?: "pending" | "complete" | "failed";
           mint_tx_hash?: string | null;
           created_at?: string;
           updated_at?: string;
@@ -455,21 +460,21 @@ export interface Database {
         Row: {
           id: string;
           email: string;
-          role: 'super_admin' | 'admin' | 'moderator';
+          role: "super_admin" | "admin" | "moderator";
           created_at: string;
           updated_at: string;
         };
         Insert: {
           id?: string;
           email: string;
-          role?: 'super_admin' | 'admin' | 'moderator';
+          role?: "super_admin" | "admin" | "moderator";
           created_at?: string;
           updated_at?: string;
         };
         Update: {
           id?: string;
           email?: string;
-          role?: 'super_admin' | 'admin' | 'moderator';
+          role?: "super_admin" | "admin" | "moderator";
           created_at?: string;
           updated_at?: string;
         };
@@ -510,8 +515,38 @@ export interface Database {
             isOneToOne: false;
             referencedRelation: "users";
             referencedColumns: ["id"];
-          }
+          },
         ];
+      };
+      transaction_otps: {
+        Row: {
+          id: string;
+          user_email: string;
+          otp_code: string;
+          action_type: Database["public"]["Enums"]["transaction_otp_action"];
+          payload: Json;
+          expires_at: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_email: string;
+          otp_code: string;
+          action_type: Database["public"]["Enums"]["transaction_otp_action"];
+          payload: Json;
+          expires_at: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_email?: string;
+          otp_code?: string;
+          action_type?: Database["public"]["Enums"]["transaction_otp_action"];
+          payload?: Json;
+          expires_at?: string;
+          created_at?: string;
+        };
+        Relationships: [];
       };
     };
     Views: {
@@ -567,6 +602,7 @@ export interface Database {
       withdrawal_verification_status: WithdrawalVerificationStatus;
       otp_purpose: OtpPurpose;
       webhook_provider: WebhookProvider;
+      transaction_otp_action: "transfer" | "withdrawal";
     };
     CompositeTypes: {
       [_ in never]: never;
@@ -575,27 +611,27 @@ export interface Database {
 }
 
 // Helper types
-type PublicSchema = Database[Extract<keyof Database, 'public'>];
+type PublicSchema = Database[Extract<keyof Database, "public">];
 
 export type Tables<
   PublicTableNameOrOptions extends
-    | keyof (PublicSchema['Tables'] & PublicSchema['Views'])
+    | keyof (PublicSchema["Tables"] & PublicSchema["Views"])
     | { schema: keyof Database },
   TableName extends PublicTableNameOrOptions extends { schema: keyof Database }
-    ? keyof (Database[PublicTableNameOrOptions['schema']]['Tables'] &
-        Database[PublicTableNameOrOptions['schema']]['Views'])
+    ? keyof (Database[PublicTableNameOrOptions["schema"]]["Tables"] &
+        Database[PublicTableNameOrOptions["schema"]]["Views"])
     : never = never,
 > = PublicTableNameOrOptions extends { schema: keyof Database }
-  ? (Database[PublicTableNameOrOptions['schema']]['Tables'] &
-      Database[PublicTableNameOrOptions['schema']]['Views'])[TableName] extends {
+  ? (Database[PublicTableNameOrOptions["schema"]]["Tables"] &
+      Database[PublicTableNameOrOptions["schema"]]["Views"])[TableName] extends {
       Row: infer R;
     }
     ? R
     : never
-  : PublicTableNameOrOptions extends keyof (PublicSchema['Tables'] &
-        PublicSchema['Views'])
-    ? (PublicSchema['Tables'] &
-        PublicSchema['Views'])[PublicTableNameOrOptions] extends {
+  : PublicTableNameOrOptions extends keyof (PublicSchema["Tables"] &
+        PublicSchema["Views"])
+    ? (PublicSchema["Tables"] &
+        PublicSchema["Views"])[PublicTableNameOrOptions] extends {
         Row: infer R;
       }
       ? R
@@ -604,19 +640,19 @@ export type Tables<
 
 export type TablesInsert<
   PublicTableNameOrOptions extends
-    | keyof PublicSchema['Tables']
+    | keyof PublicSchema["Tables"]
     | { schema: keyof Database },
   TableName extends PublicTableNameOrOptions extends { schema: keyof Database }
-    ? keyof Database[PublicTableNameOrOptions['schema']]['Tables']
+    ? keyof Database[PublicTableNameOrOptions["schema"]]["Tables"]
     : never = never,
 > = PublicTableNameOrOptions extends { schema: keyof Database }
-  ? Database[PublicTableNameOrOptions['schema']]['Tables'][TableName] extends {
+  ? Database[PublicTableNameOrOptions["schema"]]["Tables"][TableName] extends {
       Insert: infer I;
     }
     ? I
     : never
-  : PublicTableNameOrOptions extends keyof PublicSchema['Tables']
-    ? PublicSchema['Tables'][PublicTableNameOrOptions] extends {
+  : PublicTableNameOrOptions extends keyof PublicSchema["Tables"]
+    ? PublicSchema["Tables"][PublicTableNameOrOptions] extends {
         Insert: infer I;
       }
       ? I
@@ -625,19 +661,19 @@ export type TablesInsert<
 
 export type TablesUpdate<
   PublicTableNameOrOptions extends
-    | keyof PublicSchema['Tables']
+    | keyof PublicSchema["Tables"]
     | { schema: keyof Database },
   TableName extends PublicTableNameOrOptions extends { schema: keyof Database }
-    ? keyof Database[PublicTableNameOrOptions['schema']]['Tables']
+    ? keyof Database[PublicTableNameOrOptions["schema"]]["Tables"]
     : never = never,
 > = PublicTableNameOrOptions extends { schema: keyof Database }
-  ? Database[PublicTableNameOrOptions['schema']]['Tables'][TableName] extends {
+  ? Database[PublicTableNameOrOptions["schema"]]["Tables"][TableName] extends {
       Update: infer U;
     }
     ? U
     : never
-  : PublicTableNameOrOptions extends keyof PublicSchema['Tables']
-    ? PublicSchema['Tables'][PublicTableNameOrOptions] extends {
+  : PublicTableNameOrOptions extends keyof PublicSchema["Tables"]
+    ? PublicSchema["Tables"][PublicTableNameOrOptions] extends {
         Update: infer U;
       }
       ? U
@@ -646,13 +682,13 @@ export type TablesUpdate<
 
 export type Enums<
   PublicEnumNameOrOptions extends
-    | keyof PublicSchema['Enums']
+    | keyof PublicSchema["Enums"]
     | { schema: keyof Database },
   EnumName extends PublicEnumNameOrOptions extends { schema: keyof Database }
-    ? keyof Database[PublicEnumNameOrOptions['schema']]['Enums']
+    ? keyof Database[PublicEnumNameOrOptions["schema"]]["Enums"]
     : never = never,
 > = PublicEnumNameOrOptions extends { schema: keyof Database }
-  ? Database[PublicEnumNameOrOptions['schema']]['Enums'][EnumName]
-  : PublicEnumNameOrOptions extends keyof PublicSchema['Enums']
-    ? PublicSchema['Enums'][PublicEnumNameOrOptions]
+  ? Database[PublicEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : PublicEnumNameOrOptions extends keyof PublicSchema["Enums"]
+    ? PublicSchema["Enums"][PublicEnumNameOrOptions]
     : never;
