@@ -9,7 +9,7 @@ import { type FiatCurrencyCode } from "@/lib/currency-config";
 import { ReceiptData } from "@/lib/receipt/types";
 import { toast } from "sonner";
 
-const TWO_FA_LIMIT = 1; // 2FA required for transfers >= 1 USDC
+const TWO_FA_LIMIT = 500; // 2FA required for transfers >= 1 USDC
 
 /** Convert raw viem / Circle / network errors into short user-readable strings. */
 export function parseFriendlyError(err: unknown): string {

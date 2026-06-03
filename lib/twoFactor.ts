@@ -2,8 +2,6 @@ import { createClient } from "@/lib/supabase/server";
 import crypto from "crypto";
 import { sendEmail } from "@/lib/email/sendEmail";
 
-export const TWO_FA_LIMIT = 1; // Limit above which 2FA is required
-
 type TransferPayload = {
   amount: number;
   recipientEmail: string;
