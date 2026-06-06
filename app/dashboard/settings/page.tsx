@@ -9,13 +9,19 @@ import { AddContactModal } from '@/components/contacts/AddContactModal';
 import { getInstitutions } from '@/lib/actions/ramp';
 import { PaycrestInstitution } from '@/lib/paycrest/types';
 import { usePrivy } from '@privy-io/react-auth';
-import { AtSign, Bell, ChevronRight, Globe, Landmark, LogOut, Plus, Shield, Trash2, User } from 'lucide-react';
+import { AtSign, Bell, ChevronRight, Globe, Landmark, LogOut, Plus, Shield, Trash2, User, Eye, EyeOff, HelpCircle } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { useBalanceVisibility } from '@/components/providers/BalanceVisibilityProvider';
+import { Switch } from '@/components/ui/switch';
+import { Input } from '@/components/ui/input';
+import { useRouter } from 'next/navigation';
 
 export default function SettingsPage() {
   const { user, logout } = usePrivy();
+  const router = useRouter();
   const userEmail = user?.email?.address || '';
+  const { hideBalance, toggleBalanceVisibility } = useBalanceVisibility();
 
   const [bankContacts, setBankContacts] = useState<BankContactRow[]>([]);
   const [emailContacts, setEmailContacts] = useState<ContactRow[]>([]);
@@ -26,22 +32,53 @@ export default function SettingsPage() {
   const [emailContactToDelete, setEmailContactToDelete] = useState<{ id: string; name: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  const [isBankLoading, setIsBankLoading] = useState(true);
+  const [isEmailLoading, setIsEmailLoading] = useState(true);
+  const [isSecurityLoading, setIsSecurityLoading] = useState(true);
+
+  // Security Preferences
+  const [twoFaEnabled, setTwoFaEnabled] = useState(false);
+  const [twoFaThreshold, setTwoFaThreshold] = useState('500');
+  const [isUpdatingSecurity, setIsUpdatingSecurity] = useState(false);
+
   const fetchBankContacts = useCallback(async () => {
     if (!userEmail) return;
+    setIsBankLoading(true);
     const contacts = await getUserBankContacts(userEmail).catch(() => []);
     setBankContacts(contacts);
+    setIsBankLoading(false);
   }, [userEmail]);
 
   const fetchEmailContacts = useCallback(async () => {
     if (!userEmail) return;
+    setIsEmailLoading(true);
     const contacts = await getUserContacts(userEmail).catch(() => []);
     setEmailContacts(contacts);
+    setIsEmailLoading(false);
+  }, [userEmail]);
+
+  const fetchSecurityPrefs = useCallback(async () => {
+    if (!userEmail) return;
+    setIsSecurityLoading(true);
+    try {
+      const res = await fetch(`/api/user/preferences?email=${encodeURIComponent(userEmail)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setTwoFaEnabled(data.two_fa_enabled);
+        setTwoFaThreshold(data.two_fa_threshold.toString());
+      }
+    } catch (err) {
+      console.error('Failed to load security preferences', err);
+    } finally {
+      setIsSecurityLoading(false);
+    }
   }, [userEmail]);
 
   const fetchContacts = useCallback(async () => {
     fetchBankContacts();
     fetchEmailContacts();
-  }, [fetchBankContacts, fetchEmailContacts]);
+    fetchSecurityPrefs();
+  }, [fetchBankContacts, fetchEmailContacts, fetchSecurityPrefs]);
 
   useEffect(() => {
     fetchContacts();
@@ -85,6 +122,30 @@ export default function SettingsPage() {
     }
   };
 
+  const updateSecurityPrefs = async (enabled: boolean, threshold: string) => {
+    if (!userEmail) return;
+    setIsUpdatingSecurity(true);
+    try {
+      const res = await fetch('/api/user/preferences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: userEmail,
+          two_fa_enabled: enabled,
+          two_fa_threshold: parseFloat(threshold || '0'),
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to update');
+      toast.success('Security preferences updated');
+    } catch {
+      toast.error('Failed to update security preferences');
+      // revert on error
+      fetchSecurityPrefs();
+    } finally {
+      setIsUpdatingSecurity(false);
+    }
+  };
+
   const sections = [
     {
       title: 'Account',
@@ -102,6 +163,23 @@ export default function SettingsPage() {
       items: [
         { label: 'Notifications', value: 'Email only', icon: Bell },
         { label: 'Language', value: 'English (US)', icon: Globe },
+        {
+          label: 'Hide Sensitive Data',
+          value: hideBalance ? 'On' : 'Off',
+          icon: hideBalance ? EyeOff : Eye,
+          onClick: toggleBalanceVisibility,
+        },
+      ],
+    },
+    {
+      title: 'Help & Support',
+      items: [
+        {
+          label: 'Fee Schedule & Gas',
+          value: 'Learn about platform fees and gas sponsorship',
+          icon: HelpCircle,
+          onClick: () => router.push('/dashboard/settings/fees'),
+        },
       ],
     },
   ];
@@ -124,6 +202,7 @@ export default function SettingsPage() {
                 <div
                   key={item.label}
                   className="p-6 flex items-center justify-between group cursor-pointer hover:bg-white/2 transition-colors"
+                  onClick={item.onClick}
                 >
                   <div className="flex items-center gap-5">
                     <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-brand-secondary/40 group-hover:text-accent transition-colors border border-white/8">
@@ -138,12 +217,98 @@ export default function SettingsPage() {
                       </p>
                     </div>
                   </div>
-                  <ChevronRight className="w-4 h-4 text-brand-secondary/20 group-hover:text-brand-secondary/60 transition-colors" />
+                  {item.onClick ? (
+                    <ChevronRight className="w-4 h-4 text-brand-secondary/20 group-hover:text-brand-secondary/60 transition-colors" />
+                  ) : null}
                 </div>
               ))}
             </div>
           </div>
         ))}
+
+        {/* Security Section */}
+        <div className="space-y-4">
+          <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground px-1">
+            Security
+          </h3>
+          <div className="card-glass p-0 overflow-hidden divide-y divide-white/4">
+            {isSecurityLoading ? (
+              <>
+                <div className="p-6 flex items-center justify-between">
+                  <div className="flex items-center gap-5 w-full">
+                    <div className="w-12 h-12 bg-white/5 rounded-2xl animate-pulse" />
+                    <div className="space-y-2 flex-1">
+                      <div className="h-3 w-32 bg-white/10 rounded animate-pulse" />
+                      <div className="h-4 w-48 bg-white/10 rounded animate-pulse" />
+                    </div>
+                  </div>
+                </div>
+                <div className="p-6 flex items-center justify-between">
+                  <div className="flex items-center gap-5 w-full">
+                    <div className="w-12 h-12 bg-white/5 rounded-2xl animate-pulse" />
+                    <div className="space-y-2 flex-1">
+                      <div className="h-3 w-32 bg-white/10 rounded animate-pulse" />
+                      <div className="h-4 w-48 bg-white/10 rounded animate-pulse" />
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="p-6 flex items-center justify-between hover:bg-white/2 transition-colors">
+                  <div className="flex items-center gap-5">
+                    <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-brand-secondary/40 border border-white/8">
+                      <Shield className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
+                        Two-Factor Authentication
+                      </p>
+                      <p className="font-bold text-brand-secondary">
+                        Require OTP for large transactions
+                      </p>
+                    </div>
+                  </div>
+                  <Switch 
+                    checked={twoFaEnabled} 
+                    onCheckedChange={(checked: boolean) => {
+                      setTwoFaEnabled(checked);
+                      updateSecurityPrefs(checked, twoFaThreshold);
+                    }} 
+                    disabled={isUpdatingSecurity}
+                  />
+                </div>
+                
+                <div className="p-6 flex items-center justify-between hover:bg-white/2 transition-colors">
+                  <div className="flex items-center gap-5">
+                    <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-brand-secondary/40 border border-white/8">
+                      <Landmark className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
+                        2FA Threshold (USDC)
+                      </p>
+                      <p className="font-bold text-brand-secondary text-sm max-w-xs">
+                        Transactions above this amount will require an email OTP verification.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="w-32">
+                    <Input
+                      type="number"
+                      value={twoFaThreshold}
+                      onChange={(e) => setTwoFaThreshold(e.target.value)}
+                      onBlur={() => updateSecurityPrefs(twoFaEnabled, twoFaThreshold)}
+                      disabled={!twoFaEnabled || isUpdatingSecurity}
+                      placeholder="500"
+                      className="bg-white/5 border-white/10 text-right"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
 
         {/* Email Recipients */}
         <div className="space-y-4">
@@ -160,7 +325,21 @@ export default function SettingsPage() {
             </button>
           </div>
           <div className="card-glass p-0 overflow-hidden">
-            {emailContacts.length === 0 ? (
+            {isEmailLoading ? (
+              <div className="divide-y divide-white/4">
+                {[1, 2].map((i) => (
+                  <div key={i} className="p-5 flex items-center justify-between">
+                    <div className="flex items-center gap-4 min-w-0 w-full">
+                      <div className="w-10 h-10 bg-white/5 rounded-2xl shrink-0 animate-pulse" />
+                      <div className="space-y-2 flex-1">
+                        <div className="h-4 w-32 bg-white/10 rounded animate-pulse" />
+                        <div className="h-3 w-24 bg-white/10 rounded animate-pulse" />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : emailContacts.length === 0 ? (
               <div className="p-8 text-center space-y-3">
                 <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center mx-auto border border-white/8">
                   <AtSign className="w-6 h-6 text-brand-secondary/20" />
@@ -223,7 +402,21 @@ export default function SettingsPage() {
             </button>
           </div>
           <div className="card-glass p-0 overflow-hidden">
-            {bankContacts.length === 0 ? (
+            {isBankLoading ? (
+              <div className="divide-y divide-white/4">
+                {[1, 2].map((i) => (
+                  <div key={i} className="p-5 flex items-center justify-between">
+                    <div className="flex items-center gap-4 min-w-0 w-full">
+                      <div className="w-10 h-10 bg-white/5 rounded-2xl shrink-0 animate-pulse" />
+                      <div className="space-y-2 flex-1">
+                        <div className="h-4 w-40 bg-white/10 rounded animate-pulse" />
+                        <div className="h-3 w-32 bg-white/10 rounded animate-pulse" />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : bankContacts.length === 0 ? (
               <div className="p-8 text-center space-y-3">
                 <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center mx-auto border border-white/8">
                   <Landmark className="w-6 h-6 text-brand-secondary/20" />

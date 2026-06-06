@@ -13,6 +13,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import type { Activity, ActivityType } from './HistoryModule';
+import { useBalanceVisibility } from '@/components/providers/BalanceVisibilityProvider';
 
 const ACTIVITY_LABELS: Record<ActivityType, string> = {
   sent: 'Transfer Sent',
@@ -68,6 +69,8 @@ export function ActivityRow({
   onReclaim,
   onAccept,
 }: ActivityRowProps) {
+  const { hideBalance } = useBalanceVisibility();
+  
   const statusLower = a.status.toLowerCase();
   const isSettled =
     statusLower === 'settled' ||
@@ -138,27 +141,27 @@ export function ActivityRow({
 
       <div className="flex-1 min-w-0 space-y-2">
         {/* Top row: label + amount */}
-        <div className="flex justify-between items-center gap-4">
-          <p className="font-bold text-base tracking-tight text-brand-secondary">
+        <div className="flex justify-between items-start sm:items-center gap-2 sm:gap-4">
+          <p className="font-bold text-sm sm:text-base tracking-tight text-brand-secondary truncate pr-2">
             {ACTIVITY_LABELS[a.type]}
           </p>
           <span
-            className="text-base font-bold tabular-nums"
+            className="text-sm sm:text-base font-bold tabular-nums whitespace-nowrap shrink-0"
             style={{ color: a.type === 'sent' || a.type === 'withdrawal' ? '#f8f8f6' : '#00e87a' }}
           >
             {a.type === 'sent' || a.type === 'withdrawal' ? '-' : '+'}
-            {a.amount.toLocaleString()}{' '}
+            {hideBalance ? '••••' : a.amount.toLocaleString()}{' '}
             <span className="text-[10px] opacity-30 font-bold uppercase">{a.asset}</span>
           </span>
         </div>
 
         <div className="flex flex-col gap-1.5">
           {/* Details + status row */}
-          <div className="flex justify-between items-center gap-4">
-            <p className="text-[11px] font-bold uppercase truncate tracking-[0.15em] text-brand-secondary/30 flex-1 min-w-0 max-w-[180px]">
+          <div className="flex justify-between items-center gap-2 sm:gap-4">
+            <p className="text-[10px] sm:text-[11px] font-bold uppercase truncate tracking-[0.15em] text-brand-secondary/30 flex-1 min-w-0">
               {formatDetails(a.details)}
             </p>
-            <div className="flex items-center gap-3 shrink-0">
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
               <span
                 className={cn(
                   'text-[9px] px-2 py-0.5 rounded-md font-bold uppercase tracking-widest flex items-center gap-1.5',

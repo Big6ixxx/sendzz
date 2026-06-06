@@ -30,15 +30,26 @@ import {
   Users,
   Eye,
   EyeOff,
+  ShieldAlert,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { useBalanceVisibility } from '@/components/providers/BalanceVisibilityProvider';
+import { AnimatedBalance } from '@/components/ui/AnimatedBalance';
 
 export default function Dashboard() {
   const { ready, authenticated, user } = usePrivy();
   const { wallets } = useWallets();
   const router = useRouter();
+
+  // Embedded Privy Solana wallet — look up via linkedAccounts (walletClientType is not exposed on ConnectedStandardSolanaWallet)
+  const privySolAccount = user?.linkedAccounts.find(
+    (a) => a.type === 'wallet' && a.walletClientType === 'privy' && a.chainType === 'solana'
+  );
+  const embeddedSolWallet = privySolAccount && 'address' in privySolAccount
+    ? { address: (privySolAccount as { address: string }).address }
+    : null;
 
   const [smartAddress, setSmartAddress] = useState<string>('');
   const [rampModalOpen, setRampModalOpen] = useState(false);
@@ -47,24 +58,13 @@ export default function Dashboard() {
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(
     null,
   );
-  const [hideBalance, setHideBalance] = useState(false);
-
-  useEffect(() => {
-    const stored = localStorage.getItem('hideBalance');
-    if (stored === 'true') {
-      setHideBalance(true);
-    }
-  }, []);
-
-  const toggleBalanceVisibility = () => {
-    const newValue = !hideBalance;
-    setHideBalance(newValue);
-    localStorage.setItem('hideBalance', String(newValue));
-  };
+  const { hideBalance, toggleBalanceVisibility } = useBalanceVisibility();
+  const [showSecurityNudge, setShowSecurityNudge] = useState(false);
 
   const {
     data: balance = '0.00',
     isLoading: isBalanceLoading,
+    isFetching: isBalanceFetching,
     refetch: refetchBalance,
   } = useQuery({
     queryKey: ['balance', smartAddress],
@@ -94,7 +94,27 @@ export default function Dashboard() {
         console.error('[Dashboard] INIT ACCOUNT FATAL ERROR:', err);
       }
     }
-    if (ready && authenticated && wallets.length > 0) initAccount();
+
+    async function fetchSecurityPrefs() {
+      if (!user?.email?.address) return;
+      try {
+        const res = await fetch(`/api/user/preferences?email=${encodeURIComponent(user.email.address)}`);
+        if (res.ok) {
+          const data = await res.json();
+          // Show nudge if not enabled and not recently dismissed
+          if (!data.two_fa_enabled && !data.two_fa_nudge_dismissed_at) {
+            setShowSecurityNudge(true);
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load security prefs', e);
+      }
+    }
+
+    if (ready && authenticated && wallets.length > 0) {
+      initAccount();
+      fetchSecurityPrefs();
+    }
   }, [ready, authenticated, wallets, user]);
 
   if (!ready || !authenticated || !user) {
@@ -113,15 +133,33 @@ export default function Dashboard() {
     setRampModalOpen(true);
   };
 
+  const dismissSecurityNudge = async () => {
+    setShowSecurityNudge(false);
+    if (!user?.email?.address) return;
+    try {
+      await fetch('/api/user/preferences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: user.email.address,
+          two_fa_nudge_dismissed_at: new Date().toISOString(),
+        }),
+      });
+    } catch (e) {
+      console.error('Failed to dismiss nudge', e);
+    }
+  };
+
   return (
     <TooltipProvider>
       <div className="max-w-5xl mx-auto space-y-12">
         {/* Balance Header */}
         <section>
           <div className="card-glass p-8 md:p-10 rounded-3xl">
-            <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-8">
-              <div className="space-y-4">
-                <div className="flex items-center gap-2">
+            <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-8 flex-wrap">
+              <div className="space-y-4 min-w-0">
+                {/* Header row: label + eye toggle on the same line */}
+                <div className="flex items-center gap-3">
                   <p
                     className="text-[10px] font-bold uppercase tracking-[0.25em]"
                     style={{ color: 'rgba(248,248,246,0.35)' }}
@@ -138,28 +176,30 @@ export default function Dashboard() {
                   >
                     Base
                   </div>
+                  <button
+                    onClick={toggleBalanceVisibility}
+                    className="p-1.5 rounded-full transition-all hover:bg-white/5 ml-1"
+                    style={{ color: 'rgba(248,248,246,0.3)' }}
+                    title={hideBalance ? "Show sensitive data" : "Hide sensitive data"}
+                  >
+                    {hideBalance ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
+                  </button>
                 </div>
-                <div className="flex items-baseline flex-wrap gap-x-4 gap-y-2">
+                {/* Balance + USDC label + refresh — all on one baseline */}
+                <div className="flex items-baseline gap-3 min-w-0">
                   <h2
-                    className="font-display text-5xl md:text-7xl font-bold tracking-tighter leading-none min-w-[200px] md:min-w-[320px]"
+                    className="font-display text-5xl md:text-7xl font-bold tracking-tighter leading-none truncate"
                     style={{ color: '#f8f8f6' }}
                   >
-                    ${hideBalance ? '****' : balance}
+                    $<AnimatedBalance balance={balance} isLoading={isBalanceLoading} />
                   </h2>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={toggleBalanceVisibility}
-                      className="p-2 rounded-full transition-all hover:bg-white/5"
-                      style={{ color: 'rgba(248,248,246,0.3)' }}
-                    >
-                      {hideBalance ? (
-                        <EyeOff className="w-5 h-5" />
-                      ) : (
-                        <Eye className="w-5 h-5" />
-                      )}
-                    </button>
+                  <div className="flex items-center gap-1.5 pb-1">
                     <span
-                      className="text-xl font-bold uppercase tracking-tighter"
+                      className="text-xl font-bold uppercase tracking-tighter shrink-0"
                       style={{ color: 'rgba(248,248,246,0.2)' }}
                     >
                       USDC
@@ -167,13 +207,13 @@ export default function Dashboard() {
                     <button
                       onClick={() => refetchBalance()}
                       disabled={isBalanceLoading || !smartAddress}
-                      className="p-2 rounded-full transition-all disabled:opacity-50"
-                      style={{ color: 'rgba(248,248,246,0.3)' }}
+                      className="p-1.5 rounded-full transition-all disabled:opacity-50 hover:bg-white/5 shrink-0"
+                      style={{ color: 'rgba(248,248,246,0.25)' }}
                     >
                       <RefreshCw
                         className={cn(
-                          'w-5 h-5',
-                          isBalanceLoading && 'animate-spin',
+                          'w-4 h-4',
+                          (isBalanceLoading || isBalanceFetching) && 'animate-spin',
                         )}
                       />
                     </button>
@@ -222,7 +262,7 @@ export default function Dashboard() {
                       </TooltipTrigger>
                       <TooltipContent className="max-w-[280px] text-xs leading-relaxed p-4">
                         <p className="font-bold mb-1 text-accent">Secure MPC Architecture</p>
-                        We use Privy's MPC technology to ensure your funds are truly yours. Your keys are split into shares, meaning no single party—including Sendzz—ever has access to your full private key. This provides self-custody with the ease of a traditional login.
+                        We use Privy&apos;s MPC technology to ensure your funds are truly yours. Your keys are split into shares, meaning no single party—including Sendzz—ever has access to your full private key. This provides self-custody with the ease of a traditional login.
                       </TooltipContent>
                     </Tooltip>
                   </div>
@@ -261,7 +301,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <BridgeNudge smartAddress={smartAddress} />
+          <BridgeNudge smartAddress={smartAddress} solanaAddress={embeddedSolWallet?.address} />
         </section>
 
         {/* Pending Incoming Payments — shown only when there are payments awaiting acceptance */}
@@ -269,6 +309,37 @@ export default function Dashboard() {
           userId={user.id}
           userEmail={user.email?.address || ''}
         />
+
+        {showSecurityNudge && (
+          <div className="card-glass p-4 sm:p-6 rounded-2xl border-orange-500/20 bg-orange-500/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/10 blur-3xl -z-10 rounded-full" />
+            <div className="flex items-start sm:items-center gap-4">
+              <div className="w-10 h-10 bg-orange-500/10 rounded-xl flex items-center justify-center shrink-0 border border-orange-500/20">
+                <ShieldAlert className="w-5 h-5 text-orange-400" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="font-bold text-sm text-orange-400">Enhance Your Security</h4>
+                <p className="text-xs text-orange-400/70 max-w-md leading-relaxed">
+                  Two-Factor Authentication is currently disabled. Protect your funds by requiring an OTP for large transactions.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+              <button
+                onClick={dismissSecurityNudge}
+                className="text-[10px] font-bold uppercase tracking-widest text-orange-400/50 hover:text-orange-400 transition-colors p-2"
+              >
+                Dismiss
+              </button>
+              <button
+                onClick={() => router.push('/dashboard/settings')}
+                className="flex-1 sm:flex-none text-[10px] font-bold uppercase tracking-widest bg-orange-500/10 text-orange-400 border border-orange-500/20 px-5 py-2.5 rounded-xl hover:bg-orange-500/20 transition-all"
+              >
+                Setup 2FA
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Main Grid: Clean & Segmented */}
         <div className="grid lg:grid-cols-12 gap-12 items-start">

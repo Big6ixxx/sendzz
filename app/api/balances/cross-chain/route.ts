@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createPublicClient, http, fallback, type Chain } from 'viem';
 import { mainnet, arbitrum, avalanche, optimism, polygon, base } from 'viem/chains';
 import { USDC_ADDRESSES, SOURCE_CHAINS, type SupportedChain } from '@/lib/circle/gateway';
+import { Connection, PublicKey } from '@solana/web3.js';
+import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 
 const BALANCE_ABI = [
   {
@@ -13,6 +15,9 @@ const BALANCE_ABI = [
   },
 ] as const;
 
+// Solana USDC mint (mainnet)
+const SOLANA_USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+
 // Reliable public RPC fallbacks — always available, no rate limits
 const PUBLIC_RPCS: Record<SupportedChain, string> = {
   arbitrum:  'https://arb1.arbitrum.io/rpc',
@@ -22,6 +27,16 @@ const PUBLIC_RPCS: Record<SupportedChain, string> = {
   polygon:   'https://polygon-rpc.com',
   base:      'https://mainnet.base.org',
 };
+
+// On the server (API routes), NEXT_PUBLIC_ vars ARE available in process.env,
+// but we prefer the private SOLANA_RPC_URL if set. Fall back in order:
+// 1. SOLANA_RPC_URL (private, server-only)
+// 2. NEXT_PUBLIC_SOLANA_RPC_URL (public, set in .env)
+// 3. Public fallback (often 403s from browsers but fine server-side)
+const SOLANA_RPC =
+  process.env.SOLANA_RPC_URL ??
+  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ??
+  'https://api.mainnet-beta.solana.com';
 
 function makeClient(chain: Chain, alchemyUrl?: string, publicUrl?: string) {
   const transports = [
@@ -35,7 +50,7 @@ function makeClient(chain: Chain, alchemyUrl?: string, publicUrl?: string) {
   });
 }
 
-function getClients(): Record<SupportedChain, ReturnType<typeof createPublicClient>> {
+function getEvmClients(): Record<SupportedChain, ReturnType<typeof createPublicClient>> {
   const key = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || '';
   const alchemy = (subdomain: string) =>
     key ? `https://${subdomain}.g.alchemy.com/v2/${key}` : undefined;
@@ -50,35 +65,80 @@ function getClients(): Record<SupportedChain, ReturnType<typeof createPublicClie
   };
 }
 
+/** Fetch Solana USDC balance for a given base58 wallet address. Returns 0 on any error. */
+async function getSolanaUsdcBalance(walletAddress: string): Promise<number> {
+  try {
+    const connection = new Connection(SOLANA_RPC, 'confirmed');
+    const walletPubkey = new PublicKey(walletAddress);
+    const ata = getAssociatedTokenAddressSync(SOLANA_USDC_MINT, walletPubkey);
+    const info = await connection.getTokenAccountBalance(ata);
+    return Number(info.value.uiAmount ?? 0);
+  } catch {
+    return 0;
+  }
+}
+
+/** Validate a Solana base58 public key string. */
+function isValidSolanaAddress(addr: string): boolean {
+  try {
+    new PublicKey(addr);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function GET(req: NextRequest) {
   const address = req.nextUrl.searchParams.get('address');
+  const solanaAddress = req.nextUrl.searchParams.get('solanaAddress');
 
   if (!address || !/^0x[0-9a-fA-F]{40}$/.test(address)) {
-    return NextResponse.json({ error: 'Invalid address' }, { status: 400 });
+    return NextResponse.json({ error: 'Invalid EVM address' }, { status: 400 });
   }
 
-  const clients = getClients();
+  const clients = getEvmClients();
 
-  const results = await Promise.all(
-    SOURCE_CHAINS.map(async (chain) => {
-      try {
-        const client = clients[chain];
-        const usdcAddress = USDC_ADDRESSES[chain];
+  // Scan all EVM source chains in parallel
+  const evmPromises = SOURCE_CHAINS.map(async (chain) => {
+    try {
+      const client = clients[chain];
+      const usdcAddress = USDC_ADDRESSES[chain];
 
-        const balance = await client.readContract({
-          address: usdcAddress as `0x${string}`,
-          abi: BALANCE_ABI,
-          functionName: 'balanceOf',
-          args: [address as `0x${string}`],
-        });
+      const balance = await client.readContract({
+        address: usdcAddress as `0x${string}`,
+        abi: BALANCE_ABI,
+        functionName: 'balanceOf',
+        args: [address as `0x${string}`],
+      });
 
-        const formatted = (Number(balance) / 1_000_000).toString();
-        return { chain, balance: formatted, hasBalance: Number(balance) > 0 };
-      } catch (err) {
-        return { chain, balance: '0', hasBalance: false };
-      }
-    }),
-  );
+      const formatted = (Number(balance) / 1_000_000).toString();
+      return { chain, balance: formatted, hasBalance: Number(balance) > 0 };
+    } catch {
+      return { chain, balance: '0', hasBalance: false };
+    }
+  });
 
-  return NextResponse.json(results.filter((r) => r.hasBalance));
+  // Scan Solana if address provided and valid
+  const solanaPromise = (solanaAddress && isValidSolanaAddress(solanaAddress))
+    ? (async () => {
+        const bal = await getSolanaUsdcBalance(solanaAddress);
+        return {
+          chain: 'solana' as const,
+          balance: bal.toString(),
+          hasBalance: bal > 0,
+        };
+      })()
+    : Promise.resolve(null);
+
+  const [evmResults, solanaResult] = await Promise.all([
+    Promise.all(evmPromises),
+    solanaPromise,
+  ]);
+
+  const results = [
+    ...evmResults.filter((r) => r.hasBalance),
+    ...(solanaResult?.hasBalance ? [solanaResult] : []),
+  ];
+
+  return NextResponse.json(results);
 }

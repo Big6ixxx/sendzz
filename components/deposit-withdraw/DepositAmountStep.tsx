@@ -9,13 +9,13 @@ interface DepositAmountStepProps {
   meta: ChainMeta;
   walletConfig: WalletConfig | null;
   stellar: UseStellarDepositResult;
-  solWalletAddr: string | null;
   amount: string;
   setAmount: (v: string) => void;
   onContinue: () => void;
   onBack: () => void;
   onDisconnect?: () => void;
   error?: string;
+  solWalletAddr?: string | null;
 }
 
 // Stellar and Solana bridge directly from the user's connected wallet.
@@ -27,7 +27,6 @@ export function DepositAmountStep({
   meta,
   walletConfig,
   stellar,
-  solWalletAddr,
   amount,
   setAmount,
   onContinue,
@@ -157,33 +156,6 @@ export function DepositAmountStep({
                   </button>
                 )}
               </div>
-            </div>
-          )}
-
-          {/* Solana wallet address */}
-          {chain === 'solana' && solWalletAddr && (
-            <div
-              className="p-3.5 rounded-xl flex items-center justify-between"
-              style={{ background: meta.bg, border: `1px solid ${meta.border}` }}
-            >
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'rgba(248,248,246,0.35)' }}>
-                  Connected Wallet
-                </p>
-                <p className="text-xs font-mono mt-0.5" style={{ color: 'rgba(248,248,246,0.6)' }}>
-                  {solWalletAddr.slice(0, 10)}…{solWalletAddr.slice(-6)}
-                </p>
-              </div>
-              {onDisconnect && (
-                <button
-                  onClick={onDisconnect}
-                  title="Disconnect wallet"
-                  className="p-1.5 rounded-lg transition-all hover:bg-white/10"
-                  style={{ color: 'rgba(248,248,246,0.3)' }}
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                </button>
-              )}
             </div>
           )}
 

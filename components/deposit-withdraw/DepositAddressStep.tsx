@@ -72,7 +72,7 @@ export function DepositAddressStep({
         <div className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0" style={{ background: '#fb923c' }} />
         <p className="text-[11px] leading-relaxed" style={{ color: 'rgba(251,146,60,0.9)' }}>
           <strong>Important:</strong> Only send USDC on the {meta.name} network to this address.
-          Sending other tokens or using the wrong network will result in permanent loss.
+          Sending other tokens or using the wrong network may result in permanent loss.
         </p>
       </div>
 

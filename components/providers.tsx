@@ -1,7 +1,7 @@
 'use client';
 
 import { PrivyProvider } from '@privy-io/react-auth';
-import { toSolanaWalletConnectors } from '@privy-io/react-auth/solana';
+import { createSolanaRpc, createSolanaRpcSubscriptions } from '@solana/kit';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import {
@@ -14,13 +14,7 @@ import {
   polygon,
 } from 'viem/chains';
 import { ReactNode, useState } from 'react';
-
-const EXPERIMENTAL_BRIDGES_ENABLED =
-  process.env.NEXT_PUBLIC_ENABLE_EXPERIMENTAL_BRIDGES === 'true';
-
-const solanaConnectors = EXPERIMENTAL_BRIDGES_ENABLED
-  ? toSolanaWalletConnectors({ shouldAutoConnect: true })
-  : undefined;
+import { BalanceVisibilityProvider } from '@/components/providers/BalanceVisibilityProvider';
 
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
@@ -50,14 +44,25 @@ export function Providers({ children }: { children: ReactNode }) {
           },
           embeddedWallets: {
             ethereum: {
-              createOnLogin: 'users-without-wallets',
+              createOnLogin: 'all-users',
+            },
+            solana: {
+              createOnLogin: 'all-users',
             },
           },
-          ...(solanaConnectors && {
-            externalWallets: {
-              solana: { connectors: solanaConnectors },
+          solana: {
+            rpcs: {
+              'solana:mainnet': {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                rpc: createSolanaRpc(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com') as any,
+                rpcSubscriptions: createSolanaRpcSubscriptions(
+                  (process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com')
+                    .replace('https', 'wss')
+                    .replace('http', 'ws')
+                ),
+              },
             },
-          }),
+          },
           defaultChain: isProd ? base : baseSepolia,
           supportedChains: [
             mainnet,
@@ -70,19 +75,21 @@ export function Providers({ children }: { children: ReactNode }) {
           ],
         }}
       >
-        {children}
-        <Toaster
-          position="top-right"
-          toastOptions={{
-            style: {
-              background: 'rgba(10, 10, 11, 0.8)',
-              backdropFilter: 'blur(16px)',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              color: '#f8f8f6',
-              borderRadius: '20px',
-            },
-          }}
-        />
+        <BalanceVisibilityProvider>
+          {children}
+          <Toaster
+            position="top-right"
+            toastOptions={{
+              style: {
+                background: 'rgba(10, 10, 11, 0.8)',
+                backdropFilter: 'blur(16px)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                color: '#f8f8f6',
+                borderRadius: '20px',
+              },
+            }}
+          />
+        </BalanceVisibilityProvider>
       </PrivyProvider>
     </QueryClientProvider>
   );

@@ -9,7 +9,7 @@
  *   MessageTransmitterV2   : CCTPV2Sm4AdWt5296sk4P66VBZ7bEhcARwFaaS9YPbeC
  *   USDC mint              : EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
  */
-
+import { Buffer } from 'buffer';
 import {
   Connection,
   Keypair,
@@ -62,10 +62,8 @@ function getTokenMessengerPda(): PublicKey {
 }
 
 function getRemoteTokenMessengerPda(destinationDomain: number): PublicKey {
-  const domainBuf = Buffer.alloc(4);
-  domainBuf.writeUInt32LE(destinationDomain);
   return findPda(
-    [Buffer.from('remote_token_messenger'), domainBuf],
+    [Buffer.from('remote_token_messenger'), Buffer.from(destinationDomain.toString())],
     TOKEN_MESSENGER_MINTER_V2,
   );
 }
@@ -160,6 +158,7 @@ export async function buildDepositForBurnTx(
   amountUsdc: string,
   evmRecipient: string,
   maxFeeSubunits: bigint,
+  feePayerPublicKey?: PublicKey,
 ): Promise<DepositForBurnResult> {
   // Convert to 6-decimal subunits
   const [whole, frac = ''] = amountUsdc.split('.');
@@ -172,13 +171,18 @@ export async function buildDepositForBurnTx(
   // Mint recipient = user's Base EVM address encoded as 32 bytes
   const mintRecipientBytes = evmAddressToBytes32(evmRecipient);
 
-  // Derive PDAs
   const senderAuthorityPda = getSenderAuthorityPda();
   const messageTransmitterConfig = getMessageTransmitterConfig();
   const tokenMessengerPda = getTokenMessengerPda();
   const remoteTokenMessengerPda = getRemoteTokenMessengerPda(BASE_CCTP_DOMAIN);
   const tokenMinterPda = getTokenMinterPda();
   const localTokenPda = getLocalTokenPda(SOLANA_USDC_MINT);
+  
+  // V2 denylist account
+  const denylistPda = findPda(
+    [Buffer.from('denylist_account'), walletPublicKey.toBuffer()],
+    TOKEN_MESSENGER_MINTER_V2,
+  );
 
   // User's USDC associated token account (must exist and have sufficient balance)
   const burnTokenAccount = getAssociatedTokenAddressSync(
@@ -194,11 +198,14 @@ export async function buildDepositForBurnTx(
     minFinalityThreshold: 1000, // Fast Transfer
   });
 
+  const eventRentPayer = feePayerPublicKey ?? walletPublicKey;
+
   const keys = [
     { pubkey: walletPublicKey, isSigner: true, isWritable: true },
-    { pubkey: walletPublicKey, isSigner: true, isWritable: true }, // eventRentPayer = owner
+    { pubkey: eventRentPayer, isSigner: true, isWritable: true }, // eventRentPayer
     { pubkey: senderAuthorityPda, isSigner: false, isWritable: false },
     { pubkey: burnTokenAccount, isSigner: false, isWritable: true },
+    { pubkey: denylistPda, isSigner: false, isWritable: false }, // <--- V2 addition
     { pubkey: messageTransmitterConfig, isSigner: false, isWritable: true },
     { pubkey: tokenMessengerPda, isSigner: false, isWritable: false },
     { pubkey: remoteTokenMessengerPda, isSigner: false, isWritable: false },
@@ -210,6 +217,13 @@ export async function buildDepositForBurnTx(
     { pubkey: TOKEN_MESSENGER_MINTER_V2, isSigner: false, isWritable: false },
     { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
     { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    // Anchor #[event_cpi] automatically injects these two accounts at the end
+    {
+      pubkey: findPda([Buffer.from('__event_authority')], TOKEN_MESSENGER_MINTER_V2),
+      isSigner: false,
+      isWritable: false,
+    },
+    { pubkey: TOKEN_MESSENGER_MINTER_V2, isSigner: false, isWritable: false },
   ];
 
   const instruction = new TransactionInstruction({
@@ -262,7 +276,7 @@ export async function fetchSolanaAttestation(
     if (!res.ok) throw new Error(`Iris API error: ${res.statusText}`);
 
     const data = (await res.json()) as {
-      messages?: { status: string; attestation?: string; forwardTxHash?: string }[];
+      messages?: { status: string; attestation?: string; message?: string; forwardTxHash?: string }[];
     };
     const message = data.messages?.[0];
     if (!message) return { status: 'pending' };
@@ -270,6 +284,7 @@ export async function fetchSolanaAttestation(
     return {
       status: message.status === 'complete' ? 'complete' : 'pending',
       attestation: message.attestation,
+      messageBytes: message.message,
       mintTxHash: message.forwardTxHash,
     };
   } catch (err) {

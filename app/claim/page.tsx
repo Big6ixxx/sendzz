@@ -45,13 +45,15 @@ function ClaimContent() {
   useEffect(() => {
     if (!ready) return;
     if (!token) {
-      setErrorMessage('Invalid link — no claim token found.');
-      setState('error');
+      setTimeout(() => {
+        setErrorMessage('Invalid link — no claim token found.');
+        setState('error');
+      }, 0);
       return;
     }
 
     if (!authenticated) {
-      setState('authenticating');
+      setTimeout(() => setState('authenticating'), 0);
       return;
     }
 

@@ -9,8 +9,7 @@ import { type FiatCurrencyCode } from "@/lib/currency-config";
 import { ReceiptData } from "@/lib/receipt/types";
 import { toast } from "sonner";
 
-const TWO_FA_LIMIT = 500; // 2FA required for transfers >= 1 USDC
-
+// Custom 2FA limit will be fetched from user preferences
 /** Convert raw viem / Circle / network errors into short user-readable strings. */
 export function parseFriendlyError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
@@ -103,6 +102,8 @@ export function useTransfer({
   const [twoFaOtpId, setTwoFaOtpId] = useState<string | null>(null);
   const [twoFaLoading, setTwoFaLoading] = useState(false);
   const [twoFaError, setTwoFaError] = useState<string | null>(null);
+  const [twoFaEnabled, setTwoFaEnabled] = useState(false);
+  const [twoFaThreshold, setTwoFaThreshold] = useState(500);
 
   // Cache recipient check results for 30s to avoid hammering on keystrokes
   const checkCacheRef = useRef<
@@ -123,7 +124,20 @@ export function useTransfer({
       setRecipientEmail(initialRecipientEmail);
       if (onClearInitialRecipient) onClearInitialRecipient();
     }
-  }, [initialRecipientEmail, onClearInitialRecipient]);
+    
+    // Fetch security preferences
+    if (senderEmail) {
+      fetch(`/api/user/preferences?email=${encodeURIComponent(senderEmail)}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data && typeof data.two_fa_enabled === 'boolean') {
+            setTwoFaEnabled(data.two_fa_enabled);
+            setTwoFaThreshold(data.two_fa_threshold);
+          }
+        })
+        .catch(console.error);
+    }
+  }, [initialRecipientEmail, onClearInitialRecipient, senderEmail]);
 
   // Debounced recipient check — fires 500ms after the email field settles
   useEffect(() => {
@@ -180,7 +194,11 @@ export function useTransfer({
     if (!amount || !recipientEmail || !embeddedProvider) return;
 
     const valUsdc = parseFloat(amountUsdc);
-    if (valUsdc >= TWO_FA_LIMIT) {
+    if (valUsdc >= twoFaThreshold) {
+      if (!twoFaEnabled) {
+        toast.error(`Transfers over ${twoFaThreshold} USDC require 2FA. Please enable it in Settings.`);
+        return;
+      }
       // 2FA Required
       setLoading(true);
       try {

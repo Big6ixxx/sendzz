@@ -59,8 +59,13 @@ export function useDepositWithdraw(
   const [amount, setAmount] = useState("");
   const [inputMode, setInputMode] = useState<"usdc" | "fiat">("usdc");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error] = useState<string | null>(null);
   const [fiatCurrency, setFiatCurrency] = useState<FiatCurrencyCode>("NGN");
+  const [quoteUsdcAmount, setQuoteUsdcAmount] = useState<string>("");
+
+  // User Security Preferences
+  const [twoFaEnabled, setTwoFaEnabled] = useState(false);
+  const [twoFaThreshold, setTwoFaThreshold] = useState(500);
 
   // Sync fiatCurrency with available currencies if current one is not supported
   useEffect(() => {
@@ -147,6 +152,17 @@ export function useDepositWithdraw(
     // Fetch bank contacts
     if (userEmail) {
       getUserBankContacts(userEmail).then(setBankContacts).catch(console.error);
+      
+      // Fetch security preferences
+      fetch(`/api/user/preferences?email=${encodeURIComponent(userEmail)}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data && typeof data.two_fa_enabled === 'boolean') {
+            setTwoFaEnabled(data.two_fa_enabled);
+            setTwoFaThreshold(data.two_fa_threshold);
+          }
+        })
+        .catch(console.error);
     }
   }, [type, fiatCurrency, userEmail]);
 
@@ -252,24 +268,26 @@ export function useDepositWithdraw(
         toast.error("Exchange rate not available yet");
         return;
       }
-      val = val / rate;
+      val = val / rate; // base USDC needed
     }
 
     if (isNaN(val) || val < 1) {
-      toast.error("Minimum withdrawal is 1 USDC");
+      toast.error("Minimum withdrawal is 1 USDC equivalent");
       return;
     }
 
-    if (val > parseFloat(balance)) {
-      toast.error(`Insufficient balance. Max: ${balance} USDC`);
+    // Include the 0.3% fee in the balance check
+    const feeRate = 0.003; // 0.3%
+    const totalUsdcRequired = val * (1 + feeRate);
+
+    if (totalUsdcRequired > parseFloat(balance)) {
+      toast.error(`Insufficient balance. Requires ${totalUsdcRequired.toFixed(2)} USDC`);
       return;
     }
 
-    // Update state to USDC so finalization step uses correct amount
-    if (inputMode === "fiat") {
-      setAmount(val.toFixed(2));
-      setInputMode("usdc");
-    }
+    // Save the computed base USDC required for the next steps
+    // without overwriting the user's input amount
+    setQuoteUsdcAmount(val.toFixed(2));
 
     setLoading(true);
     try {
@@ -291,8 +309,18 @@ export function useDepositWithdraw(
       return;
     }
 
-    const amountUsdc = parseFloat(amount);
-    if (amountUsdc >= 1) {
+    const amountUsdc = parseFloat(quoteUsdcAmount);
+    
+    // Total amount that will be deducted including fee
+    const feeRate = 0.003;
+    const totalUsdcRequired = amountUsdc * (1 + feeRate);
+
+    if (totalUsdcRequired >= twoFaThreshold) {
+      if (!twoFaEnabled) {
+        toast.error(`Withdrawals over ${twoFaThreshold} USDC require 2FA. Please enable it in Settings.`);
+        return;
+      }
+      
       // 2FA Required
       setLoading(true);
       try {
@@ -303,7 +331,7 @@ export function useDepositWithdraw(
             userEmail,
             actionType: "withdrawal",
             payload: {
-              amountUsdc,
+              amountUsdc: totalUsdcRequired,
               accountNumber: bankDetails.accountNumber,
               bankCode: bankDetails.bankCode,
               fiatCurrency,
@@ -361,7 +389,7 @@ export function useDepositWithdraw(
     setTwoFaLoading(true);
     setTwoFaError(null);
     try {
-      const amountUsdc = parseFloat(amount);
+      const amountUsdc = parseFloat(quoteUsdcAmount);
       const res = await fetch("/api/2fa/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -397,7 +425,7 @@ export function useDepositWithdraw(
     setLoading(true);
     try {
       const res = await finalizeOffRamp(
-        parseFloat(amount),
+        parseFloat(quoteUsdcAmount),
         bankDetails.accountNumber,
         bankDetails.bankCode,
         bankDetails.accountName,
@@ -423,10 +451,15 @@ export function useDepositWithdraw(
     setTransferring(true);
     try {
       const provider = await embeddedProvider.getEthereumProvider();
+      
+      const baseAmount = parseFloat(quoteUsdcAmount);
+      const feeRate = 0.003;
+      const totalUsdcRequired = (baseAmount * (1 + feeRate)).toFixed(2);
+      
       const txHash = await executeCircleGaslessTransfer(
         provider,
         order.providerAccount.receiveAddress,
-        amount,
+        totalUsdcRequired,
       );
       setWithdrawalTxHash(txHash);
       if (order.id && txHash) {
@@ -524,7 +557,7 @@ export function useDepositWithdraw(
     };
     poll();
     pollIntervalRef.current = setInterval(poll, 8000);
-  }, [order?.id, queryClient, userAddress, type, onClose]);
+  }, [order?.id, queryClient, userAddress, type, onClose, bankContacts, bankDetails.accountNumber]);
 
   useEffect(() => {
     return () => {
@@ -566,6 +599,7 @@ export function useDepositWithdraw(
     bankContacts,
     showSavePrompt,
     setShowSavePrompt,
+    quoteUsdcAmount,
     userEmail,
     userAddress,
     refreshBankContacts,

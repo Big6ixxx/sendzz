@@ -92,7 +92,7 @@ export const CHAIN_META: Record<string, ChainMeta> = {
     bg: 'rgba(153,69,255,0.08)',
     border: 'rgba(153,69,255,0.2)',
     description: 'Ultra-fast L1',
-    explorerTx: (h) => `https://explorer.solana.com/tx/${h}`,
+    explorerTx: (h) => `https://solscan.io/tx/${h}`,
   },
   stellar: {
     name: 'Stellar',

@@ -9,6 +9,7 @@ import {
   TOKEN_MESSENGER_V2,
   USDC_ADDRESSES,
   CCTP_DOMAINS,
+  GAS_POLICY_IDS,
   type SupportedChain,
   calculateMaxFee
 } from '../circle/gateway';
@@ -88,12 +89,6 @@ export async function executeSmartBridge(
     const mintRecipient = `0x${'0'.repeat(24)}${recipientAddress.slice(2).toLowerCase()}` as `0x${string}`;
     const destinationCaller = `0x${'0'.repeat(64)}` as `0x${string}`;
 
-    // Gas policy IDs per chain — set in .env
-    const GAS_POLICY_IDS: Record<string, string | undefined> = {
-      arbitrum: process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_ARBITRUM,
-      avalanche: process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_AVALANCHE,
-      ethereum: process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_ETHEREUM,
-    };
     const policyId = GAS_POLICY_IDS[sourceChain];
 
     const modularClient = bundlerClient.extend(modularWalletActions);

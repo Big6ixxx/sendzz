@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { AlertCircle, RefreshCcw } from 'lucide-react';
+import { RefreshCcw } from 'lucide-react';
 import Image from 'next/image';
 import { useEffect } from 'react';
 

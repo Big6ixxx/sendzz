@@ -254,7 +254,7 @@ export function DepositForm({ hook }: DepositFormProps) {
 
   if (hook.step === 3) {
     const depositReceipt: ReceiptData = {
-      id: hook.order?.id ?? `dep-${Date.now().toString(36)}`,
+      id: hook.order?.id ?? 'dep-pending',
       type: 'deposit',
       status: 'confirmed',
       timestamp: new Date().toISOString(),

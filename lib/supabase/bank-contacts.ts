@@ -1,6 +1,6 @@
 'use server';
 
-import { Database } from '@/types/database';
+
 import { supabaseAdmin } from './adminClient';
 
 export type BankContactRow = {

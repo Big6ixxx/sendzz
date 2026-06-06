@@ -1,14 +1,18 @@
 'use client';
 
 import { useCrossChainBalances } from '@/hooks/useCrossChainBalances';
-import { SMART_BRIDGE_CHAINS } from '@/lib/circle/gateway';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 
-export function BridgeNudge({ smartAddress }: { smartAddress: string }) {
-  const { data: allBridges } = useCrossChainBalances(smartAddress);
-  const bridges = allBridges?.filter(b => SMART_BRIDGE_CHAINS.includes(b.chain));
+interface BridgeNudgeProps {
+  smartAddress: string;
+  solanaAddress?: string;
+}
+
+export function BridgeNudge({ smartAddress, solanaAddress }: BridgeNudgeProps) {
+  const { data: bridges } = useCrossChainBalances(smartAddress, solanaAddress);
+  // Show nudge if there are funds on ANY non-Base chain (EVM or Solana)
   const hasFundsElsewhere = bridges && bridges.length > 0;
 
   return (
@@ -20,7 +24,7 @@ export function BridgeNudge({ smartAddress }: { smartAddress: string }) {
           exit={{ opacity: 0, height: 0 }}
           className="overflow-hidden"
         >
-          <Link 
+          <Link
             href="/dashboard/bridge"
             className="block group mt-6"
           >

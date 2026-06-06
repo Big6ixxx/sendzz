@@ -13,6 +13,14 @@ export default function SmartBridgePage() {
   const { wallets } = useWallets();
   const [smartAddress, setSmartAddress] = useState<string>('');
 
+  // Embedded Privy Solana wallet — look up address via linkedAccounts (walletClientType is not exposed on ConnectedStandardSolanaWallet)
+  const privySolAccount = user?.linkedAccounts.find(
+    (a) => a.type === 'wallet' && a.walletClientType === 'privy' && a.chainType === 'solana'
+  );
+  const privySolanaAddress = privySolAccount && 'address' in privySolAccount
+    ? (privySolAccount as { address: string }).address
+    : undefined;
+
   useEffect(() => {
     async function initAccount() {
       try {
@@ -49,6 +57,7 @@ export default function SmartBridgePage() {
         <SmartBridgeModule
           smartAddress={smartAddress}
           userEmail={user.email?.address || ''}
+          solanaAddress={privySolanaAddress}
         />
       </div>
     </TooltipProvider>

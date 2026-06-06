@@ -61,11 +61,27 @@ export const SOURCE_CHAINS: SupportedChain[] = [
   'polygon',
 ];
 
+// All EVM chains the Smart Bridge will scan (all source chains)
 export const SMART_BRIDGE_CHAINS: SupportedChain[] = [
   'arbitrum',
   'avalanche',
   'ethereum',
+  'optimism',
+  'polygon',
 ];
+
+/**
+ * Circle Gas Station policy IDs per chain — set in .env
+ * Used by executeSmartBridge to sponsor gas for USDC burns.
+ * Chains without a policy ID fall back to Circle's default paymaster.
+ */
+export const GAS_POLICY_IDS: Partial<Record<SupportedChain, string | undefined>> = {
+  arbitrum:  process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_ARBITRUM,
+  avalanche: process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_AVALANCHE,
+  ethereum:  process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_ETHEREUM,
+  optimism:  process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_OPTIMISM,
+  polygon:   process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_POLYGON,
+};
 
 // Circle Iris API base URL (mainnet)
 const IRIS_API_BASE = 'https://iris-api.circle.com/v2';

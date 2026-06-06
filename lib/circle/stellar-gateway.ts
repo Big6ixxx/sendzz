@@ -207,7 +207,7 @@ export async function buildStellarDepositForBurnTx(
     networkPassphrase: STELLAR_NETWORK_PASSPHRASE,
   })
     .addOperation(operation)
-    .setTimeout(30)
+    .setTimeout(300)
     .build();
 
   // Simulate to get the resource footprint
@@ -325,7 +325,7 @@ export async function getStellarUsdcAllowance(
       networkPassphrase: STELLAR_NETWORK_PASSPHRASE,
     })
       .addOperation(operation)
-      .setTimeout(30)
+      .setTimeout(300)
       .build();
 
     const simResult = await server.simulateTransaction(tx);
@@ -382,7 +382,7 @@ export async function buildStellarApproveTx(
     networkPassphrase: STELLAR_NETWORK_PASSPHRASE,
   })
     .addOperation(approveOperation)
-    .setTimeout(30)
+    .setTimeout(300)
     .build();
 
   console.log('[StellarGateway] buildStellarApproveTx: simulating approval transaction…');
