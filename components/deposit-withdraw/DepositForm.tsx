@@ -1,16 +1,26 @@
-'use client';
+"use client";
 
-import { CurrencySelector } from '@/components/CurrencySelector';
-import { getCurrencySymbol } from '@/lib/currency-config';
-import { cn } from '@/lib/utils';
-import { AlertCircle, CheckCircle2, Clock, Copy, Loader2, Plus } from 'lucide-react';
-import * as React from 'react';
-import { toast } from 'sonner';
-import { calculatePaycrestBaseAmount, PAYCREST_PARTNER_FEE_PERCENT } from '@/lib/paycrest/config';
-import { BankSelector } from './BankSelector';
-import { useDepositWithdraw } from './useDepositWithdraw';
-import { ReceiptActions } from '@/components/receipt/ReceiptActions';
-import { ReceiptData } from '@/lib/receipt/types';
+import { CurrencySelector } from "@/components/CurrencySelector";
+import { getCurrencySymbol } from "@/lib/currency-config";
+import { cn } from "@/lib/utils";
+import {
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  Copy,
+  Loader2,
+  Plus,
+} from "lucide-react";
+import * as React from "react";
+import { toast } from "sonner";
+import {
+  calculatePaycrestBaseAmount,
+  PAYCREST_PARTNER_FEE_PERCENT,
+} from "@/lib/paycrest/config";
+import { BankSelector } from "./BankSelector";
+import { useDepositWithdraw } from "./useDepositWithdraw";
+import { ReceiptActions } from "@/components/receipt/ReceiptActions";
+import { ReceiptData } from "@/lib/receipt/types";
 
 interface DepositFormProps {
   hook: ReturnType<typeof useDepositWithdraw>;
@@ -21,7 +31,9 @@ export function DepositForm({ hook }: DepositFormProps) {
 
   const estimatedUsdc =
     hook.rate && hook.amount
-      ? (calculatePaycrestBaseAmount(parseFloat(hook.amount)) / hook.rate).toFixed(4)
+      ? (
+          calculatePaycrestBaseAmount(parseFloat(hook.amount)) / hook.rate
+        ).toFixed(4)
       : null;
 
   // Countdown timer for order
@@ -75,7 +87,9 @@ export function DepositForm({ hook }: DepositFormProps) {
                 ) : hook.rate ? (
                   `1 USDC = ${hook.rate.toLocaleString()} ${hook.fiatCurrency}`
                 ) : (
-                  <span className="text-red-400 font-bold uppercase text-[10px] tracking-widest">Unavailable</span>
+                  <span className="text-red-400 font-bold uppercase text-[10px] tracking-widest">
+                    Unavailable
+                  </span>
                 )}
               </span>
             </div>
@@ -87,13 +101,15 @@ export function DepositForm({ hook }: DepositFormProps) {
                 ) : estimatedUsdc ? (
                   `${estimatedUsdc} USDC`
                 ) : (
-                  '—'
+                  "—"
                 )}
               </span>
             </div>
             <div className="flex justify-between text-sm pt-2 border-t border-border">
               <span className="text-muted-foreground">Platform Fee</span>
-              <span className="font-semibold text-foreground">{PAYCREST_PARTNER_FEE_PERCENT}%</span>
+              <span className="font-semibold text-foreground">
+                {PAYCREST_PARTNER_FEE_PERCENT}%
+              </span>
             </div>
           </div>
         </div>
@@ -108,7 +124,7 @@ export function DepositForm({ hook }: DepositFormProps) {
                 ...hook.bankDetails,
                 bankCode: b.code,
                 bankName: b.name,
-                accountName: '',
+                accountName: "",
               })
             }
             onSelectContact={(contact) =>
@@ -124,7 +140,7 @@ export function DepositForm({ hook }: DepositFormProps) {
               hook.setBankDetails({
                 ...hook.bankDetails,
                 accountNumber: val,
-                accountName: '',
+                accountName: "",
               })
             }
             accountName={hook.bankDetails.accountName}
@@ -141,14 +157,17 @@ export function DepositForm({ hook }: DepositFormProps) {
         <button
           onClick={() => hook.handleDepositInitiate()}
           disabled={
-            hook.loading || hook.rateLoading || !hook.amount || !hook.bankDetails.accountName
+            hook.loading ||
+            hook.rateLoading ||
+            !hook.amount ||
+            !hook.bankDetails.accountName
           }
           className="btn-primary w-full gap-2 mt-4"
         >
           {hook.loading ? (
             <Loader2 className="w-5 h-5 animate-spin" />
           ) : (
-            'Continue to Deposit'
+            "Continue to Deposit"
           )}
         </button>
       </div>
@@ -161,10 +180,10 @@ export function DepositForm({ hook }: DepositFormProps) {
         {secondsLeft !== null && (
           <div
             className={cn(
-              'p-4 rounded-2xl border flex items-center justify-between',
+              "p-4 rounded-2xl border flex items-center justify-between",
               secondsLeft < 60
-                ? 'bg-red-50 border-red-100 text-red-600 dark:bg-red-950/30 dark:border-red-900 dark:text-red-400'
-                : 'bg-muted/50 border-border',
+                ? "bg-red-950/30 border-red-900 text-red-400"
+                : "bg-muted/50 border-border",
             )}
           >
             <div className="flex items-center gap-2">
@@ -175,7 +194,7 @@ export function DepositForm({ hook }: DepositFormProps) {
             </div>
             <span className="text-xl font-black tabular-nums">
               {Math.floor(secondsLeft / 60)}:
-              {String(secondsLeft % 60).padStart(2, '0')}
+              {String(secondsLeft % 60).padStart(2, "0")}
             </span>
           </div>
         )}
@@ -185,19 +204,19 @@ export function DepositForm({ hook }: DepositFormProps) {
             Amount to Transfer
           </p>
           <h3 className="text-4xl font-black">
-            {hook.order.providerAccount?.amountToTransfer}{' '}
+            {hook.order.providerAccount?.amountToTransfer}{" "}
             {hook.order.providerAccount?.currency}
           </h3>
 
           <div className="space-y-3 pt-4 border-t border-background/10">
             {[
-              { label: 'Bank', value: hook.order.providerAccount?.institution },
+              { label: "Bank", value: hook.order.providerAccount?.institution },
               {
-                label: 'Account',
+                label: "Account",
                 value: hook.order.providerAccount?.accountIdentifier,
                 copy: true,
               },
-              { label: 'Name', value: hook.order.providerAccount?.accountName },
+              { label: "Name", value: hook.order.providerAccount?.accountName },
             ].map((item) => (
               <div
                 key={item.label}
@@ -207,13 +226,13 @@ export function DepositForm({ hook }: DepositFormProps) {
                 <button
                   onClick={() =>
                     item.copy &&
-                    (navigator.clipboard.writeText(item.value || ''),
-                    toast.success('Copied!'))
+                    (navigator.clipboard.writeText(item.value || ""),
+                    toast.success("Copied!"))
                   }
                   className={cn(
-                    'font-bold flex items-center gap-2',
+                    "font-bold flex items-center gap-2",
                     item.copy &&
-                      'hover:text-muted-foreground transition-colors',
+                      "hover:text-muted-foreground transition-colors",
                   )}
                 >
                   {item.value} {item.copy && <Copy className="w-3 h-3" />}
@@ -240,7 +259,7 @@ export function DepositForm({ hook }: DepositFormProps) {
               </span>
             </div>
             <p className="text-[10px] text-muted-foreground uppercase font-bold">
-              Status: {hook.txStatus || 'Pending'}
+              Status: {hook.txStatus || "Pending"}
             </p>
           </div>
         ) : (
@@ -254,9 +273,9 @@ export function DepositForm({ hook }: DepositFormProps) {
 
   if (hook.step === 3) {
     const depositReceipt: ReceiptData = {
-      id: hook.order?.id ?? 'dep-pending',
-      type: 'deposit',
-      status: 'confirmed',
+      id: hook.order?.id ?? "dep-pending",
+      type: "deposit",
+      status: "confirmed",
       timestamp: new Date().toISOString(),
       amountUsdc:
         hook.rate && hook.amount
@@ -270,7 +289,7 @@ export function DepositForm({ hook }: DepositFormProps) {
 
     return (
       <div className="flex flex-col items-center justify-center py-10 text-center space-y-6 animate-in zoom-in duration-500">
-        <div className="w-20 h-20 bg-green-500 text-background rounded-full flex items-center justify-center shadow-lg shadow-green-200 dark:shadow-green-900/20">
+        <div className="w-20 h-20 bg-green-500 text-background rounded-full flex items-center justify-center shadow-lg shadow-green-900/20">
           <CheckCircle2 className="w-10 h-10" />
         </div>
         <div className="space-y-2">
@@ -297,7 +316,9 @@ export function DepositForm({ hook }: DepositFormProps) {
               </div>
               <div className="text-left">
                 <p className="font-bold text-sm">Save this refund bank?</p>
-                <p className="text-[10px] text-muted-foreground uppercase font-bold">Securely store your bank details for future refunds</p>
+                <p className="text-[10px] text-muted-foreground uppercase font-bold">
+                  Securely store your bank details for future refunds
+                </p>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">

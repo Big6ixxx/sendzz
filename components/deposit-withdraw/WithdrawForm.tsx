@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import { CurrencySelector } from '@/components/CurrencySelector';
-import { getCurrencySymbol } from '@/lib/currency-config';
+import { CurrencySelector } from "@/components/CurrencySelector";
+import { getCurrencySymbol } from "@/lib/currency-config";
 import {
   CheckCircle2,
   ChevronRight,
@@ -10,13 +10,13 @@ import {
   ShieldCheck,
   Plus,
   ArrowLeft,
-} from 'lucide-react';
-import { BankSelector } from './BankSelector';
-import { useDepositWithdraw } from './useDepositWithdraw';
-import { PAYCREST_PARTNER_FEE_PERCENT } from '@/lib/paycrest/config';
-import { ReceiptActions } from '@/components/receipt/ReceiptActions';
-import { ReceiptData } from '@/lib/receipt/types';
-import { useState } from 'react';
+} from "lucide-react";
+import { BankSelector } from "./BankSelector";
+import { useDepositWithdraw } from "./useDepositWithdraw";
+import { PAYCREST_PARTNER_FEE_PERCENT } from "@/lib/paycrest/config";
+import { ReceiptActions } from "@/components/receipt/ReceiptActions";
+import { ReceiptData } from "@/lib/receipt/types";
+import { useState } from "react";
 
 interface WithdrawFormProps {
   hook: ReturnType<typeof useDepositWithdraw>;
@@ -24,15 +24,15 @@ interface WithdrawFormProps {
 
 export function WithdrawForm({ hook }: WithdrawFormProps) {
   // Track whether user is typing in USD or their local fiat currency
-  const [amountCurrency, setAmountCurrency] = useState<'usd' | 'fiat'>('fiat');
+  const [amountCurrency, setAmountCurrency] = useState<"usd" | "fiat">("fiat");
 
   const fiatSymbol = getCurrencySymbol(hook.fiatCurrency);
-  const parsedAmount = parseFloat(hook.amount || '0');
+  const parsedAmount = parseFloat(hook.amount || "0");
 
   // Derived: what the input value means in USDC (base, before fee)
   const usdcBase = (() => {
     if (!parsedAmount || !hook.rate) return 0;
-    if (amountCurrency === 'usd') return parsedAmount; // USD ≈ USDC 1:1
+    if (amountCurrency === "usd") return parsedAmount; // USD ≈ USDC 1:1
     return parsedAmount / hook.rate; // fiat → USDC
   })();
 
@@ -41,15 +41,14 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
   const usdcTotal = usdcBase * (1 + feeRate);
 
   // What the user will receive in local fiat
-  const fiatOut = amountCurrency === 'usd'
-    ? parsedAmount * (hook.rate || 0)
-    : parsedAmount;
+  const fiatOut =
+    amountCurrency === "usd" ? parsedAmount * (hook.rate || 0) : parsedAmount;
 
-  const handleModeSwitch = (mode: 'usd' | 'fiat') => {
+  const handleModeSwitch = (mode: "usd" | "fiat") => {
     if (mode === amountCurrency) return;
     // Convert current amount to the new currency
     if (hook.amount && parsedAmount && hook.rate) {
-      if (mode === 'usd') {
+      if (mode === "usd") {
         // fiat → USD: fiat / rate
         hook.setAmount((parsedAmount / hook.rate).toFixed(2));
       } else {
@@ -58,57 +57,76 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
       }
     }
     setAmountCurrency(mode);
-    hook.setInputMode(mode === 'fiat' ? 'fiat' : 'usdc');
+    hook.setInputMode(mode === "fiat" ? "fiat" : "usdc");
   };
 
   const handleMax = () => {
     if (!hook.rate) return;
     const maxBaseUsdc = parseFloat(hook.balance) / (1 + feeRate);
-    if (amountCurrency === 'usd') {
+    if (amountCurrency === "usd") {
       hook.setAmount(maxBaseUsdc.toFixed(2));
-      hook.setInputMode('usdc');
+      hook.setInputMode("usdc");
     } else {
       const maxFiat = maxBaseUsdc * hook.rate;
       hook.setAmount(Math.floor(maxFiat).toString());
-      hook.setInputMode('fiat');
+      hook.setInputMode("fiat");
     }
   };
 
-  const prefix = amountCurrency === 'usd' ? '$' : fiatSymbol;
+  const prefix = amountCurrency === "usd" ? "$" : fiatSymbol;
   // Dynamic padding: short symbols (1–2 chars) → pl-10, longer → pl-14/pl-16
-  const inputPl = prefix.length <= 1 ? 'pl-9' : prefix.length <= 2 ? 'pl-12' : 'pl-16';
+  const inputPl =
+    prefix.length <= 1 ? "pl-9" : prefix.length <= 2 ? "pl-12" : "pl-16";
 
   if (hook.step === 1) {
     return (
       <div className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
-
         {/* ── Currency mode toggle ──────────────────────────────────── */}
         <div className="flex items-center gap-3">
-          <span className="text-xs font-semibold text-muted-foreground">Enter amount in</span>
+          <span className="text-xs font-semibold text-muted-foreground">
+            Enter amount in
+          </span>
           <div
             className="flex items-center rounded-xl p-1 gap-1"
-            style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)' }}
+            style={{
+              background: "rgba(255,255,255,0.06)",
+              border: "1px solid rgba(255,255,255,0.08)",
+            }}
           >
             <button
               type="button"
-              onClick={() => handleModeSwitch('usd')}
+              onClick={() => handleModeSwitch("usd")}
               className="relative px-3 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-widest transition-all duration-200"
               style={
-                amountCurrency === 'usd'
-                  ? { background: 'rgba(0,232,122,0.15)', color: '#00e87a', border: '1px solid rgba(0,232,122,0.25)' }
-                  : { color: 'rgba(248,248,246,0.4)', border: '1px solid transparent' }
+                amountCurrency === "usd"
+                  ? {
+                      background: "rgba(0,232,122,0.15)",
+                      color: "#00e87a",
+                      border: "1px solid rgba(0,232,122,0.25)",
+                    }
+                  : {
+                      color: "rgba(248,248,246,0.4)",
+                      border: "1px solid transparent",
+                    }
               }
             >
               USD
             </button>
             <button
               type="button"
-              onClick={() => handleModeSwitch('fiat')}
+              onClick={() => handleModeSwitch("fiat")}
               className="relative px-3 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-widest transition-all duration-200"
               style={
-                amountCurrency === 'fiat'
-                  ? { background: 'rgba(0,232,122,0.15)', color: '#00e87a', border: '1px solid rgba(0,232,122,0.25)' }
-                  : { color: 'rgba(248,248,246,0.4)', border: '1px solid transparent' }
+                amountCurrency === "fiat"
+                  ? {
+                      background: "rgba(0,232,122,0.15)",
+                      color: "#00e87a",
+                      border: "1px solid rgba(0,232,122,0.25)",
+                    }
+                  : {
+                      color: "rgba(248,248,246,0.4)",
+                      border: "1px solid transparent",
+                    }
               }
             >
               {hook.fiatCurrency}
@@ -121,7 +139,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
               selected={hook.fiatCurrency}
               onChange={(c) => {
                 hook.setFiatCurrency(c);
-                hook.setAmount('');
+                hook.setAmount("");
               }}
               includeUsd={false}
               size="sm"
@@ -135,7 +153,10 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
             {/* Symbol prefix — sized to content, never overlaps */}
             <span
               className="absolute left-4 top-1/2 -translate-y-1/2 font-bold pointer-events-none select-none tabular-nums"
-              style={{ color: 'rgba(248,248,246,0.35)', fontSize: prefix.length > 2 ? '0.8rem' : '1rem' }}
+              style={{
+                color: "rgba(248,248,246,0.35)",
+                fontSize: prefix.length > 2 ? "0.8rem" : "1rem",
+              }}
             >
               {prefix}
             </span>
@@ -144,10 +165,10 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
               value={hook.amount}
               onChange={(e) => {
                 hook.setAmount(e.target.value);
-                hook.setInputMode(amountCurrency === 'fiat' ? 'fiat' : 'usdc');
+                hook.setInputMode(amountCurrency === "fiat" ? "fiat" : "usdc");
               }}
               className={`input-elegant ${inputPl} text-xl font-bold`}
-              placeholder={amountCurrency === 'usd' ? '100.00' : '10000'}
+              placeholder={amountCurrency === "usd" ? "100.00" : "10000"}
             />
             {parseFloat(hook.balance) > 0 && hook.rate && (
               <button
@@ -166,17 +187,29 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
               Balance: {hook.balance} USDC
             </span>
             {parsedAmount > 0 && (
-              <span className="text-[10px] font-medium flex items-center gap-1.5" style={{ color: 'rgba(248,248,246,0.5)' }}>
+              <span
+                className="text-[10px] font-medium flex items-center gap-1.5"
+                style={{ color: "rgba(248,248,246,0.5)" }}
+              >
                 {hook.rateLoading ? (
                   <Loader2 className="w-3 h-3 animate-spin" />
                 ) : hook.rate ? (
-                  amountCurrency === 'usd' ? (
-                    <>≈ {fiatSymbol}{fiatOut.toLocaleString(undefined, { maximumFractionDigits: 0 })} {hook.fiatCurrency} payout · {usdcTotal.toFixed(2)} USDC deducted</>
+                  amountCurrency === "usd" ? (
+                    <>
+                      ≈ {fiatSymbol}
+                      {fiatOut.toLocaleString(undefined, {
+                        maximumFractionDigits: 0,
+                      })}{" "}
+                      {hook.fiatCurrency} payout · {usdcTotal.toFixed(2)} USDC
+                      deducted
+                    </>
                   ) : (
                     <>≈ {usdcTotal.toFixed(2)} USDC deducted</>
                   )
                 ) : (
-                  <span className="text-red-400 font-bold uppercase text-[9px] tracking-widest">Rate Unavailable</span>
+                  <span className="text-red-400 font-bold uppercase text-[9px] tracking-widest">
+                    Rate Unavailable
+                  </span>
                 )}
               </span>
             )}
@@ -191,19 +224,18 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
           {hook.loading ? (
             <Loader2 className="w-5 h-5 animate-spin" />
           ) : (
-            'Get Quote'
+            "Get Quote"
           )}
         </button>
       </div>
     );
   }
 
-
   if (hook.step === 2 && hook.quote) {
     return (
       <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
         <div className="flex items-center mb-2">
-          <button 
+          <button
             onClick={hook.goBack}
             className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
           >
@@ -221,21 +253,38 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
           <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">You Receive</span>
             <span className="font-bold text-foreground">
-              {getCurrencySymbol(hook.fiatCurrency)}{hook.quote.payoutAmount.toLocaleString()} {hook.fiatCurrency}
+              {getCurrencySymbol(hook.fiatCurrency)}
+              {hook.quote.payoutAmount.toLocaleString()} {hook.fiatCurrency}
             </span>
           </div>
           <div className="flex justify-between text-sm pt-2 border-t border-border text-muted-foreground">
             <span>Base Cost</span>
-            <span>{parseFloat(hook.quoteUsdcAmount).toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC</span>
+            <span>
+              {parseFloat(hook.quoteUsdcAmount).toLocaleString(undefined, {
+                maximumFractionDigits: 2,
+              })}{" "}
+              USDC
+            </span>
           </div>
           <div className="flex justify-between text-sm text-muted-foreground">
             <span>Network Fee ({PAYCREST_PARTNER_FEE_PERCENT}%)</span>
-            <span>{(parseFloat(hook.quoteUsdcAmount) * (PAYCREST_PARTNER_FEE_PERCENT / 100)).toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC</span>
+            <span>
+              {(
+                parseFloat(hook.quoteUsdcAmount) *
+                (PAYCREST_PARTNER_FEE_PERCENT / 100)
+              ).toLocaleString(undefined, { maximumFractionDigits: 2 })}{" "}
+              USDC
+            </span>
           </div>
           <div className="flex justify-between text-sm pt-2 border-t border-border">
             <span className="font-bold">Total Deducted</span>
             <span className="font-bold text-red-400">
-              -{(parseFloat(hook.quoteUsdcAmount) * (1 + PAYCREST_PARTNER_FEE_PERCENT / 100)).toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC
+              -
+              {(
+                parseFloat(hook.quoteUsdcAmount) *
+                (1 + PAYCREST_PARTNER_FEE_PERCENT / 100)
+              ).toLocaleString(undefined, { maximumFractionDigits: 2 })}{" "}
+              USDC
             </span>
           </div>
         </div>
@@ -250,7 +299,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
                 ...hook.bankDetails,
                 bankCode: b.code,
                 bankName: b.name,
-                accountName: '',
+                accountName: "",
               })
             }
             onSelectContact={(contact) =>
@@ -266,7 +315,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
               hook.setBankDetails({
                 ...hook.bankDetails,
                 accountNumber: val,
-                accountName: '',
+                accountName: "",
               })
             }
             accountName={hook.bankDetails.accountName}
@@ -285,7 +334,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
           {hook.loading ? (
             <Loader2 className="w-5 h-5 animate-spin" />
           ) : (
-            'Confirm Withdrawal'
+            "Confirm Withdrawal"
           )}
         </button>
       </div>
@@ -296,7 +345,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
     return (
       <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500 text-center">
         <div className="flex items-center justify-start -mb-4">
-          <button 
+          <button
             onClick={hook.goBack}
             disabled={hook.transferring}
             className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
@@ -329,7 +378,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
           </div>
         </div>
 
-        <div className="flex items-center justify-center gap-2 text-xs font-bold text-green-600 bg-green-50 dark:bg-green-950/30 dark:text-green-400 py-2 rounded-lg">
+        <div className="flex items-center justify-center gap-2 text-xs font-bold text-green-400 bg-green-950/30 py-2 rounded-lg">
           <ShieldCheck className="w-4 h-4" />
           GASLESS TRANSFER SUPPORTED
         </div>
@@ -371,13 +420,13 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
                 Your withdrawal is being processed. This may take a few minutes.
               </p>
               <p className="text-[10px] text-muted-foreground uppercase font-bold">
-                Status: {hook.txStatus || 'Pending'}
+                Status: {hook.txStatus || "Pending"}
               </p>
             </div>
           </>
         ) : (
           <>
-            <div className="w-20 h-20 bg-green-500 text-background rounded-full flex items-center justify-center mx-auto shadow-lg shadow-green-200 dark:shadow-green-900/20">
+            <div className="w-20 h-20 bg-green-500 text-background rounded-full flex items-center justify-center mx-auto shadow-lg shadow-green-900/20">
               <CheckCircle2 className="w-10 h-10" />
             </div>
             <div className="space-y-2">
@@ -389,29 +438,31 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
               </p>
             </div>
 
-            {hook.order && (() => {
-              const receiptData: ReceiptData = {
-                id: hook.order.id,
-                type: 'withdrawal',
-                status: 'completed',
-                timestamp: new Date().toISOString(),
-                amountUsdc: parseFloat(hook.quoteUsdcAmount),
-                fiatCurrency: hook.fiatCurrency,
-                fiatPayoutAmount: hook.quote?.payoutAmount,
-                exchangeRate: hook.quote?.rate,
-                bankAccount: hook.bankDetails.accountNumber,
-                bankName: hook.bankDetails.bankName || hook.bankDetails.bankCode,
-                orderId: hook.order.id,
-              };
-              return (
-                <div className="w-full space-y-1.5 animate-in fade-in duration-500">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30 text-center">
-                    Transaction Receipt
-                  </p>
-                  <ReceiptActions data={receiptData} />
-                </div>
-              );
-            })()}
+            {hook.order &&
+              (() => {
+                const receiptData: ReceiptData = {
+                  id: hook.order.id,
+                  type: "withdrawal",
+                  status: "completed",
+                  timestamp: new Date().toISOString(),
+                  amountUsdc: parseFloat(hook.quoteUsdcAmount),
+                  fiatCurrency: hook.fiatCurrency,
+                  fiatPayoutAmount: hook.quote?.payoutAmount,
+                  exchangeRate: hook.quote?.rate,
+                  bankAccount: hook.bankDetails.accountNumber,
+                  bankName:
+                    hook.bankDetails.bankName || hook.bankDetails.bankCode,
+                  orderId: hook.order.id,
+                };
+                return (
+                  <div className="w-full space-y-1.5 animate-in fade-in duration-500">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30 text-center">
+                      Transaction Receipt
+                    </p>
+                    <ReceiptActions data={receiptData} />
+                  </div>
+                );
+              })()}
 
             {hook.showSavePrompt && (
               <div className="p-6 bg-accent/5 border border-accent/20 rounded-3xl space-y-4 animate-in fade-in slide-in-from-top-4 duration-500">
@@ -421,7 +472,9 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
                   </div>
                   <div className="text-left">
                     <p className="font-bold text-sm">Save this bank account?</p>
-                    <p className="text-[10px] text-muted-foreground uppercase font-bold">Quickly withdraw to this bank next time</p>
+                    <p className="text-[10px] text-muted-foreground uppercase font-bold">
+                      Quickly withdraw to this bank next time
+                    </p>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
