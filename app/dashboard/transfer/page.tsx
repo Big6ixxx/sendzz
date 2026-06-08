@@ -16,6 +16,9 @@ export default function TransfersPage() {
   const { wallets } = useWallets();
   const [smartAddress, setSmartAddress] = useState<string>("");
   const [batchSendDialogOpen, setBatchSendDialogOpen] = useState(false);
+  const [twoFaThreshold, setTwoFaThreshold] = useState(500);
+  const [totpEnabled, setTotpEnabled] = useState(false);
+  const [passkeyEnabled, setPasskeyEnabled] = useState(false);
 
   const { data: balance = "0.00" } = useQuery({
     queryKey: ["balance", smartAddress],
@@ -37,8 +40,32 @@ export default function TransfersPage() {
         console.error("[Transfer] INIT ACCOUNT ERROR:", err);
       }
     }
-    if (ready && authenticated && wallets.length > 0) initAccount();
-  }, [ready, authenticated, wallets]);
+
+    async function fetchSecurityPrefs() {
+      if (!user?.email?.address) return;
+      try {
+        const res = await fetch(
+          `/api/user/preferences?email=${encodeURIComponent(user.email.address)}`,
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setTwoFaThreshold(data.two_fa_threshold || 500);
+          setTotpEnabled(data.totp_enabled || false);
+          const credentials = data.webauthn_credentials || [];
+          setPasskeyEnabled(
+            Array.isArray(credentials) && credentials.length > 0,
+          );
+        }
+      } catch (e) {
+        console.error("Failed to load security prefs", e);
+      }
+    }
+
+    if (ready && authenticated && wallets.length > 0) {
+      initAccount();
+      fetchSecurityPrefs();
+    }
+  }, [ready, authenticated, wallets, user?.email?.address]);
 
   return (
     <TooltipProvider>
@@ -103,6 +130,9 @@ export default function TransfersPage() {
           smartAddress={smartAddress}
           embeddedProvider={wallets.find((w) => w.walletClientType === "privy")}
           senderEmail={user?.email?.address || ""}
+          twoFaThreshold={twoFaThreshold}
+          totpEnabled={totpEnabled}
+          passkeyEnabled={passkeyEnabled}
         />
       </div>
     </TooltipProvider>

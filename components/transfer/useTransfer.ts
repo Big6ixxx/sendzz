@@ -104,6 +104,8 @@ export function useTransfer({
   const [twoFaError, setTwoFaError] = useState<string | null>(null);
   const [twoFaEnabled, setTwoFaEnabled] = useState(false);
   const [twoFaThreshold, setTwoFaThreshold] = useState(500);
+  const [totpEnabled, setTotpEnabled] = useState(false);
+  const [passkeyEnabled, setPasskeyEnabled] = useState(false);
 
   // Cache recipient check results for 30s to avoid hammering on keystrokes
   const checkCacheRef = useRef<
@@ -124,15 +126,20 @@ export function useTransfer({
       setRecipientEmail(initialRecipientEmail);
       if (onClearInitialRecipient) onClearInitialRecipient();
     }
-    
+
     // Fetch security preferences
     if (senderEmail) {
       fetch(`/api/user/preferences?email=${encodeURIComponent(senderEmail)}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data && typeof data.two_fa_enabled === 'boolean') {
+        .then((res) => res.json())
+        .then((data) => {
+          if (data && typeof data.two_fa_enabled === "boolean") {
             setTwoFaEnabled(data.two_fa_enabled);
             setTwoFaThreshold(data.two_fa_threshold);
+            setTotpEnabled(data.totp_enabled || false);
+            const credentials = data.webauthn_credentials || [];
+            setPasskeyEnabled(
+              Array.isArray(credentials) && credentials.length > 0,
+            );
           }
         })
         .catch(console.error);
@@ -196,53 +203,60 @@ export function useTransfer({
     const valUsdc = parseFloat(amountUsdc);
     if (valUsdc >= twoFaThreshold) {
       if (!twoFaEnabled) {
-        toast.error(`Transfers over ${twoFaThreshold} USDC require 2FA. Please enable it in Settings.`);
+        toast.error(
+          `Transfers over ${twoFaThreshold} USDC require 2FA. Please enable it in Settings.`,
+        );
         return;
       }
-      // 2FA Required
-      setLoading(true);
-      try {
-        const res = await fetch("/api/2fa/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            userEmail: senderEmail,
-            actionType: "transfer",
-            payload: { amount: valUsdc, recipientEmail, note: memo },
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Failed to initiate 2FA");
-
-        setTwoFaOtpId(data.otp_id);
-        setTwoFaModalOpen(true);
-      } catch (err: unknown) {
-        const errorMessage =
-          err instanceof Error ? err.message : "Failed to initiate 2FA";
-        toast.error(errorMessage);
-      } finally {
-        setLoading(false);
-      }
+      // 2FA Required - open modal without sending OTP
+      setTwoFaModalOpen(true);
       return;
     }
 
     await executeTransferActual();
   };
 
-  const handleTwoFaSubmit = async (code: string) => {
-    if (!twoFaOtpId) return;
+  const handleTwoFaSubmit = async (
+    code: string,
+    method?: "email" | "totp" | "passkey",
+  ) => {
     setTwoFaLoading(true);
     setTwoFaError(null);
     try {
-      const res = await fetch("/api/2fa/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userEmail: senderEmail,
-          otp_id: twoFaOtpId,
-          otp_code: code,
-        }),
-      });
+      let res;
+
+      if (method === "passkey") {
+        // Passkey is already verified, just proceed with the actual transfer
+        setTwoFaModalOpen(false);
+        await executeTransferActual();
+        return;
+      }
+
+      if (method === "totp") {
+        // Use TOTP verification endpoint
+        res = await fetch("/api/2fa/totp/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: senderEmail,
+            token: code,
+            method: "totp",
+          }),
+        });
+      } else {
+        // Use email OTP verification endpoint
+        if (!twoFaOtpId) return;
+        res = await fetch("/api/2fa/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userEmail: senderEmail,
+            otp_id: twoFaOtpId,
+            otp_code: code,
+          }),
+        });
+      }
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Invalid code");
 
@@ -417,5 +431,7 @@ export function useTransfer({
     twoFaError,
     handleTwoFaSubmit,
     handleTwoFaResend,
+    totpEnabled,
+    passkeyEnabled,
   };
 }

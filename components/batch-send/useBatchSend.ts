@@ -1,20 +1,20 @@
-'use client';
+"use client";
 
-import { batchSend, type SendResult } from '@/lib/batch-send';
-import { type FiatCurrencyCode } from '@/lib/currency-config';
-import { ConnectedWallet } from '@privy-io/react-auth';
-import { useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
-import { toast } from 'sonner';
-import { useExchangeRate } from '@/lib/hooks/useExchangeRate';
+import { batchSend, type SendResult } from "@/lib/batch-send";
+import { type FiatCurrencyCode } from "@/lib/currency-config";
+import { ConnectedWallet } from "@privy-io/react-auth";
+import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { toast } from "sonner";
+import { useExchangeRate } from "@/lib/hooks/useExchangeRate";
 
 export type Step =
-  | 'recipients'
-  | 'amount'
-  | 'preview'
-  | 'confirm'
-  | 'processing'
-  | 'results';
+  | "recipients"
+  | "amount"
+  | "preview"
+  | "confirm"
+  | "processing"
+  | "results";
 
 export interface Recipient {
   id: string;
@@ -29,42 +29,66 @@ export function useBatchSend(
   smartAddress: string,
   senderEmail: string,
   embeddedProvider?: ConnectedWallet,
+  twoFaThreshold: number = 500,
 ) {
   const queryClient = useQueryClient();
-  const [step, setStep] = useState<Step>('recipients');
+  const [step, setStep] = useState<Step>("recipients");
   const [recipients, setRecipients] = useState<Recipient[]>([]);
-  const [amount, setAmount] = useState('');
-  const [currency, setCurrency] = useState<'USD' | FiatCurrencyCode>('USD');
-  const [note, setNote] = useState('');
+  const [amount, setAmount] = useState("");
+  const [currency, setCurrency] = useState<"USD" | FiatCurrencyCode>("USD");
+  const [note, setNote] = useState("");
 
-  const isFiat = currency !== 'USD';
-  const { data: exchangeRate = 1 } = useExchangeRate(isFiat ? currency : 'USD');
+  const isFiat = currency !== "USD";
+  const { data: exchangeRate = 1 } = useExchangeRate(isFiat ? currency : "USD");
 
   const [batchResults, setBatchResults] = useState<SendResult[]>([]);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
 
+  // 2FA state
+  const [twoFaModalOpen, setTwoFaModalOpen] = useState(false);
+  const [twoFaOtpId, setTwoFaOtpId] = useState<string | null>(null);
+  const [twoFaLoading, setTwoFaLoading] = useState(false);
+  const [twoFaError, setTwoFaError] = useState<string | null>(null);
+
   // Derived
   const validRecipients = recipients.filter((r) => r.valid);
   const amountUsd = isFiat
-    ? parseFloat(amount || '0') / exchangeRate
-    : parseFloat(amount || '0');
+    ? parseFloat(amount || "0") / exchangeRate
+    : parseFloat(amount || "0");
   const totalAmount = amountUsd * validRecipients.length;
 
   const handleConfirm = async (retryEmails?: string[]) => {
     if (!embeddedProvider) {
-      toast.error('Wallet not connected');
+      toast.error("Wallet not connected");
       return;
     }
     if (totalAmount > maxAmount) {
-      toast.error('Insufficient Balance');
+      toast.error("Insufficient Balance");
       return;
     }
 
+    // Check if 2FA is required
+    if (totalAmount >= twoFaThreshold) {
+      // Always open 2FA modal for amounts >= threshold
+      // If 2FA is not enabled, only email OTP will be available
+      setTwoFaModalOpen(true);
+      return;
+    }
+
+    await executeBatchSendActual(retryEmails);
+  };
+
+  const executeBatchSendActual = async (retryEmails?: string[]) => {
     const targetEmails = retryEmails || validRecipients.map((r) => r.email);
-    setStep('processing');
+    setStep("processing");
     setProgress({ done: 0, total: targetEmails.length });
 
     try {
+      if (!embeddedProvider) {
+        toast.error("Wallet not connected");
+        setStep("confirm");
+        return;
+      }
       const provider = await embeddedProvider.getEthereumProvider();
 
       const results = await batchSend({
@@ -90,19 +114,101 @@ export function useBatchSend(
         setBatchResults(results);
       }
 
-      setStep('results');
-      queryClient.invalidateQueries({ queryKey: ['balance', smartAddress] });
-      queryClient.invalidateQueries({ queryKey: ['history', senderEmail] });
+      setStep("results");
+      queryClient.invalidateQueries({ queryKey: ["balance", smartAddress] });
+      queryClient.invalidateQueries({ queryKey: ["history", senderEmail] });
 
-      if (results.some((r) => r.status === 'failed')) {
-        toast.error('Some transfers failed. Review and retry.');
+      if (results.some((r) => r.status === "failed")) {
+        toast.error("Some transfers failed. Review and retry.");
       } else {
-        toast.success('All transfers completed successfully! 🎉');
+        toast.success("All transfers completed successfully! 🎉");
       }
     } catch (err) {
-      console.error('Batch send error:', err);
-      toast.error('An error occurred during sending.');
-      setStep('confirm');
+      console.error("Batch send error:", err);
+      toast.error("An error occurred during sending.");
+      setStep("confirm");
+    }
+  };
+
+  const handleTwoFaSubmit = async (
+    code: string,
+    method?: "email" | "totp" | "passkey",
+  ) => {
+    setTwoFaLoading(true);
+    setTwoFaError(null);
+    try {
+      let res;
+
+      if (method === "passkey") {
+        // Passkey is already verified in the modal, just proceed with the actual transfer
+        // Execute the batch send without closing the modal
+        await executeBatchSendActual();
+        // Only close modal after execution completes
+        setTwoFaModalOpen(false);
+        return;
+      }
+
+      if (method === "totp") {
+        // Use TOTP verification endpoint
+        res = await fetch("/api/2fa/totp/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: senderEmail,
+            token: code,
+            method: "totp",
+          }),
+        });
+      } else {
+        // Use email OTP verification endpoint
+        if (!twoFaOtpId) return;
+        res = await fetch("/api/2fa/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userEmail: senderEmail,
+            otp_id: twoFaOtpId,
+            otp_code: code,
+          }),
+        });
+      }
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Invalid code");
+
+      setTwoFaModalOpen(false);
+      setTwoFaOtpId(null);
+      await executeBatchSendActual();
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : "Invalid code";
+      setTwoFaError(errorMessage);
+    } finally {
+      setTwoFaLoading(false);
+    }
+  };
+
+  const handleTwoFaResend = async () => {
+    setTwoFaLoading(true);
+    setTwoFaError(null);
+    try {
+      const res = await fetch("/api/2fa/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userEmail: senderEmail,
+          actionType: "transfer",
+          payload: { amount: totalAmount, recipientEmail: "batch", note },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to resend code");
+      setTwoFaOtpId(data.otp_id);
+    } catch (err: unknown) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to resend code";
+      setTwoFaError(errorMessage);
+    } finally {
+      setTwoFaLoading(false);
     }
   };
 
@@ -148,5 +254,12 @@ export function useBatchSend(
     progress,
     handleConfirm,
     senderEmail,
+    twoFaModalOpen,
+    setTwoFaModalOpen,
+    twoFaOtpId,
+    twoFaLoading,
+    twoFaError,
+    handleTwoFaSubmit,
+    handleTwoFaResend,
   };
 }

@@ -113,6 +113,8 @@ export function useDepositWithdraw(
   const [twoFaOtpId, setTwoFaOtpId] = useState<string | null>(null);
   const [twoFaLoading, setTwoFaLoading] = useState(false);
   const [twoFaError, setTwoFaError] = useState<string | null>(null);
+  const [totpEnabled, setTotpEnabled] = useState(false);
+  const [passkeyEnabled, setPasskeyEnabled] = useState(false);
 
   // Fetch institutions & rates when fiatCurrency changes
   useEffect(() => {
@@ -152,14 +154,19 @@ export function useDepositWithdraw(
     // Fetch bank contacts
     if (userEmail) {
       getUserBankContacts(userEmail).then(setBankContacts).catch(console.error);
-      
+
       // Fetch security preferences
       fetch(`/api/user/preferences?email=${encodeURIComponent(userEmail)}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data && typeof data.two_fa_enabled === 'boolean') {
+        .then((res) => res.json())
+        .then((data) => {
+          if (data && typeof data.two_fa_enabled === "boolean") {
             setTwoFaEnabled(data.two_fa_enabled);
             setTwoFaThreshold(data.two_fa_threshold);
+            setTotpEnabled(data.totp_enabled || false);
+            const credentials = data.webauthn_credentials || [];
+            setPasskeyEnabled(
+              Array.isArray(credentials) && credentials.length > 0,
+            );
           }
         })
         .catch(console.error);
@@ -281,7 +288,9 @@ export function useDepositWithdraw(
     const totalUsdcRequired = val * (1 + feeRate);
 
     if (totalUsdcRequired > parseFloat(balance)) {
-      toast.error(`Insufficient balance. Requires ${totalUsdcRequired.toFixed(2)} USDC`);
+      toast.error(
+        `Insufficient balance. Requires ${totalUsdcRequired.toFixed(2)} USDC`,
+      );
       return;
     }
 
@@ -310,67 +319,68 @@ export function useDepositWithdraw(
     }
 
     const amountUsdc = parseFloat(quoteUsdcAmount);
-    
+
     // Total amount that will be deducted including fee
     const feeRate = 0.003;
     const totalUsdcRequired = amountUsdc * (1 + feeRate);
 
     if (totalUsdcRequired >= twoFaThreshold) {
       if (!twoFaEnabled) {
-        toast.error(`Withdrawals over ${twoFaThreshold} USDC require 2FA. Please enable it in Settings.`);
+        toast.error(
+          `Withdrawals over ${twoFaThreshold} USDC require 2FA. Please enable it in Settings.`,
+        );
         return;
       }
-      
-      // 2FA Required
-      setLoading(true);
-      try {
-        const res = await fetch("/api/2fa/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            userEmail,
-            actionType: "withdrawal",
-            payload: {
-              amountUsdc: totalUsdcRequired,
-              accountNumber: bankDetails.accountNumber,
-              bankCode: bankDetails.bankCode,
-              fiatCurrency,
-              fiatAmount: quote?.payoutAmount,
-            },
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Failed to initiate 2FA");
 
-        setTwoFaOtpId(data.otp_id);
-        setTwoFaModalOpen(true);
-      } catch (err: unknown) {
-        const errorMessage =
-          err instanceof Error ? err.message : "Failed to initiate 2FA";
-        toast.error(errorMessage);
-      } finally {
-        setLoading(false);
-      }
+      // 2FA Required - open modal without sending OTP
+      setTwoFaModalOpen(true);
       return;
     }
 
     await executeWithdrawalActual();
   };
 
-  const handleTwoFaSubmit = async (code: string) => {
-    if (!twoFaOtpId) return;
+  const handleTwoFaSubmit = async (
+    code: string,
+    method?: "email" | "totp" | "passkey",
+  ) => {
     setTwoFaLoading(true);
     setTwoFaError(null);
     try {
-      const res = await fetch("/api/2fa/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userEmail,
-          otp_id: twoFaOtpId,
-          otp_code: code,
-        }),
-      });
+      let res;
+
+      if (method === "passkey") {
+        // Passkey is already verified, just proceed with the actual withdrawal
+        setTwoFaModalOpen(false);
+        await executeWithdrawalActual();
+        return;
+      }
+
+      if (method === "totp") {
+        // Use TOTP verification endpoint
+        res = await fetch("/api/2fa/totp/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: userEmail,
+            token: code,
+            method: "totp",
+          }),
+        });
+      } else {
+        // Use email OTP verification endpoint
+        if (!twoFaOtpId) return;
+        res = await fetch("/api/2fa/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userEmail,
+            otp_id: twoFaOtpId,
+            otp_code: code,
+          }),
+        });
+      }
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Invalid code");
 
@@ -451,11 +461,11 @@ export function useDepositWithdraw(
     setTransferring(true);
     try {
       const provider = await embeddedProvider.getEthereumProvider();
-      
+
       const baseAmount = parseFloat(quoteUsdcAmount);
       const feeRate = 0.003;
       const totalUsdcRequired = (baseAmount * (1 + feeRate)).toFixed(2);
-      
+
       const txHash = await executeCircleGaslessTransfer(
         provider,
         order.providerAccount.receiveAddress,
@@ -557,7 +567,15 @@ export function useDepositWithdraw(
     };
     poll();
     pollIntervalRef.current = setInterval(poll, 8000);
-  }, [order?.id, queryClient, userAddress, type, onClose, bankContacts, bankDetails.accountNumber]);
+  }, [
+    order?.id,
+    queryClient,
+    userAddress,
+    type,
+    onClose,
+    bankContacts,
+    bankDetails.accountNumber,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -614,6 +632,8 @@ export function useDepositWithdraw(
     twoFaError,
     handleTwoFaSubmit,
     handleTwoFaResend,
+    totpEnabled,
+    passkeyEnabled,
     handleSaveBankContact: async () => {
       try {
         await addBankContact({

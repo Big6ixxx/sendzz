@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import crypto from "crypto";
 import { sendEmail } from "@/lib/email/sendEmail";
+import { encrypt, decrypt } from "@/lib/encryption";
 
 type TransferPayload = {
   amount: number;
@@ -24,6 +25,11 @@ export async function generateAndSend2FA(
   payload: TwoFAPayload,
 ) {
   const supabase = await createClient();
+
+  const encryptionKey = process.env.TOTP_ENCRYPTION_KEY;
+  if (!encryptionKey) {
+    throw new Error("Encryption key not configured");
+  }
 
   // Clean up expired OTPs for this user before generating a new one
   const now = new Date().toISOString();
@@ -50,11 +56,14 @@ export async function generateAndSend2FA(
   const otpCode = crypto.randomInt(100000, 999999).toString();
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
+  // Encrypt the OTP code before storing
+  const encryptedOtpCode = encrypt(otpCode, encryptionKey);
+
   const { data, error } = await supabase
     .from("transaction_otps")
     .insert({
       user_email: userEmail,
-      otp_code: otpCode,
+      otp_code: encryptedOtpCode,
       action_type: actionType,
       payload,
       expires_at: expiresAt,
@@ -126,6 +135,11 @@ export async function verifyOTP(
 ) {
   const supabase = await createClient();
 
+  const encryptionKey = process.env.TOTP_ENCRYPTION_KEY;
+  if (!encryptionKey) {
+    throw new Error("Encryption key not configured");
+  }
+
   // Clean up expired OTPs for this user before verification
   const now = new Date().toISOString();
   await supabase
@@ -152,7 +166,10 @@ export async function verifyOTP(
     throw new Error("OTP has expired");
   }
 
-  if (otp.otp_code !== otpCode) {
+  // Decrypt the stored OTP code before comparing
+  const decryptedStoredCode = decrypt(otp.otp_code, encryptionKey);
+
+  if (decryptedStoredCode !== otpCode) {
     throw new Error("Invalid OTP code");
   }
 

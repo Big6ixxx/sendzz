@@ -17,8 +17,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     console.error("[2FA Verify] Error:", error);
-    const errorMessage =
-      error instanceof Error ? error.message : "Invalid code";
-    return NextResponse.json({ error: errorMessage }, { status: 400 });
+    return NextResponse.json({ error: "Invalid code" }, { status: 400 });
   }
 }

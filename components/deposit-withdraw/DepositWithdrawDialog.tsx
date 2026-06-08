@@ -169,6 +169,20 @@ export function DepositWithdrawDialog({
           onResend={withdrawHook.handleTwoFaResend}
           loading={withdrawHook.twoFaLoading}
           error={withdrawHook.twoFaError}
+          method={
+            withdrawHook.totpEnabled
+              ? "totp"
+              : withdrawHook.passkeyEnabled
+                ? "passkey"
+                : "email"
+          }
+          availableMethods={(() => {
+            const methods: ("email" | "totp" | "passkey")[] = ["email"];
+            if (withdrawHook.totpEnabled) methods.push("totp");
+            if (withdrawHook.passkeyEnabled) methods.push("passkey");
+            return methods;
+          })()}
+          userEmail={userEmail}
         />
       )}
     </>

@@ -6,7 +6,7 @@ import { useTransfer } from "./transfer/useTransfer";
 import { TransferForm } from "./transfer/TransferForm";
 import { AddContactModal } from "./contacts/AddContactModal";
 import { TransferSaveContactPrompt } from "./transfer/TransferSaveContactPrompt";
-import { TwoFactorModal } from "./TwoFactorModal";
+import { TwoFactorModal, type VerificationMethod } from "./TwoFactorModal";
 
 export function TransferModule({
   smartAddress,
@@ -56,6 +56,8 @@ export function TransferModule({
     twoFaError,
     handleTwoFaSubmit,
     handleTwoFaResend,
+    totpEnabled,
+    passkeyEnabled,
   } = useTransfer({
     smartAddress,
     embeddedProvider,
@@ -129,6 +131,14 @@ export function TransferModule({
         onResend={handleTwoFaResend}
         loading={twoFaLoading}
         error={twoFaError}
+        method={totpEnabled ? "totp" : passkeyEnabled ? "passkey" : "email"}
+        availableMethods={(() => {
+          const methods: VerificationMethod[] = ["email"];
+          if (totpEnabled) methods.push("totp");
+          if (passkeyEnabled) methods.push("passkey");
+          return methods;
+        })()}
+        userEmail={senderEmail}
       />
 
       <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-muted/20 rounded-full blur-3xl z-0" />
