@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import { useBalanceVisibility } from '@/components/providers/BalanceVisibilityProvider';
-import { motion, useSpring, useTransform } from 'framer-motion';
-import { useEffect, useRef, useState } from 'react';
+import { useBalanceVisibility } from "@/components/providers/BalanceVisibilityProvider";
+import { motion, useSpring, useTransform } from "framer-motion";
+import { useEffect, useRef, useState } from "react";
 
 interface AnimatedBalanceProps {
   balance: string;
@@ -13,17 +13,15 @@ interface AnimatedBalanceProps {
 export function AnimatedBalance({
   balance,
   isLoading,
-  className = '',
+  className = "",
 }: AnimatedBalanceProps) {
   const { hideBalance } = useBalanceVisibility();
 
   // Convert string balance to number, handling commas if any
-  const numericBalance = parseFloat(balance.replace(/,/g, '')) || 0;
+  const numericBalance = parseFloat(balance.replace(/,/g, "")) || 0;
 
-  // Find out how many decimal places are in the original string
-  const parts = balance.split('.');
-  const decimals = parts.length > 1 ? parts[1].length : 2;
-  const fractionDigits = Math.max(2, decimals);
+  // Always show 2 decimal places
+  const fractionDigits = 2;
 
   // Track the last confirmed (non-loading) balance
   const lastConfirmedRef = useRef<number>(0);
@@ -70,7 +68,7 @@ export function AnimatedBalance({
   }, [numericBalance, isLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const display = useTransform(spring, (current) => {
-    return current.toLocaleString('en-US', {
+    return current.toLocaleString("en-US", {
       minimumFractionDigits: fractionDigits,
       maximumFractionDigits: fractionDigits,
     });
@@ -85,7 +83,7 @@ export function AnimatedBalance({
   if (isLoading && !hasLoaded) {
     return (
       <span className={`opacity-20 blur-[2px] animate-pulse ${className}`}>
-        {Number(0).toLocaleString('en-US', {
+        {Number(0).toLocaleString("en-US", {
           minimumFractionDigits: fractionDigits,
           maximumFractionDigits: fractionDigits,
         })}
@@ -97,10 +95,12 @@ export function AnimatedBalance({
   return (
     <motion.span
       className={className}
-      animate={isLoading && hasLoaded ? { opacity: [1, 0.4, 1] } : { opacity: 1 }}
+      animate={
+        isLoading && hasLoaded ? { opacity: [1, 0.4, 1] } : { opacity: 1 }
+      }
       transition={
         isLoading && hasLoaded
-          ? { duration: 1.2, repeat: Infinity, ease: 'easeInOut' }
+          ? { duration: 1.2, repeat: Infinity, ease: "easeInOut" }
           : { duration: 0.2 }
       }
     >

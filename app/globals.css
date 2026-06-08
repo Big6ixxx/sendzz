@@ -1,5 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap');
-@import 'tailwindcss';
+@import url("https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap");
+@import "tailwindcss";
 
 @theme {
   --color-background: var(--background);
@@ -19,9 +19,9 @@
   --color-glass-bg: rgba(255, 255, 255, 0.04);
   --color-glass-border: rgba(255, 255, 255, 0.08);
 
-  --font-display: 'Syne', system-ui, sans-serif;
-  --font-sans: 'DM Sans', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --font-display: "Syne", system-ui, sans-serif;
+  --font-sans: "DM Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
 
   --radius-xl: 1rem;
   --radius-2xl: 1.5rem;
@@ -29,32 +29,17 @@
 
 @layer base {
   :root {
-    --background: #f8f8f6;
-    --foreground: #0a0a0b;
-    --muted: #f0f0ee;
-    --muted-foreground: #6b6b6b;
-    --border: #e2e2df;
-    --input: #f4f4f2;
-    --ring: #0a0a0b;
+    --background: #0a0a0b;
+    --foreground: #f8f8f6;
+    --muted: #141416;
+    --muted-foreground: #8a8a8a;
+    --border: #1e1e21;
+    --input: #0e0e10;
+    --ring: #f8f8f6;
     --radius: 0.75rem;
-    --accent: #00c468;
-    --glass-bg: rgba(10, 10, 11, 0.04);
-    --glass-border: rgba(10, 10, 11, 0.08);
-  }
-
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --background: #0a0a0b;
-      --foreground: #f8f8f6;
-      --muted: #141416;
-      --muted-foreground: #8a8a8a;
-      --border: #1e1e21;
-      --input: #0e0e10;
-      --ring: #f8f8f6;
-      --accent: #00e87a;
-      --glass-bg: rgba(255, 255, 255, 0.04);
-      --glass-border: rgba(255, 255, 255, 0.08);
-    }
+    --accent: #00e87a;
+    --glass-bg: rgba(255, 255, 255, 0.04);
+    --glass-border: rgba(255, 255, 255, 0.08);
   }
 
   * {
@@ -74,8 +59,8 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     font-feature-settings:
-      'kern' 1,
-      'ss01' 1;
+      "kern" 1,
+      "ss01" 1;
   }
 
   button {
@@ -126,18 +111,6 @@
     border-radius: var(--radius-xl);
   }
 
-  @media (prefers-color-scheme: light) {
-    .glass {
-      background: rgba(255, 255, 255, 0.6);
-      border: 1px solid rgba(255, 255, 255, 0.8);
-    }
-
-    .glass-strong {
-      background: rgba(255, 255, 255, 0.75);
-      border: 1px solid rgba(255, 255, 255, 0.9);
-    }
-  }
-
   /* ===================== */
   /* CARDS                 */
   /* ===================== */
@@ -180,22 +153,6 @@
       0 16px 48px 0 rgb(0 0 0 / 0.2),
       inset 0 1px 0 rgba(255, 255, 255, 0.12);
     transform: translateY(-2px);
-  }
-
-  @media (prefers-color-scheme: light) {
-    .card-glass {
-      background: rgba(255, 255, 255, 0.65);
-      border: 1px solid rgba(255, 255, 255, 0.85);
-      box-shadow:
-        0 8px 32px 0 rgb(0 0 0 / 0.06),
-        inset 0 1px 0 rgba(255, 255, 255, 0.9);
-    }
-    .card-glass:hover {
-      background: rgba(255, 255, 255, 0.8);
-      box-shadow:
-        0 16px 48px 0 rgb(0 0 0 / 0.1),
-        inset 0 1px 0 rgba(255, 255, 255, 1);
-    }
   }
 
   /* ===================== */
@@ -326,7 +283,7 @@
     -webkit-appearance: none !important;
     margin: 0 !important;
   }
-  
+
   input[type="number"] {
     -moz-appearance: textfield !important;
     appearance: textfield !important;

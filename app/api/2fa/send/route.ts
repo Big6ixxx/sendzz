@@ -17,8 +17,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: true, otp_id: id });
   } catch (error: unknown) {
     console.error("[2FA Send] Error:", error);
-    const errorMessage =
-      error instanceof Error ? error.message : "Internal server error";
-    return NextResponse.json({ error: errorMessage }, { status: 500 });
+    return NextResponse.json(
+      { error: "Something went wrong. Please try again." },
+      { status: 500 },
+    );
   }
 }

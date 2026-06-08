@@ -1,24 +1,24 @@
-'use client';
+"use client";
 
-import { ActivityDetailModal } from '@/components/ActivityDetailModal';
-import { BatchSendDialog } from '@/components/batch-send/BatchSendDialog';
-import { BridgeNudge } from '@/components/BridgeNudge';
-import { DepositWithdrawDialog } from '@/components/deposit-withdraw/DepositWithdrawDialog';
-import { Activity, HistoryModule } from '@/components/HistoryModule';
-import { PendingIncomingPanel } from '@/components/PendingIncomingPanel';
-import { TransferModule } from '@/components/TransferModule';
+import { ActivityDetailModal } from "@/components/ActivityDetailModal";
+import { BatchSendDialog } from "@/components/batch-send/BatchSendDialog";
+import { BridgeNudge } from "@/components/BridgeNudge";
+import { DepositWithdrawDialog } from "@/components/deposit-withdraw/DepositWithdrawDialog";
+import { Activity, HistoryModule } from "@/components/HistoryModule";
+import { PendingIncomingPanel } from "@/components/PendingIncomingPanel";
+import { TransferModule } from "@/components/TransferModule";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from '@/components/ui/tooltip';
-import { registerUserAddress } from '@/lib/supabase/users';
-import { cn } from '@/lib/utils';
-import { getUSDCBalance } from '@/lib/web3/actions';
-import { getCircleAddress } from '@/lib/web3/circle-client';
-import { usePrivy, useWallets } from '@privy-io/react-auth';
-import { useQuery } from '@tanstack/react-query';
+} from "@/components/ui/tooltip";
+import { registerUserAddress } from "@/lib/supabase/users";
+import { cn } from "@/lib/utils";
+import { getUSDCBalance } from "@/lib/web3/actions";
+import { getCircleAddress } from "@/lib/web3/circle-client";
+import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { useQuery } from "@tanstack/react-query";
 import {
   ArrowDown,
   ArrowUp,
@@ -31,12 +31,12 @@ import {
   Eye,
   EyeOff,
   ShieldAlert,
-} from 'lucide-react';
-import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { toast } from 'sonner';
-import { useBalanceVisibility } from '@/components/providers/BalanceVisibilityProvider';
-import { AnimatedBalance } from '@/components/ui/AnimatedBalance';
+} from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+import { useBalanceVisibility } from "@/components/providers/BalanceVisibilityProvider";
+import { AnimatedBalance } from "@/components/ui/AnimatedBalance";
 
 export default function Dashboard() {
   const { ready, authenticated, user } = usePrivy();
@@ -45,43 +45,57 @@ export default function Dashboard() {
 
   // Embedded Privy Solana wallet — look up via linkedAccounts (walletClientType is not exposed on ConnectedStandardSolanaWallet)
   const privySolAccount = user?.linkedAccounts.find(
-    (a) => a.type === 'wallet' && a.walletClientType === 'privy' && a.chainType === 'solana'
+    (
+      a: any,
+    ): a is {
+      type: string;
+      walletClientType: string;
+      chainType: string;
+      address?: string;
+    } =>
+      a.type === "wallet" &&
+      a.walletClientType === "privy" &&
+      a.chainType === "solana",
   );
-  const embeddedSolWallet = privySolAccount && 'address' in privySolAccount
-    ? { address: (privySolAccount as { address: string }).address }
-    : null;
+  const embeddedSolWallet =
+    privySolAccount && "address" in privySolAccount
+      ? { address: (privySolAccount as { address: string }).address }
+      : null;
 
-  const [smartAddress, setSmartAddress] = useState<string>('');
+  const [smartAddress, setSmartAddress] = useState<string>("");
   const [rampModalOpen, setRampModalOpen] = useState(false);
   const [batchSendDialogOpen, setBatchSendDialogOpen] = useState(false);
-  const [rampType, setRampType] = useState<'deposit' | 'withdraw'>('deposit');
+  const [rampType, setRampType] = useState<"deposit" | "withdraw">("deposit");
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(
     null,
   );
   const { hideBalance, toggleBalanceVisibility } = useBalanceVisibility();
   const [showSecurityNudge, setShowSecurityNudge] = useState(false);
+  const [twoFaThreshold, setTwoFaThreshold] = useState(500);
+  const [totpEnabled, setTotpEnabled] = useState(false);
+  const [passkeyEnabled, setPasskeyEnabled] = useState(false);
 
   const {
-    data: balance = '0.00',
+    data: balance = "0.00",
     isLoading: isBalanceLoading,
     isFetching: isBalanceFetching,
     refetch: refetchBalance,
   } = useQuery({
-    queryKey: ['balance', smartAddress],
+    queryKey: ["balance", smartAddress],
     queryFn: () => getUSDCBalance(smartAddress),
     enabled: !!smartAddress,
     refetchInterval: 10000,
   });
 
   useEffect(() => {
-    if (ready && !authenticated) router.push('/');
+    if (ready && !authenticated) router.push("/");
   }, [ready, authenticated, router]);
 
   useEffect(() => {
     async function initAccount() {
       try {
         const embeddedWallet = wallets.find(
-          (w) => w.walletClientType === 'privy',
+          (w) => w.walletClientType === "privy",
         );
         if (!embeddedWallet) return;
         const provider = await embeddedWallet.getEthereumProvider();
@@ -91,23 +105,28 @@ export default function Dashboard() {
           registerUserAddress(user.email.address, address).catch(console.error);
         }
       } catch (err) {
-        console.error('[Dashboard] INIT ACCOUNT FATAL ERROR:', err);
+        console.error("[Dashboard] INIT ACCOUNT FATAL ERROR:", err);
       }
     }
 
     async function fetchSecurityPrefs() {
       if (!user?.email?.address) return;
       try {
-        const res = await fetch(`/api/user/preferences?email=${encodeURIComponent(user.email.address)}`);
+        const res = await fetch(
+          `/api/user/preferences?email=${encodeURIComponent(user.email.address)}`,
+        );
         if (res.ok) {
           const data = await res.json();
-          // Show nudge if not enabled and not recently dismissed
-          if (!data.two_fa_enabled && !data.two_fa_nudge_dismissed_at) {
-            setShowSecurityNudge(true);
-          }
+          // Set 2FA preferences
+          setTwoFaThreshold(data.two_fa_threshold || 500);
+          setTotpEnabled(data.totp_enabled || false);
+          const credentials = data.webauthn_credentials || [];
+          setPasskeyEnabled(
+            Array.isArray(credentials) && credentials.length > 0,
+          );
         }
       } catch (e) {
-        console.error('Failed to load security prefs', e);
+        console.error("Failed to load security prefs", e);
       }
     }
 
@@ -122,13 +141,13 @@ export default function Dashboard() {
       <div className="h-[60vh] flex items-center justify-center">
         <Loader2
           className="animate-spin w-8 h-8"
-          style={{ color: 'rgba(248,248,246,0.2)' }}
+          style={{ color: "rgba(248,248,246,0.2)" }}
         />
       </div>
     );
   }
 
-  const openRamp = (type: 'deposit' | 'withdraw') => {
+  const openRamp = (type: "deposit" | "withdraw") => {
     setRampType(type);
     setRampModalOpen(true);
   };
@@ -137,16 +156,16 @@ export default function Dashboard() {
     setShowSecurityNudge(false);
     if (!user?.email?.address) return;
     try {
-      await fetch('/api/user/preferences', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      await fetch("/api/user/preferences", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email: user.email.address,
           two_fa_nudge_dismissed_at: new Date().toISOString(),
         }),
       });
     } catch (e) {
-      console.error('Failed to dismiss nudge', e);
+      console.error("Failed to dismiss nudge", e);
     }
   };
 
@@ -162,16 +181,16 @@ export default function Dashboard() {
                 <div className="flex items-center gap-3">
                   <p
                     className="text-[10px] font-bold uppercase tracking-[0.25em]"
-                    style={{ color: 'rgba(248,248,246,0.35)' }}
+                    style={{ color: "rgba(248,248,246,0.35)" }}
                   >
                     Global Portfolio
                   </p>
                   <div
                     className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest"
                     style={{
-                      background: 'rgba(0, 232, 122, 0.1)',
-                      color: '#00e87a',
-                      border: '1px solid rgba(0,232,122,0.2)',
+                      background: "rgba(0, 232, 122, 0.1)",
+                      color: "#00e87a",
+                      border: "1px solid rgba(0,232,122,0.2)",
                     }}
                   >
                     Base
@@ -179,8 +198,12 @@ export default function Dashboard() {
                   <button
                     onClick={toggleBalanceVisibility}
                     className="p-1.5 rounded-full transition-all hover:bg-white/5 ml-1"
-                    style={{ color: 'rgba(248,248,246,0.3)' }}
-                    title={hideBalance ? "Show sensitive data" : "Hide sensitive data"}
+                    style={{ color: "rgba(248,248,246,0.3)" }}
+                    title={
+                      hideBalance
+                        ? "Show sensitive data"
+                        : "Hide sensitive data"
+                    }
                   >
                     {hideBalance ? (
                       <EyeOff className="w-4 h-4" />
@@ -193,14 +216,18 @@ export default function Dashboard() {
                 <div className="flex items-baseline gap-3 min-w-0">
                   <h2
                     className="font-display text-5xl md:text-7xl font-bold tracking-tighter leading-none truncate"
-                    style={{ color: '#f8f8f6' }}
+                    style={{ color: "#f8f8f6" }}
                   >
-                    $<AnimatedBalance balance={balance} isLoading={isBalanceLoading} />
+                    $
+                    <AnimatedBalance
+                      balance={balance}
+                      isLoading={isBalanceLoading}
+                    />
                   </h2>
                   <div className="flex items-center gap-1.5 pb-1">
                     <span
                       className="text-xl font-bold uppercase tracking-tighter shrink-0"
-                      style={{ color: 'rgba(248,248,246,0.2)' }}
+                      style={{ color: "rgba(248,248,246,0.2)" }}
                     >
                       USDC
                     </span>
@@ -208,12 +235,13 @@ export default function Dashboard() {
                       onClick={() => refetchBalance()}
                       disabled={isBalanceLoading || !smartAddress}
                       className="p-1.5 rounded-full transition-all disabled:opacity-50 hover:bg-white/5 shrink-0"
-                      style={{ color: 'rgba(248,248,246,0.25)' }}
+                      style={{ color: "rgba(248,248,246,0.25)" }}
                     >
                       <RefreshCw
                         className={cn(
-                          'w-4 h-4',
-                          (isBalanceLoading || isBalanceFetching) && 'animate-spin',
+                          "w-4 h-4",
+                          (isBalanceLoading || isBalanceFetching) &&
+                            "animate-spin",
                         )}
                       />
                     </button>
@@ -225,34 +253,34 @@ export default function Dashboard() {
                     className="flex items-center gap-2 group cursor-pointer"
                     onClick={() => (
                       navigator.clipboard.writeText(smartAddress),
-                      toast.success('Address copied')
+                      toast.success("Address copied")
                     )}
                   >
                     <div
                       className="w-1.5 h-1.5 rounded-full animate-beacon"
-                      style={{ background: '#00e87a' }}
+                      style={{ background: "#00e87a" }}
                     />
                     <span
                       className="text-[10px] font-mono font-bold transition-colors"
-                      style={{ color: 'rgba(248,248,246,0.4)' }}
+                      style={{ color: "rgba(248,248,246,0.4)" }}
                     >
                       {smartAddress
                         ? `${smartAddress.slice(0, 6)}...${smartAddress.slice(-4)}`
-                        : 'Loading...'}
+                        : "Loading..."}
                     </span>
                     <Copy
                       className="w-3 h-3"
-                      style={{ color: 'rgba(248,248,246,0.2)' }}
+                      style={{ color: "rgba(248,248,246,0.2)" }}
                     />
                   </div>
                   <div className="flex items-center gap-2">
                     <ShieldCheck
                       className="w-3.5 h-3.5"
-                      style={{ color: 'rgba(248,248,246,0.25)' }}
+                      style={{ color: "rgba(248,248,246,0.25)" }}
                     />
                     <span
                       className="text-[10px] font-bold uppercase tracking-widest"
-                      style={{ color: 'rgba(248,248,246,0.3)' }}
+                      style={{ color: "rgba(248,248,246,0.3)" }}
                     >
                       Non-Custodial
                     </span>
@@ -261,8 +289,14 @@ export default function Dashboard() {
                         <Info className="w-3 h-3 opacity-30 hover:opacity-100 cursor-help" />
                       </TooltipTrigger>
                       <TooltipContent className="max-w-[280px] text-xs leading-relaxed p-4">
-                        <p className="font-bold mb-1 text-accent">Secure MPC Architecture</p>
-                        We use Privy&apos;s MPC technology to ensure your funds are truly yours. Your keys are split into shares, meaning no single party—including Sendzz—ever has access to your full private key. This provides self-custody with the ease of a traditional login.
+                        <p className="font-bold mb-1 text-accent">
+                          Secure MPC Architecture
+                        </p>
+                        We use Privy&apos;s MPC technology to ensure your funds
+                        are truly yours. Your keys are split into shares,
+                        meaning no single party—including Sendzz—ever has access
+                        to your full private key. This provides self-custody
+                        with the ease of a traditional login.
                       </TooltipContent>
                     </Tooltip>
                   </div>
@@ -271,7 +305,7 @@ export default function Dashboard() {
 
               <div className="flex items-center gap-3">
                 <button
-                  onClick={() => openRamp('deposit')}
+                  onClick={() => openRamp("deposit")}
                   className="btn-accent flex-1 sm:flex-none h-14 md:h-16 px-6 md:px-10 gap-3 rounded-2xl text-sm md:text-base transition-all"
                 >
                   <ArrowDown className="w-4 h-4 md:w-5 md:h-5" />
@@ -280,18 +314,18 @@ export default function Dashboard() {
                   </span>
                 </button>
                 <button
-                  onClick={() => openRamp('withdraw')}
+                  onClick={() => openRamp("withdraw")}
                   className="flex-1 sm:flex-none h-14 md:h-16 px-6 md:px-10 gap-3 rounded-2xl flex items-center justify-center text-sm md:text-base font-semibold transition-all"
                   style={{
-                    background: 'rgba(255,255,255,0.06)',
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    color: 'rgba(248,248,246,0.7)',
+                    background: "rgba(255,255,255,0.06)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    color: "rgba(248,248,246,0.7)",
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                    e.currentTarget.style.background = "rgba(255,255,255,0.1)";
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
+                    e.currentTarget.style.background = "rgba(255,255,255,0.06)";
                   }}
                 >
                   <ArrowUp className="w-4 h-4 md:w-5 md:h-5" />
@@ -301,13 +335,16 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <BridgeNudge smartAddress={smartAddress} solanaAddress={embeddedSolWallet?.address} />
+          <BridgeNudge
+            smartAddress={smartAddress}
+            solanaAddress={embeddedSolWallet?.address}
+          />
         </section>
 
         {/* Pending Incoming Payments — shown only when there are payments awaiting acceptance */}
         <PendingIncomingPanel
           userId={user.id}
-          userEmail={user.email?.address || ''}
+          userEmail={user.email?.address || ""}
         />
 
         {showSecurityNudge && (
@@ -318,9 +355,12 @@ export default function Dashboard() {
                 <ShieldAlert className="w-5 h-5 text-orange-400" />
               </div>
               <div className="space-y-1">
-                <h4 className="font-bold text-sm text-orange-400">Enhance Your Security</h4>
+                <h4 className="font-bold text-sm text-orange-400">
+                  Enhance Your Security
+                </h4>
                 <p className="text-xs text-orange-400/70 max-w-md leading-relaxed">
-                  Two-Factor Authentication is currently disabled. Protect your funds by requiring an OTP for large transactions.
+                  Two-Factor Authentication is currently disabled. Protect your
+                  funds by requiring an OTP for large transactions.
                 </p>
               </div>
             </div>
@@ -332,7 +372,7 @@ export default function Dashboard() {
                 Dismiss
               </button>
               <button
-                onClick={() => router.push('/dashboard/settings')}
+                onClick={() => router.push("/dashboard/settings")}
                 className="flex-1 sm:flex-none text-[10px] font-bold uppercase tracking-widest bg-orange-500/10 text-orange-400 border border-orange-500/20 px-5 py-2.5 rounded-xl hover:bg-orange-500/20 transition-all"
               >
                 Setup 2FA
@@ -361,31 +401,31 @@ export default function Dashboard() {
               <TransferModule
                 smartAddress={smartAddress}
                 embeddedProvider={wallets.find(
-                  (w) => w.walletClientType === 'privy',
+                  (w) => w.walletClientType === "privy",
                 )}
                 balance={balance}
-                senderEmail={user?.email?.address || ''}
+                senderEmail={user?.email?.address || ""}
               />
             </div>
 
             <div
               className="card-glass p-8 rounded-3xl space-y-6 group overflow-hidden relative"
-              style={{ border: '1px solid rgba(255,255,255,0.08)' }}
+              style={{ border: "1px solid rgba(255,255,255,0.08)" }}
             >
               <Users
                 className="absolute -right-4 -top-4 w-32 h-32 opacity-5 -rotate-12 transition-transform group-hover:scale-110 group-hover:rotate-0 duration-700"
-                style={{ color: '#00e87a' }}
+                style={{ color: "#00e87a" }}
               />
               <div className="space-y-2 relative z-10">
                 <h3
                   className="text-2xl font-display font-bold tracking-tight"
-                  style={{ color: '#f8f8f6' }}
+                  style={{ color: "#f8f8f6" }}
                 >
                   Batch Payroll
                 </h3>
                 <p
                   className="text-sm font-medium leading-relaxed max-w-sm"
-                  style={{ color: 'rgba(248,248,246,0.4)' }}
+                  style={{ color: "rgba(248,248,246,0.4)" }}
                 >
                   Distribute payments to your entire network simultaneously.
                   Perfect for payroll or global payouts.
@@ -395,15 +435,15 @@ export default function Dashboard() {
                 onClick={() => setBatchSendDialogOpen(true)}
                 className="w-full h-12 rounded-xl flex items-center justify-center gap-2 relative z-10 font-bold text-xs uppercase tracking-widest transition-all"
                 style={{
-                  background: 'rgba(0,232,122,0.1)',
-                  color: '#00e87a',
-                  border: '1px solid rgba(0,232,122,0.2)',
+                  background: "rgba(0,232,122,0.1)",
+                  color: "#00e87a",
+                  border: "1px solid rgba(0,232,122,0.2)",
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(0,232,122,0.18)';
+                  e.currentTarget.style.background = "rgba(0,232,122,0.18)";
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'rgba(0,232,122,0.1)';
+                  e.currentTarget.style.background = "rgba(0,232,122,0.1)";
                 }}
               >
                 Launch Batch Engine
@@ -415,14 +455,14 @@ export default function Dashboard() {
             <div className="flex items-center justify-between px-1">
               <h3
                 className="text-xs font-bold uppercase tracking-[0.2em]"
-                style={{ color: 'rgba(248,248,246,0.35)' }}
+                style={{ color: "rgba(248,248,246,0.35)" }}
               >
                 Recent Activity
               </h3>
               <button
-                onClick={() => router.push('/dashboard/history')}
+                onClick={() => router.push("/dashboard/history")}
                 className="text-[10px] font-bold uppercase tracking-widest transition-colors"
-                style={{ color: 'rgba(0,232,122,0.7)' }}
+                style={{ color: "rgba(0,232,122,0.7)" }}
               >
                 View All
               </button>
@@ -431,7 +471,7 @@ export default function Dashboard() {
               <div className="w-full">
                 <HistoryModule
                   userId={user.id}
-                  userEmail={user.email?.address || ''}
+                  userEmail={user.email?.address || ""}
                   limit={5}
                   hideHeader={true}
                   onTxClick={setSelectedActivity}
@@ -445,20 +485,23 @@ export default function Dashboard() {
           isOpen={rampModalOpen}
           onClose={() => setRampModalOpen(false)}
           type={rampType}
-          userId={user?.id || ''}
+          userId={user?.id || ""}
           userAddress={smartAddress}
           balance={balance}
-          userEmail={user?.email?.address || ''}
-          embeddedProvider={wallets.find((w) => w.walletClientType === 'privy')}
+          userEmail={user?.email?.address || ""}
+          embeddedProvider={wallets.find((w) => w.walletClientType === "privy")}
         />
 
         <BatchSendDialog
           open={batchSendDialogOpen}
           onOpenChange={setBatchSendDialogOpen}
-          maxAmount={parseFloat(balance || '0')}
+          maxAmount={parseFloat(balance || "0")}
           smartAddress={smartAddress}
-          embeddedProvider={wallets.find((w) => w.walletClientType === 'privy')}
-          senderEmail={user?.email?.address || ''}
+          embeddedProvider={wallets.find((w) => w.walletClientType === "privy")}
+          senderEmail={user?.email?.address || ""}
+          twoFaThreshold={twoFaThreshold}
+          totpEnabled={totpEnabled}
+          passkeyEnabled={passkeyEnabled}
         />
 
         <ActivityDetailModal
