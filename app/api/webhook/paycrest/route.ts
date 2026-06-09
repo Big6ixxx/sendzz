@@ -28,20 +28,27 @@ export async function POST(req: Request) {
     }
 
     const cleanSignature = String(signature).trim().toLowerCase();
+    const key = String(webhookSecret || '').trim();
     const computedSignature = crypto
-      .createHmac('sha256', webhookSecret)
+      .createHmac('sha256', key)
       .update(payload)
-      .digest('hex');
+      .digest('hex')
+      .toLowerCase();
 
     if (cleanSignature.length !== computedSignature.length) {
       console.error('[Paycrest Webhook] Signature length mismatch');
       return new Response('Invalid signature', { status: 400 });
     }
 
-    const isSignatureValid = crypto.timingSafeEqual(
-      Buffer.from(cleanSignature, 'hex'),
-      Buffer.from(computedSignature, 'hex')
-    );
+    let isSignatureValid = false;
+    try {
+      isSignatureValid = crypto.timingSafeEqual(
+        Buffer.from(cleanSignature, 'utf8'),
+        Buffer.from(computedSignature, 'utf8')
+      );
+    } catch (err) {
+      console.error('[Paycrest Webhook] Timing-safe comparison error:', err);
+    }
 
     if (!isSignatureValid) {
       console.error('[Paycrest Webhook] Signature mismatch');
@@ -51,6 +58,7 @@ export async function POST(req: Request) {
     interface PaycrestEvent {
       id?: string;
       eventId?: string;
+      event?: string;
       type?: string;
       eventType?: string;
       data?: {
@@ -75,9 +83,9 @@ export async function POST(req: Request) {
       return new Response('Invalid JSON payload', { status: 400 });
     }
 
-    // The event payload structure usually has eventId, type, and data.
-    // E.g. eventType = "order.status.updated", data = { id: "order_id", status: "settled" }
-    const eventType = event.type || event.eventType;
+    // The event payload structure usually has event, eventId, type, or eventType.
+    // E.g. event = "payment_order.settled", data = { id: "order_id", status: "settled" }
+    const eventType = event.event || event.type || event.eventType || 'unknown';
     const orderData = event.data;
 
     if (!orderData || !orderData.id) {
