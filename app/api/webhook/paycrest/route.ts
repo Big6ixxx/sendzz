@@ -28,12 +28,25 @@ export async function POST(req: Request) {
     }
 
     const cleanSignature = String(signature).trim().toLowerCase();
-    const key = String(webhookSecret || '').trim();
+    
+    // Strip any accidental surrounding quotes from the secret in the environment
+    const key = String(webhookSecret || '').replace(/['"]/g, '').trim();
+    
     const computedSignature = crypto
       .createHmac('sha256', key)
       .update(payload)
       .digest('hex')
       .toLowerCase();
+
+    console.log('[Paycrest Webhook] Debug info:', {
+      rawSecretLength: webhookSecret?.length,
+      cleanedSecretLength: key.length,
+      payloadLength: payload.length,
+      cleanSignatureLength: cleanSignature.length,
+      computedSignatureLength: computedSignature.length,
+      cleanSignaturePrefix: cleanSignature.slice(0, 6),
+      computedSignaturePrefix: computedSignature.slice(0, 6)
+    });
 
     if (cleanSignature.length !== computedSignature.length) {
       console.error('[Paycrest Webhook] Signature length mismatch');
