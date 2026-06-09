@@ -248,9 +248,16 @@ export default function AdminLogs() {
                   className={cn(
                     'w-10 h-10 rounded-xl flex items-center justify-center border',
                     logType === 'webhooks'
-                      ? (log as WebhookLog).processed
-                        ? 'bg-accent/10 border-accent/20 text-accent'
-                        : 'bg-amber-400/10 border-amber-400/20 text-amber-400'
+                       ? (() => {
+                          const wl = log as WebhookLog;
+                          const rawType = wl.event_type || '';
+                          const s = rawType.includes('.') ? rawType.split('.').pop() : rawType;
+                          if (['settled', 'completed'].includes(s ?? '') || wl.processed)
+                            return 'bg-accent/10 border-accent/20 text-accent';
+                          if (['failed', 'refunded', 'expired', 'refunding'].includes(s ?? ''))
+                            return 'bg-red-500/10 border-red-500/20 text-red-400';
+                          return 'bg-amber-400/10 border-amber-400/20 text-amber-400';
+                        })()
                       : 'bg-blue-400/10 border-blue-400/20 text-blue-400',
                   )}
                 >
@@ -267,20 +274,35 @@ export default function AdminLogs() {
                         ? (log as WebhookLog).provider
                         : (log as AuditLog).action}
                     </h4>
-                    {logType === 'webhooks' && (
-                      <span
-                        className={cn(
-                          'text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full',
-                          (log as WebhookLog).processed
-                            ? 'bg-accent/10 text-accent'
-                            : 'bg-amber-400/10 text-amber-400',
-                        )}
-                      >
-                        {(log as WebhookLog).processed
-                          ? 'Processed'
-                          : 'Pending'}
-                      </span>
-                    )}
+                    {logType === 'webhooks' && (() => {
+                      const wl = log as WebhookLog;
+                      // Derive badge from event_type if available, fall back to processed boolean
+                      const rawType = wl.event_type || '';
+                      // e.g. "payment_order.settled" → "settled"
+                      const eventStatus = rawType.includes('.') ? rawType.split('.').pop() : rawType;
+
+                      type BadgeStyle = { label: string; className: string };
+                      const badge: BadgeStyle = (() => {
+                        if (['settled', 'completed'].includes(eventStatus ?? ''))
+                          return { label: 'Settled', className: 'bg-accent/10 text-accent' };
+                        if (['failed', 'refunded', 'expired', 'refunding'].includes(eventStatus ?? ''))
+                          return { label: eventStatus!.charAt(0).toUpperCase() + eventStatus!.slice(1), className: 'bg-red-500/10 text-red-400' };
+                        if (eventStatus === 'validated')
+                          return { label: 'Validated', className: 'bg-blue-400/10 text-blue-400' };
+                        if (eventStatus === 'deposited')
+                          return { label: 'Deposited', className: 'bg-purple-400/10 text-purple-400' };
+                        // Fall back to processed boolean
+                        return wl.processed
+                          ? { label: 'Processed', className: 'bg-accent/10 text-accent' }
+                          : { label: 'Pending', className: 'bg-amber-400/10 text-amber-400' };
+                      })();
+
+                      return (
+                        <span className={cn('text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full', badge.className)}>
+                          {badge.label}
+                        </span>
+                      );
+                    })()}
                   </div>
                   <p className="text-[10px] font-mono text-white/20 mt-1 uppercase tracking-widest">
                     ID: {log.id.slice(0, 16)}... •{' '}
