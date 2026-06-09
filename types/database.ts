@@ -359,6 +359,7 @@ export interface Database {
           id: string;
           provider: WebhookProvider;
           event_id: string;
+          event_type: string | null;
           payload_json: Json;
           processed: boolean;
           created_at: string;
@@ -367,6 +368,7 @@ export interface Database {
           id?: string;
           provider?: WebhookProvider;
           event_id: string;
+          event_type?: string | null;
           payload_json: Json;
           processed?: boolean;
           created_at?: string;
@@ -375,6 +377,7 @@ export interface Database {
           id?: string;
           provider?: WebhookProvider;
           event_id?: string;
+          event_type?: string | null;
           payload_json?: Json;
           processed?: boolean;
           created_at?: string;
