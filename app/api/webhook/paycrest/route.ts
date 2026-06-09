@@ -1,12 +1,12 @@
 import { Database, Json } from '@/types/database';
 import { createClient } from '@supabase/supabase-js';
-import { Webhook } from 'standardwebhooks';
+import crypto from 'crypto';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const supabaseAdmin = createClient<Database>(supabaseUrl, supabaseServiceRole);
 
-// We must use the Edge Runtime or Node runtime. standardwebhooks works in both.
+// We must use the Edge Runtime or Node runtime.
 export const runtime = 'nodejs';
 
 export async function POST(req: Request) {
@@ -21,7 +21,32 @@ export async function POST(req: Request) {
       return new Response('Webhook secret not configured', { status: 500 });
     }
 
-    const wh = new Webhook(webhookSecret);
+    const signature = headers['x-paycrest-signature'] || headers['X-Paycrest-Signature'];
+    if (!signature) {
+      console.error('[Paycrest Webhook] Missing x-paycrest-signature header');
+      return new Response('Missing signature header', { status: 400 });
+    }
+
+    const cleanSignature = String(signature).trim().toLowerCase();
+    const computedSignature = crypto
+      .createHmac('sha256', webhookSecret)
+      .update(payload)
+      .digest('hex');
+
+    if (cleanSignature.length !== computedSignature.length) {
+      console.error('[Paycrest Webhook] Signature length mismatch');
+      return new Response('Invalid signature', { status: 400 });
+    }
+
+    const isSignatureValid = crypto.timingSafeEqual(
+      Buffer.from(cleanSignature, 'hex'),
+      Buffer.from(computedSignature, 'hex')
+    );
+
+    if (!isSignatureValid) {
+      console.error('[Paycrest Webhook] Signature mismatch');
+      return new Response('Invalid signature', { status: 400 });
+    }
 
     interface PaycrestEvent {
       id?: string;
@@ -44,10 +69,10 @@ export async function POST(req: Request) {
 
     let event: PaycrestEvent;
     try {
-      event = wh.verify(payload, headers) as PaycrestEvent;
+      event = JSON.parse(payload) as PaycrestEvent;
     } catch (err) {
-      console.error('[Paycrest Webhook] Invalid signature:', err);
-      return new Response('Invalid signature', { status: 400 });
+      console.error('[Paycrest Webhook] Invalid JSON payload:', err);
+      return new Response('Invalid JSON payload', { status: 400 });
     }
 
     // The event payload structure usually has eventId, type, and data.

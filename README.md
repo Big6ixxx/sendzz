@@ -88,7 +88,7 @@ System-aware theme with manual toggle, powered by `next-themes`.
 | State                | TanStack Query v5                                            |
 | Charts               | Recharts                                                     |
 | Validation           | Zod, React Hook Form                                         |
-| Webhook Verification | standardwebhooks                                             |
+| Webhook Verification | HMAC-SHA256 (crypto)                                         |
 | Package Manager      | pnpm                                                         |
 | Testing              | Vitest (unit), Playwright (e2e)                              |
 
@@ -317,7 +317,7 @@ The Paycrest webhook notifies Sendzz when on-ramp and off-ramp orders reach a te
    ```
 
 2. Copy the signing secret from Paycrest and set it as `PAYCREST_API_SECRET` in your environment.
-3. The handler verifies every inbound request using the `standardwebhooks` library before processing. Invalid signatures are rejected with `400`.
+3. The handler verifies every inbound request using the `x-paycrest-signature` header (HMAC-SHA256 of the raw body) before processing. Invalid signatures are rejected with `400`.
 4. Webhook events are stored in the `webhook_events` table with a unique constraint on `event_id` for idempotency — duplicate deliveries are silently ignored.
 
 ---

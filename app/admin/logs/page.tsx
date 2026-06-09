@@ -8,6 +8,8 @@ import { useQuery } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
 import {
+  Activity,
+  Clock,
   Code2,
   RefreshCw,
   Search,
@@ -40,6 +42,47 @@ export default function AdminLogs() {
     return content.includes(searchLower);
   });
 
+  // Calculate Webhook Health Stats
+  const webhookLogs = logType === 'webhooks' ? (logs as WebhookLog[]) : [];
+  const totalEvents = webhookLogs.length;
+  const lastEvent = webhookLogs[0];
+  const lastEventTime = lastEvent ? new Date(lastEvent.created_at) : null;
+
+  const now = new Date();
+  const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const eventsLast24h = webhookLogs.filter(
+    (log) => new Date(log.created_at) >= oneDayAgo,
+  ).length;
+
+  let healthStatus: 'healthy' | 'idle' | 'inactive' = 'inactive';
+  let healthLabel = 'No Activity';
+  let healthColor = 'text-white/40 border-white/10 bg-white/5';
+
+  if (lastEventTime) {
+    const hoursSinceLastEvent = (now.getTime() - lastEventTime.getTime()) / (1000 * 60 * 60);
+    if (hoursSinceLastEvent < 24) {
+      healthStatus = 'healthy';
+      healthLabel = 'Active & Healthy';
+      healthColor = 'text-accent border-accent/20 bg-accent/10';
+    } else {
+      healthStatus = 'idle';
+      healthLabel = 'Idle (> 24h)';
+      healthColor = 'text-amber-400 border-amber-500/20 bg-amber-500/10';
+    }
+  }
+
+  const formatTimeAgo = (date: Date | null) => {
+    if (!date) return 'Never';
+    const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
+    if (seconds < 60) return 'Just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  };
+
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -67,6 +110,75 @@ export default function AdminLogs() {
           </button>
         </div>
       </div>
+
+      {/* Webhook Health Cards */}
+      {logType === 'webhooks' && !isLoading && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="card-glass p-6 flex items-center justify-between border border-white/5">
+            <div className="space-y-1">
+              <p className="text-[10px] font-bold text-white/40 uppercase tracking-[0.2em]">
+                Webhook Status
+              </p>
+              <div className="flex items-center gap-2 mt-1">
+                <span
+                  className={cn(
+                    'w-2.5 h-2.5 rounded-full animate-pulse',
+                    healthStatus === 'healthy'
+                      ? 'bg-accent shadow-[0_0_8px_var(--color-accent)]'
+                      : healthStatus === 'idle'
+                        ? 'bg-amber-400 shadow-[0_0_8px_#fbbf24]'
+                        : 'bg-white/25',
+                  )}
+                />
+                <span className="text-sm font-bold text-white tracking-tight">
+                  {healthLabel}
+                </span>
+              </div>
+            </div>
+            <div
+              className={cn(
+                'px-3 py-1.5 rounded-lg border text-[10px] font-black uppercase tracking-wider',
+                healthColor,
+              )}
+            >
+              {healthStatus === 'healthy'
+                ? 'Online'
+                : healthStatus === 'idle'
+                  ? 'Warning'
+                  : 'Offline'}
+            </div>
+          </div>
+
+          <div className="card-glass p-6 flex items-center justify-between border border-white/5">
+            <div className="space-y-1">
+              <p className="text-[10px] font-bold text-white/40 uppercase tracking-[0.2em]">
+                Last Event Received
+              </p>
+              <p className="text-sm font-bold text-white tracking-tight mt-1">
+                {formatTimeAgo(lastEventTime)}
+              </p>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-white/40">
+              <Clock className="w-5 h-5" />
+            </div>
+          </div>
+
+          <div className="card-glass p-6 flex items-center justify-between border border-white/5">
+            <div className="space-y-1">
+              <p className="text-[10px] font-bold text-white/40 uppercase tracking-[0.2em]">
+                Events (Last 24h / Total)
+              </p>
+              <p className="text-sm font-bold text-white tracking-tight mt-1">
+                {eventsLast24h}{' '}
+                <span className="text-white/40 font-normal">/ {totalEvents}</span>
+              </p>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-white/40">
+              <Activity className="w-5 h-5" />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Type Switch & Search */}
       <div className="flex flex-col lg:flex-row gap-6">
