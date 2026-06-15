@@ -8,6 +8,7 @@ import {
   Repeat,
   Send,
   Settings,
+  Star,
   User,
   X,
 } from "lucide-react";
@@ -20,6 +21,7 @@ const NAV_ITEMS = [
   { name: "Smart Bridge", href: "/dashboard/bridge", icon: Repeat },
   { name: "History", href: "/dashboard/history", icon: History },
   { name: "Settings", href: "/dashboard/settings", icon: Settings },
+  { name: "Stellar ✦", href: "/dashboard/stellar", icon: Star },
 ];
 
 interface SidebarProps {

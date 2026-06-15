@@ -63,6 +63,7 @@ export default function Dashboard() {
       : null;
 
   const [smartAddress, setSmartAddress] = useState<string>("");
+  const [stellarAddress, setStellarAddress] = useState<string>("");
   const [rampModalOpen, setRampModalOpen] = useState(false);
   const [batchSendDialogOpen, setBatchSendDialogOpen] = useState(false);
   const [rampType, setRampType] = useState<"deposit" | "withdraw">("deposit");
@@ -135,6 +136,19 @@ export default function Dashboard() {
       fetchSecurityPrefs();
     }
   }, [ready, authenticated, wallets, user]);
+
+  // Load Stellar wallet address from localStorage for the bridge nudge
+  useEffect(() => {
+    if (user?.id) {
+      try {
+        const raw = localStorage.getItem(`sendzz:stellar:v2:${user.id}`);
+        if (raw) {
+          const parsed = JSON.parse(raw) as { address?: string };
+          if (parsed.address) setStellarAddress(parsed.address);
+        }
+      } catch { /* ignore */ }
+    }
+  }, [user?.id]);
 
   if (!ready || !authenticated || !user) {
     return (
@@ -338,6 +352,7 @@ export default function Dashboard() {
           <BridgeNudge
             smartAddress={smartAddress}
             solanaAddress={embeddedSolWallet?.address}
+            stellarAddress={stellarAddress || undefined}
           />
         </section>
 

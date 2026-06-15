@@ -8,12 +8,25 @@ import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
+interface StellarWalletState {
+  walletId: string;
+  address: string;
+}
+
+function loadStellarWallet(privyUserId: string): StellarWalletState | null {
+  try {
+    const raw = localStorage.getItem(`sendzz:stellar:v2:${privyUserId}`);
+    return raw ? (JSON.parse(raw) as StellarWalletState) : null;
+  } catch { return null; }
+}
+
 export default function SmartBridgePage() {
   const { ready, authenticated, user } = usePrivy();
   const { wallets } = useWallets();
   const [smartAddress, setSmartAddress] = useState<string>('');
+  const [stellarWallet, setStellarWallet] = useState<StellarWalletState | null>(null);
 
-  // Embedded Privy Solana wallet — look up address via linkedAccounts (walletClientType is not exposed on ConnectedStandardSolanaWallet)
+  // Embedded Privy Solana wallet
   const privySolAccount = user?.linkedAccounts.find(
     (a) => a.type === 'wallet' && a.walletClientType === 'privy' && a.chainType === 'solana'
   );
@@ -24,9 +37,7 @@ export default function SmartBridgePage() {
   useEffect(() => {
     async function initAccount() {
       try {
-        const embeddedWallet = wallets.find(
-          (w) => w.walletClientType === 'privy',
-        );
+        const embeddedWallet = wallets.find((w) => w.walletClientType === 'privy');
         if (!embeddedWallet) return;
         const provider = await embeddedWallet.getEthereumProvider();
         const address = await getCircleAddress(provider);
@@ -37,6 +48,14 @@ export default function SmartBridgePage() {
     }
     if (ready && authenticated && wallets.length > 0) initAccount();
   }, [ready, authenticated, wallets]);
+
+  // Load Stellar wallet from localStorage (set by Stellar playground page)
+  useEffect(() => {
+    if (user?.id) {
+      const w = loadStellarWallet(user.id);
+      if (w) setStellarWallet(w);
+    }
+  }, [user?.id]);
 
   if (!ready || !authenticated || !user) {
     return (
@@ -58,6 +77,7 @@ export default function SmartBridgePage() {
           smartAddress={smartAddress}
           userEmail={user.email?.address || ''}
           solanaAddress={privySolanaAddress}
+          stellarWallet={stellarWallet}
         />
       </div>
     </TooltipProvider>

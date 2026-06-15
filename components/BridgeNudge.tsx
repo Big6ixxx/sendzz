@@ -8,11 +8,12 @@ import Link from 'next/link';
 interface BridgeNudgeProps {
   smartAddress: string;
   solanaAddress?: string;
+  stellarAddress?: string;
 }
 
-export function BridgeNudge({ smartAddress, solanaAddress }: BridgeNudgeProps) {
-  const { data: bridges } = useCrossChainBalances(smartAddress, solanaAddress);
-  // Show nudge if there are funds on ANY non-Base chain (EVM or Solana)
+export function BridgeNudge({ smartAddress, solanaAddress, stellarAddress }: BridgeNudgeProps) {
+  const { data: bridges } = useCrossChainBalances(smartAddress, solanaAddress, stellarAddress);
+  // Show nudge if there are funds on ANY non-Base chain (EVM, Solana, or Stellar)
   const hasFundsElsewhere = bridges && bridges.length > 0;
 
   return (
@@ -24,19 +25,22 @@ export function BridgeNudge({ smartAddress, solanaAddress }: BridgeNudgeProps) {
           exit={{ opacity: 0, height: 0 }}
           className="overflow-hidden"
         >
-          <Link
-            href="/dashboard/bridge"
-            className="block group mt-6"
-          >
+          <Link href="/dashboard/bridge" className="block group mt-6">
             <div className="card-glass p-4 border-accent/20 bg-accent/[0.03] flex items-center justify-between group-hover:border-accent/40 transition-all">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center">
                   <Sparkles className="w-4 h-4 text-accent animate-pulse" />
                 </div>
                 <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-accent/60">Liquidity Detected</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-accent/60">
+                    Liquidity Detected
+                  </p>
                   <p className="text-xs font-bold text-white group-hover:text-accent transition-colors">
-                    You have USDC on other chains. Bridge them to Base for free.
+                    You have USDC on {bridges.map((b) => {
+                      if (b.chain === 'stellar') return 'Stellar';
+                      if (b.chain === 'solana') return 'Solana';
+                      return b.chain.charAt(0).toUpperCase() + b.chain.slice(1);
+                    }).join(', ')}. Bridge to Base for free.
                   </p>
                 </div>
               </div>

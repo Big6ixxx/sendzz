@@ -29,8 +29,7 @@ import {
 import { fetchCctpFees } from "@/lib/circle/gateway";
 import { recordBridgeTransaction, updateBridgeStatus } from "@/lib/supabase/transactions";
 import { executeSmartBridge } from "@/lib/web3/bridge-actions";
-import { cn } from "@/lib/utils";
-import { useWallets, usePrivy } from "@privy-io/react-auth";
+import { cn } from "@/lib/utils";import { useWallets, usePrivy } from "@privy-io/react-auth";
 import {
   useSignTransaction,
   useWallets as useSolanaWallets,
@@ -67,6 +66,7 @@ const SOLANA_RPC =
 const CHAIN_DISPLAY_NAMES: Record<string, string> = {
   ...CHAIN_NAMES,
   solana: "Solana",
+  stellar: "Stellar",
 };
 
 const CHAIN_EXPLORER_TX: Record<string, (hash: string) => string> = {
@@ -77,6 +77,7 @@ const CHAIN_EXPLORER_TX: Record<string, (hash: string) => string> = {
     ]),
   ),
   solana: (hash: string) => `https://solscan.io/tx/${hash}`,
+  stellar: (hash: string) => `https://stellar.expert/explorer/public/tx/${hash}`,
 };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -89,12 +90,15 @@ interface SmartBridgeModuleProps {
   smartAddress: string;
   userEmail: string;
   solanaAddress?: string;
+  /** Stellar wallet from Privy TEE — walletId + address */
+  stellarWallet?: { walletId: string; address: string } | null;
 }
 
 export function SmartBridgeModule({
   smartAddress,
   userEmail,
   solanaAddress,
+  stellarWallet,
 }: SmartBridgeModuleProps) {
   const { wallets } = useWallets();
   const { user } = usePrivy();
@@ -118,13 +122,14 @@ export function SmartBridgeModule({
     isLoading,
     isFetching,
     refetch,
-  } = useCrossChainBalances(smartAddress, solanaAddress);
+  } = useCrossChainBalances(smartAddress, solanaAddress, stellarWallet?.address);
 
-  // Show all chains with a balance: all 5 EVM source chains + Solana
+  // Show all chains with a balance: all 5 EVM source chains + Solana + Stellar
   const bridges = allBridges?.filter(
     (b) =>
       (SMART_BRIDGE_CHAINS as string[]).includes(b.chain) ||
-      b.chain === "solana",
+      b.chain === "solana" ||
+      b.chain === "stellar",
   );
 
   const [bridgingChain, setBridgingChain] = useState<ChainBalanceChain | null>(null);
@@ -211,6 +216,50 @@ export function SmartBridgeModule({
         }
       } catch (err) {
         console.error("[SmartBridge] Solana monitoring error:", err);
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [monitoringTx, isComplete, queryClient, embeddedEvmWallet]);
+
+  // ─── Stellar attestation monitor (Privy TEE wallet bridge) ─────────────
+
+  useEffect(() => {
+    if (!monitoringTx || isComplete || monitoringTx.chain !== "stellar") return;
+
+    let attempts = 0;
+    const interval = setInterval(async () => {
+      attempts++;
+      if (attempts > 120) { clearInterval(interval); return; }
+      try {
+        const res = await fetch(
+          `/api/bridge/status?txHash=${monitoringTx.hash}&sourceChain=stellar`,
+        );
+        const data = await res.json() as { status: string; attestation?: string; messageBytes?: string; mintTxHash?: string };
+        if (data.status === "complete") {
+          let mHash = data.mintTxHash ?? "";
+          if (!mHash && data.attestation && data.messageBytes && embeddedEvmWallet) {
+            const { executeReceiveMessage } = await import("@/lib/web3/bridge-actions");
+            mHash = await executeReceiveMessage(
+              embeddedEvmWallet,
+              data.messageBytes,
+              data.attestation,
+            );
+          }
+          setIsComplete(true);
+          setMintTxHash(mHash || null);
+          clearInterval(interval);
+          await fetch("/api/bridge/complete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ burnTxHash: monitoringTx.hash, mintTxHash: mHash }),
+          });
+          queryClient.invalidateQueries({ queryKey: ["history"] });
+          queryClient.invalidateQueries({ queryKey: ["cross-chain-balances"] });
+          toast.success("Stellar bridge complete! USDC is now on Base.");
+        }
+      } catch (err) {
+        console.error("[SmartBridge] Stellar monitoring error:", err);
       }
     }, 5000);
 
@@ -363,11 +412,60 @@ export function SmartBridgeModule({
     }
   };
 
+  // ─── Stellar bridge handler (Privy TEE wallet) ──────────────────────────
+
+  const handleStellarPrivyBridge = async (amount: string) => {
+    if (!stellarWallet?.walletId || !stellarWallet?.address) {
+      toast.error("Stellar wallet not found. Open the Stellar page first to set it up.");
+      return;
+    }
+    setBridgingChain("stellar" as ChainBalanceChain);
+    try {
+      console.log(`[SmartBridge] Stellar bridge: ${amount} USDC → Base (${smartAddress})`);
+      const res = await fetch("/api/stellar/bridge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          walletId: stellarWallet.walletId,
+          senderAddress: stellarWallet.address,
+          recipientAddress: smartAddress,
+          amount,
+        }),
+      });
+      const data = await res.json() as { burnTxHash?: string; error?: string };
+      if (!res.ok) throw new Error(data.error || "Stellar bridge failed");
+
+      const burnTxHash = data.burnTxHash!;
+      await recordBridgeTransaction({
+        userEmail,
+        sourceChain: "stellar" as never,
+        destChain: "base",
+        amountUsdc: parseFloat(amount),
+        burnTxHash,
+      });
+      setMonitoringTx({ hash: burnTxHash, chain: "stellar" as ChainBalanceChain });
+      setMintTxHash(null);
+      toast.success("Stellar bridge submitted! Monitoring for Circle attestation...");
+      refetch();
+    } catch (err) {
+      console.error("[SmartBridge] Stellar bridge failed:", err);
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!/cancelled|rejected/i.test(msg)) {
+        toast.error(`Stellar bridge failed: ${msg}`);
+      }
+    } finally {
+      setBridgingChain(null);
+    }
+  };
+
   // ─── Unified bridge dispatcher ───────────────────────────────────────────
 
   const handleBridge = (bridge: ChainBalance) => {
     if (bridge.chain === "solana") {
       return void handleSolanaBridge(bridge.balance);
+    }
+    if (bridge.chain === "stellar") {
+      return void handleStellarPrivyBridge(bridge.balance);
     }
     return void handleEvmBridge(bridge.chain as SupportedChain, bridge.balance);
   };
@@ -622,9 +720,9 @@ export function SmartBridgeModule({
           </h5>
           <p className="text-[11px] text-white/40 leading-relaxed font-medium">
             Smart Bridge scans your embedded smart wallet across all supported EVM chains
-            (Arbitrum, Avalanche, Ethereum, Optimism, Polygon) and your embedded Solana wallet
-            for idle USDC. Bridging is gasless on EVM chains. Solana bridges require a small
-            SOL fee (~0.001 SOL) paid from your Solana wallet.
+            (Arbitrum, Avalanche, Ethereum, Optimism, Polygon), your embedded Solana wallet,
+            and your Stellar wallet for idle USDC. Bridging is gasless on EVM chains and Stellar
+            (platform sponsors all fees). Solana bridges require a small SOL fee (~0.001 SOL).
           </p>
         </div>
       </div>

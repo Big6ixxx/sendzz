@@ -130,14 +130,35 @@ export async function GET(req: NextRequest) {
       })()
     : Promise.resolve(null);
 
-  const [evmResults, solanaResult] = await Promise.all([
+  // Scan Stellar if address provided
+  const stellarAddress = req.nextUrl.searchParams.get('stellarAddress');
+  const stellarPromise = (stellarAddress && stellarAddress.startsWith('G'))
+    ? (async () => {
+        try {
+          const { getStellarUsdcBalance } = await import('@/lib/stellar/transactions');
+          const bal = await getStellarUsdcBalance(stellarAddress);
+          const balance = parseFloat(bal);
+          return {
+            chain: 'stellar' as const,
+            balance: bal,
+            hasBalance: balance > 0,
+          };
+        } catch {
+          return null;
+        }
+      })()
+    : Promise.resolve(null);
+
+  const [evmResults, solanaResult, stellarResult] = await Promise.all([
     Promise.all(evmPromises),
     solanaPromise,
+    stellarPromise,
   ]);
 
   const results = [
     ...evmResults.filter((r) => r.hasBalance),
     ...(solanaResult?.hasBalance ? [solanaResult] : []),
+    ...(stellarResult?.hasBalance ? [stellarResult] : []),
   ];
 
   return NextResponse.json(results);

@@ -23,6 +23,7 @@ export default function DashboardLayout({
       { name: 'Transfer', href: '/dashboard/transfer' },
       { name: 'History', href: '/dashboard/history' },
       { name: 'Settings', href: '/dashboard/settings' },
+      { name: 'Stellar', href: '/dashboard/stellar' },
     ];
     const section = items.find(item => item.href === pathname)?.name || 'Dashboard';
     document.title = `${section} | Sendzz`;
