@@ -87,6 +87,7 @@ export function BatchSendDialog({
   const handleClose = () => {
     if (hook.step === "processing") return;
     if (hook.twoFaModalOpen) return; // Don't close if 2FA modal is open
+    hook.reset();
     onOpenChange(false);
   };
 

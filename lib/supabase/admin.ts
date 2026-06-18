@@ -60,7 +60,9 @@ export async function getAdminStats(adminEmail: string) {
   ]);
 
   const confirmedDeposits = d?.filter((x) => x.status === 'confirmed') || [];
-  const confirmedWithdrawals = w?.filter((x) => x.status === 'completed' || x.status === 'processing') || [];
+  // Only 'completed' withdrawals count — 'processing' means the USDC transfer was sent
+  // but Paycrest hasn't settled yet, so it must NOT be counted as confirmed volume.
+  const confirmedWithdrawals = w?.filter((x) => x.status === 'completed') || [];
   const confirmedTransfers = t?.filter((x) => x.status === 'completed') || [];
   const confirmedBridges = b?.filter((x) => x.attestation_status === 'complete') || [];
 
@@ -145,7 +147,7 @@ export async function getAdminUsers(adminEmail: string) {
     const userEmail = user.email.toLowerCase();
     const userDeposits = d?.filter((x) => x.user_id === user.id && x.status === 'confirmed') || [];
     const total_deposits = userDeposits.reduce((a, b) => a + (Number(b.amount_usdc) || 0), 0);
-    const userWithdrawals = w?.filter((x) => x.user_id === user.id && (x.status === 'completed' || x.status === 'processing')) || [];
+    const userWithdrawals = w?.filter((x) => x.user_id === user.id && x.status === 'completed') || [];
     const total_withdrawals = userWithdrawals.reduce((a, b) => a + (Number(b.amount_usdc) || 0), 0);
     const userTransfersSent = t?.filter((x) => (x.sender_id === user.id || x.sender_email?.toLowerCase() === userEmail) && x.status === 'completed') || [];
     const total_sent = userTransfersSent.reduce((a, b) => a + (Number(b.amount) || 0), 0);
@@ -188,7 +190,7 @@ export async function getAdminAnalytics(
   const txEvents = [
     ...(transfers || []).filter((x) => x.status === 'completed' && x.created_at).map((x) => ({ a: Number(x.amount), d: x.created_at })),
     ...(deposits || []).filter((x) => x.status === 'confirmed' && x.created_at).map((x) => ({ a: Number(x.amount_usdc), d: x.created_at })),
-    ...(withdrawals || []).filter((x) => (x.status === 'completed' || x.status === 'processing') && x.created_at).map((x) => ({ a: Number(x.amount_usdc), d: x.created_at })),
+    ...(withdrawals || []).filter((x) => x.status === 'completed' && x.created_at).map((x) => ({ a: Number(x.amount_usdc), d: x.created_at })),
     ...(bridges || []).filter((x) => x.attestation_status === 'complete' && x.created_at).map((x) => ({ a: Number(x.amount), d: x.created_at })),
   ];
 

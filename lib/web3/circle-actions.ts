@@ -4,36 +4,45 @@ import { encodeFunctionData, parseAbi, parseUnits, type Address } from 'viem';
 import { createBundlerClient } from 'viem/account-abstraction';
 import { getCircleClient } from './circle-client';
 import {
-  chain,
+  chain as baseChain,
   CIRCLE_CLIENT_KEY,
   CIRCLE_SEND_URL,
   USDC_ADDRESS,
 } from './config';
+import { VIEM_CHAINS } from './multichain';
+import { USDC_ADDRESSES, type SupportedChain } from '../circle/gateway';
 
 const ERC20_ABI = parseAbi([
   'function transfer(address _to, uint256 _value) returns (bool)',
 ]);
 
-// Chain slug for Circle modular transport URL
-const CHAIN_SLUG = chain.id === 8453 ? 'base' : 'base-sepolia';
-
-// Circle's bundler + paymaster endpoint — handles gas sponsorship via our policy
-const SEND_RPC_URL = `${CIRCLE_SEND_URL}/${CHAIN_SLUG}`;
+// All operations default to mainnet
+function getChainSlug(targetChain: SupportedChain): string {
+  return targetChain;
+}
 
 export async function executeCircleGaslessTransfer(
   provider: EIP1193Provider,
   recipientAddress: string,
   amountUSDC: string,
+  targetChain: SupportedChain = 'base'
 ) {
   return executeCircleGaslessBatchTransfer(provider, [
     { recipientAddress, amountUSDC },
-  ]);
+  ], targetChain);
 }
 
 export async function executeCircleGaslessBatchTransfer(
   provider: EIP1193Provider,
   transfers: { recipientAddress: string; amountUSDC: string }[],
+  targetChain: SupportedChain = 'base'
 ) {
+  const selectedChain = VIEM_CHAINS[targetChain] || baseChain;
+  const usdcContractAddress = USDC_ADDRESSES[targetChain] || USDC_ADDRESS;
+  
+  // Circle's bundler + paymaster endpoint — handles gas sponsorship via our policy
+  const SEND_RPC_URL = `${CIRCLE_SEND_URL}/${getChainSlug(targetChain)}`;
+
   // 1. Get Circle smart account
   const { account } = await getCircleClient(
     provider as unknown as Parameters<typeof getCircleClient>[0],
@@ -43,7 +52,7 @@ export async function executeCircleGaslessBatchTransfer(
   const sendTransport = toModularTransport(SEND_RPC_URL, CIRCLE_CLIENT_KEY!);
 
   const bundlerClient = createBundlerClient({
-    chain,
+    chain: selectedChain,
     transport: sendTransport,
     account,
   });
@@ -58,14 +67,14 @@ export async function executeCircleGaslessBatchTransfer(
     });
 
     return {
-      to: USDC_ADDRESS as Address,
+      to: usdcContractAddress as Address,
       data: transferData,
       value: 0n,
     };
   });
 
   // 4. Send UserOperation in one batch
-  console.log(`[BatchTransfer] Sending UserOp with ${calls.length} calls...`);
+  console.log(`[BatchTransfer] Sending UserOp with ${calls.length} calls on ${targetChain}...`);
 
   const userOpHash = await bundlerClient.sendUserOperation({
     calls,
