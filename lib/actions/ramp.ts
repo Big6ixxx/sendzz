@@ -159,13 +159,16 @@ export async function finalizeOffRamp(
   fiat: PaycrestCurrency = 'NGN',
   fiatAmount?: number,
   exchangeRate?: number,
+  inputMode: 'fiat' | 'usdc' = 'usdc'
 ) {
   const paycrest = getPaycrestClient();
 
   try {
+    const isFiat = inputMode === 'fiat' && fiatAmount;
+
     const order = await paycrest.createOrder({
-      amount: amountUsdc.toString(),
-      amountIn: "crypto",
+      amount: isFiat ? fiatAmount.toString() : amountUsdc.toString(),
+      amountIn: isFiat ? "fiat" : "crypto",
       source: {
         type: "crypto",
         currency: "USDC",
@@ -184,13 +187,15 @@ export async function finalizeOffRamp(
       reference: `offramp_${Date.now()}`,
     });
 
+    const finalAmountUsdc = isFiat ? Number(order.amount || amountUsdc) : amountUsdc;
+
     // Record in internal ledger
     const { recordWithdrawal } = await import("@/lib/supabase/transactions");
     await recordWithdrawal({
       userEmail,
-      amountUsdc,
+      amountUsdc: finalAmountUsdc,
       fiatCurrency: fiat,
-      fiatAmount,
+      fiatAmount: isFiat ? fiatAmount : (fiatAmount || amountUsdc * (exchangeRate || 1)),
       exchangeRate,
       bankAccountMasked: accountNumber.replace(/.(?=.{4})/g, '*'),
       institutionCode: bankCode,

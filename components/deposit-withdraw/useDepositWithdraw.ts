@@ -296,7 +296,7 @@ export function useDepositWithdraw(
 
     // Save the computed base USDC required for the next steps
     // without overwriting the user's input amount
-    setQuoteUsdcAmount(val.toFixed(2));
+    setQuoteUsdcAmount(val.toFixed(6));
 
     setLoading(true);
     try {
@@ -442,8 +442,9 @@ export function useDepositWithdraw(
         userAddress,
         userEmail,
         fiatCurrency,
-        quote?.payoutAmount,
+        inputMode === 'fiat' ? parseFloat(amount) : quote?.payoutAmount,
         quote?.rate,
+        inputMode
       );
       setOrder(res);
       setStep(3);
@@ -464,7 +465,7 @@ export function useDepositWithdraw(
 
       const baseAmount = parseFloat(quoteUsdcAmount);
       const feeRate = 0.003;
-      const totalUsdcRequired = (baseAmount * (1 + feeRate)).toFixed(2);
+      const totalUsdcRequired = (baseAmount * (1 + feeRate)).toFixed(6);
 
       const txHash = await executeCircleGaslessTransfer(
         provider,
