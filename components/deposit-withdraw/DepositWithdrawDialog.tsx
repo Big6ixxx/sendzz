@@ -62,11 +62,18 @@ export function DepositWithdrawDialog({
     onClose,
   );
 
+  const handleClose = () => {
+    depositHook.reset();
+    withdrawHook.reset();
+    setDepositTab("fiat");
+    onClose();
+  };
+
   return (
     <>
       {/* Only render Dialog when 2FA modal is NOT open to avoid backdrop blocking */}
       {!withdrawHook.twoFaModalOpen && (
-        <Dialog open={isOpen} onOpenChange={(val) => !val && onClose()}>
+        <Dialog open={isOpen} onOpenChange={(val) => !val && handleClose()}>
           <DialogContent
             showCloseButton={false}
             onInteractOutside={(e) => e.preventDefault()}
@@ -98,7 +105,7 @@ export function DepositWithdrawDialog({
                 </DialogDescription>
               </div>
               <button
-                onClick={onClose}
+                onClick={handleClose}
                 className="p-3 bg-white/5 border border-white/8 rounded-xl transition-all hover:bg-white/10 group"
               >
                 <X className="w-4 h-4 text-brand-secondary/40 group-hover:text-brand-secondary" />
@@ -148,7 +155,7 @@ export function DepositWithdrawDialog({
                   ) : (
                     <UsdcDepositFlow
                       userAddress={userAddress}
-                      handleClose={onClose}
+                      handleClose={handleClose}
                     />
                   )
                 ) : (

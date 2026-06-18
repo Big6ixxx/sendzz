@@ -234,6 +234,20 @@ export function useBatchSend(
     setRecipients((p) => p.filter((r) => r.id !== id));
   };
 
+  const reset = () => {
+    setStep("recipients");
+    setRecipients([]);
+    setAmount("");
+    setCurrency("USD");
+    setNote("");
+    setBatchResults([]);
+    setProgress({ done: 0, total: 0 });
+    setTwoFaModalOpen(false);
+    setTwoFaOtpId(null);
+    setTwoFaLoading(false);
+    setTwoFaError(null);
+  };
+
   return {
     step,
     setStep,
@@ -261,5 +275,6 @@ export function useBatchSend(
     twoFaError,
     handleTwoFaSubmit,
     handleTwoFaResend,
+    reset,
   };
 }
