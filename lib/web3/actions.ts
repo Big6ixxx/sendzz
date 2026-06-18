@@ -1,5 +1,7 @@
 import { formatUnits } from 'viem';
 import { USDC_ADDRESS, VIEM_PUBLIC_CLIENT } from './config';
+import { MULTICHAIN_CLIENTS } from './multichain';
+import { USDC_ADDRESSES, type SupportedChain } from '../circle/gateway';
 
 import { parseAbi } from 'viem';
 
@@ -10,18 +12,22 @@ const ERC20_ABI = parseAbi([
 
 /**
  * Fetches the USDC balance of a given address.
+ * Defaults to Base for backward compatibility.
  */
-export async function getUSDCBalance(address: string): Promise<string> {
+export async function getUSDCBalance(address: string, chain: SupportedChain = 'base'): Promise<string> {
   try {
-    const balance = await VIEM_PUBLIC_CLIENT.readContract({
-      address: USDC_ADDRESS as `0x${string}`,
+    const client = MULTICHAIN_CLIENTS[chain] || VIEM_PUBLIC_CLIENT;
+    const usdcAddress = USDC_ADDRESSES[chain] || USDC_ADDRESS;
+
+    const balance = await client.readContract({
+      address: usdcAddress as `0x${string}`,
       abi: ERC20_ABI,
       functionName: 'balanceOf',
       args: [address as `0x${string}`],
     });
-    return formatUnits(balance, 6);
+    return formatUnits(balance as bigint, 6);
   } catch (error) {
-    console.error('Error fetching USDC balance:', error);
+    console.error(`Error fetching USDC balance on ${chain}:`, error);
     return '0';
   }
 }

@@ -269,8 +269,8 @@
 
   .input-elegant:focus {
     background-color: var(--background);
-    border-color: var(--foreground);
-    box-shadow: 0 0 0 1px var(--foreground);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
   }
 
   .input-elegant::placeholder {
