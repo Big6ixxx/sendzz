@@ -23,7 +23,6 @@ import {
   ExternalLink,
   Loader2,
   RefreshCw,
-  Send,
   Shield,
   Star,
   Zap,
@@ -91,13 +90,6 @@ export default function StellarPlayground() {
   const [step, setStep] = useState<ProvisionStep>('idle');
   const [isProvisioning, setIsProvisioning] = useState(false);
   const provisioningRef = useRef(false); // prevents duplicate concurrent calls
-
-  // Send form
-  const [recipient, setRecipient] = useState('');
-  const [amount, setAmount] = useState('');
-  const [memo, setMemo] = useState('');
-  const [isSending, setIsSending] = useState(false);
-  const [lastTxHash, setLastTxHash] = useState<string | null>(null);
 
   // ── Balance query ─────────────────────────────────────────────────────────
   const { data: balances, isLoading: balanceLoading, refetch: refetchBalance } = useQuery({
@@ -230,37 +222,6 @@ export default function StellarPlayground() {
       .catch(() => {/* error shown in UI via step */})
       .finally(() => { provisioningRef.current = false; });
   }, [ready, authenticated, privyUserId, wallet, provision]);
-
-  // ── Send USDC ─────────────────────────────────────────────────────────────
-  const handleSend = async () => {
-    if (!wallet || !recipient || !amount) return;
-    setIsSending(true);
-    try {
-      const res = await fetch('/api/stellar/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          walletId: wallet.walletId,
-          senderAddress: wallet.address,
-          recipientAddress: recipient,
-          amount,
-          memo: memo || undefined,
-        }),
-      });
-      const data = (await res.json()) as { txHash?: string; error?: string };
-      if (!res.ok) throw new Error(data.error || 'Send failed');
-      setLastTxHash(data.txHash!);
-      toast.success(`Sent ${amount} USDC on Stellar`);
-      setAmount('');
-      setRecipient('');
-      setMemo('');
-      refetchBalance();
-    } catch (err) {
-      toast.error((err as Error).message || 'Send failed');
-    } finally {
-      setIsSending(false);
-    }
-  };
 
   // ── Retry ─────────────────────────────────────────────────────────────────
   const handleRetry = async () => {
@@ -520,89 +481,6 @@ export default function StellarPlayground() {
             </a>
           </div>
 
-          {/* Send USDC */}
-          {isFullyReady && (
-            <div className="card-glass p-8 rounded-3xl space-y-6">
-              <div className="flex items-center gap-3">
-                <Send className="w-4 h-4" style={{ color: '#00e87a' }} />
-                <h3 className="text-sm font-bold uppercase tracking-widest" style={{ color: 'rgba(248,248,246,0.7)' }}>
-                  Send USDC on Stellar
-                </h3>
-              </div>
-
-              <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'rgba(248,248,246,0.3)' }}>
-                    Recipient Stellar Address (G...)
-                  </label>
-                  <input
-                    type="text"
-                    value={recipient}
-                    onChange={(e) => setRecipient(e.target.value)}
-                    placeholder="GABCDE..."
-                    className="w-full px-4 py-3.5 rounded-xl font-mono text-sm focus:outline-none"
-                    style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: '#f8f8f6' }}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'rgba(248,248,246,0.3)' }}>
-                      Amount (USDC)
-                    </label>
-                    <input
-                      type="number"
-                      value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
-                      placeholder="10.00"
-                      min="0.0000001"
-                      step="0.01"
-                      className="w-full px-4 py-3.5 rounded-xl text-sm focus:outline-none"
-                      style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: '#f8f8f6' }}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'rgba(248,248,246,0.3)' }}>
-                      Memo (optional)
-                    </label>
-                    <input
-                      type="text"
-                      value={memo}
-                      onChange={(e) => setMemo(e.target.value)}
-                      placeholder="Payment for..."
-                      maxLength={28}
-                      className="w-full px-4 py-3.5 rounded-xl text-sm focus:outline-none"
-                      style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: '#f8f8f6' }}
-                    />
-                  </div>
-                </div>
-
-                <button
-                  onClick={handleSend}
-                  disabled={isSending || !recipient || !amount}
-                  className="w-full h-14 rounded-2xl flex items-center justify-center gap-3 font-bold uppercase tracking-widest text-sm transition-all disabled:opacity-40"
-                  style={{ background: '#00e87a', color: '#07070a' }}
-                >
-                  {isSending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-                  {isSending ? 'Signing & Sending...' : 'Send USDC'}
-                </button>
-              </div>
-
-              {lastTxHash && (
-                <a
-                  href={`https://stellar.expert/explorer/public/tx/${lastTxHash}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 p-4 rounded-xl text-xs"
-                  style={{ background: 'rgba(0,232,122,0.06)', border: '1px solid rgba(0,232,122,0.15)', color: 'rgba(0,232,122,0.7)' }}
-                >
-                  <CheckCircle2 className="w-4 h-4 shrink-0" />
-                  <span>Last tx: {lastTxHash.slice(0, 12)}...{lastTxHash.slice(-8)}</span>
-                  <ExternalLink className="w-3.5 h-3.5 ml-auto shrink-0" />
-                </a>
-              )}
-            </div>
-          )}
 
           {/* Wallet ID (debug) */}
           <div

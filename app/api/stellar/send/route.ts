@@ -75,7 +75,7 @@ export async function POST(req: Request) {
     const signedXdr = await signStellarTransaction(walletId, unsignedXdr, senderAddress);
 
     // Fee-bump — sponsor pays XLM fee, user pays nothing
-    const feeBumpXdr = await buildFeeBumpTransaction(signedXdr, 1000);
+    const feeBumpXdr = await buildFeeBumpTransaction(signedXdr);
     console.log('[Stellar/Send] Fee bump applied.');
 
     const result = await submitStellarTransaction(feeBumpXdr);

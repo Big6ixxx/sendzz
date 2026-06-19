@@ -154,12 +154,15 @@ export function TransferModule({
           setAmount={cryptoTransfer.setAmount}
           selectedChain={cryptoTransfer.selectedChain}
           setSelectedChain={cryptoTransfer.setSelectedChain}
+          memo={cryptoTransfer.memo}
+          setMemo={cryptoTransfer.setMemo}
           loading={cryptoTransfer.loading}
           status={cryptoTransfer.status}
           balance={cryptoTransfer.balance}
           isFetchingBalance={cryptoTransfer.isFetchingBalance}
           isOverBalance={cryptoTransfer.isOverBalance}
           isZeroBalance={cryptoTransfer.isZeroBalance}
+          isSettingUpStellar={cryptoTransfer.isSettingUpStellar}
           handleTransfer={cryptoTransfer.handleTransfer}
         />
       )}
