@@ -673,7 +673,7 @@ interface PendingClaimCardProps {
     source_chain: string;
     amount: number;
   };
-  embeddedEvmWallet: ConnectedWallet | null;
+  embeddedEvmWallet: ConnectedWallet | null | undefined;
   onSuccess: () => void;
 }
 

@@ -1,4 +1,4 @@
-import { toModularTransport } from '@circle-fin/modular-wallets-core';
+import { toModularTransport, modularWalletActions } from '@circle-fin/modular-wallets-core';
 import { EIP1193Provider } from '@privy-io/react-auth';
 import { encodeFunctionData, parseAbi, parseUnits, type Address } from 'viem';
 import { createBundlerClient } from 'viem/account-abstraction';
@@ -10,7 +10,7 @@ import {
   USDC_ADDRESS,
 } from './config';
 import { VIEM_CHAINS } from './multichain';
-import { USDC_ADDRESSES, type SupportedChain } from '../circle/gateway';
+import { USDC_ADDRESSES, GAS_POLICY_IDS, type SupportedChain } from '../circle/gateway';
 
 const ERC20_ABI = parseAbi([
   'function transfer(address _to, uint256 _value) returns (bool)',
@@ -46,6 +46,7 @@ export async function executeCircleGaslessBatchTransfer(
   // 1. Get Circle smart account
   const { account } = await getCircleClient(
     provider as unknown as Parameters<typeof getCircleClient>[0],
+    targetChain
   );
 
   // 2. Create bundler client using Circle's send transport
@@ -73,12 +74,28 @@ export async function executeCircleGaslessBatchTransfer(
     };
   });
 
+  const policyId = GAS_POLICY_IDS[targetChain];
+
+  const modularClient = bundlerClient.extend(modularWalletActions);
+  const gasPrices = await modularClient.getUserOperationGasPrice().catch(() => null);
+  const gasLevel = gasPrices?.medium ?? gasPrices?.high ?? null;
+
+  const maxPriorityFeePerGas = gasLevel?.maxPriorityFeePerGas
+    ? BigInt(gasLevel.maxPriorityFeePerGas)
+    : 1_000_000n;
+  const maxFeePerGas = gasLevel?.maxFeePerGas
+    ? BigInt(gasLevel.maxFeePerGas)
+    : undefined;
+
   // 4. Send UserOperation in one batch
   console.log(`[BatchTransfer] Sending UserOp with ${calls.length} calls on ${targetChain}...`);
 
   const userOpHash = await bundlerClient.sendUserOperation({
     calls,
+    maxFeePerGas,
+    maxPriorityFeePerGas,
     paymaster: true,
+    paymasterContext: policyId ? { policyId } : undefined,
   });
 
   console.log('[BatchTransfer] UserOp Hash:', userOpHash);
