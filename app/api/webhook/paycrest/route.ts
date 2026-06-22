@@ -155,16 +155,17 @@ export async function POST(req: Request) {
 
       } else if (status && ['failed', 'refunded', 'expired', 'refunding'].includes(status)) {
         const reason = orderData.failureReason || orderData.reason || 'unknown';
+        const finalStatus = ['refunded', 'refunding'].includes(status) ? 'reversed' : 'failed';
         const { error } = await supabaseAdmin
           .from('deposits')
-          .update({ status: 'failed' })
+          .update({ status: finalStatus })
           .eq('paycrest_tx_id', orderId);
 
         if (error) {
-          console.error(`[Paycrest Webhook] [${requestId}] Failed to mark deposit ${orderId} as failed:`, error.message);
+          console.error(`[Paycrest Webhook] [${requestId}] Failed to update deposit ${orderId} status:`, error.message);
           return new Response('Internal error', { status: 500 });
         }
-        console.warn(`[Paycrest Webhook] [${requestId}] Deposit ${orderId} failed — reason=${reason}`);
+        console.warn(`[Paycrest Webhook] [${requestId}] Deposit ${orderId} status updated to ${finalStatus} — reason=${reason}`);
         handled = true;
 
       } else {
@@ -196,7 +197,18 @@ export async function POST(req: Request) {
           console.error(`[Paycrest Webhook] [${requestId}] finalize_withdrawal_failed failed for ${orderId}:`, error.message);
           return new Response('Internal error', { status: 500 });
         }
-        console.warn(`[Paycrest Webhook] [${requestId}] Withdrawal ${orderId} failed — reason=${reason}`);
+
+        const finalStatus = ['refunded', 'refunding'].includes(status) ? 'reversed' : 'failed';
+        if (finalStatus === 'reversed') {
+          const { error: updateErr } = await supabaseAdmin
+            .from('withdrawals')
+            .update({ status: 'reversed' })
+            .eq('paycrest_order_id', orderId);
+          if (updateErr) {
+            console.error(`[Paycrest Webhook] [${requestId}] Failed to set withdrawal status to reversed:`, updateErr.message);
+          }
+        }
+        console.warn(`[Paycrest Webhook] [${requestId}] Withdrawal ${orderId} finalized as ${finalStatus} — reason=${reason}`);
         handled = true;
 
       } else {

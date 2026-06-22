@@ -106,6 +106,7 @@ export function useTransfer({
   const [twoFaThreshold, setTwoFaThreshold] = useState(500);
   const [totpEnabled, setTotpEnabled] = useState(false);
   const [passkeyEnabled, setPasskeyEnabled] = useState(false);
+  const [warningModalOpen, setWarningModalOpen] = useState(false);
 
   // Cache recipient check results for 30s to avoid hammering on keystrokes
   const checkCacheRef = useRef<
@@ -175,7 +176,7 @@ export function useTransfer({
       });
       try {
         const res = await fetch(
-          `/api/transfer/check-recipient?email=${encodeURIComponent(emailLower)}`,
+          `/api/transfer/check-recipient?email=${encodeURIComponent(emailLower)}&senderEmail=${encodeURIComponent(senderEmail)}`,
         );
         if (res.ok) {
           const data = await res.json();
@@ -200,12 +201,52 @@ export function useTransfer({
     if (e) e.preventDefault();
     if (!amount || !recipientEmail || !embeddedProvider) return;
 
+    setLoading(true);
+    setStatus("Checking transaction history...");
+
+    try {
+      const emailLower = recipientEmail.toLowerCase().trim();
+      const res = await fetch(
+        `/api/transfer/check-recipient?email=${encodeURIComponent(emailLower)}&senderEmail=${encodeURIComponent(senderEmail)}`,
+      );
+      if (res.ok) {
+        const checkData = await res.json();
+        setRecipientCheck({ status: "done", ...checkData });
+
+        if (checkData.priorTransactionCount === 0) {
+          setWarningModalOpen(true);
+          setLoading(false);
+          setStatus("");
+          return;
+        }
+      }
+    } catch (err) {
+      console.error("[Transfer] Check recipient error:", err);
+    }
+
+    await executeTransferFlow();
+  };
+
+  const handleWarningConfirm = async () => {
+    setWarningModalOpen(false);
+    await executeTransferFlow();
+  };
+
+  const handleTwoFaClose = () => {
+    setTwoFaModalOpen(false);
+    setLoading(false);
+    setStatus("");
+    setTwoFaError(null);
+  };
+
+  const executeTransferFlow = async () => {
     const valUsdc = parseFloat(amountUsdc);
     if (valUsdc >= twoFaThreshold) {
       if (!twoFaEnabled) {
         toast.error(
           `Transfers over ${twoFaThreshold} USDC require 2FA. Please enable it in Settings.`,
         );
+        setLoading(false);
         return;
       }
       // 2FA Required - open modal without sending OTP
@@ -433,5 +474,9 @@ export function useTransfer({
     handleTwoFaResend,
     totpEnabled,
     passkeyEnabled,
+    warningModalOpen,
+    setWarningModalOpen,
+    handleWarningConfirm,
+    handleTwoFaClose,
   };
 }

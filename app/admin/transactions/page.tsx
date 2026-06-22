@@ -88,6 +88,8 @@ export default function AdminTransactions() {
       case 'failed':
       case 'cancelled':
         return 'bg-red-400/10 text-red-400';
+      case 'reversed':
+        return 'bg-sky-400/10 text-sky-400';
       default:
         return 'bg-white/5 text-white/50';
     }

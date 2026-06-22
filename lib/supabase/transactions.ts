@@ -118,7 +118,7 @@ export async function recordDeposit(params: {
 
 export async function updateDepositStatus(
   paycrestTxId: string,
-  status: 'confirmed' | 'failed',
+  status: 'confirmed' | 'failed' | 'reversed',
 ): Promise<void> {
   try {
     const { error } = await supabaseAdmin
@@ -179,7 +179,7 @@ export async function recordWithdrawal(params: {
 
 export async function updateWithdrawalStatus(
   paycrestOrderId: string,
-  status: 'completed' | 'failed',
+  status: 'completed' | 'failed' | 'reversed',
 ): Promise<void> {
   try {
     const { error } = await supabaseAdmin
@@ -344,7 +344,10 @@ export async function getUserActivities(userEmail: string) {
               await saveDepositTxHash(d.paycrest_tx_id!, settlementTxHash);
               d.tx_hash = settlementTxHash;
             }
-          } else if (statusLower && ['refunded', 'expired', 'failed', 'refunding'].includes(statusLower)) {
+          } else if (statusLower && ['refunded', 'refunding'].includes(statusLower)) {
+             await updateDepositStatus(d.paycrest_tx_id!, 'reversed');
+             d.status = 'reversed';
+          } else if (statusLower && ['expired', 'failed'].includes(statusLower)) {
              await updateDepositStatus(d.paycrest_tx_id!, 'failed');
              d.status = 'failed';
           }
@@ -354,7 +357,9 @@ export async function getUserActivities(userEmail: string) {
       }));
     }
 
-    // Check for pending withdrawals and update them
+    // Check for pending withdrawals and update them via RPCs (same as webhook)
+    // IMPORTANT: Must use finalize_withdrawal_success/failed RPCs — NOT updateWithdrawalStatus().
+    // The RPCs atomically update balances + write audit logs. Direct status updates skip this.
     const pendingWithdrawals = (withdrawals || []).filter(w => w.status === 'processing' && w.paycrest_order_id);
     if (pendingWithdrawals.length > 0) {
       await Promise.all(pendingWithdrawals.map(async (w) => {
@@ -362,13 +367,32 @@ export async function getUserActivities(userEmail: string) {
           const { getOrderStatus } = await import('@/lib/actions/ramp');
           const result = await getOrderStatus(w.paycrest_order_id!);
           const statusLower = result?.status?.toLowerCase();
-          
+
           if (statusLower && ['settled', 'completed', 'validated', 'deposited'].includes(statusLower)) {
-            await updateWithdrawalStatus(w.paycrest_order_id!, 'completed');
-            w.status = 'completed';
+            const { error } = await supabaseAdmin.rpc('finalize_withdrawal_success', {
+              p_paycrest_order_id: w.paycrest_order_id!,
+            });
+            if (error) {
+              console.error('[Supabase] finalize_withdrawal_success failed (polling):', error.message);
+            } else {
+              console.log(`[Supabase] Polling: Withdrawal ${w.paycrest_order_id} finalized successfully`);
+              w.status = 'completed';
+            }
           } else if (statusLower && ['refunded', 'expired', 'failed', 'refunding'].includes(statusLower)) {
-            await updateWithdrawalStatus(w.paycrest_order_id!, 'failed');
-            w.status = 'failed';
+            const { error } = await supabaseAdmin.rpc('finalize_withdrawal_failed', {
+              p_paycrest_order_id: w.paycrest_order_id!,
+              p_reason: `Polling: Paycrest status=${statusLower}`,
+            });
+            if (error) {
+              console.error('[Supabase] finalize_withdrawal_failed failed (polling):', error.message);
+            } else {
+              const finalStatus = ['refunded', 'refunding'].includes(statusLower) ? 'reversed' : 'failed';
+              if (finalStatus === 'reversed') {
+                await updateWithdrawalStatus(w.paycrest_order_id!, 'reversed');
+              }
+              console.log(`[Supabase] Polling: Withdrawal ${w.paycrest_order_id} failed/refunded -> ${finalStatus}`);
+              w.status = finalStatus;
+            }
           }
         } catch (e) {
           console.error('[Supabase] Failed to auto-update withdrawal status:', e);
@@ -411,3 +435,65 @@ export async function getUserActivities(userEmail: string) {
     return { sent: [], received: [], deposits: [], withdrawals: [], bridges: [] };
   }
 }
+
+// --- ORDER STATUS RECONCILIATION ---
+// Use this server action from client-side polling instead of updateWithdrawalStatus() directly.
+// For withdrawals, we MUST go through the finalize_withdrawal_success/failed RPCs
+// so that locked_balance is updated atomically and audit logs are written.
+export async function reconcileOrderStatus(
+  orderId: string,
+  paycrestStatus: string,
+  txType: 'deposit' | 'withdrawal',
+): Promise<{ ok: boolean; newStatus?: string; error?: string }> {
+  try {
+    const statusLower = paycrestStatus.toLowerCase();
+
+    if (txType === 'deposit') {
+      if (['settled', 'completed', 'validated', 'deposited'].includes(statusLower)) {
+        await updateDepositStatus(orderId, 'confirmed');
+        return { ok: true, newStatus: 'confirmed' };
+      } else if (['refunded', 'refunding'].includes(statusLower)) {
+        await updateDepositStatus(orderId, 'reversed');
+        return { ok: true, newStatus: 'reversed' };
+      } else if (['expired', 'failed'].includes(statusLower)) {
+        await updateDepositStatus(orderId, 'failed');
+        return { ok: true, newStatus: 'failed' };
+      }
+      return { ok: true }; // intermediate status, no action
+    }
+
+    // Withdrawal — always use RPCs, never direct status update
+    if (['settled', 'completed', 'validated', 'deposited'].includes(statusLower)) {
+      const { error } = await supabaseAdmin.rpc('finalize_withdrawal_success', {
+        p_paycrest_order_id: orderId,
+      });
+      if (error) {
+        console.error('[reconcileOrderStatus] finalize_withdrawal_success failed:', error.message);
+        return { ok: false, error: error.message };
+      }
+      return { ok: true, newStatus: 'completed' };
+
+    } else if (['refunded', 'expired', 'failed', 'refunding'].includes(statusLower)) {
+      const { error } = await supabaseAdmin.rpc('finalize_withdrawal_failed', {
+        p_paycrest_order_id: orderId,
+        p_reason: `Client polling: Paycrest status=${statusLower}`,
+      });
+      if (error) {
+        console.error('[reconcileOrderStatus] finalize_withdrawal_failed failed:', error.message);
+        return { ok: false, error: error.message };
+      }
+      const finalStatus = ['refunded', 'refunding'].includes(statusLower) ? 'reversed' : 'failed';
+      if (finalStatus === 'reversed') {
+        await updateWithdrawalStatus(orderId, 'reversed');
+      }
+      return { ok: true, newStatus: finalStatus };
+    }
+
+    return { ok: true }; // intermediate status, no action
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[reconcileOrderStatus] Unexpected error:', msg);
+    return { ok: false, error: msg };
+  }
+}
+

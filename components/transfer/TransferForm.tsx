@@ -121,34 +121,19 @@ export function TransferForm({
         </div>
 
         {/* Recipient warnings — shown after 500ms debounce check */}
-        {recipientCheck?.status === 'done' && (
+        {recipientCheck?.status === 'done' && recipientCheck.priorTransactionCount === 0 && (
           <div className="space-y-1.5 pt-1">
-            {!recipientCheck.exists && (
-              <div
-                className="flex items-start gap-2 px-3 py-2.5 rounded-xl text-[11px] font-semibold leading-snug"
-                style={{
-                  background: 'rgba(251,146,60,0.08)',
-                  border: '1px solid rgba(251,146,60,0.2)',
-                  color: '#fb923c',
-                }}
-              >
-                <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                This email doesn&apos;t have a Sendzz account yet. They&apos;ll receive a link to claim your funds.
-              </div>
-            )}
-            {recipientCheck.exists && recipientCheck.priorTransactionCount === 0 && (
-              <div
-                className="flex items-start gap-2 px-3 py-2.5 rounded-xl text-[11px] font-semibold leading-snug"
-                style={{
-                  background: 'rgba(251,191,36,0.08)',
-                  border: '1px solid rgba(251,191,36,0.2)',
-                  color: '#fbbf24',
-                }}
-              >
-                <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                You&apos;ve never sent to this address before. Please double-check before sending.
-              </div>
-            )}
+            <div
+              className="flex items-start gap-2 px-3 py-2.5 rounded-xl text-[11px] font-semibold leading-snug"
+              style={{
+                background: 'rgba(251,191,36,0.08)',
+                border: '1px solid rgba(251,191,36,0.2)',
+                color: '#fbbf24',
+              }}
+            >
+              <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+              You&apos;ve never sent to this address before. Please double-check before sending.
+            </div>
           </div>
         )}
       </div>

@@ -14,6 +14,9 @@ import {
   Wallet,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useWallets } from '@privy-io/react-auth';
+import { executeReceiveMessage } from '@/lib/web3/bridge-actions';
+import { toast } from 'sonner';
 
 import { Activity } from './HistoryModule';
 import { ReceiptActions } from './receipt/ReceiptActions';
@@ -49,6 +52,73 @@ export function ActivityDetailModal({
 }: ActivityDetailModalProps) {
   const [prevActivityId, setPrevActivityId] = useState<string | null>(null);
   const [estimatedFiatRate, setEstimatedFiatRate] = useState<number | null>(null);
+
+  const { wallets } = useWallets();
+  const [isClaiming, setIsClaiming] = useState(false);
+
+  const handleClaim = async () => {
+    if (!activity?.txHash) return;
+    setIsClaiming(true);
+    try {
+      const embeddedWallet = wallets.find((w) => w.walletClientType === 'privy');
+      if (!embeddedWallet) {
+        toast.error('Embedded wallet not found. Please log in.');
+        setIsClaiming(false);
+        return;
+      }
+
+      const sourceChain = activity.sourceChain?.toLowerCase();
+      const domain = sourceChain === 'solana' ? 5 : sourceChain === 'stellar' ? 27 : null;
+      if (domain === null) {
+        toast.error('Manual claim is only supported for Stellar and Solana bridges.');
+        setIsClaiming(false);
+        return;
+      }
+
+      toast.info('Fetching CCTP attestation from Circle...');
+      const res = await fetch(
+        `https://iris-api.circle.com/v2/messages/${domain}?transactionHash=${activity.txHash}`
+      );
+      if (!res.ok) {
+        throw new Error(`Circle API error: ${res.statusText}`);
+      }
+      const data = await res.json();
+      const message = data.messages?.[0];
+      if (!message || message.status !== 'complete') {
+        toast.error('Circle attestation is still pending. Try again in 1-2 minutes.');
+        setIsClaiming(false);
+        return;
+      }
+
+      toast.info('Requesting signature to claim USDC on Base...');
+      const mintTxHash = await executeReceiveMessage(
+        embeddedWallet,
+        message.message,
+        message.attestation
+      );
+
+      toast.success('USDC claimed successfully on Base!');
+      
+      // Update database status
+      await fetch('/api/bridge/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          burnTxHash: activity.txHash,
+          mintTxHash
+        })
+      });
+
+      // Reload
+      window.location.reload();
+    } catch (err: unknown) {
+      console.error('[Manual Claim] Error:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(msg || 'Failed to claim USDC.');
+    } finally {
+      setIsClaiming(false);
+    }
+  };
 
   // Adjust state during render if activity changes to prevent cascading renders in useEffect
   const currentActivityId = activity?.id || null;
@@ -269,9 +339,13 @@ export function ActivityDetailModal({
                       <ExternalLink className="w-3.5 h-3.5" /> Mint Tx
                     </a>
                   ) : (
-                    <div className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest bg-white/2 text-brand-secondary/20 border border-white/5 cursor-not-allowed select-none">
-                      Mint Pending
-                    </div>
+                    <button
+                      onClick={handleClaim}
+                      disabled={isClaiming}
+                      className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest transition-all bg-accent text-background border border-accent hover:opacity-90 outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50"
+                    >
+                      {isClaiming ? 'Claiming...' : 'Claim USDC'}
+                    </button>
                   )}
                 </>
               ) : (

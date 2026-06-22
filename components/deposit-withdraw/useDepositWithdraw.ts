@@ -12,9 +12,9 @@ import {
 } from "@/lib/actions/ramp";
 import {
   updateDepositStatus,
-  updateWithdrawalStatus,
   saveWithdrawalTxHash,
   saveDepositTxHash,
+  reconcileOrderStatus,
 } from "@/lib/supabase/transactions";
 import { type FiatCurrencyCode } from "@/lib/currency-config";
 import {
@@ -510,7 +510,9 @@ export function useDepositWithdraw(
 
           if (isSuccess) {
             if (isWithdraw) {
-              updateWithdrawalStatus(order.id, "completed");
+              // IMPORTANT: use reconcileOrderStatus (calls finalize_withdrawal_success RPC)
+              // which atomically updates locked_balance. Do NOT call updateWithdrawalStatus() directly.
+              reconcileOrderStatus(order.id, result.status, 'withdrawal').catch(console.error);
               toast.success("Withdrawal completed!");
 
               // Check if bank is already in contacts
@@ -557,7 +559,9 @@ export function useDepositWithdraw(
             }
           } else {
             if (isWithdraw) {
-              updateWithdrawalStatus(order.id, "failed");
+              // IMPORTANT: use reconcileOrderStatus (calls finalize_withdrawal_failed RPC)
+              // which atomically refunds locked_balance → available_balance.
+              reconcileOrderStatus(order.id, result.status, 'withdrawal').catch(console.error);
             } else {
               updateDepositStatus(order.id, "failed");
             }
