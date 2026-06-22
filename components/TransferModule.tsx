@@ -10,6 +10,7 @@ import { TransferSaveContactPrompt } from "./transfer/TransferSaveContactPrompt"
 import { TwoFactorModal, type VerificationMethod } from "./TwoFactorModal";
 import { useCryptoTransfer } from "./transfer/useCryptoTransfer";
 import { CryptoTransferForm } from "./transfer/CryptoTransferForm";
+import { FirstTimeTransferWarningModal } from "./transfer/FirstTimeTransferWarningModal";
 
 export function TransferModule({
   smartAddress,
@@ -63,6 +64,10 @@ export function TransferModule({
     handleTwoFaResend,
     totpEnabled,
     passkeyEnabled,
+    warningModalOpen,
+    setWarningModalOpen,
+    handleWarningConfirm,
+    handleTwoFaClose,
   } = useTransfer({
     smartAddress,
     embeddedProvider,
@@ -180,7 +185,7 @@ export function TransferModule({
 
       <TwoFactorModal
         isOpen={twoFaModalOpen}
-        onClose={() => setTwoFaModalOpen(false)}
+        onClose={handleTwoFaClose}
         onSubmit={handleTwoFaSubmit}
         onResend={handleTwoFaResend}
         loading={twoFaLoading}
@@ -193,6 +198,30 @@ export function TransferModule({
           return methods;
         })()}
         userEmail={senderEmail}
+      />
+
+      <TwoFactorModal
+        isOpen={cryptoTransfer.twoFaModalOpen}
+        onClose={cryptoTransfer.handleTwoFaClose}
+        onSubmit={cryptoTransfer.handleTwoFaSubmit}
+        onResend={cryptoTransfer.handleTwoFaResend}
+        loading={cryptoTransfer.twoFaLoading}
+        error={cryptoTransfer.twoFaError}
+        method={cryptoTransfer.totpEnabled ? "totp" : cryptoTransfer.passkeyEnabled ? "passkey" : "email"}
+        availableMethods={(() => {
+          const methods: VerificationMethod[] = ["email"];
+          if (cryptoTransfer.totpEnabled) methods.push("totp");
+          if (cryptoTransfer.passkeyEnabled) methods.push("passkey");
+          return methods;
+        })()}
+        userEmail={senderEmail}
+      />
+
+      <FirstTimeTransferWarningModal
+        isOpen={warningModalOpen}
+        onClose={() => setWarningModalOpen(false)}
+        onConfirm={handleWarningConfirm}
+        recipientEmail={recipientEmail}
       />
 
       <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-muted/20 rounded-full blur-3xl z-0 pointer-events-none" />

@@ -1,5 +1,12 @@
-import { createAdminClient, createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/server';
+import { PrivyClient } from '@privy-io/node';
+import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
+
+const privy = new PrivyClient({
+  appId: process.env.NEXT_PUBLIC_PRIVY_APP_ID || '',
+  appSecret: process.env.PRIVY_APP_SECRET || '',
+});
 
 /**
  * GET /api/transfer/check-recipient?email=<email>
@@ -18,15 +25,26 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'email is required' }, { status: 400 });
     }
 
-    // Authenticate the sender
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
+    // Authenticate the sender: try senderEmail param first, then fallback to Privy token
+    let senderEmail = searchParams.get('senderEmail')?.toLowerCase().trim();
 
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!senderEmail) {
+      const cookieStore = await cookies();
+      const privyToken = cookieStore.get('privy-token')?.value;
+
+      if (privyToken) {
+        try {
+          const verifiedClaims = await privy.verifyJWT(privyToken);
+          const privyUser = await privy.users().getUser(verifiedClaims.userId);
+          senderEmail = privyUser.email?.address || '';
+        } catch (authError) {
+          console.error('[CheckRecipient API] Auth error:', authError);
+        }
+      }
+    }
+
+    if (!senderEmail) {
+      return NextResponse.json({ error: 'senderEmail is required' }, { status: 400 });
     }
 
     const adminSupabase = createAdminClient();
@@ -40,22 +58,29 @@ export async function GET(req: Request) {
 
     const exists = !!targetUser;
 
-    // 2. Count prior transfers between the current user and the target email
-    //    (either as sender or recipient)
-    const [{ count: sentCount }, { count: receivedCount }] = await Promise.all([
-      adminSupabase
-        .from('transfers')
-        .select('id', { count: 'exact', head: true })
-        .eq('sender_id', user.id)
-        .ilike('recipient_email', email),
-      adminSupabase
-        .from('transfers')
-        .select('id', { count: 'exact', head: true })
-        .ilike('sender_email', user.email!)
-        .ilike('recipient_email', email),
-    ]);
+    // Get the sender's user ID if registered
+    const { data: senderUser } = await adminSupabase
+      .from('users')
+      .select('id')
+      .ilike('email', senderEmail)
+      .maybeSingle();
 
-    const priorTransactionCount = (sentCount ?? 0) + (receivedCount ?? 0);
+    const senderId = senderUser?.id;
+
+    // 2. Count prior transfers sent by the current user to the target email
+    let query = adminSupabase
+      .from('transfers')
+      .select('id', { count: 'exact', head: true })
+      .ilike('recipient_email', email);
+
+    if (senderId) {
+      query = query.or(`sender_id.eq.${senderId},sender_email.eq.${senderEmail}`);
+    } else {
+      query = query.eq('sender_email', senderEmail);
+    }
+
+    const { count } = await query;
+    const priorTransactionCount = count ?? 0;
 
     return NextResponse.json({ exists, priorTransactionCount });
   } catch (error) {
