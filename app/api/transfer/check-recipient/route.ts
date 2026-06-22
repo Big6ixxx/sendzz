@@ -34,9 +34,12 @@ export async function GET(req: Request) {
 
       if (privyToken) {
         try {
-          const verifiedClaims = await privy.verifyJWT(privyToken);
-          const privyUser = await privy.users().getUser(verifiedClaims.userId);
-          senderEmail = privyUser.email?.address || '';
+          const verifiedClaims = await privy.utils().auth().verifyAccessToken(privyToken);
+          const privyUser = await privy.users()._get(verifiedClaims.user_id);
+          const emailAccount = privyUser.linked_accounts.find(
+            (acc) => acc.type === 'email',
+          ) as any;
+          senderEmail = emailAccount?.address || '';
         } catch (authError) {
           console.error('[CheckRecipient API] Auth error:', authError);
         }
