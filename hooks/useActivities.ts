@@ -47,6 +47,7 @@ export function useActivities(userEmail: string, userId: string) {
           // On-chain crypto deposits have no fiat leg — label them by network instead of
           // "Via: <fiat> Gateway" (which would render "Via: null Gateway").
           const isOnChain = d.provider === 'onchain' || !d.currency_fiat;
+          const meta = (d.provider_metadata ?? null) as { network?: string } | null;
           return {
             id: d.id,
             type: 'deposit' as ActivityType,
@@ -61,23 +62,35 @@ export function useActivities(userEmail: string, userId: string) {
             fiatAmount: d.amount_fiat ?? undefined,
             fiatCurrency: d.currency_fiat ?? undefined,
             sourceChain: d.network ?? undefined,
+            provider: d.provider ?? undefined,
+            providerOrderId: d.provider_order_id ?? undefined,
+            settlementNetwork: meta?.network ?? d.network ?? undefined,
+            updatedAt: d.updated_at ?? undefined,
           };
         }),
-        ...(data.withdrawals || []).map((w) => ({
-          id: w.id,
-          type: 'withdrawal' as ActivityType,
-          amount: w.amount_usdc,
-          status: w.status,
-          timestamp: w.created_at,
-          details: `To: ${w.bank_account_masked}`,
-          asset: 'USDC',
-          txHash: w.tx_hash || undefined,
-          fiatAmount: w.fiat_amount ?? undefined,
-          fiatCurrency: w.fiat_currency ?? undefined,
-          exchangeRate: w.exchange_rate ?? undefined,
-          sourceChain: w.source_chain ?? undefined,
-          consolidated: w.consolidated ?? undefined,
-        })),
+        ...(data.withdrawals || []).map((w) => {
+          const meta = (w.provider_metadata ?? null) as { quote_id?: string; network?: string } | null;
+          return {
+            id: w.id,
+            type: 'withdrawal' as ActivityType,
+            amount: w.amount_usdc,
+            status: w.status,
+            timestamp: w.created_at,
+            details: `To: ${w.bank_account_masked}`,
+            asset: 'USDC',
+            txHash: w.tx_hash || undefined,
+            fiatAmount: w.fiat_amount ?? undefined,
+            fiatCurrency: w.fiat_currency ?? undefined,
+            exchangeRate: w.exchange_rate ?? undefined,
+            sourceChain: w.source_chain ?? undefined,
+            consolidated: w.consolidated ?? undefined,
+            provider: w.provider ?? undefined,
+            providerOrderId: w.provider_order_id ?? undefined,
+            providerRef: meta?.quote_id ?? undefined,
+            settlementNetwork: meta?.network ?? w.source_chain ?? undefined,
+            updatedAt: w.updated_at ?? undefined,
+          };
+        }),
         ...(data.bridges || []).map((b) => ({
           id: b.id,
           type: 'bridge' as ActivityType,

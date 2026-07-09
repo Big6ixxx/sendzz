@@ -45,6 +45,16 @@ export interface Activity {
   mintTxHash?: string;
   /** Withdrawals: true when funds were bridged/consolidated onto sourceChain first. */
   consolidated?: boolean;
+  /** Ramp provider that settled a deposit/withdrawal (e.g. "bitnob", "paycrest", "onchain"). */
+  provider?: string;
+  /** The provider's own order/reference id, for support + tracing. */
+  providerOrderId?: string;
+  /** Provider-specific reference kept in metadata (e.g. a Bitnob payout quote id). */
+  providerRef?: string;
+  /** Settlement/deposit network when it differs from (or refines) sourceChain. */
+  settlementNetwork?: string;
+  /** Last time the record changed — useful for pending/failed diagnostics. */
+  updatedAt?: string;
 }
 
 const ACTIVITY_LABELS: Record<ActivityType, string> = {

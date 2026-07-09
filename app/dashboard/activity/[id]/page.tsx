@@ -8,7 +8,10 @@ import {
   ArrowDownLeft,
   ArrowLeft,
   ArrowUpRight,
+  Check,
+  ChevronDown,
   Clock,
+  Copy,
   ExternalLink,
   Landmark,
   Loader2,
@@ -27,6 +30,64 @@ import { executeReceiveMessage } from '@/lib/web3/bridge-actions';
 import type { ActivityType } from '@/components/HistoryModule';
 
 const BASE_EXPLORER = 'https://basescan.org/tx/';
+
+/** Middle-truncate long values (hashes / ids) for display; the full value is still copied. */
+function shorten(v: string, head = 10, tail = 8): string {
+  return v.length > head + tail + 1 ? `${v.slice(0, head)}…${v.slice(-tail)}` : v;
+}
+
+/** A single advanced-details row: label + monospace value with copy (and optional explorer link). */
+function AdvancedRow({
+  label,
+  value,
+  display,
+  copyable,
+  href,
+}: {
+  label: string;
+  value: string;
+  display?: string;
+  copyable?: boolean;
+  href?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(value);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <div className="flex items-center justify-between gap-3 py-2.5 border-b border-white/5 last:border-0">
+      <span className="text-[10px] font-bold uppercase tracking-widest text-brand-secondary/30 shrink-0">
+        {label}
+      </span>
+      <span className="flex items-center gap-2 min-w-0">
+        <span className="text-xs font-medium text-brand-secondary/80 font-mono truncate">
+          {display ?? value}
+        </span>
+        {href && (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-brand-secondary/30 hover:text-accent transition-colors shrink-0"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        )}
+        {copyable && (
+          <button
+            onClick={copy}
+            className="text-brand-secondary/30 hover:text-accent transition-colors shrink-0"
+            aria-label={`Copy ${label}`}
+          >
+            {copied ? <Check className="w-3.5 h-3.5 text-accent" /> : <Copy className="w-3.5 h-3.5" />}
+          </button>
+        )}
+      </span>
+    </div>
+  );
+}
 
 const TYPE_META: Record<
   ActivityType,
@@ -59,6 +120,7 @@ export default function ActivityDetailPage({
 
   const [isClaiming, setIsClaiming] = useState(false);
   const [estimatedFiatRate, setEstimatedFiatRate] = useState<number | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Estimate a fiat payout for legacy withdrawals that predate fiat_amount being stored.
   const aType = activity?.type;
@@ -208,6 +270,60 @@ export default function ActivityDetailPage({
     });
   }
 
+  // ── Advanced details: provider refs, full hashes, rate, timestamps ───────────
+  const mintExplorer = activity.mintTxHash
+    ? (activity.destChain ? CHAIN_META[activity.destChain.toLowerCase()] : null)?.explorerTx(
+        activity.mintTxHash,
+      ) ?? `${BASE_EXPLORER}${activity.mintTxHash}`
+    : null;
+
+  type AdvRow = { label: string; value: string; display?: string; copyable?: boolean; href?: string };
+  const advancedRows: AdvRow[] = [];
+
+  if (activity.provider) {
+    const label = activity.provider === 'onchain' ? 'On-chain' : activity.provider;
+    advancedRows.push({ label: 'Settled via', value: label.charAt(0).toUpperCase() + label.slice(1) });
+  }
+  if (activity.providerOrderId) {
+    advancedRows.push({ label: 'Order ID', value: activity.providerOrderId, display: shorten(activity.providerOrderId), copyable: true });
+  }
+  if (activity.providerRef) {
+    advancedRows.push({ label: 'Payout quote', value: activity.providerRef, display: shorten(activity.providerRef), copyable: true });
+  }
+  if (activity.settlementNetwork) {
+    advancedRows.push({ label: 'Settlement network', value: chainLabel(activity.settlementNetwork) });
+  }
+  const rate = activity.exchangeRate ?? estimatedFiatRate;
+  if (rate && activity.fiatCurrency) {
+    advancedRows.push({
+      label: 'Exchange rate',
+      value: `1 USDC ≈ ${rate.toLocaleString()} ${activity.fiatCurrency}${activity.exchangeRate == null ? ' (est.)' : ''}`,
+    });
+  }
+  advancedRows.push({ label: 'Reference', value: activity.id, display: shorten(activity.id, 12, 6), copyable: true });
+  if (activity.txHash) {
+    advancedRows.push({
+      label: activity.type === 'bridge' ? 'Burn tx' : 'Transaction',
+      value: activity.txHash,
+      display: shorten(activity.txHash),
+      copyable: true,
+      href: burnExplorer ?? undefined,
+    });
+  }
+  if (activity.mintTxHash) {
+    advancedRows.push({ label: 'Mint tx', value: activity.mintTxHash, display: shorten(activity.mintTxHash), copyable: true, href: mintExplorer ?? undefined });
+  }
+  advancedRows.push({
+    label: 'Created',
+    value: format(new Date(activity.timestamp), 'MMM dd, yyyy @ HH:mm:ss'),
+  });
+  if (activity.updatedAt && activity.updatedAt !== activity.timestamp) {
+    advancedRows.push({
+      label: 'Updated',
+      value: format(new Date(activity.updatedAt), 'MMM dd, yyyy @ HH:mm:ss'),
+    });
+  }
+
   return (
     <div className="max-w-2xl mx-auto space-y-10">
       {/* Header */}
@@ -339,6 +455,33 @@ export default function ActivityDetailPage({
         </p>
         <ReceiptActions data={receiptData} />
       </div>
+
+      {/* Advanced details */}
+      {advancedRows.length > 0 && (
+        <div className="space-y-2">
+          <button
+            onClick={() => setShowAdvanced((v) => !v)}
+            className="w-full flex items-center justify-between px-1 group"
+          >
+            <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/25 group-hover:text-brand-secondary/40 transition-colors">
+              Advanced details
+            </span>
+            <ChevronDown
+              className={
+                'w-4 h-4 text-brand-secondary/30 transition-transform ' +
+                (showAdvanced ? 'rotate-180' : '')
+              }
+            />
+          </button>
+          {showAdvanced && (
+            <div className="card-glass px-4 py-1 rounded-2xl animate-in fade-in slide-in-from-top-1 duration-200">
+              {advancedRows.map((r) => (
+                <AdvancedRow key={r.label} {...r} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
