@@ -19,6 +19,7 @@ import { getCurrencySymbol } from "@/lib/currency-config";
 import { RampUnsupportedError, type RampProvider } from "../provider";
 import type {
   CreateOffRampParams,
+  LedgerRowRef,
   RampCapabilities,
   RampCurrency,
   RampCurrencyDetail,
@@ -78,14 +79,21 @@ function currencyName(code: string): string {
 function mapState(state: string): RampOrderStatus {
   switch (state?.toUpperCase()) {
     case "SETTLED":
+    case "COMPLETED":
+    case "SUCCESS":
       return "settled";
     case "FAILED":
+    case "EXPIRED":
       return "failed";
     case "REVERSED":
+    case "REFUNDED":
       return "refunded";
     case "IN_PROGRESS":
+    case "PROCESSING":
       return "settling";
     case "PENDING":
+    case "PENDING_ADDRESS_DEPOSIT":
+    case "QUOTE":
     default:
       return "pending";
   }
@@ -188,6 +196,11 @@ export class BitnobProvider implements RampProvider {
           `Unsupported payout rail '${destinationType}' for this app's withdraw form`,
         );
     }
+  }
+
+  /** Legacy rows (no `provider` column) are recognised as Bitnob's by their payout quote_id. */
+  ownsLedgerRow(row: LedgerRowRef): boolean {
+    return !!(row.provider_metadata as { quote_id?: string } | null)?.quote_id;
   }
 
   async supportsCurrency(currency: RampCurrency): Promise<boolean> {

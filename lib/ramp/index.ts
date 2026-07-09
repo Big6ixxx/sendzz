@@ -14,6 +14,7 @@ import { RampUnsupportedError, type RampProvider } from "./provider";
 import type {
   CreateOffRampParams,
   CreateOnRampParams,
+  LedgerRowRef,
   RampCapabilities,
   RampCurrency,
   RampCurrencyDetail,
@@ -24,18 +25,45 @@ import type {
   RampVerifyAccountResponse,
 } from "./types";
 
-let bitnob: BitnobProvider | null = null;
-let paycrest: PaycrestProvider | null = null;
+// ── Provider registry ────────────────────────────────────────────────────────
+// To add or remove a ramp provider, change ONLY this list (in fallback-priority order:
+// primary first, last = default fallback). Everything else — routing, name lookup, and
+// ledger-row → provider resolution — reads from here, so call sites don't need touching.
+const REGISTRY: Array<new () => RampProvider> = [BitnobProvider, PaycrestProvider];
+
+let instances: RampProvider[] | null = null;
+function allProviders(): RampProvider[] {
+  if (!instances) instances = REGISTRY.map((Ctor) => new Ctor());
+  return instances;
+}
 
 function providers(): { primary: RampProvider; fallback: RampProvider } {
-  if (!bitnob) bitnob = new BitnobProvider();
-  if (!paycrest) paycrest = new PaycrestProvider();
-  return { primary: bitnob, fallback: paycrest };
+  const all = allProviders();
+  return { primary: all[0], fallback: all[all.length - 1] };
 }
 
 function byName(name: RampProviderName): RampProvider {
-  const { primary, fallback } = providers();
-  return name === primary.name ? primary : fallback;
+  return allProviders().find((p) => p.name === name) ?? providers().fallback;
+}
+
+/** Every registered provider name (source of truth for "is this a known provider"). */
+export function rampProviderNames(): RampProviderName[] {
+  return allProviders().map((p) => p.name);
+}
+
+/**
+ * Resolve which provider owns a ledger row (withdrawal/deposit) — used by status polling so it
+ * queries the right provider. Trusts a stored `provider`, else lets a provider claim a legacy
+ * row via `ownsLedgerRow`, else falls back to the default provider. Adding/removing a provider
+ * needs no change here.
+ */
+export function resolveLedgerProvider(row: LedgerRowRef): RampProviderName {
+  const all = allProviders();
+  if (row.provider && all.some((p) => p.name === row.provider)) {
+    return row.provider as RampProviderName;
+  }
+  const owner = all.find((p) => p.ownsLedgerRow?.(row));
+  return (owner ?? providers().fallback).name;
 }
 
 /**

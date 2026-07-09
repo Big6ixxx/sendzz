@@ -10,6 +10,15 @@
 
 export type RampProviderName = "bitnob" | "paycrest";
 
+/**
+ * Minimal shape of a ledger row (withdrawal/deposit) used to route it back to the provider
+ * that created it — e.g. for status polling. `resolveLedgerProvider` reads only these fields.
+ */
+export interface LedgerRowRef {
+  provider?: string | null;
+  provider_metadata?: unknown;
+}
+
 /** Fiat currency code, e.g. "NGN", "KES", "GHS". */
 export type RampCurrency = string;
 

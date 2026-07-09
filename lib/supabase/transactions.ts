@@ -456,11 +456,21 @@ export async function getUserActivities(userEmail: string) {
     if (pendingWithdrawals.length > 0) {
       await Promise.all(pendingWithdrawals.map(async (w) => {
         try {
+          // Route to the provider that created the order (tolerant of legacy rows). Provider
+          // resolution lives in the ramp registry, so adding/removing a provider needs no change
+          // here — see resolveLedgerProvider.
+          const { resolveLedgerProvider } = await import('@/lib/ramp');
+          const provider = resolveLedgerProvider(w);
+
           const { getOrderStatus } = await import('@/lib/actions/ramp');
-          const result = await getOrderStatus(
-            w.provider_order_id!,
-            (w.provider as 'bitnob' | 'paycrest') || 'paycrest',
-          );
+          let result;
+          try {
+            result = await getOrderStatus(w.provider_order_id!, provider);
+          } catch {
+            // Order not found / not indexed at the provider yet (e.g. an old expired payout).
+            // Leave it pending and let the webhook/cron reconcile — don't spam on every load.
+            return;
+          }
           const statusLower = result?.status?.toLowerCase();
 
           if (statusLower && ['settled', 'completed', 'validated', 'deposited'].includes(statusLower)) {
@@ -476,7 +486,7 @@ export async function getUserActivities(userEmail: string) {
           } else if (statusLower && ['refunded', 'expired', 'failed', 'refunding'].includes(statusLower)) {
             const { error } = await supabaseAdmin.rpc('finalize_withdrawal_failed', {
               p_paycrest_order_id: w.provider_order_id!,
-              p_reason: `Polling: Paycrest status=${statusLower}`,
+              p_reason: `Polling: ${provider} status=${statusLower}`,
             });
             if (error) {
               console.error('[Supabase] finalize_withdrawal_failed failed (polling):', error.message);

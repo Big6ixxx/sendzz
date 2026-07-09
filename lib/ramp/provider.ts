@@ -5,6 +5,7 @@
 import type {
   CreateOffRampParams,
   CreateOnRampParams,
+  LedgerRowRef,
   RampCapabilities,
   RampCurrency,
   RampCurrencyDetail,
@@ -19,6 +20,14 @@ export interface RampProvider {
   readonly name: RampProviderName;
   /** Which capabilities this provider can serve. The router falls back for the rest. */
   readonly capabilities: RampCapabilities;
+
+  /**
+   * Optional: claim a ledger row that predates the stored `provider` column, so
+   * `resolveLedgerProvider` can still route legacy rows to the right provider (e.g. for status
+   * polling). Return true if this provider recognises the row as its own. Rows written by
+   * current code always carry `provider`, so this only matters for historical data.
+   */
+  ownsLedgerRow?(row: LedgerRowRef): boolean;
 
   /** True if this provider can serve the given fiat currency. */
   supportsCurrency(currency: RampCurrency): Promise<boolean>;
