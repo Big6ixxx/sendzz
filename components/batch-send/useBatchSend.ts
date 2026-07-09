@@ -1,6 +1,7 @@
 "use client";
 
 import { batchSend, type SendResult } from "@/lib/batch-send";
+import { type ChainBalances, type SolanaSource } from "@/lib/web3/routing";
 import { type FiatCurrencyCode } from "@/lib/currency-config";
 import { ConnectedWallet } from "@privy-io/react-auth";
 import { useQueryClient } from "@tanstack/react-query";
@@ -30,6 +31,8 @@ export function useBatchSend(
   senderEmail: string,
   embeddedProvider?: ConnectedWallet,
   twoFaThreshold: number = 500,
+  chainBalances?: ChainBalances,
+  solanaSource?: SolanaSource,
 ) {
   const queryClient = useQueryClient();
   const [step, setStep] = useState<Step>("recipients");
@@ -97,8 +100,14 @@ export function useBatchSend(
         senderEmail,
         note: note || undefined,
         provider,
+        chainBalances,
+        wallet: embeddedProvider,
+        smartAddress,
+        solanaSource,
+        onStatus: (s) => toast.loading(s, { id: "batch-consolidate" }),
         onProgress: (done, total) => setProgress({ done, total }),
       });
+      toast.dismiss("batch-consolidate");
 
       if (retryEmails) {
         setBatchResults((prev) => {

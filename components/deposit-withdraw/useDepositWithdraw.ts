@@ -1,15 +1,19 @@
 "use client";
 
 import {
-  finalizeOffRamp,
+  executeOffRamp,
   getInstitutions,
+  getOffRampProviderOrder,
   getOffRampQuote,
   getOffRampRate,
   getOnRampRate,
   getOrderStatus,
+  getRampNetworks,
   initiateOnRamp,
   verifyBankAccount,
 } from "@/lib/actions/ramp";
+import type { RampProviderName } from "@/lib/ramp";
+import { CHAIN_NAMES, type SupportedChain } from "@/lib/circle/gateway";
 import {
   updateDepositStatus,
   saveWithdrawalTxHash,
@@ -23,13 +27,27 @@ import {
   type BankContactRow,
 } from "@/lib/supabase/bank-contacts";
 import {
-  PaycrestInstitution,
-  PaycrestOrderResponse,
-} from "@/lib/paycrest/types";
+  RampInstitution,
+  RampNetwork,
+  RampOrderResponse,
+} from "@/lib/ramp";
 import { executeCircleGaslessTransfer } from "@/lib/web3/circle-actions";
+import { consolidateFundsToChain } from "@/lib/web3/bridge-actions";
+import {
+  planWithdrawalRoute,
+  AUTO_SOURCE,
+  RAMP_NETWORKS,
+  type ChainBalances,
+  type SolanaSource,
+  type SourceChainKey,
+  type SourcePreference,
+} from "@/lib/web3/routing";
 import { parseFriendlyError } from "@/components/transfer/useTransfer";
 import { ConnectedWallet } from "@privy-io/react-auth";
-import { calculatePaycrestBaseAmount } from "@/lib/paycrest/config";
+import {
+  calculatePaycrestBaseAmount,
+  PAYCREST_PARTNER_FEE_PERCENT,
+} from "@/lib/paycrest/config";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -52,6 +70,8 @@ export function useDepositWithdraw(
   balance: string,
   embeddedProvider?: ConnectedWallet,
   onClose?: () => void,
+  chainBalances?: ChainBalances,
+  solanaSource?: SolanaSource,
 ) {
   const queryClient = useQueryClient();
   const { data: currencies } = useCurrencies();
@@ -62,10 +82,19 @@ export function useDepositWithdraw(
   const [error] = useState<string | null>(null);
   const [fiatCurrency, setFiatCurrency] = useState<FiatCurrencyCode>("NGN");
   const [quoteUsdcAmount, setQuoteUsdcAmount] = useState<string>("");
+  // On-ramp landing chain. Defaults to Base; advanced users may pick another supported chain.
+  const [depositNetwork, setDepositNetwork] = useState<RampNetwork>("base");
 
   // User Security Preferences
   const [twoFaEnabled, setTwoFaEnabled] = useState(false);
   const [twoFaThreshold, setTwoFaThreshold] = useState(500);
+
+  // Discover the off-ramp settlement networks from the active provider (once).
+  useEffect(() => {
+    getRampNetworks()
+      .then((n) => setRampNetworks(n as SupportedChain[]))
+      .catch(() => setRampNetworks(undefined));
+  }, []);
 
   // Sync fiatCurrency with available currencies if current one is not supported
   useEffect(() => {
@@ -77,8 +106,13 @@ export function useDepositWithdraw(
     }
   }, [currencies, fiatCurrency]);
 
+  // Off-ramp provider pinned for this withdrawal (banks + verify + order all use it).
+  const [offRampProvider, setOffRampProvider] = useState<RampProviderName | undefined>(
+    undefined,
+  );
+
   // Institutions & Rates
-  const [institutions, setInstitutions] = useState<PaycrestInstitution[]>([]);
+  const [institutions, setInstitutions] = useState<RampInstitution[]>([]);
   const [rate, setRate] = useState<number | null>(null);
   const [rateLoading, setRateLoading] = useState(false);
 
@@ -93,12 +127,24 @@ export function useDepositWithdraw(
   const lastAttemptedRef = useRef<string>("");
 
   // Order & Execution
-  const [order, setOrder] = useState<PaycrestOrderResponse | null>(null);
+  const [order, setOrder] = useState<RampOrderResponse | null>(null);
   const [quote, setQuote] = useState<{
     rate: number;
     payoutAmount: number;
   } | null>(null);
   const [transferring, setTransferring] = useState(false);
+  // Ramp-supported chain chosen by the router to source the off-ramp from.
+  const [withdrawChain, setWithdrawChain] = useState<RampNetwork>("base");
+  // Settlement networks the active off-ramp provider supports (fetched, not hardcoded).
+  const [rampNetworks, setRampNetworks] = useState<SupportedChain[] | undefined>(
+    undefined,
+  );
+  // When funds are split across chains, we auto-bridge them onto Base before withdrawing.
+  const [mustConsolidate, setMustConsolidate] = useState(false);
+  // User source override (default: smart auto). Set via the SourceSelector.
+  const [sourcePref, setSourcePref] = useState<SourcePreference>(AUTO_SOURCE);
+  // When consolidating, the specific chains to pull from (null = all funded).
+  const [consolidateFrom, setConsolidateFrom] = useState<SourceChainKey[] | null>(null);
   const [bankContacts, setBankContacts] = useState<BankContactRow[]>([]);
   const [showSavePrompt, setShowSavePrompt] = useState(false);
 
@@ -120,7 +166,21 @@ export function useDepositWithdraw(
   useEffect(() => {
     const init = async () => {
       try {
-        const res = await getInstitutions(fiatCurrency);
+        // Pin the provider for this flow so the bank list, verification, and the actual
+        // order all use the SAME provider (their bank codes differ). Withdraw uses the
+        // off-ramp provider; deposit uses the on-ramp provider (Paycrest — Bitnob has no
+        // fiat on-ramp wired yet), so its refund bank + verify match the Paycrest order.
+        let provider: RampProviderName;
+        if (type === "withdraw") {
+          const order = await getOffRampProviderOrder(fiatCurrency).catch(
+            () => ["paycrest"] as RampProviderName[],
+          );
+          provider = order[0];
+        } else {
+          provider = "paycrest";
+        }
+        setOffRampProvider(provider);
+        const res = await getInstitutions(fiatCurrency, provider);
         setInstitutions(res.data);
       } catch (err) {
         console.error("Failed to fetch banks", err);
@@ -189,6 +249,8 @@ export function useDepositWithdraw(
       const res = await verifyBankAccount(
         details.bankCode,
         details.accountNumber,
+        fiatCurrency,
+        offRampProvider,
       );
       const name =
         typeof res.data === "string" ? res.data : res.data?.accountName;
@@ -200,7 +262,7 @@ export function useDepositWithdraw(
     } finally {
       setVerifyingBank(false);
     }
-  }, []);
+  }, [fiatCurrency, offRampProvider]);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -255,6 +317,7 @@ export function useDepositWithdraw(
           accountName: bankDetails.accountName,
         },
         fiatCurrency,
+        network: depositNetwork,
       });
       setOrder(res);
       setStep(2);
@@ -287,7 +350,58 @@ export function useDepositWithdraw(
     const feeRate = 0.003; // 0.3%
     const totalUsdcRequired = val * (1 + feeRate);
 
-    if (totalUsdcRequired > parseFloat(balance)) {
+    // A Paycrest order settles on one network, so we must source the whole amount from
+    // a single Paycrest-supported chain. Route to one that holds enough.
+    const routeBalances: ChainBalances =
+      chainBalances && Object.keys(chainBalances).length > 0
+        ? chainBalances
+        : { base: parseFloat(balance) || 0 };
+
+    const route = planWithdrawalRoute(totalUsdcRequired.toFixed(6), routeBalances, {
+      supportedChains: rampNetworks,
+      homeChain: "base",
+      source: sourcePref,
+    });
+
+    const combinedAvailable =
+      route.totalAvailable + (solanaSource?.balance ?? 0);
+
+    // Validate a manual override before proceeding.
+    if (sourcePref.mode === "single" && !route.feasible) {
+      toast.error(
+        `${sourcePref.chain} doesn't hold enough to withdraw ${totalUsdcRequired.toFixed(2)} USDC.`,
+      );
+      return;
+    }
+    if (sourcePref.mode === "consolidate") {
+      const selSum = sourcePref.from.reduce(
+        (s, c) =>
+          s + (c === "solana" ? solanaSource?.balance ?? 0 : routeBalances[c] ?? 0),
+        0,
+      );
+      if (selSum + 1e-9 < totalUsdcRequired) {
+        toast.error(
+          `Selected networks hold $${selSum.toFixed(2)} — need ${totalUsdcRequired.toFixed(2)} USDC.`,
+        );
+        return;
+      }
+    }
+
+    if (route.feasible && route.chain) {
+      // A single supported chain holds enough — source straight from it.
+      setWithdrawChain(route.chain as RampNetwork);
+      setMustConsolidate(false);
+      setConsolidateFrom(null);
+    } else if (
+      route.needsConsolidation ||
+      combinedAvailable + 1e-9 >= totalUsdcRequired
+    ) {
+      // Funds are split (possibly partly on Solana) — bridge onto the settlement chain
+      // before withdrawing. Honour an explicit chain selection if the user made one.
+      setWithdrawChain((route.chain as RampNetwork) ?? "base");
+      setMustConsolidate(true);
+      setConsolidateFrom(route.consolidateFrom ?? null);
+    } else {
       toast.error(
         `Insufficient balance. Requires ${totalUsdcRequired.toFixed(2)} USDC`,
       );
@@ -434,21 +548,59 @@ export function useDepositWithdraw(
     }
     setLoading(true);
     try {
-      const res = await finalizeOffRamp(
-        parseFloat(quoteUsdcAmount),
-        bankDetails.accountNumber,
-        bankDetails.bankCode,
-        bankDetails.accountName,
-        userAddress,
+      // Auto-consolidate onto the SETTLEMENT chain first when funds are split across chains.
+      // Done before creating the off-ramp order so the order's transfer window starts fresh.
+      if (mustConsolidate && embeddedProvider) {
+        const targetChain = withdrawChain as SupportedChain;
+        const targetName = CHAIN_NAMES[targetChain] ?? targetChain;
+        const required = (parseFloat(quoteUsdcAmount) * 1.003).toFixed(6);
+        // Honour the user's chosen networks (if any); otherwise pull from everything.
+        const allBalances = chainBalances ?? {};
+        const sourceBalances: ChainBalances = consolidateFrom
+          ? Object.fromEntries(
+              (Object.keys(allBalances) as (keyof ChainBalances)[])
+                .filter((c) => consolidateFrom.includes(c as SourceChainKey))
+                .map((c) => [c, allBalances[c]]),
+            )
+          : allBalances;
+        const includeSolana = consolidateFrom
+          ? consolidateFrom.includes("solana")
+          : true;
+        toast.loading(`Gathering your funds onto ${targetName}…`, { id: "consolidate" });
+        await consolidateFundsToChain(embeddedProvider, {
+          targetChain,
+          requiredAmount: required,
+          balances: sourceBalances,
+          recipient: userAddress,
+          solana: includeSolana ? solanaSource : undefined,
+          onStatus: (s) => toast.loading(s, { id: "consolidate" }),
+        });
+        toast.success(`Funds ready on ${targetName}.`, { id: "consolidate" });
+      }
+
+      // Submit via the pinned-provider flow using the CANONICAL bank identity (name, not
+      // a raw code). executeOffRamp resolves the right bank_code per provider and falls
+      // back (re-resolving) if the first provider can't create the order.
+      const { order: res } = await executeOffRamp({
+        amountUsdc: parseFloat(quoteUsdcAmount),
+        fiatAmount: inputMode === "fiat" ? parseFloat(amount) : quote?.payoutAmount,
+        exchangeRate: quote?.rate,
+        inputMode,
+        bank: {
+          accountNumber: bankDetails.accountNumber,
+          accountName: bankDetails.accountName,
+          bankName: bankDetails.bankName || bankDetails.bankCode,
+        },
+        userRefundAddress: userAddress,
         userEmail,
         fiatCurrency,
-        inputMode === 'fiat' ? parseFloat(amount) : quote?.payoutAmount,
-        quote?.rate,
-        inputMode
-      );
+        network: withdrawChain,
+        consolidated: mustConsolidate,
+      });
       setOrder(res);
       setStep(3);
     } catch (err) {
+      toast.dismiss("consolidate");
       toast.error(
         err instanceof Error ? err.message : "An unknown error occurred",
       );
@@ -464,13 +616,17 @@ export function useDepositWithdraw(
       const provider = await embeddedProvider.getEthereumProvider();
 
       const baseAmount = parseFloat(quoteUsdcAmount);
-      const feeRate = 0.003;
-      const totalUsdcRequired = (baseAmount * (1 + feeRate)).toFixed(6);
+      // Paycrest deducts a 0.3% partner fee ON TOP (send base × 1.003). Bitnob's fee is
+      // already baked into the quote, so we send exactly the quoted amount — no 0.3% extra.
+      const feeRate =
+        order.provider === "paycrest" ? PAYCREST_PARTNER_FEE_PERCENT / 100 : 0;
+      const amountToSend = (baseAmount * (1 + feeRate)).toFixed(6);
 
       const txHash = await executeCircleGaslessTransfer(
         provider,
         order.providerAccount.receiveAddress,
-        totalUsdcRequired,
+        amountToSend,
+        (order.providerAccount?.network ?? withdrawChain) as SupportedChain,
       );
       setWithdrawalTxHash(txHash);
       if (order.id && txHash) {
@@ -492,7 +648,7 @@ export function useDepositWithdraw(
     setPolling(true);
     const poll = async () => {
       try {
-        const result = await getOrderStatus(order.id);
+        const result = await getOrderStatus(order.id, order.provider);
         setTxStatus(result.status);
 
         const isWithdraw = type === "withdraw";
@@ -574,12 +730,13 @@ export function useDepositWithdraw(
     pollIntervalRef.current = setInterval(poll, 8000);
   }, [
     order?.id,
+    order?.provider,
+    type,
+    bankContacts,
     queryClient,
     userAddress,
-    type,
-    onClose,
-    bankContacts,
     bankDetails.accountNumber,
+    onClose,
   ]);
 
   useEffect(() => {
@@ -623,6 +780,17 @@ export function useDepositWithdraw(
     showSavePrompt,
     setShowSavePrompt,
     quoteUsdcAmount,
+    withdrawChain,
+    mustConsolidate,
+    sourcePref,
+    setSourcePref,
+    chainBalances: chainBalances ?? {},
+    solanaBalance: solanaSource?.balance ?? 0,
+    rampNetworks,
+    depositNetwork,
+    setDepositNetwork,
+    // On-ramp (Paycrest) lands USDC on these chains; default Base.
+    depositNetworks: RAMP_NETWORKS,
     userEmail,
     userAddress,
     refreshBankContacts,
@@ -668,6 +836,11 @@ export function useDepositWithdraw(
       setTxStatus(null);
       setPolling(false);
       setShowSavePrompt(false);
+      setWithdrawChain("base");
+      setMustConsolidate(false);
+      setSourcePref(AUTO_SOURCE);
+      setConsolidateFrom(null);
+      setDepositNetwork("base");
       setBankDetails({
         accountNumber: "",
         bankCode: "",

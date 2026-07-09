@@ -22,13 +22,9 @@ import {
   SMART_BRIDGE_CHAINS,
   type SupportedChain,
 } from "@/lib/circle/gateway";
-import {
-  buildDepositForBurnTx,
-  SOLANA_CCTP_DOMAIN,
-} from "@/lib/circle/solana-gateway";
-import { fetchCctpFees } from "@/lib/circle/gateway";
 import { recordBridgeTransaction, updateBridgeStatus, getUserActivities } from "@/lib/supabase/transactions";
 import { executeSmartBridge } from "@/lib/web3/bridge-actions";
+import { prepareSolanaBurnTx } from "@/lib/web3/solana-bridge";
 import { cn } from "@/lib/utils";
 import { useWallets, usePrivy, type ConnectedWallet } from "@privy-io/react-auth";
 import {
@@ -36,7 +32,7 @@ import {
   useWallets as useSolanaWallets,
 } from "@privy-io/react-auth/solana";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
-import { Connection, PublicKey, Transaction } from "@solana/web3.js";
+import { Connection } from "@solana/web3.js";
 import { Buffer } from "buffer";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -284,62 +280,13 @@ export function SmartBridgeModule({
     }
     setBridgingChain("solana");
     try {
-      // Calculate CCTP fee (non-fatal — fallback to 0)
-      let feeSubunits = 0n;
-      try {
-        const [whole, frac = ""] = amount.split(".");
-        const frac6 = (frac + "000000").slice(0, 6);
-        const amtSubunits = BigInt(whole + frac6);
-        const fees = await fetchCctpFees(SOLANA_CCTP_DOMAIN, 6);
-        const fast = fees.find((f) => f.finalityThreshold === 1000) ?? fees[0];
-        const fee = (amtSubunits * BigInt(Math.round(fast.minimumFee * 100))) / 1_000_000n;
-        feeSubunits = (fee * 120n) / 100n; // 20% buffer
-      } catch { /* use 0 fee */ }
-
-      const walletPubkey = new PublicKey(embeddedSolWallet.address);
-
-      // Build the transaction. buildDepositForBurnTx pre-signs with messageSentEventData internally.
-      const { transaction, messageSentEventData } = await buildDepositForBurnTx(
-        solConn.current,
-        walletPubkey,
+      // Build + fee-sponsor the Solana burn (shared with the routing consolidation path).
+      const { sponsoredTx } = await prepareSolanaBurnTx({
+        connection: solConn.current,
+        walletAddress: embeddedSolWallet.address,
         amount,
-        // Destination is the user's EVM smart address on Base
-        smartAddress,
-        feeSubunits,
-      );
-
-      // Serialize to base64 and send to our backend to get Circle fee-payer signature.
-      // This means the user does not need any SOL in their embedded wallet.
-      const txBase64 = transaction
-        .serialize({ requireAllSignatures: false, verifySignatures: false })
-        .toString('base64');
-
-      const sponsorRes = await fetch('/api/bridge/solana-sponsor', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transaction: txBase64 }),
+        recipientEvm: smartAddress, // user's EVM smart address on Base
       });
-
-      if (!sponsorRes.ok) {
-        const errData = await sponsorRes.json().catch(() => ({})) as { error?: string };
-        throw new Error(`Gas station error: ${errData.error ?? sponsorRes.statusText}`);
-      }
-
-      const { sponsoredTransaction: sponsoredBase64 } = await sponsorRes.json() as {
-        sponsoredTransaction: string;
-      };
-
-      // Convert the sponsored tx (base64) back to a Transaction object
-      const binaryString = atob(sponsoredBase64);
-      const sponsoredBytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        sponsoredBytes[i] = binaryString.charCodeAt(i);
-      }
-      const sponsoredTx = Transaction.from(sponsoredBytes);
-
-      // Circle Gas Station replaces the feePayer and adds its signature, which might
-      // strip our existing messageSentEventData signature. So we re-apply it here.
-      sponsoredTx.partialSign(messageSentEventData);
 
       // Privy signs the already-fee-sponsored transaction with the embedded Solana wallet
       const { signedTransaction: signedBytes } = await signTransaction({

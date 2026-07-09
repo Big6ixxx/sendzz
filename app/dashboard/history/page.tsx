@@ -1,17 +1,14 @@
 'use client';
 
-import { ActivityDetailModal } from '@/components/ActivityDetailModal';
 import { DashboardPageHeader } from '@/components/layout/DashboardPageHeader';
-import { Activity, HistoryModule } from '@/components/HistoryModule';
+import { HistoryModule } from '@/components/HistoryModule';
 import { usePrivy } from '@privy-io/react-auth';
-import { Loader2 } from 'lucide-react';
-import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Loader2, Send } from 'lucide-react';
 
 export default function HistoryPage() {
   const { ready, authenticated, user } = usePrivy();
-  const [selectedActivity, setSelectedActivity] = useState<Activity | null>(
-    null,
-  );
+  const router = useRouter();
 
   if (!ready || !authenticated || !user) {
     return (
@@ -23,23 +20,26 @@ export default function HistoryPage() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-12">
-      <DashboardPageHeader
-        title="History"
-        subtitle="Review your global settlement activity."
-      />
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <DashboardPageHeader
+          title="History"
+          subtitle="Review your global settlement activity."
+        />
+        <button
+          onClick={() => router.push('/dashboard/transfer')}
+          className="btn-accent h-12 px-6 rounded-2xl flex items-center gap-2 text-xs font-bold uppercase tracking-widest shrink-0"
+        >
+          <Send className="w-4 h-4" />
+          New Transfer
+        </button>
+      </div>
 
       <HistoryModule
         userId={user.id}
         userEmail={user.email?.address || ''}
         hideHeader={true}
         showControls={true}
-        onTxClick={setSelectedActivity}
-      />
-
-      <ActivityDetailModal
-        isOpen={!!selectedActivity}
-        activity={selectedActivity}
-        onClose={() => setSelectedActivity(null)}
+        onTxClick={(a) => router.push(`/dashboard/activity/${a.id}`)}
       />
     </div>
   );

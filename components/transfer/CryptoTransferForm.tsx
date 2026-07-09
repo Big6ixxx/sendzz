@@ -14,6 +14,8 @@ import {
 } from '@/components/ui/select';
 import { Info, Loader2, ShieldCheck, Wallet } from 'lucide-react';
 import { CHAIN_NAMES, SupportedChain } from '@/lib/circle/gateway';
+import { SourceSelector } from '@/components/SourceSelector';
+import type { ChainBalances, SourcePreference } from '@/lib/web3/routing';
 
 interface CryptoTransferFormProps {
   recipientAddress: string;
@@ -29,6 +31,10 @@ interface CryptoTransferFormProps {
   isOverBalance: boolean;
   isZeroBalance: boolean;
   handleTransfer: (e: React.FormEvent) => void;
+  sourcePref: SourcePreference;
+  setSourcePref: (p: SourcePreference) => void;
+  chainBalances: ChainBalances;
+  solanaBalance: number;
 }
 
 const AVAILABLE_CHAINS: SupportedChain[] = [
@@ -54,7 +60,14 @@ export function CryptoTransferForm({
   isOverBalance,
   isZeroBalance,
   handleTransfer,
+  sourcePref,
+  setSourcePref,
+  chainBalances,
+  solanaBalance,
 }: CryptoTransferFormProps) {
+  const fundedSources =
+    Object.values(chainBalances).filter((b) => (b ?? 0) > 0).length +
+    (solanaBalance > 0 ? 1 : 0);
   return (
     <form
       onSubmit={handleTransfer}
@@ -169,6 +182,18 @@ export function CryptoTransferForm({
           />
         </div>
       </div>
+
+      {parseFloat(amount || '0') > 0 && fundedSources > 1 && (
+        <SourceSelector
+          balances={chainBalances}
+          solanaBalance={solanaBalance}
+          requiredAmount={parseFloat(amount || '0')}
+          allowConsolidate
+          consolidationTarget="Base"
+          value={sourcePref}
+          onChange={setSourcePref}
+        />
+      )}
 
       <div className="space-y-4 pt-4">
         <button

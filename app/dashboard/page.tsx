@@ -1,10 +1,9 @@
 "use client";
 
-import { ActivityDetailModal } from "@/components/ActivityDetailModal";
 import { BatchSendDialog } from "@/components/batch-send/BatchSendDialog";
-import { BridgeNudge } from "@/components/BridgeNudge";
 import { DepositWithdrawDialog } from "@/components/deposit-withdraw/DepositWithdrawDialog";
-import { Activity, HistoryModule } from "@/components/HistoryModule";
+import { HistoryModule, type Activity } from "@/components/HistoryModule";
+import { ActivityDetailModal } from "@/components/ActivityDetailModal";
 import { PendingIncomingPanel } from "@/components/PendingIncomingPanel";
 import { TransferModule } from "@/components/TransferModule";
 import {
@@ -15,10 +14,12 @@ import {
 } from "@/components/ui/tooltip";
 import { registerUserAddress } from "@/lib/supabase/users";
 import { cn } from "@/lib/utils";
-import { getUSDCBalance } from "@/lib/web3/actions";
 import { getCircleAddress } from "@/lib/web3/circle-client";
+import { usePortfolio } from "@/hooks/usePortfolio";
+import { useSolanaBridge } from "@/hooks/useSolanaBridge";
+import { ChainLogo } from "@/components/deposit-withdraw/ChainLogo";
+import { CHAIN_NAMES } from "@/lib/circle/gateway";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
-import { useQuery } from "@tanstack/react-query";
 import {
   ArrowDown,
   ArrowUp,
@@ -31,9 +32,11 @@ import {
   Eye,
   EyeOff,
   ShieldAlert,
+  ChevronDown,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { type ChainBalances } from "@/lib/web3/routing";
 import { toast } from "sonner";
 import { useBalanceVisibility } from "@/components/providers/BalanceVisibilityProvider";
 import { AnimatedBalance } from "@/components/ui/AnimatedBalance";
@@ -66,26 +69,52 @@ export default function Dashboard() {
   const [rampModalOpen, setRampModalOpen] = useState(false);
   const [batchSendDialogOpen, setBatchSendDialogOpen] = useState(false);
   const [rampType, setRampType] = useState<"deposit" | "withdraw">("deposit");
-  const [selectedActivity, setSelectedActivity] = useState<Activity | null>(
-    null,
-  );
   const { hideBalance, toggleBalanceVisibility } = useBalanceVisibility();
+  const [showBreakdown, setShowBreakdown] = useState(false);
+  const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
   const [showSecurityNudge, setShowSecurityNudge] = useState(false);
   const [twoFaThreshold, setTwoFaThreshold] = useState(500);
   const [totpEnabled, setTotpEnabled] = useState(false);
   const [passkeyEnabled, setPasskeyEnabled] = useState(false);
 
+  // Unified portfolio across every supported chain. Drives both the headline balance
+  // and the per-chain spendable amounts routed to transfers / batch / withdraw.
   const {
-    data: balance = "0.00",
-    isLoading: isBalanceLoading,
-    isFetching: isBalanceFetching,
-    refetch: refetchBalance,
-  } = useQuery({
-    queryKey: ["balance", smartAddress],
-    queryFn: () => getUSDCBalance(smartAddress),
-    enabled: !!smartAddress,
-    refetchInterval: 10000,
-  });
+    data: portfolio,
+    isLoading: isPortfolioLoading,
+    isFetching: isPortfolioFetching,
+    refetch: refetchPortfolio,
+  } = usePortfolio(smartAddress, embeddedSolWallet?.address);
+
+  const portfolioTotal = portfolio?.total ?? "0.00";
+  const fundedChains = portfolio?.byChain.filter((c) => c.hasBalance) ?? [];
+
+  // EVM per-chain balances + their sum — the amount currently spendable via routing
+  // (transfers + batch). Excludes Solana, which routing doesn't source from yet.
+  const evmChainBalances: ChainBalances = useMemo(() => {
+    const map: ChainBalances = {};
+    for (const c of portfolio?.byChain ?? []) {
+      if (c.chain === "solana") continue;
+      map[c.chain] = parseFloat(c.balance) || 0;
+    }
+    return map;
+  }, [portfolio]);
+  const evmSpendable = Object.values(evmChainBalances).reduce(
+    (s, n) => s + (n ?? 0),
+    0,
+  );
+
+  // Solana is spendable too — auto-bridged to Base on demand by the routing/consolidation.
+  const { bridgeToBase } = useSolanaBridge();
+  const solanaBalance =
+    parseFloat(
+      portfolio?.byChain.find((c) => c.chain === "solana")?.balance ?? "0",
+    ) || 0;
+  const solanaSource =
+    bridgeToBase && solanaBalance > 0
+      ? { balance: solanaBalance, bridgeToBase }
+      : undefined;
+  const totalSpendable = (evmSpendable + solanaBalance).toFixed(2);
 
   useEffect(() => {
     if (ready && !authenticated) router.push("/");
@@ -102,7 +131,11 @@ export default function Dashboard() {
         const address = await getCircleAddress(provider);
         setSmartAddress(address);
         if (user?.email?.address) {
-          registerUserAddress(user.email.address, address).catch(console.error);
+          registerUserAddress(
+            user.email.address,
+            address,
+            embeddedSolWallet?.address,
+          ).catch(console.error);
         }
       } catch (err) {
         console.error("[Dashboard] INIT ACCOUNT FATAL ERROR:", err);
@@ -185,16 +218,34 @@ export default function Dashboard() {
                   >
                     Global Portfolio
                   </p>
-                  <div
-                    className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest"
+                  <button
+                    onClick={() => setShowBreakdown((v) => !v)}
+                    className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest transition-all hover:brightness-125"
                     style={{
                       background: "rgba(0, 232, 122, 0.1)",
                       color: "#00e87a",
                       border: "1px solid rgba(0,232,122,0.2)",
                     }}
+                    title="View balance by network"
                   >
-                    Base
-                  </div>
+                    <span>
+                      {fundedChains.length > 1
+                        ? `Across ${fundedChains.length} networks`
+                        : CHAIN_NAMES[
+                            (fundedChains[0]?.chain as keyof typeof CHAIN_NAMES) ??
+                              "base"
+                          ] ??
+                          (fundedChains[0]?.chain === "solana"
+                            ? "Solana"
+                            : "Base")}
+                    </span>
+                    <ChevronDown
+                      className={cn(
+                        "w-3 h-3 transition-transform",
+                        showBreakdown && "rotate-180",
+                      )}
+                    />
+                  </button>
                   <button
                     onClick={toggleBalanceVisibility}
                     className="p-1.5 rounded-full transition-all hover:bg-white/5 ml-1"
@@ -220,8 +271,8 @@ export default function Dashboard() {
                   >
                     $
                     <AnimatedBalance
-                      balance={balance}
-                      isLoading={isBalanceLoading}
+                      balance={portfolioTotal}
+                      isLoading={isPortfolioLoading}
                     />
                   </h2>
                   <div className="flex items-center gap-1.5 pb-1">
@@ -232,21 +283,69 @@ export default function Dashboard() {
                       USDC
                     </span>
                     <button
-                      onClick={() => refetchBalance()}
-                      disabled={isBalanceLoading || !smartAddress}
+                      onClick={() => refetchPortfolio()}
+                      disabled={isPortfolioLoading || !smartAddress}
                       className="p-1.5 rounded-full transition-all disabled:opacity-50 hover:bg-white/5 shrink-0"
                       style={{ color: "rgba(248,248,246,0.25)" }}
                     >
                       <RefreshCw
                         className={cn(
                           "w-4 h-4",
-                          (isBalanceLoading || isBalanceFetching) &&
+                          (isPortfolioLoading || isPortfolioFetching) &&
                             "animate-spin",
                         )}
                       />
                     </button>
                   </div>
                 </div>
+
+                {/* Per-network breakdown — collapsed by default. Display only;
+                    spendable balance per flow is still chain-specific. */}
+                {showBreakdown && (
+                  <div
+                    className="rounded-2xl p-1.5 mt-1 space-y-0.5 max-w-sm"
+                    style={{
+                      background: "rgba(255,255,255,0.03)",
+                      border: "1px solid rgba(255,255,255,0.06)",
+                    }}
+                  >
+                    {fundedChains.length === 0 ? (
+                      <p
+                        className="text-xs px-3 py-3 text-center"
+                        style={{ color: "rgba(248,248,246,0.35)" }}
+                      >
+                        No funds yet — deposit to get started.
+                      </p>
+                    ) : (
+                      fundedChains.map((c) => (
+                        <div
+                          key={c.chain}
+                          className="flex items-center justify-between px-3 py-2.5 rounded-xl hover:bg-white/[0.03] transition-colors"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <ChainLogo chain={c.chain} size={20} />
+                            <span
+                              className="text-sm font-medium"
+                              style={{ color: "rgba(248,248,246,0.8)" }}
+                            >
+                              {CHAIN_NAMES[
+                                c.chain as keyof typeof CHAIN_NAMES
+                              ] ?? (c.chain === "solana" ? "Solana" : c.chain)}
+                            </span>
+                          </div>
+                          <span
+                            className="text-sm font-mono font-bold"
+                            style={{ color: "#f8f8f6" }}
+                          >
+                            {hideBalance
+                              ? "••••"
+                              : `$${parseFloat(c.balance).toFixed(2)}`}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
 
                 <div className="flex flex-wrap items-center gap-x-6 gap-y-3 pt-2">
                   <div
@@ -334,11 +433,6 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
-
-          <BridgeNudge
-            smartAddress={smartAddress}
-            solanaAddress={embeddedSolWallet?.address}
-          />
         </section>
 
         {/* Pending Incoming Payments — shown only when there are payments awaiting acceptance */}
@@ -403,7 +497,9 @@ export default function Dashboard() {
                 embeddedProvider={wallets.find(
                   (w) => w.walletClientType === "privy",
                 )}
-                balance={balance}
+                balance={totalSpendable}
+                chainBalances={evmChainBalances}
+                solanaSource={solanaSource}
                 senderEmail={user?.email?.address || ""}
               />
             </div>
@@ -474,12 +570,18 @@ export default function Dashboard() {
                   userEmail={user.email?.address || ""}
                   limit={5}
                   hideHeader={true}
-                  onTxClick={setSelectedActivity}
+                  onTxClick={(a) => setSelectedActivity(a)}
                 />
               </div>
             </div>
           </div>
         </div>
+
+        <ActivityDetailModal
+          activity={selectedActivity}
+          isOpen={!!selectedActivity}
+          onClose={() => setSelectedActivity(null)}
+        />
 
         <DepositWithdrawDialog
           isOpen={rampModalOpen}
@@ -487,7 +589,10 @@ export default function Dashboard() {
           type={rampType}
           userId={user?.id || ""}
           userAddress={smartAddress}
-          balance={balance}
+          solanaAddress={embeddedSolWallet?.address}
+          balance={totalSpendable}
+          chainBalances={evmChainBalances}
+          solanaSource={solanaSource}
           userEmail={user?.email?.address || ""}
           embeddedProvider={wallets.find((w) => w.walletClientType === "privy")}
         />
@@ -495,19 +600,15 @@ export default function Dashboard() {
         <BatchSendDialog
           open={batchSendDialogOpen}
           onOpenChange={setBatchSendDialogOpen}
-          maxAmount={parseFloat(balance || "0")}
+          maxAmount={parseFloat(totalSpendable)}
           smartAddress={smartAddress}
           embeddedProvider={wallets.find((w) => w.walletClientType === "privy")}
           senderEmail={user?.email?.address || ""}
           twoFaThreshold={twoFaThreshold}
           totpEnabled={totpEnabled}
           passkeyEnabled={passkeyEnabled}
-        />
-
-        <ActivityDetailModal
-          isOpen={!!selectedActivity}
-          activity={selectedActivity}
-          onClose={() => setSelectedActivity(null)}
+          chainBalances={evmChainBalances}
+          solanaSource={solanaSource}
         />
       </div>
     </TooltipProvider>

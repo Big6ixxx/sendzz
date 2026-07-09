@@ -1,29 +1,57 @@
 import { useState, useEffect } from "react";
-import { useQueryClient, useQuery } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { ConnectedWallet } from "@privy-io/react-auth";
 import { executeCircleGaslessTransfer } from "@/lib/web3/circle-actions";
+import { bridgeAndDeliver, consolidateFundsToChain } from "@/lib/web3/bridge-actions";
 import { toast } from "sonner";
 import { parseFriendlyError } from "./useTransfer";
 import { SupportedChain, CHAIN_NAMES } from "@/lib/circle/gateway";
-import { getUSDCBalance } from "@/lib/web3/actions";
+import {
+  planExternalSend,
+  AUTO_SOURCE,
+  type ChainBalances,
+  type SolanaSource,
+  type SourceChainKey,
+  type SourcePreference,
+} from "@/lib/web3/routing";
 import { isAddress } from "viem";
+
+export interface CrossChainSendInfo {
+  sourceChain: SupportedChain;
+  destChain: SupportedChain;
+  amount: string;
+  recipient: string;
+  /** When true, funds are gathered onto Base (from EVM chains + Solana) before delivery. */
+  consolidate?: boolean;
+}
 
 interface UseCryptoTransferProps {
   smartAddress: string;
   embeddedProvider?: ConnectedWallet;
   senderEmail: string;
+  /** Per-chain EVM balances used to route the send (direct vs. bridge). */
+  chainBalances?: ChainBalances;
+  /** Solana source — gathered to Base on demand when EVM funds are short. */
+  solanaSource?: SolanaSource;
 }
 
 export function useCryptoTransfer({
   smartAddress,
   embeddedProvider,
   senderEmail,
+  chainBalances,
+  solanaSource,
 }: UseCryptoTransferProps) {
   const [recipientAddress, setRecipientAddress] = useState("");
   const [amount, setAmount] = useState("");
   const [selectedChain, setSelectedChain] = useState<SupportedChain>("base");
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string>("");
+  // Cross-chain confirmation: when set, the recipient is on a chain the user has no
+  // (or insufficient) funds on, so the send must bridge first — surfaced via a modal.
+  const [bridgeConfirm, setBridgeConfirm] = useState<CrossChainSendInfo | null>(null);
+  // User source override (default smart auto). Set via the SourceSelector.
+  const [sourcePref, setSourcePref] = useState<SourcePreference>(AUTO_SOURCE);
 
   // 2FA state
   const [twoFaModalOpen, setTwoFaModalOpen] = useState(false);
@@ -57,12 +85,14 @@ export function useCryptoTransfer({
     }
   }, [senderEmail]);
 
-  // Query balance for the selected chain
-  const { data: balance = "0.00", isFetching: isFetchingBalance } = useQuery({
-    queryKey: ["balance", smartAddress, selectedChain],
-    queryFn: () => getUSDCBalance(smartAddress, selectedChain),
-    enabled: !!smartAddress && !!selectedChain,
-  });
+  // Total spendable across EVM chains — the router decides whether each send is a
+  // direct transfer or a bridge, so the whole unified balance is available.
+  const spendableNum = Object.values(chainBalances ?? {}).reduce(
+    (s, n) => s + (n ?? 0),
+    0,
+  );
+  const balance = spendableNum.toFixed(2);
+  const isFetchingBalance = false;
 
   const handleTransfer = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -94,7 +124,104 @@ export function useCryptoTransfer({
       return;
     }
 
-    await executeTransferActual();
+    await proceedAfterAuth();
+  };
+
+  // Decide how to fulfil the send once auth (2FA) has passed: a direct same-chain
+  // transfer, or a cross-chain bridge (which needs an extra confirmation modal).
+  const proceedAfterAuth = async () => {
+    const amt = parseFloat(amount);
+
+    // User override: pay entirely from one chosen chain.
+    if (sourcePref.mode === "single") {
+      const c = sourcePref.chain;
+      if ((chainBalances?.[c] ?? 0) + 1e-9 < amt) {
+        toast.error(`${CHAIN_NAMES[c]} doesn't hold enough for this send.`);
+        setLoading(false);
+        setStatus("");
+        return;
+      }
+      if (c === selectedChain) {
+        await executeDirectTransfer();
+      } else {
+        setLoading(false);
+        setStatus("");
+        setBridgeConfirm({
+          sourceChain: c,
+          destChain: selectedChain,
+          amount,
+          recipient: recipientAddress,
+        });
+      }
+      return;
+    }
+
+    // User override: combine chosen networks onto Base, then deliver.
+    if (sourcePref.mode === "consolidate") {
+      const sum = sourcePref.from.reduce(
+        (s, k) =>
+          s + (k === "solana" ? solanaSource?.balance ?? 0 : chainBalances?.[k] ?? 0),
+        0,
+      );
+      if (sum + 1e-9 < amt) {
+        toast.error("Selected networks don't hold enough for this send.");
+        setLoading(false);
+        setStatus("");
+        return;
+      }
+      setLoading(false);
+      setStatus("");
+      setBridgeConfirm({
+        sourceChain: "base",
+        destChain: selectedChain,
+        amount,
+        recipient: recipientAddress,
+        consolidate: true,
+      });
+      return;
+    }
+
+    const plan = planExternalSend(amount, selectedChain, chainBalances ?? {}, {
+      homeChain: "base",
+    });
+
+    if (plan.mode === "direct") {
+      await executeDirectTransfer();
+      return;
+    }
+
+    if (plan.mode === "bridge" && plan.sourceChain) {
+      // A single EVM chain covers it — bridge straight from there to the recipient.
+      setLoading(false);
+      setStatus("");
+      setBridgeConfirm({
+        sourceChain: plan.sourceChain,
+        destChain: selectedChain,
+        amount,
+        recipient: recipientAddress,
+      });
+      return;
+    }
+
+    // No single chain covers it. If the combined balance (EVM + Solana) does, gather
+    // funds onto Base first, then deliver to the destination.
+    const solBal = solanaSource?.balance ?? 0;
+    if (plan.totalAvailable + solBal + 1e-9 >= parseFloat(amount)) {
+      setLoading(false);
+      setStatus("");
+      setBridgeConfirm({
+        sourceChain: "base",
+        destChain: selectedChain,
+        amount,
+        recipient: recipientAddress,
+        consolidate: true,
+      });
+      return;
+    }
+
+    toast.error("Insufficient balance to complete this transfer.");
+    setLoading(false);
+    setStatus("");
   };
 
   const handleTwoFaSubmit = async (
@@ -108,7 +235,7 @@ export function useCryptoTransfer({
 
       if (method === "passkey") {
         setTwoFaModalOpen(false);
-        await executeTransferActual();
+        await proceedAfterAuth();
         return;
       }
 
@@ -140,7 +267,7 @@ export function useCryptoTransfer({
 
       setTwoFaModalOpen(false);
       setTwoFaOtpId(null);
-      await executeTransferActual();
+      await proceedAfterAuth();
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : "Invalid code";
       setTwoFaError(errorMessage);
@@ -186,47 +313,150 @@ export function useCryptoTransfer({
     setTwoFaError(null);
   };
 
-  const executeTransferActual = async () => {
+  const invalidateBalances = () => {
+    queryClient.invalidateQueries({ queryKey: ["portfolio"] });
+    queryClient.invalidateQueries({ queryKey: ["cross-chain-balances"] });
+    queryClient.invalidateQueries({ queryKey: ["history", senderEmail] });
+  };
+
+  const recordSentTransfer = async (
+    txHash: string,
+    note: string,
+    chain: SupportedChain,
+  ) => {
+    const { recordTransfer } = await import("@/lib/supabase/transactions");
+    await recordTransfer({
+      senderEmail,
+      recipientEmail: recipientAddress,
+      amount: parseFloat(amount),
+      status: "completed",
+      note,
+      txHash,
+      chain,
+    });
+  };
+
+  // Same-chain send: the recipient is on a chain the user already holds funds on.
+  const executeDirectTransfer = async () => {
     if (!amount || !recipientAddress || !embeddedProvider) return;
     setLoading(true);
-    setStatus("Initiating transfer...");
+    setStatus("Requesting signature...");
 
     try {
       const provider = await embeddedProvider.getEthereumProvider();
-      setStatus("Requesting signature...");
-
       const txHash = await executeCircleGaslessTransfer(
         provider,
         recipientAddress,
         amount,
-        selectedChain
+        selectedChain,
       );
 
       toast.success("Transfer completed!");
       setStatus("");
-
-      // Record transfer in DB
-      const { recordTransfer } = await import("@/lib/supabase/transactions");
-      await recordTransfer({
-        senderEmail,
-        recipientEmail: recipientAddress,
-        amount: parseFloat(amount),
-        status: "completed",
-        note: `Crypto transfer on ${CHAIN_NAMES[selectedChain]}`,
-        txHash: txHash as string,
-      });
-
-      queryClient.invalidateQueries({ queryKey: ["balance", smartAddress, selectedChain] });
-      queryClient.invalidateQueries({ queryKey: ["history", senderEmail] });
-
+      await recordSentTransfer(
+        txHash as string,
+        `Crypto transfer on ${CHAIN_NAMES[selectedChain]}`,
+        selectedChain,
+      );
+      invalidateBalances();
       setAmount("");
       setRecipientAddress("");
+      setSourcePref(AUTO_SOURCE);
     } catch (err) {
       console.error("[Crypto Transfer] Fatal Error:", err);
       toast.error(parseFriendlyError(err));
       setStatus("");
     }
     setLoading(false);
+  };
+
+  // Cross-chain send: bridge from a funded chain and deliver to the recipient on the
+  // destination chain. Invoked after the user confirms the bridge modal.
+  const confirmBridgeSend = async () => {
+    const info = bridgeConfirm;
+    if (!info || !embeddedProvider) return;
+    setBridgeConfirm(null);
+    setLoading(true);
+
+    try {
+      let txHash: string;
+
+      if (info.consolidate) {
+        // Gather funds onto Base, then deliver. Honour the user's chosen networks if set.
+        const from = sourcePref.mode === "consolidate" ? sourcePref.from : null;
+        const allBalances = chainBalances ?? {};
+        const sourceBalances: ChainBalances = from
+          ? Object.fromEntries(
+              (Object.keys(allBalances) as (keyof ChainBalances)[])
+                .filter((c) => from.includes(c as SourceChainKey))
+                .map((c) => [c, allBalances[c]]),
+            )
+          : allBalances;
+        const includeSolana = from ? from.includes("solana") : true;
+        setStatus("Gathering your funds onto Base…");
+        await consolidateFundsToChain(embeddedProvider, {
+          targetChain: "base",
+          requiredAmount: info.amount,
+          balances: sourceBalances,
+          recipient: smartAddress,
+          solana: includeSolana ? solanaSource : undefined,
+          onStatus: setStatus,
+        });
+
+        if (info.destChain === "base") {
+          setStatus("Sending on Base…");
+          const provider = await embeddedProvider.getEthereumProvider();
+          txHash = await executeCircleGaslessTransfer(
+            provider,
+            info.recipient,
+            info.amount,
+            "base",
+          );
+        } else {
+          const { burnTxHash, mintTxHash } = await bridgeAndDeliver(embeddedProvider, {
+            sourceChain: "base",
+            destChain: info.destChain,
+            amountUSDC: info.amount,
+            recipient: info.recipient,
+            onStatus: setStatus,
+          });
+          txHash = mintTxHash ?? burnTxHash;
+        }
+      } else {
+        // A single EVM chain covers it — bridge straight to the recipient.
+        setStatus(`Bridging from ${CHAIN_NAMES[info.sourceChain]}…`);
+        const { burnTxHash, mintTxHash } = await bridgeAndDeliver(embeddedProvider, {
+          sourceChain: info.sourceChain,
+          destChain: info.destChain,
+          amountUSDC: info.amount,
+          recipient: info.recipient,
+          onStatus: setStatus,
+        });
+        txHash = mintTxHash ?? burnTxHash;
+      }
+
+      setStatus("");
+      await recordSentTransfer(
+        txHash,
+        `Cross-chain transfer to ${CHAIN_NAMES[info.destChain]}`,
+        info.destChain,
+      );
+      invalidateBalances();
+      toast.success("Transfer delivered!");
+      setAmount("");
+      setRecipientAddress("");
+    } catch (err) {
+      console.error("[Crypto Transfer] Bridge error:", err);
+      toast.error(parseFriendlyError(err));
+      setStatus("");
+    }
+    setLoading(false);
+  };
+
+  const cancelBridgeSend = () => {
+    setBridgeConfirm(null);
+    setLoading(false);
+    setStatus("");
   };
 
   const isOverBalance = parseFloat(amount || "0") > parseFloat(balance);
@@ -255,5 +485,12 @@ export function useCryptoTransfer({
     totpEnabled,
     passkeyEnabled,
     handleTwoFaClose,
+    bridgeConfirm,
+    confirmBridgeSend,
+    cancelBridgeSend,
+    sourcePref,
+    setSourcePref,
+    chainBalances: chainBalances ?? {},
+    solanaBalance: solanaSource?.balance ?? 0,
   };
 }

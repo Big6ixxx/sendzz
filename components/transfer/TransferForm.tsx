@@ -13,6 +13,8 @@ import { ReceiptActions } from '@/components/receipt/ReceiptActions';
 import { ReceiptData } from '@/lib/receipt/types';
 import { type RecipientCheckState } from './useTransfer';
 import { RecipientSuggestions } from '@/components/contacts/RecipientSuggestions';
+import { SourceSelector } from '@/components/SourceSelector';
+import type { ChainBalances, SourcePreference } from '@/lib/web3/routing';
 
 interface TransferFormProps {
   recipientEmail: string;
@@ -39,6 +41,10 @@ interface TransferFormProps {
   balance: string;
   lastCompletedTransfer?: ReceiptData | null;
   recipientCheck?: RecipientCheckState | null;
+  sourcePref: SourcePreference;
+  setSourcePref: (p: SourcePreference) => void;
+  chainBalances: ChainBalances;
+  solanaBalance: number;
 }
 
 export function TransferForm({
@@ -66,7 +72,14 @@ export function TransferForm({
   balance,
   lastCompletedTransfer,
   recipientCheck,
+  sourcePref,
+  setSourcePref,
+  chainBalances,
+  solanaBalance,
 }: TransferFormProps) {
+  const fundedSources =
+    Object.values(chainBalances).filter((b) => (b ?? 0) > 0).length +
+    (solanaBalance > 0 ? 1 : 0);
   return (
     <form
       onSubmit={handleTransfer}
@@ -216,6 +229,16 @@ export function TransferForm({
           placeholder="What's this for?"
         />
       </div>
+
+      {parseFloat(amountUsdc || '0') > 0 && fundedSources > 1 && (
+        <SourceSelector
+          balances={chainBalances}
+          solanaBalance={solanaBalance}
+          requiredAmount={parseFloat(amountUsdc || '0')}
+          value={sourcePref}
+          onChange={setSourcePref}
+        />
+      )}
 
       <div className="space-y-4 pt-4">
         <button

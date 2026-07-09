@@ -1,0 +1,29 @@
+name: Reconcile Bitnob payouts
+
+# The Vercel cron for /api/cron/reconcile-bitnob-payouts can only run once/day on the Hobby
+# tier. This workflow is an optional higher-frequency backstop: it pings the same endpoint
+# every 10 minutes so a payout whose webhook was missed gets re-driven promptly instead of
+# waiting up to a day. (GitHub-scheduled runs can lag a few minutes under load — that's fine.)
+#
+# Setup (repo → Settings → Secrets and variables → Actions):
+#   • Secret  DEPLOY_URL   – your deployment origin, e.g. https://your-app.vercel.app
+#   • Secret  CRON_SECRET  – the SAME value as the CRON_SECRET env var in Vercel
+# Then this runs automatically. You can also trigger it manually from the Actions tab.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger reconciliation endpoint
+        run: |
+          code=$(curl -sS -o /tmp/body -w '%{http_code}' \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.DEPLOY_URL }}/api/cron/reconcile-bitnob-payouts")
+          echo "HTTP $code"
+          cat /tmp/body
+          test "$code" = "200"

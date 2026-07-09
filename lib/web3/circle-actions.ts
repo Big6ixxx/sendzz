@@ -11,6 +11,7 @@ import {
 } from './config';
 import { VIEM_CHAINS } from './multichain';
 import { USDC_ADDRESSES, GAS_POLICY_IDS, type SupportedChain } from '../circle/gateway';
+import { type RouteLeg } from './routing';
 
 const ERC20_ABI = parseAbi([
   'function transfer(address _to, uint256 _value) returns (bool)',
@@ -30,6 +31,32 @@ export async function executeCircleGaslessTransfer(
   return executeCircleGaslessBatchTransfer(provider, [
     { recipientAddress, amountUSDC },
   ], targetChain);
+}
+
+/**
+ * Execute a routed transfer to a single recipient. The route engine may split the
+ * amount across several chains (multi-source); each leg is an independent gasless
+ * transfer on its own chain. Returns the tx hash of every leg in order.
+ *
+ * Note: legs are NOT atomic across chains. They run sequentially; if a later leg
+ * fails, earlier legs have already settled. The caller surfaces partial state.
+ */
+export async function executeRoutedTransfer(
+  provider: EIP1193Provider,
+  recipientAddress: string,
+  legs: RouteLeg[],
+): Promise<string[]> {
+  const txHashes: string[] = [];
+  for (const leg of legs) {
+    const hash = await executeCircleGaslessTransfer(
+      provider,
+      recipientAddress,
+      leg.amount,
+      leg.chain,
+    );
+    txHashes.push(hash);
+  }
+  return txHashes;
 }
 
 export async function executeCircleGaslessBatchTransfer(

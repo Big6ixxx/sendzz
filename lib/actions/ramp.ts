@@ -1,13 +1,23 @@
 "use server";
 
-import { getBitnobClient } from "@/lib/bitnob/client";
-import { getPaycrestClient } from "@/lib/paycrest/client";
-import { calculatePaycrestBaseAmount } from "@/lib/paycrest/config";
-import { PaycrestCurrency } from "../paycrest/types";
+import { Ramp } from "@/lib/ramp";
+import type {
+  RampCurrency,
+  RampNetwork,
+  RampOrderResponse,
+  RampProviderName,
+} from "@/lib/ramp";
 
 /**
- * PAYCREST ON-RAMP (DEFAULT)
- * Initiates an on-ramp order via Paycrest
+ * Fiat on/off-ramp server actions.
+ *
+ * These are provider-neutral: they delegate to the Ramp router (Bitnob primary, Paycrest
+ * fallback) and never reference a specific provider's SDK. The router decides which
+ * provider serves each call and which provider owns each created order.
+ */
+
+/**
+ * ON-RAMP — buy USDC with fiat. Returns the bank/virtual account the user funds.
  */
 export async function initiateOnRamp({
   amountFiat,
@@ -16,6 +26,7 @@ export async function initiateOnRamp({
   userEmail,
   refundAccount,
   fiatCurrency = "NGN",
+  network = "base",
 }: {
   amountFiat: number;
   userId: string;
@@ -26,30 +37,19 @@ export async function initiateOnRamp({
     accountIdentifier: string;
     accountName: string;
   };
-  fiatCurrency?: PaycrestCurrency;
-}) {
-  const paycrest = getPaycrestClient();
-
+  fiatCurrency?: RampCurrency;
+  /** Chain the purchased USDC is delivered to (the user's home chain). */
+  network?: RampNetwork;
+}): Promise<RampOrderResponse> {
   try {
-    const baseAmount = calculatePaycrestBaseAmount(amountFiat);
-    const safeUserId = userId.replace(/[^a-z0-9]/gi, "");
-    const order = await paycrest.createOrder({
-      amount: baseAmount.toFixed(2),
-      amountIn: "fiat",
-      source: {
-        type: "fiat",
-        currency: fiatCurrency,
-        refundAccount,
-      },
-      destination: {
-        type: "crypto",
-        currency: "USDC",
-        recipient: {
-          address: userAddress,
-          network: "base",
-        },
-      },
-      reference: `onramp${Date.now()}${safeUserId}`,
+    const order = await Ramp.createOnRampOrder({
+      amountFiat,
+      userId,
+      userAddress,
+      userEmail,
+      refundAccount,
+      fiatCurrency,
+      network,
     });
 
     // Record in internal ledger
@@ -61,93 +61,85 @@ export async function initiateOnRamp({
       amountUsdc: Number(order.amount),
       status: "pending",
       paycrestTxId: order.id,
+      network,
+      provider: order.provider,
     });
 
     return order;
   } catch (error: unknown) {
     const err = error as Error;
-    console.error(
-      `Error initiating Paycrest on-ramp for ${fiatCurrency}:`,
-      err.message || error,
-    );
+    console.error(`Error initiating on-ramp for ${fiatCurrency}:`, err.message || error);
     throw error;
   }
 }
 
 /**
- * Get the live fiat→USDC buy rate from Paycrest
+ * Live fiat→USDC buy rate.
  */
-export async function getOnRampRate(fiat: string = 'NGN'): Promise<number | null> {
-  const paycrest = getPaycrestClient();
+export async function getOnRampRate(fiat: string = "NGN"): Promise<number | null> {
   try {
-    const rates = await paycrest.getRates('base', 'USDC', 1, fiat);
+    const rates = await Ramp.getRates(1, fiat);
     const buyRate = rates.data.buy?.rate;
     return buyRate ? Number(buyRate) : null;
   } catch (error) {
-    if (error instanceof Error && error.message.includes('404')) {
-      return null;
-    }
+    if (error instanceof Error && error.message.includes("404")) return null;
     throw error;
   }
 }
 
 /**
- * Fetch the current status of an order
+ * Current status of an order. `provider` must match the provider that created it
+ * (defaults to paycrest for legacy orders recorded before provider tracking).
  */
-export async function getOrderStatus(orderId: string) {
-  const paycrest = getPaycrestClient();
-  return paycrest.getOrder(orderId);
+export async function getOrderStatus(
+  orderId: string,
+  provider: RampProviderName = "paycrest",
+) {
+  return Ramp.getOrder(orderId, provider);
 }
 
 /**
- * Save order reference to allow resuming from a dedicated route
- * Returns the order details for status checking
+ * Resume helper — fetch an order by id for a status page.
  */
-export async function checkOrderById(orderId: string) {
-  const paycrest = getPaycrestClient();
+export async function checkOrderById(
+  orderId: string,
+  provider: RampProviderName = "paycrest",
+) {
   try {
-    return await paycrest.getOrder(orderId);
+    return await Ramp.getOrder(orderId, provider);
   } catch {
     return null;
   }
 }
 
 export async function getOffRampRate(fiat: string = "NGN"): Promise<number> {
-  const paycrest = getPaycrestClient();
-  const rates = await paycrest.getRates("base", "USDC", 1, fiat);
+  const rates = await Ramp.getRates(1, fiat);
   const sellRate = rates.data.sell?.rate;
   if (!sellRate) throw new Error(`Could not fetch offramp rate for ${fiat}`);
   return Number(sellRate);
 }
 
 /**
- * PAYCREST OFF-RAMP QUOTE (DEFAULT)
+ * OFF-RAMP QUOTE
  */
-export async function getOffRampQuote(
-  amountUsdc: number,
-  fiat: string = "NGN",
-) {
-  const paycrest = getPaycrestClient();
-
+export async function getOffRampQuote(amountUsdc: number, fiat: string = "NGN") {
   try {
-    const rates = await paycrest.getRates("base", "USDC", amountUsdc, fiat);
+    const rates = await Ramp.getRates(amountUsdc, fiat);
+    const rate = rates.data.sell?.rate || 0;
     return {
-      rate: rates.data.sell?.rate || 0,
-      payoutAmount: amountUsdc * (rates.data.sell?.rate || 0),
-      provider: "paycrest",
+      rate,
+      payoutAmount: amountUsdc * rate,
+      provider: rates.data.sell?.provider_id || "ramp",
     };
   } catch (error: unknown) {
     const err = error as Error;
-    console.error(
-      `Error fetching Paycrest rates for ${fiat}:`,
-      err.message || error,
-    );
+    console.error(`Error fetching off-ramp rates for ${fiat}:`, err.message || error);
     throw error;
   }
 }
 
 /**
- * PAYCREST OFF-RAMP EXECUTION (DEFAULT)
+ * OFF-RAMP EXECUTION — sell USDC for fiat. Returns the order (incl. receive address).
  */
 export async function finalizeOffRamp(
   amountUsdc: number,
@@ -156,37 +148,27 @@ export async function finalizeOffRamp(
   accountName: string,
   userRefundAddress: string,
   userEmail: string,
-  fiat: PaycrestCurrency = 'NGN',
+  fiat: RampCurrency = "NGN",
   fiatAmount?: number,
   exchangeRate?: number,
-  inputMode: 'fiat' | 'usdc' = 'usdc'
-) {
-  const paycrest = getPaycrestClient();
-
+  inputMode: "fiat" | "usdc" = "usdc",
+  network: RampNetwork = "base",
+  /** True when funds were spread across chains and auto-bridged onto `network` first. */
+  consolidated: boolean = false,
+): Promise<RampOrderResponse> {
   try {
-    const isFiat = inputMode === 'fiat' && fiatAmount;
-
-    const order = await paycrest.createOrder({
-      amount: isFiat ? fiatAmount.toString() : amountUsdc.toString(),
-      amountIn: isFiat ? "fiat" : "crypto",
-      source: {
-        type: "crypto",
-        currency: "USDC",
-        network: "base",
-        refundAddress: userRefundAddress,
-      },
-      destination: {
-        type: "fiat",
-        currency: fiat,
-        recipient: {
-          institution: bankCode,
-          accountIdentifier: accountNumber,
-          accountName: accountName,
-        },
-      },
-      reference: `offramp_${Date.now()}`,
+    const order = await Ramp.createOffRampOrder({
+      amountUsdc,
+      fiatAmount,
+      inputMode,
+      bank: { accountNumber, bankCode, accountName },
+      userRefundAddress,
+      userEmail,
+      fiatCurrency: fiat,
+      network,
     });
 
+    const isFiat = inputMode === "fiat" && !!fiatAmount;
     const finalAmountUsdc = isFiat ? Number(order.amount || amountUsdc) : amountUsdc;
 
     // Record in internal ledger
@@ -195,36 +177,129 @@ export async function finalizeOffRamp(
       userEmail,
       amountUsdc: finalAmountUsdc,
       fiatCurrency: fiat,
-      fiatAmount: isFiat ? fiatAmount : (fiatAmount || amountUsdc * (exchangeRate || 1)),
+      fiatAmount: isFiat ? fiatAmount : fiatAmount || amountUsdc * (exchangeRate || 1),
       exchangeRate,
-      bankAccountMasked: accountNumber.replace(/.(?=.{4})/g, '*'),
+      bankAccountMasked: accountNumber.replace(/.(?=.{4})/g, "*"),
       institutionCode: bankCode,
       status: "processing",
       paycrestOrderId: order.id,
+      sourceChain: network,
+      consolidated,
+      provider: order.provider,
+      bitnobQuoteId: order.providerRef,
+      bitnobDepositAddress: order.providerAccount?.receiveAddress,
     });
 
     return order;
   } catch (error: unknown) {
     const err = error as Error;
-    console.error(
-      `Error finalizing Paycrest off-ramp for ${fiat}:`,
-      err.message || error,
-    );
+    console.error(`Error finalizing off-ramp for ${fiat}:`, err.message || error);
     throw error;
   }
 }
 
 /**
- * Verify Bank Account
+ * Create an off-ramp order using the pinned-provider model with canonical bank identity.
+ *
+ * Tries off-ramp providers in order; for each it RESOLVES that provider's bank_code from
+ * the canonical bank name (codes differ per provider), then creates the order. On failure
+ * it moves to the next provider and re-resolves — which is why the caller passes a bank
+ * NAME, never a raw code. The winning provider is pinned; its receive address is returned
+ * for the USDC transfer, and the withdrawal is recorded against that provider.
+ */
+export async function executeOffRamp(params: {
+  amountUsdc: number;
+  fiatAmount?: number;
+  exchangeRate?: number;
+  inputMode: "fiat" | "usdc";
+  bank: { accountNumber: string; accountName: string; bankName: string };
+  userRefundAddress: string;
+  userEmail: string;
+  fiatCurrency: RampCurrency;
+  network: RampNetwork;
+  consolidated?: boolean;
+}): Promise<{ order: RampOrderResponse; provider: RampProviderName }> {
+  const providersToTry = await Ramp.offRampProviderOrder(params.fiatCurrency);
+  let lastError: unknown = new Error("No off-ramp provider available");
+
+  for (const provider of providersToTry) {
+    try {
+      const resolved = await Ramp.resolveBankCode(
+        provider,
+        params.bank.bankName,
+        params.fiatCurrency,
+      );
+      if (!resolved) {
+        lastError = new Error(`${provider} has no bank matching "${params.bank.bankName}"`);
+        console.warn(`[Action] executeOffRamp: ${(lastError as Error).message}`);
+        continue;
+      }
+
+      const created = await Ramp.createOffRampOrderFor(provider, {
+        amountUsdc: params.amountUsdc,
+        fiatAmount: params.fiatAmount,
+        inputMode: params.inputMode,
+        bank: {
+          accountNumber: params.bank.accountNumber,
+          bankCode: resolved.code,
+          accountName: params.bank.accountName,
+        },
+        userRefundAddress: params.userRefundAddress,
+        userEmail: params.userEmail,
+        fiatCurrency: params.fiatCurrency,
+        network: params.network,
+      });
+
+      const isFiat = params.inputMode === "fiat" && !!params.fiatAmount;
+      const finalAmountUsdc = isFiat ? Number(created.amount || params.amountUsdc) : params.amountUsdc;
+
+      const { recordWithdrawal } = await import("@/lib/supabase/transactions");
+      await recordWithdrawal({
+        userEmail: params.userEmail,
+        amountUsdc: finalAmountUsdc,
+        fiatCurrency: params.fiatCurrency,
+        fiatAmount: isFiat
+          ? params.fiatAmount
+          : params.fiatAmount ?? params.amountUsdc * (params.exchangeRate ?? 1),
+        exchangeRate: params.exchangeRate,
+        bankAccountMasked: params.bank.accountNumber.replace(/.(?=.{4})/g, "*"),
+        institutionCode: resolved.code,
+        status: "processing",
+        paycrestOrderId: created.id,
+        sourceChain: params.network,
+        consolidated: params.consolidated,
+        provider: created.provider,
+        bitnobQuoteId: created.provider === "bitnob" ? created.providerRef : undefined,
+        bitnobDepositAddress:
+          created.provider === "bitnob" ? created.providerAccount?.receiveAddress : undefined,
+      });
+
+      console.log(`[Action] executeOffRamp: order ${created.id} created on ${provider}`);
+      return { order: created, provider };
+    } catch (e) {
+      lastError = e;
+      console.error(`[Action] executeOffRamp: ${provider} failed, trying next:`, e);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+/**
+ * Verify a bank account (account number → account name).
  */
 export async function verifyBankAccount(
   institution: string,
   accountNumber: string,
+  currency?: string,
+  provider?: RampProviderName,
 ) {
-  console.log(`[Action] verifyBankAccount: ${institution} / ${accountNumber}`);
-  const paycrest = getPaycrestClient();
+  console.log(
+    `[Action] verifyBankAccount: ${institution} / ${accountNumber} / ${currency ?? "NGN"} / ${provider ?? "auto"}`,
+  );
   try {
-    const result = await paycrest.verifyAccount(institution, accountNumber);
+    const result = provider
+      ? await Ramp.verifyAccountFor(provider, institution, accountNumber, currency)
+      : await Ramp.verifyAccount(institution, accountNumber, currency);
     console.log(`[Action] verifyBankAccount result:`, result);
     return result;
   } catch (error) {
@@ -234,57 +309,52 @@ export async function verifyBankAccount(
 }
 
 /**
- * BITNOB FUNCTIONS
+ * Ordered list of off-ramp providers to try for a currency (pinned flow). The withdraw
+ * flow uses the first; on failure it re-resolves the bank for the next via resolveBankCode.
  */
-export async function initiateBitnobOnRamp(
-  amountNgn: number,
-  userId: string,
-  userAddress: string,
-) {
-  const bitnob = getBitnobClient();
-  const checkout = await bitnob.createCheckout({
-    amount: amountNgn,
-    reference: `onramp_bitnob_${Date.now()}_${userAddress}`,
-    description: `Sendzz Deposit for ${userAddress}`,
-    successUrl: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?status=success`,
-  });
-  return (
-    checkout.data.checkoutUrl || checkout.data.hosted_url || checkout.data.url
-  );
+export async function getOffRampProviderOrder(
+  currency: string = "NGN",
+): Promise<RampProviderName[]> {
+  return Ramp.offRampProviderOrder(currency);
 }
 
-export async function getBitnobOffRampQuote(amountUsdc: number) {
-  const bitnob = getBitnobClient();
-  return await bitnob.createOfframpQuote({
-    fromAsset: "usdc",
-    toCurrency: "ngn",
-    amount: amountUsdc,
-  });
-}
-
-export async function finalizeBitnobOffRamp(
-  quoteId: string,
-  accountNumber: string,
-  bankCode: string,
-) {
-  const bitnob = getBitnobClient();
-  return await bitnob.finalizeQuote(quoteId, {
-    bankDetails: {
-      accountNumber,
-      bankCode,
-    },
-  });
+/**
+ * Resolve a provider-specific bank code from a canonical bank name — the primitive that
+ * makes saved accounts + provider fallback portable (bank codes differ per provider).
+ */
+export async function resolveBankCode(
+  provider: RampProviderName,
+  bankName: string,
+  currency: string = "NGN",
+): Promise<{ code: string; name: string } | null> {
+  return Ramp.resolveBankCode(provider, bankName, currency);
 }
 
 /**
  * UTILITIES
  */
-export async function getInstitutions(currency: string = "NGN") {
-  const paycrest = getPaycrestClient();
-  return await paycrest.getInstitutions(currency);
+export async function getInstitutions(
+  currency: string = "NGN",
+  provider?: RampProviderName,
+) {
+  return provider
+    ? await Ramp.institutionsFor(provider, currency)
+    : await Ramp.getInstitutions(currency);
 }
 
 export async function getCurrencies() {
-  const paycrest = getPaycrestClient();
-  return await paycrest.getCurrencies();
+  return await Ramp.getCurrencies();
+}
+
+/**
+ * Chains the active off-ramp provider can settle USDC on. Drives withdrawal routing
+ * dynamically instead of a hardcoded network list.
+ */
+export async function getRampNetworks(): Promise<string[]> {
+  try {
+    const networks = await Ramp.getSettlementNetworks();
+    return networks.length > 0 ? networks : ["base", "polygon", "ethereum"];
+  } catch {
+    return ["base", "polygon", "ethereum"];
+  }
 }

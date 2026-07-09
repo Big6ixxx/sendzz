@@ -40,7 +40,7 @@ export type WithdrawalVerificationStatus = "pending" | "verified" | "expired";
 
 export type OtpPurpose = "login" | "withdrawal_verification";
 
-export type WebhookProvider = "paycrest";
+export type WebhookProvider = "paycrest" | "bitnob";
 
 export interface Database {
   public: {
@@ -50,6 +50,8 @@ export interface Database {
           id: string;
           email: string;
           smart_account_address: string | null;
+          solana_address: string | null;
+          last_deposit_scan_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -57,6 +59,8 @@ export interface Database {
           id?: string;
           email: string;
           smart_account_address?: string | null;
+          solana_address?: string | null;
+          last_deposit_scan_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -64,7 +68,30 @@ export interface Database {
           id?: string;
           email?: string;
           smart_account_address?: string | null;
+          solana_address?: string | null;
+          last_deposit_scan_at?: string | null;
           created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      deposit_sync_state: {
+        Row: {
+          user_id: string;
+          chain: string;
+          cursor: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          chain: string;
+          cursor?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          chain?: string;
+          cursor?: string | null;
           updated_at?: string;
         };
         Relationships: [];
@@ -156,6 +183,7 @@ export interface Database {
           status: TransferStatus;
           note: string | null;
           tx_hash: string | null;
+          source_chain: string | null;
           claim_token_hash: string | null;
           expires_at: string | null;
           created_at: string;
@@ -172,6 +200,7 @@ export interface Database {
           status?: TransferStatus;
           note?: string | null;
           tx_hash?: string | null;
+          source_chain?: string | null;
           claim_token_hash?: string | null;
           expires_at?: string | null;
           created_at?: string;
@@ -188,6 +217,7 @@ export interface Database {
           status?: TransferStatus;
           note?: string | null;
           tx_hash?: string | null;
+          source_chain?: string | null;
           claim_token_hash?: string | null;
           expires_at?: string | null;
           created_at?: string;
@@ -205,6 +235,10 @@ export interface Database {
           currency_fiat: string | null;
           amount_usdc: number | null;
           status: DepositStatus;
+          network: string | null;
+          provider: string | null;
+          provider_order_id: string | null;
+          provider_metadata: Json;
           created_at: string;
           updated_at: string;
         };
@@ -217,6 +251,10 @@ export interface Database {
           currency_fiat?: string | null;
           amount_usdc?: number | null;
           status?: DepositStatus;
+          network?: string | null;
+          provider?: string | null;
+          provider_order_id?: string | null;
+          provider_metadata?: Json;
           created_at?: string;
           updated_at?: string;
         };
@@ -229,6 +267,10 @@ export interface Database {
           currency_fiat?: string | null;
           amount_usdc?: number | null;
           status?: DepositStatus;
+          network?: string | null;
+          provider?: string | null;
+          provider_order_id?: string | null;
+          provider_metadata?: Json;
           created_at?: string;
           updated_at?: string;
         };
@@ -250,6 +292,11 @@ export interface Database {
           verification_status: WithdrawalVerificationStatus;
           verification_token_hash: string | null;
           verification_expires_at: string | null;
+          source_chain: string | null;
+          consolidated: boolean;
+          provider: string | null;
+          provider_order_id: string | null;
+          provider_metadata: Json;
           created_at: string;
           updated_at: string;
         };
@@ -268,6 +315,11 @@ export interface Database {
           verification_status?: WithdrawalVerificationStatus;
           verification_token_hash?: string | null;
           verification_expires_at?: string | null;
+          source_chain?: string | null;
+          consolidated?: boolean;
+          provider?: string | null;
+          provider_order_id?: string | null;
+          provider_metadata?: Json;
           created_at?: string;
           updated_at?: string;
         };
@@ -286,6 +338,11 @@ export interface Database {
           verification_status?: WithdrawalVerificationStatus;
           verification_token_hash?: string | null;
           verification_expires_at?: string | null;
+          source_chain?: string | null;
+          consolidated?: boolean;
+          provider?: string | null;
+          provider_order_id?: string | null;
+          provider_metadata?: Json;
           created_at?: string;
           updated_at?: string;
         };

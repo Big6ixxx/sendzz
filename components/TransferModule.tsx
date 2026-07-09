@@ -10,12 +10,16 @@ import { TransferSaveContactPrompt } from "./transfer/TransferSaveContactPrompt"
 import { TwoFactorModal, type VerificationMethod } from "./TwoFactorModal";
 import { useCryptoTransfer } from "./transfer/useCryptoTransfer";
 import { CryptoTransferForm } from "./transfer/CryptoTransferForm";
+import { CrossChainSendModal } from "./transfer/CrossChainSendModal";
 import { FirstTimeTransferWarningModal } from "./transfer/FirstTimeTransferWarningModal";
+import { type ChainBalances, type SolanaSource } from "@/lib/web3/routing";
 
 export function TransferModule({
   smartAddress,
   embeddedProvider,
   balance,
+  chainBalances,
+  solanaSource,
   senderEmail,
   initialRecipientEmail,
   onClearInitialRecipient,
@@ -23,6 +27,8 @@ export function TransferModule({
   smartAddress: string;
   embeddedProvider?: ConnectedWallet;
   balance: string;
+  chainBalances?: ChainBalances;
+  solanaSource?: SolanaSource;
   senderEmail: string;
   initialRecipientEmail?: string;
   onClearInitialRecipient?: () => void;
@@ -68,10 +74,16 @@ export function TransferModule({
     setWarningModalOpen,
     handleWarningConfirm,
     handleTwoFaClose,
+    sourcePref,
+    setSourcePref,
+    chainBalances: transferChainBalances,
+    solanaBalance: transferSolanaBalance,
   } = useTransfer({
     smartAddress,
     embeddedProvider,
     balance,
+    chainBalances,
+    solanaSource,
     senderEmail,
     initialRecipientEmail,
     onClearInitialRecipient,
@@ -81,6 +93,8 @@ export function TransferModule({
     smartAddress,
     embeddedProvider,
     senderEmail,
+    chainBalances,
+    solanaSource,
   });
 
   return (
@@ -150,6 +164,10 @@ export function TransferModule({
           balance={balance}
           lastCompletedTransfer={lastCompletedTransfer}
           recipientCheck={recipientCheck}
+          sourcePref={sourcePref}
+          setSourcePref={setSourcePref}
+          chainBalances={transferChainBalances}
+          solanaBalance={transferSolanaBalance}
         />
       ) : (
         <CryptoTransferForm
@@ -166,6 +184,10 @@ export function TransferModule({
           isOverBalance={cryptoTransfer.isOverBalance}
           isZeroBalance={cryptoTransfer.isZeroBalance}
           handleTransfer={cryptoTransfer.handleTransfer}
+          sourcePref={cryptoTransfer.sourcePref}
+          setSourcePref={cryptoTransfer.setSourcePref}
+          chainBalances={cryptoTransfer.chainBalances}
+          solanaBalance={cryptoTransfer.solanaBalance}
         />
       )}
 
@@ -222,6 +244,13 @@ export function TransferModule({
         onClose={() => setWarningModalOpen(false)}
         onConfirm={handleWarningConfirm}
         recipientEmail={recipientEmail}
+      />
+
+      <CrossChainSendModal
+        info={cryptoTransfer.bridgeConfirm}
+        loading={cryptoTransfer.loading}
+        onConfirm={cryptoTransfer.confirmBridgeSend}
+        onClose={cryptoTransfer.cancelBridgeSend}
       />
 
       <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-muted/20 rounded-full blur-3xl z-0 pointer-events-none" />

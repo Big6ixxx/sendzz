@@ -120,9 +120,10 @@ export async function fetchCctpFees(
 export async function calculateMaxFee(
   sourceChain: SupportedChain,
   amountUSDC: string,
+  destChain: SupportedChain = 'base',
 ): Promise<bigint> {
   const sourceDomain = CCTP_DOMAINS[sourceChain];
-  const destDomain = CCTP_DOMAINS.base;
+  const destDomain = CCTP_DOMAINS[destChain];
 
   // Convert USDC to subunits (6 decimals)
   const [whole, decimal = ''] = amountUSDC.split('.');

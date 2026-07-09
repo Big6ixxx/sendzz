@@ -1,6 +1,6 @@
 'use client';
 
-import { PaycrestInstitution } from '@/lib/paycrest/types';
+import { RampInstitution } from '@/lib/ramp';
 import { cn } from '@/lib/utils';
 import { CheckCircle2, ChevronDown, Loader2 } from 'lucide-react';
 import * as React from 'react';
@@ -11,7 +11,7 @@ import { BankSelectorDropdown } from './BankSelectorDropdown';
 import { BankSelectorSuggestions } from './BankSelectorSuggestions';
 
 interface BankSelectorProps {
-  institutions: PaycrestInstitution[];
+  institutions: RampInstitution[];
   selectedBankCode: string;
   onSelect: (bank: { code: string; name: string }) => void;
   onSelectContact?: (contact: { bankCode: string; bankName: string; accountNumber: string; accountName: string }) => void;

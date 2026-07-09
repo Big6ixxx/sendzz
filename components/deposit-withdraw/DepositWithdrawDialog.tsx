@@ -10,12 +10,13 @@ import {
 import { cn } from "@/lib/utils";
 import { ConnectedWallet } from "@privy-io/react-auth";
 import { ArrowDownLeft, ArrowUpRight, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DepositForm } from "./DepositForm";
-import { UsdcDepositFlow } from "./UsdcDepositFlow";
+import { ReceiveCryptoFlow } from "./ReceiveCryptoFlow";
 import { FlowType, useDepositWithdraw } from "./useDepositWithdraw";
 import { WithdrawForm } from "./WithdrawForm";
 import { TwoFactorModal } from "@/components/TwoFactorModal";
+import { type ChainBalances, type SolanaSource } from "@/lib/web3/routing";
 
 type DepositTab = "fiat" | "usdc";
 
@@ -25,7 +26,10 @@ interface DepositWithdrawDialogProps {
   type: FlowType;
   userId: string;
   userAddress: string;
+  solanaAddress?: string;
   balance: string;
+  chainBalances?: ChainBalances;
+  solanaSource?: SolanaSource;
   userEmail: string;
   embeddedProvider?: ConnectedWallet;
 }
@@ -36,7 +40,10 @@ export function DepositWithdrawDialog({
   type,
   userId,
   userAddress,
+  solanaAddress,
   balance,
+  chainBalances,
+  solanaSource,
   userEmail,
   embeddedProvider,
 }: DepositWithdrawDialogProps) {
@@ -50,6 +57,8 @@ export function DepositWithdrawDialog({
     balance,
     embeddedProvider,
     onClose,
+    chainBalances,
+    solanaSource,
   );
 
   const withdrawHook = useDepositWithdraw(
@@ -60,6 +69,8 @@ export function DepositWithdrawDialog({
     balance,
     embeddedProvider,
     onClose,
+    chainBalances,
+    solanaSource,
   );
 
   const handleClose = () => {
@@ -68,6 +79,20 @@ export function DepositWithdrawDialog({
     setDepositTab("fiat");
     onClose();
   };
+
+  // Reset on every open so a prior completed flow doesn't leave stale state behind.
+  // (Programmatic auto-close after success doesn't trigger onOpenChange/handleClose,
+  // so resetting on open is the reliable place to clear it.)
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (isOpen && !wasOpen.current) {
+      depositHook.reset();
+      withdrawHook.reset();
+      setDepositTab("fiat");
+    }
+    wasOpen.current = isOpen;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   return (
     <>
@@ -153,9 +178,9 @@ export function DepositWithdrawDialog({
                   depositTab === "fiat" ? (
                     <DepositForm hook={depositHook} />
                   ) : (
-                    <UsdcDepositFlow
-                      userAddress={userAddress}
-                      handleClose={handleClose}
+                    <ReceiveCryptoFlow
+                      evmAddress={userAddress}
+                      solanaAddress={solanaAddress}
                     />
                   )
                 ) : (

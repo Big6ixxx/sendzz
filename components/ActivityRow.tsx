@@ -14,6 +14,22 @@ import {
 } from 'lucide-react';
 import type { Activity, ActivityType } from './HistoryModule';
 import { useBalanceVisibility } from '@/components/providers/BalanceVisibilityProvider';
+import { CHAIN_META } from '@/components/deposit-withdraw/deposit-shared';
+
+const chainLabel = (chain: string) =>
+  (CHAIN_META[chain.toLowerCase()]?.name ?? chain).toUpperCase();
+
+/** Short network descriptor for a row, e.g. "BASE", "ARBITRUM → BASE", "VIA BASE". */
+function networkLabel(a: Activity): string | null {
+  if (a.type === 'bridge' && a.sourceChain) {
+    return `${chainLabel(a.sourceChain)} → ${chainLabel(a.destChain ?? 'base')}`;
+  }
+  if (a.type === 'withdrawal' && a.consolidated) {
+    return `Networks → ${chainLabel(a.sourceChain ?? 'base')}`;
+  }
+  if (a.sourceChain) return chainLabel(a.sourceChain);
+  return null;
+}
 
 const ACTIVITY_LABELS: Record<ActivityType, string> = {
   sent: 'Transfer Sent',
@@ -127,13 +143,13 @@ export function ActivityRow({
       onClick={() => onTxClick?.(a)}
       onKeyDown={(e) => e.key === 'Enter' && onTxClick?.(a)}
       className={cn(
-        'w-full p-5 md:p-7 flex items-center gap-6 transition-all text-left group relative',
+        'w-full p-4 sm:p-5 md:p-7 flex items-center gap-3 sm:gap-5 md:gap-6 transition-all text-left group relative',
         onTxClick && 'cursor-pointer hover:bg-white/3',
       )}
     >
       {/* Type icon */}
       <div
-        className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 transition-all duration-500 group-hover:scale-110 group-hover:rotate-6"
+        className="w-11 h-11 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center shrink-0 transition-all duration-500 group-hover:scale-110 group-hover:rotate-6"
         style={{ background: iconBg, color: iconColor, border: `1px solid ${iconBorder}` }}
       >
         {getActivityIcon(a.type)}
@@ -156,12 +172,27 @@ export function ActivityRow({
         </div>
 
         <div className="flex flex-col gap-1.5">
-          {/* Details + status row */}
-          <div className="flex justify-between items-center gap-2 sm:gap-4">
-            <p className="text-[10px] sm:text-[11px] font-bold uppercase truncate tracking-[0.15em] text-brand-secondary/30 flex-1 min-w-0">
-              {formatDetails(a.details)}
-            </p>
-            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          {/* Details + meta cluster. Details truncates; the cluster keeps its place and
+              wraps internally (capped width) so nothing overlaps on narrow widths. */}
+          <div className="flex items-start justify-between gap-2">
+            {/* For bridges the route chip ("X → BASE") already states the source, so the
+                redundant "From: X" detail is dropped to avoid saying the same thing twice. */}
+            {a.type !== 'bridge' && (
+              <p className="text-[10px] sm:text-[11px] font-bold uppercase truncate tracking-[0.15em] text-brand-secondary/30 min-w-0 flex-1 self-center">
+                {formatDetails(a.details)}
+              </p>
+            )}
+            <div
+              className={cn(
+                'flex items-center gap-x-2 gap-y-1 flex-wrap justify-end shrink-0 ml-auto',
+                a.type === 'bridge' ? 'max-w-full' : 'max-w-[70%]',
+              )}
+            >
+              {networkLabel(a) && (
+                <span className="inline-flex items-center shrink-0 text-[9px] px-1.5 py-0.5 rounded-md font-bold uppercase tracking-widest bg-white/5 text-brand-secondary/35 border border-white/8 whitespace-nowrap">
+                  {networkLabel(a)}
+                </span>
+              )}
               <span
                 className={cn(
                   'text-[9px] px-2 py-0.5 rounded-md font-bold uppercase tracking-widest flex items-center gap-1.5',

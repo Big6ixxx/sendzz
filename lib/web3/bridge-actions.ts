@@ -10,10 +10,12 @@ import {
   USDC_ADDRESSES,
   CCTP_DOMAINS,
   GAS_POLICY_IDS,
+  CHAIN_NAMES,
   type SupportedChain,
   calculateMaxFee
 } from '../circle/gateway';
 import { getCircleClient } from './circle-client';
+import { EVM_CHAINS, type ChainBalances, type SolanaSource } from './routing';
 import { modularWalletActions } from '@circle-fin/modular-wallets-core';
 import { toast } from 'sonner';
 
@@ -72,12 +74,16 @@ export async function executeSmartBridge(
   embeddedWallet: ConnectedWallet,
   sourceChain: SupportedChain,
   amountUSDC: string,
-  recipientAddress: string
+  recipientAddress: string,
+  destChain: SupportedChain = 'base'
 ): Promise<{ userOpHash: `0x${string}`; txHashPromise: Promise<string> }> {
   try {
+    if (sourceChain === destChain) {
+      throw new Error('Source and destination chains must differ');
+    }
     const chain = VIEM_CHAINS[sourceChain];
     const usdcAddress = USDC_ADDRESSES[sourceChain];
-    const destinationDomain = CCTP_DOMAINS.base;
+    const destinationDomain = CCTP_DOMAINS[destChain];
 
     if (!chain || !usdcAddress) throw new Error('Unsupported chain config');
 
@@ -124,7 +130,7 @@ export async function executeSmartBridge(
 
     // 3. Execute Deposit for Burn
     toast.info('Initiating bridge transfer...');
-    const maxFee = await calculateMaxFee(sourceChain, amountUSDC);
+    const maxFee = await calculateMaxFee(sourceChain, amountUSDC, destChain);
 
     const bridgeOpHash = await bundlerClient.sendUserOperation({
       account,
@@ -205,13 +211,17 @@ const MESSAGE_TRANSMITTER_ABI = [
 ] as const;
 
 /**
- * Gaslessly submit a receiveMessage transaction on Base using the user's Privy smart account.
- * Completes CCTP burn-and-mint transfers for non-EVM source chains (Stellar/Solana).
+ * Gaslessly submit a receiveMessage transaction on the destination chain using the
+ * user's Privy smart account, minting the bridged USDC there. Used to complete CCTP
+ * transfers when Circle's relayer doesn't auto-mint (non-EVM sources, and EVM→EVM
+ * bridges to chains other than Base). The MessageTransmitterV2 contract shares one
+ * CREATE2 address across all EVM chains, so only the bundler chain changes.
  */
 export async function executeReceiveMessage(
   embeddedWallet: ConnectedWallet,
   messageHex: string,
   attestationHex: string,
+  destChain: SupportedChain = 'base',
 ): Promise<string> {
   const MESSAGE_TRANSMITTER =
     process.env.NEXT_PUBLIC_SIMULATION_MODE === 'true'
@@ -219,7 +229,7 @@ export async function executeReceiveMessage(
       : '0x81D40F21F12A8F0E3252Bccb954D722d4c464B64';
 
   const provider = await embeddedWallet.getEthereumProvider();
-  const { bundlerClient, account } = await getCircleClient(provider, 'base');
+  const { bundlerClient, account } = await getCircleClient(provider, destChain);
 
   const userOpHash = await bundlerClient.sendUserOperation({
     account,
@@ -237,4 +247,128 @@ export async function executeReceiveMessage(
   });
 
   return resolveUserOpToTxHash(bundlerClient, userOpHash);
+}
+
+/**
+ * Bridge USDC from one chain to another and deliver it straight to `recipient` on the
+ * destination, end to end. Used by the external-address transfer flow when the user's
+ * funds are on a different chain than the recipient.
+ *
+ * CCTP's mintRecipient is the recipient itself, so no separate transfer is needed. The
+ * burn and mint live on different chains separated by Circle's attestation, so this
+ * cannot be a single transaction — it burns on the source, waits for the attestation,
+ * then mints on the destination (Circle's relayed mint if present, else submits
+ * `receiveMessage` itself).
+ *
+ * Resolves once the destination mint is in flight; rejects only if the burn fails.
+ */
+export async function bridgeAndDeliver(
+  embeddedWallet: ConnectedWallet,
+  params: {
+    sourceChain: SupportedChain;
+    destChain: SupportedChain;
+    amountUSDC: string;
+    recipient: string;
+    onStatus?: (status: string) => void;
+    timeoutMs?: number;
+  },
+): Promise<{ burnTxHash: string; mintTxHash?: string }> {
+  const { sourceChain, destChain, amountUSDC, recipient, onStatus } = params;
+  const timeoutMs = params.timeoutMs ?? 20 * 60_000;
+
+  onStatus?.(`Bridging from ${sourceChain}…`);
+  const { txHashPromise } = await executeSmartBridge(
+    embeddedWallet,
+    sourceChain,
+    amountUSDC,
+    recipient,
+    destChain,
+  );
+  const burnTxHash = await txHashPromise;
+
+  onStatus?.('Waiting for network confirmation…');
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(
+        `/api/bridge/status?txHash=${burnTxHash}&sourceChain=${sourceChain}`,
+      );
+      const data = await res.json();
+      if (data.status === 'complete') {
+        let mintTxHash: string | undefined = data.mintTxHash;
+        if (!mintTxHash && data.attestation && data.messageBytes) {
+          onStatus?.(`Delivering on ${destChain}…`);
+          mintTxHash = await executeReceiveMessage(
+            embeddedWallet,
+            data.messageBytes,
+            data.attestation,
+            destChain,
+          );
+        }
+        return { burnTxHash, mintTxHash };
+      }
+    } catch (err) {
+      console.warn('[bridgeAndDeliver] status poll error:', err);
+    }
+    await new Promise((r) => setTimeout(r, 5_000));
+  }
+
+  // Burn settled but attestation/mint didn't complete in time — funds are safely bridged
+  // and the mint can still be finalized later. Surface the burn hash.
+  return { burnTxHash };
+}
+
+/**
+ * Move enough USDC onto `targetChain` to cover `requiredAmount`, by bridging from the
+ * user's other chains (largest balances first, to minimise the number of hops). Used by
+ * batch and off-ramp flows when funds are too fragmented to complete on a single chain.
+ *
+ * Bridges run sequentially and each waits for CCTP settlement, so this can take several
+ * minutes. A 1% buffer is added to absorb CCTP fees. No-op if the target already holds
+ * enough.
+ */
+export async function consolidateFundsToChain(
+  embeddedWallet: ConnectedWallet,
+  params: {
+    targetChain: SupportedChain;
+    requiredAmount: string;
+    balances: ChainBalances;
+    recipient: string;
+    onStatus?: (status: string) => void;
+    /** Optional Solana source — drawn from last (only when target is Base). */
+    solana?: SolanaSource;
+  },
+): Promise<void> {
+  const { targetChain, requiredAmount, balances, recipient, onStatus, solana } = params;
+  const required = parseFloat(requiredAmount) || 0;
+  const have = balances[targetChain] ?? 0;
+  let remaining = (required - have) * 1.01; // 1% buffer for CCTP fees
+  if (remaining <= 0) return;
+
+  const sources = EVM_CHAINS.filter(
+    (c) => c !== targetChain && (balances[c] ?? 0) > 0,
+  ).sort((a, b) => (balances[b] ?? 0) - (balances[a] ?? 0));
+
+  for (const source of sources) {
+    if (remaining <= 0) break;
+    const take = Math.min(balances[source] ?? 0, remaining);
+    if (take <= 0) continue;
+    onStatus?.(`Moving funds from ${CHAIN_NAMES[source]} to ${CHAIN_NAMES[targetChain]}…`);
+    await bridgeAndDeliver(embeddedWallet, {
+      sourceChain: source,
+      destChain: targetChain,
+      amountUSDC: take.toFixed(6),
+      recipient,
+      onStatus,
+    });
+    remaining -= take;
+  }
+
+  // Solana can only bridge to Base (CCTP mints there). Draw on it last if still short.
+  if (remaining > 0 && targetChain === 'base' && solana && solana.balance > 0) {
+    const take = Math.min(solana.balance, remaining);
+    onStatus?.(`Moving funds from Solana to ${CHAIN_NAMES[targetChain]}…`);
+    await solana.bridgeToBase(take.toFixed(6), recipient, onStatus);
+    remaining -= take;
+  }
 }
