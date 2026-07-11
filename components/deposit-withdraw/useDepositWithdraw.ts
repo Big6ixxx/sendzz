@@ -8,6 +8,7 @@ import {
   getOffRampRate,
   getOnRampRate,
   getOrderStatus,
+  getProviderFeePercent,
   getRampNetworks,
   initiateOnRamp,
   verifyBankAccount,
@@ -31,7 +32,10 @@ import {
   RampNetwork,
   RampOrderResponse,
 } from "@/lib/ramp";
-import { executeCircleGaslessTransfer } from "@/lib/web3/circle-actions";
+import {
+  executeCircleGaslessTransfer,
+  executeCircleGaslessBatchTransfer,
+} from "@/lib/web3/circle-actions";
 import { consolidateFundsToChain } from "@/lib/web3/bridge-actions";
 import {
   planWithdrawalRoute,
@@ -44,10 +48,7 @@ import {
 } from "@/lib/web3/routing";
 import { parseFriendlyError } from "@/components/transfer/useTransfer";
 import { ConnectedWallet } from "@privy-io/react-auth";
-import {
-  calculatePaycrestBaseAmount,
-  PAYCREST_PARTNER_FEE_PERCENT,
-} from "@/lib/paycrest/config";
+import { calculatePaycrestBaseAmount } from "@/lib/paycrest/config";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -110,6 +111,9 @@ export function useDepositWithdraw(
   const [offRampProvider, setOffRampProvider] = useState<RampProviderName | undefined>(
     undefined,
   );
+  // Platform fee % for the pinned provider (drives the fee line + balance math). The actual
+  // fee amount/treasury is resolved server-side and embedded in the order.
+  const [feePercent, setFeePercent] = useState<number>(0);
 
   // Institutions & Rates
   const [institutions, setInstitutions] = useState<RampInstitution[]>([]);
@@ -180,6 +184,7 @@ export function useDepositWithdraw(
           provider = "paycrest";
         }
         setOffRampProvider(provider);
+        getProviderFeePercent(provider).then(setFeePercent).catch(() => setFeePercent(0));
         const res = await getInstitutions(fiatCurrency, provider);
         setInstitutions(res.data);
       } catch (err) {
@@ -346,8 +351,8 @@ export function useDepositWithdraw(
       return;
     }
 
-    // Include the 0.3% fee in the balance check
-    const feeRate = 0.003; // 0.3%
+    // Include the platform fee (provider-specific) in the balance check.
+    const feeRate = feePercent / 100;
     const totalUsdcRequired = val * (1 + feeRate);
 
     // A Paycrest order settles on one network, so we must source the whole amount from
@@ -366,8 +371,12 @@ export function useDepositWithdraw(
     const combinedAvailable =
       route.totalAvailable + (solanaSource?.balance ?? 0);
 
-    // Validate a manual override before proceeding.
-    if (sourcePref.mode === "single" && !route.feasible) {
+    // Settling directly on Solana is a distinct path: funds must already be on Solana (no
+    // bridging TO Solana), and the payout is a Solana SPL transfer — not an EVM route.
+    const isSolanaSettlement = sourcePref.mode === "single" && sourcePref.chain === "solana";
+
+    // Validate a manual override before proceeding (Solana is validated separately below).
+    if (sourcePref.mode === "single" && !isSolanaSettlement && !route.feasible) {
       toast.error(
         `${sourcePref.chain} doesn't hold enough to withdraw ${totalUsdcRequired.toFixed(2)} USDC.`,
       );
@@ -387,7 +396,23 @@ export function useDepositWithdraw(
       }
     }
 
-    if (route.feasible && route.chain) {
+    if (isSolanaSettlement) {
+      // Settle on Solana — requires enough USDC already on Solana; no consolidation.
+      const solBal = solanaSource?.balance ?? 0;
+      if (solBal + 1e-9 < totalUsdcRequired) {
+        toast.error(
+          `Solana holds $${solBal.toFixed(2)} — need ${totalUsdcRequired.toFixed(2)} USDC.`,
+        );
+        return;
+      }
+      if (!solanaSource?.settleOffRamp) {
+        toast.error("Connect your Solana wallet to settle on Solana.");
+        return;
+      }
+      setWithdrawChain("solana");
+      setMustConsolidate(false);
+      setConsolidateFrom(null);
+    } else if (route.feasible && route.chain) {
       // A single supported chain holds enough — source straight from it.
       setWithdrawChain(route.chain as RampNetwork);
       setMustConsolidate(false);
@@ -434,8 +459,8 @@ export function useDepositWithdraw(
 
     const amountUsdc = parseFloat(quoteUsdcAmount);
 
-    // Total amount that will be deducted including fee
-    const feeRate = 0.003;
+    // Total amount that will be deducted including the platform fee (provider-specific).
+    const feeRate = feePercent / 100;
     const totalUsdcRequired = amountUsdc * (1 + feeRate);
 
     if (totalUsdcRequired >= twoFaThreshold) {
@@ -610,24 +635,64 @@ export function useDepositWithdraw(
   };
 
   const executeTransfer = async () => {
-    if (!order?.providerAccount?.receiveAddress || !embeddedProvider) return;
+    const receiveAddress = order?.providerAccount?.receiveAddress;
+    if (!order || !receiveAddress) return;
+
+    const settlementChain = (order.providerAccount?.network ?? withdrawChain) as string;
+    const baseAmount = parseFloat(quoteUsdcAmount);
+    // Fee is resolved server-side and embedded in the order: `onchain` collection carries a
+    // treasury address (we route the fee there ourselves); `provider` collection is skimmed by
+    // the provider (we just send base + fee to its single receive address).
+    const fee = order.fee;
+    const onchainFee =
+      fee?.collection === "onchain" && fee.address && parseFloat(fee.usdc) > 0
+        ? { address: fee.address, usdc: fee.usdc }
+        : null;
+
     setTransferring(true);
     try {
-      const provider = await embeddedProvider.getEthereumProvider();
+      let txHash: string;
 
-      const baseAmount = parseFloat(quoteUsdcAmount);
-      // Paycrest deducts a 0.3% partner fee ON TOP (send base × 1.003). Bitnob's fee is
-      // already baked into the quote, so we send exactly the quoted amount — no 0.3% extra.
-      const feeRate =
-        order.provider === "paycrest" ? PAYCREST_PARTNER_FEE_PERCENT / 100 : 0;
-      const amountToSend = (baseAmount * (1 + feeRate)).toFixed(6);
+      if (settlementChain === "solana") {
+        // Settle directly on Solana: sponsored SPL transfer(s) — payout (+ fee) in one tx.
+        if (!solanaSource?.settleOffRamp) {
+          throw new Error("Connect your Solana wallet to settle this withdrawal on Solana.");
+        }
+        txHash = await solanaSource.settleOffRamp({
+          payoutAddress: receiveAddress,
+          payoutAmount: baseAmount.toFixed(6),
+          feeAddress: onchainFee?.address,
+          feeAmount: onchainFee?.usdc,
+          onStatus: (s) => toast.loading(s, { id: "wd-settle" }),
+        });
+        toast.dismiss("wd-settle");
+      } else {
+        if (!embeddedProvider) return;
+        const provider = await embeddedProvider.getEthereumProvider();
+        const evmChain = settlementChain as SupportedChain;
 
-      const txHash = await executeCircleGaslessTransfer(
-        provider,
-        order.providerAccount.receiveAddress,
-        amountToSend,
-        (order.providerAccount?.network ?? withdrawChain) as SupportedChain,
-      );
+        if (onchainFee) {
+          // One gasless UserOp: payout to the provider + fee to our treasury.
+          txHash = await executeCircleGaslessBatchTransfer(
+            provider,
+            [
+              { recipientAddress: receiveAddress, amountUSDC: baseAmount.toFixed(6) },
+              { recipientAddress: onchainFee.address, amountUSDC: onchainFee.usdc },
+            ],
+            evmChain,
+          );
+        } else {
+          // Provider-collected fee (or no fee): send base + fee to the single receive address.
+          const total = fee ? baseAmount + parseFloat(fee.usdc) : baseAmount;
+          txHash = await executeCircleGaslessTransfer(
+            provider,
+            receiveAddress,
+            total.toFixed(6),
+            evmChain,
+          );
+        }
+      }
+
       setWithdrawalTxHash(txHash);
       if (order.id && txHash) {
         saveWithdrawalTxHash(order.id, txHash).catch(console.error);
@@ -637,6 +702,7 @@ export function useDepositWithdraw(
       setStep(4);
       startPolling();
     } catch (err) {
+      toast.dismiss("wd-settle");
       toast.error(parseFriendlyError(err));
     } finally {
       setTransferring(false);
@@ -787,6 +853,8 @@ export function useDepositWithdraw(
     chainBalances: chainBalances ?? {},
     solanaBalance: solanaSource?.balance ?? 0,
     rampNetworks,
+    offRampProvider,
+    feePercent,
     depositNetwork,
     setDepositNetwork,
     // On-ramp (Paycrest) lands USDC on these chains; default Base.

@@ -135,6 +135,13 @@ export function useCryptoTransfer({
     // User override: pay entirely from one chosen chain.
     if (sourcePref.mode === "single") {
       const c = sourcePref.chain;
+      // Sending a P2P transfer directly from Solana isn't supported here (off-ramp only).
+      if (c === "solana") {
+        toast.error("Sending directly from Solana isn't supported yet.");
+        setLoading(false);
+        setStatus("");
+        return;
+      }
       if ((chainBalances?.[c] ?? 0) + 1e-9 < amt) {
         toast.error(`${CHAIN_NAMES[c]} doesn't hold enough for this send.`);
         setLoading(false);

@@ -114,6 +114,18 @@ export interface RampOrderResponse {
   txHash?: string;
   settlementTxHash?: string;
   transactionHash?: string;
+  /**
+   * Platform fee for this order, resolved server-side from the fee config so the client can
+   * execute it without reading secret env. `usdc` is the fee amount on top of `amount` (base).
+   * `onchain` collection carries the treasury `address`; `provider` collection is skimmed by
+   * the provider (client just sends base + fee to the single receive address).
+   */
+  fee?: {
+    percent: number;
+    usdc: string;
+    collection: "provider" | "onchain";
+    address?: string;
+  };
 }
 
 export interface RampRate {

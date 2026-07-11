@@ -52,7 +52,7 @@ export type ChainBalances = Partial<Record<SupportedChain, number>>;
 export type SourceChainKey = SupportedChain | 'solana';
 export type SourcePreference =
   | { mode: 'auto' }
-  | { mode: 'single'; chain: SupportedChain }
+  | { mode: 'single'; chain: SourceChainKey }
   | { mode: 'consolidate'; from: SourceChainKey[] };
 
 export const AUTO_SOURCE: SourcePreference = { mode: 'auto' };
@@ -68,6 +68,19 @@ export interface SolanaSource {
     recipient: string,
     onStatus?: (status: string) => void,
   ) => Promise<void>;
+  /**
+   * Settle an off-ramp directly on Solana: send the payout USDC to the provider's Solana
+   * deposit address and (optionally) the platform fee to a treasury address, in one sponsored
+   * SPL transaction. Returns the transaction signature. Present only when a Solana wallet is
+   * connected.
+   */
+  settleOffRamp?: (params: {
+    payoutAddress: string;
+    payoutAmount: string;
+    feeAddress?: string;
+    feeAmount?: string;
+    onStatus?: (status: string) => void;
+  }) => Promise<string>;
 }
 
 /** Chains the fiat on/off-ramp can settle USDC on (source + destination). */
@@ -141,6 +154,8 @@ export function planTransferRoute(
   // User override: pay entirely from one chosen chain (only valid if it holds enough).
   if (opts.source?.mode === 'single') {
     const c = opts.source.chain;
+    // Solana settlement isn't an EVM route — it's handled directly by the caller.
+    if (c === 'solana') return infeasible();
     if (toMicro(balances[c] ?? 0) >= requestedMicro) {
       return {
         feasible: true,
@@ -380,6 +395,10 @@ export function planWithdrawalRoute(
   // User override: force a single supported chain (must hold enough and be ramp-supported).
   if (opts.source?.mode === 'single') {
     const c = opts.source.chain;
+    // Solana settlement isn't an EVM route — the caller handles it directly.
+    if (c === 'solana') {
+      return { feasible: false, needsConsolidation: false, totalAvailable, requested };
+    }
     if (supported.includes(c) && toMicro(balances[c] ?? 0) >= requestedMicro) {
       return { feasible: true, chain: c, needsConsolidation: false, totalAvailable, requested };
     }

@@ -64,6 +64,12 @@ const APP_EVM_CHAINS = new Set([
   "avalanche",
 ]);
 
+/**
+ * Chains this app can settle an off-ramp on — the EVM chains plus Solana (direct SPL settle).
+ * Stellar is coming soon (settle path not built yet), so it's intentionally excluded until then.
+ */
+const APP_SETTLEMENT_CHAINS = new Set([...APP_EVM_CHAINS, "solana"]);
+
 let currencyNames: Intl.DisplayNames | null | undefined;
 function currencyName(code: string): string {
   if (currencyNames === undefined) {
@@ -386,6 +392,6 @@ export class BitnobProvider implements RampProvider {
     const chains = await getBitnobClient().getSupportedChains();
     return chains
       .map((c) => c.chain?.toLowerCase())
-      .filter((c): c is string => !!c && APP_EVM_CHAINS.has(c));
+      .filter((c): c is string => !!c && APP_SETTLEMENT_CHAINS.has(c));
   }
 }

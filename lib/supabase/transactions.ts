@@ -191,6 +191,10 @@ export async function recordWithdrawal(params: {
   bitnobQuoteId?: string;
   /** Bitnob deposit address — matches the `deposit.success` webhook to this withdrawal. */
   bitnobDepositAddress?: string;
+  /** Platform fee taken on this withdrawal, in USDC (for reporting). */
+  feeUsdc?: number;
+  /** Platform fee percentage applied (for reporting). */
+  feePercent?: number;
 }): Promise<void> {
   try {
     const { data: user } = await supabaseAdmin
@@ -228,6 +232,8 @@ export async function recordWithdrawal(params: {
     if (params.bitnobQuoteId) metadata.quote_id = params.bitnobQuoteId;
     if (params.bitnobDepositAddress) metadata.deposit_address = params.bitnobDepositAddress;
     if (params.sourceChain) metadata.network = params.sourceChain;
+    if (params.feeUsdc != null) metadata.fee_usdc = params.feeUsdc;
+    if (params.feePercent != null) metadata.fee_percent = params.feePercent;
     if (Object.keys(metadata).length > 0) extra.provider_metadata = metadata;
 
     const chainRow = Object.keys(extra).length > 0 ? { ...baseRow, ...extra } : baseRow;

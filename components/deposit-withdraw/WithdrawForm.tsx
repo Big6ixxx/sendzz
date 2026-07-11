@@ -16,7 +16,6 @@ import { SourceSelector } from "@/components/SourceSelector";
 import { OrderAdvancedDetails } from "./OrderAdvancedDetails";
 import { CHAIN_NAMES, type SupportedChain } from "@/lib/circle/gateway";
 import { useDepositWithdraw } from "./useDepositWithdraw";
-import { PAYCREST_PARTNER_FEE_PERCENT } from "@/lib/paycrest/config";
 import { ReceiptActions } from "@/components/receipt/ReceiptActions";
 import { ReceiptData } from "@/lib/receipt/types";
 import { useState } from "react";
@@ -39,8 +38,9 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
     return parsedAmount / hook.rate; // fiat → USDC
   })();
 
-  // Total USDC that will be deducted (base + fee)
-  const feeRate = PAYCREST_PARTNER_FEE_PERCENT / 100;
+  // Total USDC that will be deducted (base + fee). Fee % is provider-specific.
+  const feePercent = hook.feePercent;
+  const feeRate = feePercent / 100;
   const usdcTotal = usdcBase * (1 + feeRate);
 
   // The full deduction (incl. fee) can't exceed the user's combined balance.
@@ -292,12 +292,11 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
             </span>
           </div>
           <div className="flex justify-between text-sm text-muted-foreground">
-            <span>Network Fee ({PAYCREST_PARTNER_FEE_PERCENT}%)</span>
+            <span>Network Fee ({feePercent}%)</span>
             <span>
-              {(
-                parseFloat(hook.quoteUsdcAmount) *
-                (PAYCREST_PARTNER_FEE_PERCENT / 100)
-              ).toLocaleString(undefined, { maximumFractionDigits: 2 })}{" "}
+              {(parseFloat(hook.quoteUsdcAmount) * feeRate).toLocaleString(undefined, {
+                maximumFractionDigits: 2,
+              })}{" "}
               USDC
             </span>
           </div>
@@ -305,10 +304,9 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
             <span className="font-bold">Total Deducted</span>
             <span className="font-bold text-red-400">
               -
-              {(
-                parseFloat(hook.quoteUsdcAmount) *
-                (1 + PAYCREST_PARTNER_FEE_PERCENT / 100)
-              ).toLocaleString(undefined, { maximumFractionDigits: 2 })}{" "}
+              {(parseFloat(hook.quoteUsdcAmount) * (1 + feeRate)).toLocaleString(undefined, {
+                maximumFractionDigits: 2,
+              })}{" "}
               USDC
             </span>
           </div>

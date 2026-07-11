@@ -8,6 +8,7 @@ import {
 } from '@privy-io/react-auth/solana';
 import { Connection, Transaction } from '@solana/web3.js';
 import { bridgeSolanaToBase } from '@/lib/web3/solana-bridge';
+import { settleSolanaOffRamp } from '@/lib/web3/solana-offramp';
 import type { SolanaSource } from '@/lib/web3/routing';
 
 const SOLANA_RPC =
@@ -20,6 +21,7 @@ const SOLANA_RPC =
  */
 export function useSolanaBridge(): {
   bridgeToBase: SolanaSource['bridgeToBase'] | null;
+  settleOffRamp: SolanaSource['settleOffRamp'] | null;
 } {
   const { wallets } = useWallets();
   const { user } = usePrivy();
@@ -43,14 +45,28 @@ export function useSolanaBridge(): {
   const solWallet = solWallets.find((w) => w.address === solAddress) ?? null;
 
   return useMemo(() => {
-    if (!evmWallet || !solWallet || !solAddress) return { bridgeToBase: null };
+    if (!evmWallet || !solWallet || !solAddress) return { bridgeToBase: null, settleOffRamp: null };
     const conn = connection;
 
-    const bridgeToBase: SolanaSource['bridgeToBase'] = async (
-      amount,
-      recipient,
-      onStatus,
-    ) => {
+    // Sign with the Privy Solana wallet + broadcast; shared by bridge and off-ramp settlement.
+    const signAndBroadcast = async (tx: Transaction): Promise<string> => {
+      const { signedTransaction } = await signTransaction({
+        transaction: tx.serialize({ requireAllSignatures: false }),
+        wallet: solWallet,
+      });
+      const sig = await conn.sendRawTransaction(signedTransaction, {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+      });
+      const bh = await conn.getLatestBlockhash();
+      await conn.confirmTransaction(
+        { signature: sig, blockhash: bh.blockhash, lastValidBlockHeight: bh.lastValidBlockHeight },
+        'confirmed',
+      );
+      return sig;
+    };
+
+    const bridgeToBase: SolanaSource['bridgeToBase'] = async (amount, recipient, onStatus) => {
       await bridgeSolanaToBase({
         connection: conn,
         walletAddress: solAddress,
@@ -58,29 +74,22 @@ export function useSolanaBridge(): {
         recipientEvm: recipient,
         evmWallet,
         onStatus,
-        signAndBroadcast: async (tx: Transaction) => {
-          const { signedTransaction } = await signTransaction({
-            transaction: tx.serialize({ requireAllSignatures: false }),
-            wallet: solWallet,
-          });
-          const sig = await conn.sendRawTransaction(signedTransaction, {
-            skipPreflight: false,
-            preflightCommitment: 'confirmed',
-          });
-          const bh = await conn.getLatestBlockhash();
-          await conn.confirmTransaction(
-            {
-              signature: sig,
-              blockhash: bh.blockhash,
-              lastValidBlockHeight: bh.lastValidBlockHeight,
-            },
-            'confirmed',
-          );
-          return sig;
-        },
+        signAndBroadcast,
       });
     };
 
-    return { bridgeToBase };
+    const settleOffRamp: SolanaSource['settleOffRamp'] = (p) =>
+      settleSolanaOffRamp({
+        connection: conn,
+        walletAddress: solAddress,
+        payoutAddress: p.payoutAddress,
+        payoutAmount: p.payoutAmount,
+        feeAddress: p.feeAddress,
+        feeAmount: p.feeAmount,
+        onStatus: p.onStatus,
+        signAndBroadcast,
+      });
+
+    return { bridgeToBase, settleOffRamp };
   }, [evmWallet, solWallet, solAddress, signTransaction, connection]);
 }
