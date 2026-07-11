@@ -51,6 +51,9 @@ export interface Database {
           email: string;
           smart_account_address: string | null;
           solana_address: string | null;
+          stellar_address: string | null;
+          stellar_wallet_id: string | null;
+          stellar_signer_granted: boolean;
           last_deposit_scan_at: string | null;
           created_at: string;
           updated_at: string;
@@ -60,6 +63,9 @@ export interface Database {
           email: string;
           smart_account_address?: string | null;
           solana_address?: string | null;
+          stellar_address?: string | null;
+          stellar_wallet_id?: string | null;
+          stellar_signer_granted?: boolean;
           last_deposit_scan_at?: string | null;
           created_at?: string;
           updated_at?: string;
@@ -69,6 +75,9 @@ export interface Database {
           email?: string;
           smart_account_address?: string | null;
           solana_address?: string | null;
+          stellar_address?: string | null;
+          stellar_wallet_id?: string | null;
+          stellar_signer_granted?: boolean;
           last_deposit_scan_at?: string | null;
           created_at?: string;
           updated_at?: string;

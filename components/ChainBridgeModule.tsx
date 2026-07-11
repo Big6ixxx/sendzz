@@ -4,13 +4,9 @@
  * ChainBridgeModule — move USDC between the user's own networks.
  *
  * Unlike SmartBridgeModule (which only consolidates idle funds onto Base), this lets
- * the user pick BOTH the source and destination EVM chain and bridge between them via
- * Circle CCTP V2. The mint recipient is the user's own smart account, which shares one
- * address across every EVM chain. Gasless on both legs (burn + mint sponsored by the
- * Circle paymaster).
- *
- * Flow: burn on source → poll Circle Iris for the attestation → mint on destination
- * (use Circle's relayed mint if present, otherwise submit receiveMessage ourselves).
+ * the user pick BOTH the source and destination chain and bridge between them via
+ * Circle CCTP V2. The mint recipient is the user's own smart account (for EVM) or
+ * Stellar address. Gasless on both legs (burn + mint sponsored by circle/relayer).
  */
 
 import { ChainLogo } from "@/components/deposit-withdraw/ChainLogo";
@@ -38,42 +34,61 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+const CHAIN_DISPLAY_NAMES: Record<string, string> = {
+  ...CHAIN_NAMES,
+  stellar: "Stellar",
+};
+
+const CHAIN_EXPLORER_TX: Record<string, (hash: string) => string> = {
+  ...Object.fromEntries(
+    Object.entries(CHAIN_EXPLORERS).map(([chain, base]) => [
+      chain,
+      (hash: string) => `${base}/${hash}`,
+    ]),
+  ),
+  stellar: (hash: string) => `https://stellar.expert/explorer/public/tx/${hash}`,
+};
+
 interface ChainBridgeModuleProps {
   smartAddress: string;
   userEmail: string;
   solanaAddress?: string;
+  stellarWallet?: { walletId: string; address: string } | null;
 }
 
 type Phase = "form" | "submitting" | "monitoring" | "complete";
+type BridgeStep = "burn_sig" | "attestation" | "mint_sig" | "complete";
 
 interface Monitor {
   burnTxHash: string;
-  sourceChain: SupportedChain;
-  destChain: SupportedChain;
+  sourceChain: SupportedChain | "stellar";
+  destChain: SupportedChain | "stellar";
 }
 
 export function ChainBridgeModule({
   smartAddress,
   userEmail,
   solanaAddress,
+  stellarWallet,
 }: ChainBridgeModuleProps) {
   const { wallets } = useWallets();
   const queryClient = useQueryClient();
   const embeddedWallet = wallets.find((w) => w.walletClientType === "privy");
 
-  const { data: portfolio, refetch } = usePortfolio(smartAddress, solanaAddress);
+  const { data: portfolio, refetch } = usePortfolio(smartAddress, solanaAddress, stellarWallet?.address);
 
-  const balanceOf = (chain: SupportedChain) =>
+  const balanceOf = (chain: SupportedChain | "stellar") =>
     parseFloat(
       portfolio?.byChain.find((c) => c.chain === chain)?.balance ?? "0",
     ) || 0;
 
-  const [source, setSource] = useState<SupportedChain | null>(null);
-  const [dest, setDest] = useState<SupportedChain | null>(null);
+  const [source, setSource] = useState<SupportedChain | "stellar" | null>(null);
+  const [dest, setDest] = useState<SupportedChain | "stellar" | null>(null);
   const [amount, setAmount] = useState("");
   const [phase, setPhase] = useState<Phase>("form");
   const [monitor, setMonitor] = useState<Monitor | null>(null);
   const [mintTxHash, setMintTxHash] = useState<string | null>(null);
+  const [bridgeStep, setBridgeStep] = useState<BridgeStep>("burn_sig");
   const mintingRef = useRef(false);
 
   const sourceBalance = source ? balanceOf(source) : 0;
@@ -109,14 +124,18 @@ export function ChainBridgeModule({
         clearInterval(interval);
 
         let mintHash: string | undefined = data.mintTxHash;
-        // Circle auto-relays the mint only on some routes; otherwise submit it ourselves.
+        // Circle auto-relays the mint only on some routes (e.g. to Stellar/Solana); otherwise submit it ourselves.
         if (!mintHash && data.attestation && data.messageBytes && embeddedWallet) {
-          mintHash = await executeReceiveMessage(
-            embeddedWallet,
-            data.messageBytes,
-            data.attestation,
-            monitor.destChain,
-          );
+          if (monitor.destChain !== "stellar") {
+            setBridgeStep("mint_sig");
+            toast.info("Attestation ready! Please approve the popup to mint USDC on the destination chain.");
+            mintHash = await executeReceiveMessage(
+              embeddedWallet,
+              data.messageBytes,
+              data.attestation,
+              monitor.destChain as SupportedChain,
+            );
+          }
         }
 
         await updateBridgeStatus(monitor.burnTxHash, "complete", mintHash).catch(
@@ -124,14 +143,16 @@ export function ChainBridgeModule({
         );
         if (cancelled) return;
         setMintTxHash(mintHash ?? null);
+        setBridgeStep("complete");
         setPhase("complete");
         queryClient.invalidateQueries({ queryKey: ["portfolio"] });
         queryClient.invalidateQueries({ queryKey: ["cross-chain-balances"] });
         queryClient.invalidateQueries({ queryKey: ["history"] });
-        toast.success(`Bridge complete! USDC is now on ${CHAIN_NAMES[monitor.destChain]}.`);
+        toast.success(`Bridge complete! USDC is now on ${CHAIN_DISPLAY_NAMES[monitor.destChain]}.`);
       } catch (err) {
         console.error("[ChainBridge] monitor error:", err);
         mintingRef.current = false;
+        setBridgeStep("attestation");
       }
     }, 5000);
 
@@ -144,28 +165,52 @@ export function ChainBridgeModule({
   const handleBridge = async () => {
     if (!canBridge || !source || !dest || !embeddedWallet) return;
     setPhase("submitting");
+    setBridgeStep("burn_sig");
     mintingRef.current = false;
     setMintTxHash(null);
     try {
-      const { txHashPromise } = await executeSmartBridge(
-        embeddedWallet,
-        source,
-        amount,
-        smartAddress,
-        dest,
-      );
-      const burnTxHash = await txHashPromise;
+      let burnTxHash: string;
+      if (source === "stellar") {
+        if (!stellarWallet?.walletId || !stellarWallet?.address) {
+          throw new Error("Stellar wallet not found. Check dashboard configuration.");
+        }
+        const res = await fetch("/api/stellar/bridge", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            walletId: stellarWallet.walletId,
+            senderAddress: stellarWallet.address,
+            recipientAddress: smartAddress,
+            amount: amount,
+            destChain: dest,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Stellar bridge failed");
+        burnTxHash = data.burnTxHash;
+      } else {
+        const recipient = dest === "stellar" ? stellarWallet!.address : smartAddress;
+        const { txHashPromise } = await executeSmartBridge(
+          embeddedWallet,
+          source as SupportedChain,
+          amount,
+          recipient,
+          dest,
+        );
+        burnTxHash = await txHashPromise;
+      }
 
       await recordBridgeTransaction({
         userEmail,
-        sourceChain: source,
-        destChain: dest,
+        sourceChain: source as any,
+        destChain: dest as any,
         amountUsdc: amountNum,
         burnTxHash,
       }).catch(console.error);
 
       setMonitor({ burnTxHash, sourceChain: source, destChain: dest });
       setPhase("monitoring");
+      setBridgeStep("attestation");
       refetch();
     } catch (err) {
       console.error("[ChainBridge] bridge failed:", err);
@@ -184,6 +229,7 @@ export function ChainBridgeModule({
     setAmount("");
     setSource(null);
     setDest(null);
+    setBridgeStep("burn_sig");
     mintingRef.current = false;
     refetch();
   };
@@ -209,23 +255,112 @@ export function ChainBridgeModule({
           <h3 className="text-xl font-display font-bold text-white tracking-tight">
             {isDone
               ? "Bridge Complete"
-              : phase === "submitting"
-                ? "Submitting Transfer"
-                : "Bridging Funds"}
+              : dest === "stellar"
+                ? `Step 1/1: ${bridgeStep === "burn_sig" ? "Submitting Burn" : "Verifying Burn"}`
+                : bridgeStep === "mint_sig"
+                  ? "Step 2/2: Minting Funds"
+                  : `Step 1/2: ${bridgeStep === "burn_sig" ? "Submitting Burn" : "Verifying Burn"}`}
           </h3>
           <p className="text-sm text-white/40 max-w-xs mx-auto">
             {isDone && monitor
-              ? `Your USDC has arrived on ${CHAIN_NAMES[monitor.destChain]}.`
-              : monitor
-                ? `Waiting for Circle attestation, then minting on ${CHAIN_NAMES[monitor.destChain]}. This can take a few minutes.`
-                : "Requesting signature and burning USDC on the source chain…"}
+              ? `Your USDC has arrived on ${CHAIN_DISPLAY_NAMES[monitor.destChain]}.`
+              : dest === "stellar"
+                ? "Burning USDC on the source chain and waiting for Circle attestation..."
+                : bridgeStep === "mint_sig"
+                  ? "Please approve the second signature popup to claim your funds on the destination chain."
+                  : "Burning USDC on the source chain and waiting for Circle attestation..."}
           </p>
+        </div>
+
+        {/* Dynamic Multi-Step Progress Tracker */}
+        <div className="w-full max-w-sm bg-white/3 border border-white/5 rounded-2xl p-5 text-left space-y-4">
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/30 mb-2">
+            Bridge Progress
+          </p>
+
+          {/* Step 1 */}
+          <div className="flex items-start gap-3">
+            <div className={cn(
+              "w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold border transition-colors",
+              bridgeStep === "burn_sig"
+                ? "bg-accent/10 border-accent text-accent animate-pulse"
+                : "bg-accent border-accent text-[#07070a]"
+            )}>
+              {bridgeStep === "burn_sig" ? "1" : "✓"}
+            </div>
+            <div>
+              <p className={cn("text-xs font-bold transition-colors", 
+                bridgeStep === "burn_sig" ? "text-white" : "text-white/60"
+              )}>
+                Step 1: Burn USDC
+              </p>
+              <p className="text-[10px] text-white/30">
+                Approve the transaction to burn the funds on the source chain.
+              </p>
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div className="w-[1px] h-3 bg-white/10 ml-2.5" />
+
+          {/* Step 2 */}
+          <div className="flex items-start gap-3">
+            <div className={cn(
+              "w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold border transition-colors",
+              bridgeStep === "attestation"
+                ? "bg-accent/10 border-accent text-accent animate-pulse"
+                : (bridgeStep === "mint_sig" || bridgeStep === "complete")
+                  ? "bg-accent border-accent text-[#07070a]"
+                  : "border-white/10 text-white/30"
+            )}>
+              {(bridgeStep === "mint_sig" || bridgeStep === "complete") ? "✓" : "2"}
+            </div>
+            <div>
+              <p className={cn("text-xs font-bold transition-colors", 
+                bridgeStep === "attestation" ? "text-white" : "text-white/60"
+              )}>
+                Step 2: Circle Verification
+              </p>
+              <p className="text-[10px] text-white/30">
+                Waiting for Circle's attestation verification (~1–2 mins).
+              </p>
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div className="w-[1px] h-3 bg-white/10 ml-2.5" />
+
+          {/* Step 3 */}
+          <div className="flex items-start gap-3">
+            <div className={cn(
+              "w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold border transition-colors",
+              bridgeStep === "mint_sig"
+                ? "bg-accent/10 border-accent text-accent animate-pulse"
+                : bridgeStep === "complete"
+                  ? "bg-accent border-accent text-[#07070a]"
+                  : "border-white/10 text-white/30"
+            )}>
+              {bridgeStep === "complete" ? "✓" : "3"}
+            </div>
+            <div>
+              <p className={cn("text-xs font-bold transition-colors", 
+                bridgeStep === "mint_sig" ? "text-white" : "text-white/60"
+              )}>
+                {dest === "stellar" ? "Step 3: Automatic Mint" : "Step 3: Mint on Destination"}
+              </p>
+              <p className="text-[10px] text-white/30">
+                {dest === "stellar" 
+                  ? "Circle automatically completes the mint on Stellar." 
+                  : "Sign the second wallet popup to mint your funds."}
+              </p>
+            </div>
+          </div>
         </div>
 
         <div className="flex flex-col gap-3 w-full max-w-xs">
           {monitor && (
             <a
-              href={`${CHAIN_EXPLORERS[monitor.sourceChain]}/${monitor.burnTxHash}`}
+              href={CHAIN_EXPLORER_TX[monitor.sourceChain]?.(monitor.burnTxHash) || "#"}
               target="_blank"
               rel="noopener noreferrer"
               className="btn-secondary h-11 rounded-xl flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest"
@@ -236,7 +371,7 @@ export function ChainBridgeModule({
           )}
           {isDone && mintTxHash && monitor && (
             <a
-              href={`${CHAIN_EXPLORERS[monitor.destChain]}/${mintTxHash}`}
+              href={CHAIN_EXPLORER_TX[monitor.destChain]?.(mintTxHash) || "#"}
               target="_blank"
               rel="noopener noreferrer"
               className="btn-secondary h-11 rounded-xl flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest"
@@ -264,7 +399,9 @@ export function ChainBridgeModule({
   }
 
   // ─── Form ────────────────────────────────────────────────────────────────────
-  const fundedSources = EVM_CHAINS.filter((c) => balanceOf(c) > 0);
+  const allSources = [...EVM_CHAINS, ...(stellarWallet?.address ? ["stellar" as const] : [])];
+  const fundedSources = allSources.filter((c) => balanceOf(c) > 0);
+  const destinationChains = allSources.filter((c) => c !== source);
 
   return (
     <div className="card-glass p-6 sm:p-8 space-y-8">
@@ -296,7 +433,7 @@ export function ChainBridgeModule({
                 <ChainLogo chain={c} size={22} />
                 <div className="min-w-0">
                   <p className="text-xs font-bold text-white truncate">
-                    {CHAIN_NAMES[c]}
+                    {CHAIN_DISPLAY_NAMES[c]}
                   </p>
                   <p className="text-[10px] text-white/40 font-mono">
                     ${balanceOf(c).toFixed(2)}
@@ -320,7 +457,7 @@ export function ChainBridgeModule({
           To
         </p>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          {EVM_CHAINS.filter((c) => c !== source).map((c) => (
+          {destinationChains.map((c) => (
             <button
               key={c}
               onClick={() => setDest(c)}
@@ -333,7 +470,7 @@ export function ChainBridgeModule({
             >
               <ChainLogo chain={c} size={22} />
               <p className="text-xs font-bold text-white truncate">
-                {CHAIN_NAMES[c]}
+                {CHAIN_DISPLAY_NAMES[c]}
               </p>
             </button>
           ))}
@@ -370,7 +507,7 @@ export function ChainBridgeModule({
         </div>
         {amountNum > sourceBalance && source && (
           <p className="text-[11px] text-red-400/80 px-1">
-            Exceeds your {CHAIN_NAMES[source]} balance.
+            Exceeds your {CHAIN_DISPLAY_NAMES[source]} balance.
           </p>
         )}
       </div>
@@ -386,7 +523,7 @@ export function ChainBridgeModule({
         )}
       >
         {source && dest
-          ? `Bridge to ${CHAIN_NAMES[dest]}`
+          ? `Bridge to ${CHAIN_DISPLAY_NAMES[dest]}`
           : "Select networks"}
       </button>
 

@@ -76,21 +76,26 @@ export function useCryptoTransfer({
   const { data: stellarWallet } = useQuery({
     queryKey: ["stellar-wallet", privyUserId],
     queryFn: async () => {
-      if (!privyUserId) return null;
-      const cached = localStorage.getItem(`sendzz:stellar:v2:${privyUserId}`);
-      if (cached) {
-        try {
-          return JSON.parse(cached) as {
-            walletId: string;
-            address: string;
-            trustlineReady: boolean;
-            signerGranted: boolean;
-          };
-        } catch {}
+      if (!privyUserId || !user?.email?.address) return null;
+      try {
+        const res = await fetch("/api/stellar/provision", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ privyUserId, email: user.email.address }),
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        return {
+          walletId: data.walletId,
+          address: data.address,
+          trustlineReady: data.trustlineReady,
+          signerGranted: data.signerGranted || false,
+        };
+      } catch {
+        return null;
       }
-      return null;
     },
-    enabled: !!privyUserId && selectedChain === 'stellar',
+    enabled: !!privyUserId && !!user?.email?.address && selectedChain === 'stellar',
   });
 
   const ensureStellarSetup = useCallback(async () => {
@@ -108,25 +113,26 @@ export function useCryptoTransfer({
       const provRes = await fetch('/api/stellar/provision', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ privyUserId }),
+        body: JSON.stringify({ privyUserId, email: senderEmail }),
       });
       const provData = await provRes.json();
       if (!provRes.ok) throw new Error(provData.error || 'Provisioning failed');
 
       const walletAddress = provData.address;
       const walletId = provData.walletId;
+      const isSignerGranted = provData.signerGranted || false;
 
-      // Check if signer needs to be granted
-      const cached = localStorage.getItem(`sendzz:stellar:v2:${privyUserId}`);
-      const cachedParsed = cached ? JSON.parse(cached) : null;
-
-      if (!cachedParsed?.signerGranted) {
+      if (!isSignerGranted) {
         setStatus("Authorizing signing access in Privy TEE...");
         try {
           await addSigners({
             address: walletAddress,
             signers: [{ signerId: keyQuorumId }],
           });
+          
+          // Save in database that the signer is now granted
+          const { registerStellarAddress } = await import("@/lib/supabase/users");
+          await registerStellarAddress(senderEmail, walletAddress, walletId, true);
         } catch (err: unknown) {
           const errMsg = err instanceof Error ? err.message : String(err);
           if (!errMsg.toLowerCase().includes('duplicate')) {
@@ -140,7 +146,7 @@ export function useCryptoTransfer({
       const finalRes = await fetch('/api/stellar/provision', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ privyUserId }),
+        body: JSON.stringify({ privyUserId, email: senderEmail }),
       });
       const finalData = await finalRes.json();
       if (!finalRes.ok) throw new Error(finalData.error || 'Final setup failed');
@@ -151,10 +157,9 @@ export function useCryptoTransfer({
         trustlineReady: finalData.trustlineReady || false,
         signerGranted: true,
       };
-      localStorage.setItem(`sendzz:stellar:v2:${privyUserId}`, JSON.stringify(info));
       
       queryClient.invalidateQueries({ queryKey: ["stellar-wallet", privyUserId] });
-      queryClient.invalidateQueries({ queryKey: ["balance", smartAddress, selectedChain, info.address] });
+      queryClient.invalidateQueries({ queryKey: ["balance-stellar", info.address] });
 
       setStatus("");
       setIsSettingUpStellar(false);
@@ -167,18 +172,16 @@ export function useCryptoTransfer({
       setIsSettingUpStellar(false);
       return null;
     }
-  }, [privyUserId, addSigners, queryClient, smartAddress, selectedChain]);
+  }, [privyUserId, addSigners, queryClient, senderEmail]);
 
   // Auto-setup Stellar when selected
   useEffect(() => {
     if (selectedChain === "stellar" && privyUserId) {
-      const cached = localStorage.getItem(`sendzz:stellar:v2:${privyUserId}`);
-      const cachedParsed = cached ? JSON.parse(cached) : null;
-      if (!cachedParsed || !cachedParsed.trustlineReady || !cachedParsed.signerGranted) {
+      if (!stellarWallet || !stellarWallet.trustlineReady || !stellarWallet.signerGranted) {
         ensureStellarSetup();
       }
     }
-  }, [selectedChain, privyUserId, ensureStellarSetup]);
+  }, [selectedChain, privyUserId, ensureStellarSetup, stellarWallet]);
 
   // Fetch security preferences
   useEffect(() => {
@@ -269,6 +272,11 @@ export function useCryptoTransfer({
   // transfer, or a cross-chain bridge (which needs an extra confirmation modal).
   const proceedAfterAuth = async () => {
     const amt = parseFloat(amount);
+
+    if (selectedChain === "stellar") {
+      await executeDirectTransfer();
+      return;
+    }
 
     // User override: pay entirely from one chosen chain.
     if (sourcePref.mode === "single") {
@@ -428,7 +436,7 @@ export function useCryptoTransfer({
           payload: {
             amount: valUsdc,
             recipientEmail: recipientAddress,
-            note: `Crypto transfer on ${CHAIN_NAMES[selectedChain]}`,
+            note: `Crypto transfer on ${selectedChain === "stellar" ? "Stellar" : CHAIN_NAMES[selectedChain]}`,
           },
         }),
       });

@@ -58,6 +58,7 @@ export default function Dashboard() {
 
   const [smartAddress, setSmartAddress] = useState<string>("");
   const [stellarAddress, setStellarAddress] = useState<string>("");
+  const [stellarTrustlineReady, setStellarTrustlineReady] = useState<boolean>(false);
   const [rampModalOpen, setRampModalOpen] = useState(false);
   const [batchSendDialogOpen, setBatchSendDialogOpen] = useState(false);
   const [rampType, setRampType] = useState<"deposit" | "withdraw">("deposit");
@@ -76,7 +77,7 @@ export default function Dashboard() {
     isLoading: isPortfolioLoading,
     isFetching: isPortfolioFetching,
     refetch: refetchPortfolio,
-  } = usePortfolio(smartAddress, embeddedSolWallet?.address);
+  } = usePortfolio(smartAddress, embeddedSolWallet?.address, stellarAddress || undefined);
 
   const portfolioTotal = portfolio?.total ?? "0.00";
   const fundedChains = portfolio?.byChain.filter((c) => c.hasBalance) ?? [];
@@ -86,7 +87,7 @@ export default function Dashboard() {
   const evmChainBalances: ChainBalances = useMemo(() => {
     const map: ChainBalances = {};
     for (const c of portfolio?.byChain ?? []) {
-      if (c.chain === "solana") continue;
+      if (c.chain === "solana" || c.chain === "stellar") continue;
       map[c.chain] = parseFloat(c.balance) || 0;
     }
     return map;
@@ -128,6 +129,21 @@ export default function Dashboard() {
             address,
             embeddedSolWallet?.address,
           ).catch(console.error);
+
+          // Automatically provision or retrieve the user's Stellar wallet from the DB/API
+          fetch("/api/stellar/provision", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ privyUserId: user.id, email: user.email.address }),
+          })
+            .then((res) => res.json())
+            .then((data) => {
+              if (data.address) {
+                setStellarAddress(data.address);
+                setStellarTrustlineReady(!!data.trustlineReady);
+              }
+            })
+            .catch((err) => console.error("[Dashboard] Stellar provision error:", err));
         }
       } catch (err) {
         console.error("[Dashboard] INIT ACCOUNT FATAL ERROR:", err);
@@ -160,21 +176,6 @@ export default function Dashboard() {
       fetchSecurityPrefs();
     }
   }, [ready, authenticated, wallets, user, embeddedSolWallet?.address]);
-
-  // Load Stellar wallet address from localStorage for the bridge nudge
-  useEffect(() => {
-    if (user?.id) {
-      try {
-        const raw = localStorage.getItem(`sendzz:stellar:v2:${user.id}`);
-        if (raw) {
-          const parsed = JSON.parse(raw) as { address?: string };
-          if (parsed.address) {
-            setTimeout(() => setStellarAddress(parsed.address!), 0);
-          }
-        }
-      } catch { /* ignore */ }
-    }
-  }, [user?.id]);
 
   if (!ready || !authenticated || !user) {
     return (
@@ -602,6 +603,8 @@ export default function Dashboard() {
           userId={user?.id || ""}
           userAddress={smartAddress}
           solanaAddress={embeddedSolWallet?.address}
+          stellarAddress={stellarAddress || undefined}
+          stellarTrustlineReady={stellarTrustlineReady}
           balance={totalSpendable}
           chainBalances={evmChainBalances}
           solanaSource={solanaSource}

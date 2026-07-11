@@ -15,12 +15,7 @@ interface StellarWalletState {
   address: string;
 }
 
-function loadStellarWallet(privyUserId: string): StellarWalletState | null {
-  try {
-    const raw = localStorage.getItem(`sendzz:stellar:v2:${privyUserId}`);
-    return raw ? (JSON.parse(raw) as StellarWalletState) : null;
-  } catch { return null; }
-}
+
 
 export default function SmartBridgePage() {
   const { ready, authenticated, user } = usePrivy();
@@ -52,15 +47,32 @@ export default function SmartBridgePage() {
     if (ready && authenticated && wallets.length > 0) initAccount();
   }, [ready, authenticated, wallets]);
 
-  // Load Stellar wallet from localStorage (set by Stellar playground page)
+  // Load Stellar wallet from database/provision API
   useEffect(() => {
-    if (user?.id) {
-      const w = loadStellarWallet(user.id);
-      if (w) {
-        setTimeout(() => setStellarWallet(w), 0);
+    async function initStellar() {
+      if (user?.id && user?.email?.address) {
+        try {
+          const res = await fetch('/api/stellar/provision', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ privyUserId: user.id, email: user.email.address }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.address && data.walletId) {
+              setTimeout(() => setStellarWallet({
+                walletId: data.walletId,
+                address: data.address,
+              }), 0);
+            }
+          }
+        } catch (err) {
+          console.error('[Bridge] Failed to load Stellar wallet:', err);
+        }
       }
     }
-  }, [user?.id]);
+    initStellar();
+  }, [user?.id, user?.email?.address]);
 
   if (!ready || !authenticated || !user) {
     return (
@@ -109,6 +121,7 @@ export default function SmartBridgePage() {
             smartAddress={smartAddress}
             userEmail={user.email?.address || ''}
             solanaAddress={privySolanaAddress}
+            stellarWallet={stellarWallet}
           />
         ) : (
           <SmartBridgeModule

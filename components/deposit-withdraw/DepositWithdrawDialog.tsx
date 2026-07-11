@@ -27,6 +27,8 @@ interface DepositWithdrawDialogProps {
   userId: string;
   userAddress: string;
   solanaAddress?: string;
+  stellarAddress?: string;
+  stellarTrustlineReady?: boolean;
   balance: string;
   chainBalances?: ChainBalances;
   solanaSource?: SolanaSource;
@@ -41,6 +43,8 @@ export function DepositWithdrawDialog({
   userId,
   userAddress,
   solanaAddress,
+  stellarAddress,
+  stellarTrustlineReady,
   balance,
   chainBalances,
   solanaSource,
@@ -181,6 +185,10 @@ export function DepositWithdrawDialog({
                     <ReceiveCryptoFlow
                       evmAddress={userAddress}
                       solanaAddress={solanaAddress}
+                      stellarAddress={stellarAddress}
+                      stellarTrustlineReady={stellarTrustlineReady}
+                      userId={userId}
+                      userEmail={userEmail}
                     />
                   )
                 ) : (

@@ -75,7 +75,7 @@ export async function executeSmartBridge(
   sourceChain: SupportedChain,
   amountUSDC: string,
   recipientAddress: string,
-  destChain: SupportedChain = 'base'
+  destChain: SupportedChain | 'stellar' = 'base'
 ): Promise<{ userOpHash: `0x${string}`; txHashPromise: Promise<string> }> {
   try {
     if (sourceChain === destChain) {
@@ -83,7 +83,9 @@ export async function executeSmartBridge(
     }
     const chain = VIEM_CHAINS[sourceChain];
     const usdcAddress = USDC_ADDRESSES[sourceChain];
-    const destinationDomain = CCTP_DOMAINS[destChain];
+    const destinationDomain = destChain === 'stellar' 
+      ? 27 
+      : CCTP_DOMAINS[destChain as SupportedChain];
 
     if (!chain || !usdcAddress) throw new Error('Unsupported chain config');
 
@@ -92,7 +94,16 @@ export async function executeSmartBridge(
     const { bundlerClient, account } = await getCircleClient(ethereumProvider, sourceChain);
 
     const amountRaw = parseUnits(amountUSDC, 6);
-    const mintRecipient = `0x${'0'.repeat(24)}${recipientAddress.slice(2).toLowerCase()}` as `0x${string}`;
+    
+    let mintRecipient: `0x${string}`;
+    if (destChain === 'stellar') {
+      const { Keypair } = await import('@stellar/stellar-sdk');
+      const rawBytes = Keypair.fromPublicKey(recipientAddress).rawPublicKey();
+      mintRecipient = `0x${rawBytes.toString('hex')}`;
+    } else {
+      mintRecipient = `0x${'0'.repeat(24)}${recipientAddress.slice(2).toLowerCase()}` as `0x${string}`;
+    }
+
     const destinationCaller = `0x${'0'.repeat(64)}` as `0x${string}`;
 
     const policyId = GAS_POLICY_IDS[sourceChain];

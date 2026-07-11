@@ -36,12 +36,15 @@ import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
   try {
-    const { walletId, senderAddress, recipientAddress, amount } = await req.json() as {
+    const { walletId, senderAddress, recipientAddress, amount, destChain } = await req.json() as {
       walletId: string;
       senderAddress: string;
       recipientAddress: string;
       amount: string;
+      destChain?: string;
     };
+
+    const finalDestChain = destChain || 'base';
 
     // ── Validation ─────────────────────────────────────────────────────────
     if (!walletId || !senderAddress || !recipientAddress || !amount) {
@@ -54,7 +57,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'senderAddress must be a Stellar G-address' }, { status: 400 });
     }
     if (!recipientAddress.startsWith('0x')) {
-      return NextResponse.json({ error: 'recipientAddress must be a Base 0x address' }, { status: 400 });
+      return NextResponse.json({ error: `recipientAddress must be an EVM 0x address` }, { status: 400 });
     }
     if (!STELLAR_TOKEN_MESSENGER_CONTRACT) {
       return NextResponse.json(
@@ -68,7 +71,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid amount' }, { status: 400 });
     }
 
-    console.log(`[Stellar/Bridge] ${senderAddress.slice(0, 6)} → Base ${recipientAddress.slice(0, 8)}, ${amount} USDC`);
+    console.log(`[Stellar/Bridge] ${senderAddress.slice(0, 6)} → ${finalDestChain} ${recipientAddress.slice(0, 8)}, ${amount} USDC`);
 
     // ── Balance check ──────────────────────────────────────────────────────
     const usdcBalance = await getStellarUsdcBalance(senderAddress);
@@ -81,7 +84,7 @@ export async function POST(req: Request) {
 
     // ── Calculate CCTP max fee ─────────────────────────────────────────────
     console.log('[Stellar/Bridge] Calculating CCTP max fee...');
-    const maxFeeSubunits = await calculateStellarMaxFee(amount);
+    const maxFeeSubunits = await calculateStellarMaxFee(amount, finalDestChain);
     console.log(`[Stellar/Bridge] Max fee subunits: ${maxFeeSubunits}`);
 
     // ── Step 1: Ensure USDC allowance for TokenMessenger ──────────────────
@@ -121,6 +124,7 @@ export async function POST(req: Request) {
       recipientAddress,
       amount,
       maxFeeSubunits,
+      finalDestChain,
     );
 
     // ── Step 3: Sign depositForBurn via Privy TEE ──────────────────────────

@@ -20,6 +20,7 @@ import { useRouter } from 'next/navigation';
 import { useWallets } from '@privy-io/react-auth';
 import { executeReceiveMessage } from '@/lib/web3/bridge-actions';
 import { toast } from 'sonner';
+import { CCTP_DOMAINS, type SupportedChain } from '@/lib/circle/gateway';
 
 import { Activity } from './HistoryModule';
 import { ReceiptActions } from './receipt/ReceiptActions';
@@ -84,9 +85,17 @@ export function ActivityDetailModal({
       }
 
       const sourceChain = activity.sourceChain?.toLowerCase();
-      const domain = sourceChain === 'solana' ? 5 : sourceChain === 'stellar' ? 27 : null;
+      const destChain = activity.destChain?.toLowerCase() as SupportedChain;
+
+      let domain: number | null = null;
+      if (sourceChain === 'solana') domain = 5;
+      else if (sourceChain === 'stellar') domain = 27;
+      else if (sourceChain && sourceChain in CCTP_DOMAINS) {
+        domain = CCTP_DOMAINS[sourceChain as keyof typeof CCTP_DOMAINS];
+      }
+
       if (domain === null) {
-        toast.error('Manual claim is only supported for Stellar and Solana bridges.');
+        toast.error('Invalid bridge source chain.');
         setIsClaiming(false);
         return;
       }
@@ -106,14 +115,28 @@ export function ActivityDetailModal({
         return;
       }
 
-      toast.info('Requesting signature to claim USDC on Base...');
-      const mintTxHash = await executeReceiveMessage(
-        embeddedWallet,
-        message.message,
-        message.attestation
-      );
+      let mintTxHash = message.forwardTxHash || message.mintTxHash || null;
 
-      toast.success('USDC claimed successfully on Base!');
+      const isEvmDest = destChain && destChain in CCTP_DOMAINS;
+      if (isEvmDest) {
+        if (!mintTxHash) {
+          toast.info(`Requesting signature to claim USDC on ${activity.destChain || 'destination'}...`);
+          mintTxHash = await executeReceiveMessage(
+            embeddedWallet,
+            message.message,
+            message.attestation,
+            destChain
+          );
+        }
+      } else {
+        if (!mintTxHash) {
+          toast.info("Circle's automatic relayer is currently minting your funds on the destination chain. Please wait 1–2 minutes.");
+          setIsClaiming(false);
+          return;
+        }
+      }
+
+      toast.success('USDC claimed successfully!');
 
       await fetch('/api/bridge/complete', {
         method: 'POST',

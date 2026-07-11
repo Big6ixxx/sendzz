@@ -44,7 +44,7 @@ export default function TransfersPage() {
   const evmChainBalances: ChainBalances = useMemo(() => {
     const map: ChainBalances = {};
     for (const c of portfolio?.byChain ?? []) {
-      if (c.chain === "solana") continue;
+      if (c.chain === "solana" || c.chain === "stellar") continue;
       map[c.chain] = parseFloat(c.balance) || 0;
     }
     return map;

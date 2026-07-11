@@ -145,6 +145,7 @@ export async function buildStellarDepositForBurnTx(
   evmRecipient: string,
   amountUsdc: string,
   maxFeeSubunits: bigint,
+  destChain: string = 'base',
   account?: Account,
 ): Promise<StellarDepositForBurnResult> {
   if (!STELLAR_TOKEN_MESSENGER_CONTRACT) {
@@ -160,10 +161,14 @@ export async function buildStellarDepositForBurnTx(
   const frac7 = (frac + '0000000').slice(0, 7);
   const amountSubunits = BigInt(whole + frac7);
 
-  // mintRecipient: BytesN<32> — for Stellar → Base (EVM), this is always the
-  // user's EVM address left-padded to 32 bytes. The CctpForwarder pattern
-  // (which appends an 8th arg) is only for Stellar → Stellar routes and must
-  // NOT be used here — the TokenMessenger contract only accepts 7 arguments.
+  // Map destination chain to domain
+  const { CCTP_DOMAINS } = await import('./gateway');
+  const destinationDomain = destChain in CCTP_DOMAINS 
+    ? CCTP_DOMAINS[destChain as keyof typeof CCTP_DOMAINS]
+    : BASE_CCTP_DOMAIN;
+
+  // mintRecipient: BytesN<32> — for Stellar → EVM, this is always the
+  // user's EVM address left-padded to 32 bytes.
   const mintRecipientScVal = evmAddressToScValBytes32(evmRecipient);
 
   console.log('[StellarGateway] buildStellarDepositForBurnTx: amount subunits =', amountSubunits.toString(), '| maxFee subunits =', maxFeeSubunits.toString());
@@ -192,7 +197,7 @@ export async function buildStellarDepositForBurnTx(
   const callArgs: xdr.ScVal[] = [
     new Address(senderAddress).toScVal(),              // caller
     nativeToScVal(amountSubunits, { type: 'i128' }),   // amount (i128 local units)
-    nativeToScVal(BASE_CCTP_DOMAIN, { type: 'u32' }), // destination_domain
+    nativeToScVal(destinationDomain, { type: 'u32' }), // destination_domain
     mintRecipientScVal,                                // mint_recipient
     new Address(STELLAR_USDC_CONTRACT).toScVal(),      // burn_token
     zeroBytes32ScVal(),                               // destination_caller = no restriction
@@ -287,9 +292,12 @@ export async function fetchStellarAttestation(
  *
  * @returns maxFee in 6-decimal USDC subunits
  */
-export async function calculateStellarMaxFee(amountUsdc: string): Promise<bigint> {
-  const { fetchCctpFees } = await import('./gateway');
-  const fees = await fetchCctpFees(STELLAR_CCTP_DOMAIN, BASE_CCTP_DOMAIN);
+export async function calculateStellarMaxFee(amountUsdc: string, destChain: string = 'base'): Promise<bigint> {
+  const { fetchCctpFees, CCTP_DOMAINS } = await import('./gateway');
+  const destinationDomain = destChain in CCTP_DOMAINS 
+    ? CCTP_DOMAINS[destChain as keyof typeof CCTP_DOMAINS]
+    : BASE_CCTP_DOMAIN;
+  const fees = await fetchCctpFees(STELLAR_CCTP_DOMAIN, destinationDomain);
   const fastFee = fees.find((f) => f.finalityThreshold === 1000) ?? fees[0];
   const bps = fastFee.minimumFee;
 

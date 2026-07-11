@@ -21,12 +21,14 @@ export interface Portfolio {
 export function usePortfolio(
   evmAddress: string | undefined,
   solanaAddress?: string,
+  stellarAddress?: string,
 ) {
   return useQuery<Portfolio>({
-    queryKey: ['portfolio', evmAddress, solanaAddress],
+    queryKey: ['portfolio', evmAddress, solanaAddress, stellarAddress],
     queryFn: async () => {
       const params = new URLSearchParams({ address: evmAddress!, all: '1' });
       if (solanaAddress) params.set('solanaAddress', solanaAddress);
+      if (stellarAddress) params.set('stellarAddress', stellarAddress);
 
       const res = await fetch(`/api/balances/cross-chain?${params.toString()}`);
       if (!res.ok) throw new Error('Failed to fetch portfolio balances');
