@@ -1,4 +1,4 @@
-import { toModularTransport } from '@circle-fin/modular-wallets-core';
+import { toModularTransport, modularWalletActions } from '@circle-fin/modular-wallets-core';
 import { EIP1193Provider } from '@privy-io/react-auth';
 import { encodeFunctionData, parseAbi, parseUnits, type Address } from 'viem';
 import { createBundlerClient } from 'viem/account-abstraction';
@@ -10,7 +10,8 @@ import {
   USDC_ADDRESS,
 } from './config';
 import { VIEM_CHAINS } from './multichain';
-import { USDC_ADDRESSES, type SupportedChain } from '../circle/gateway';
+import { USDC_ADDRESSES, GAS_POLICY_IDS, type SupportedChain } from '../circle/gateway';
+import { type RouteLeg } from './routing';
 
 const ERC20_ABI = parseAbi([
   'function transfer(address _to, uint256 _value) returns (bool)',
@@ -32,6 +33,32 @@ export async function executeCircleGaslessTransfer(
   ], targetChain);
 }
 
+/**
+ * Execute a routed transfer to a single recipient. The route engine may split the
+ * amount across several chains (multi-source); each leg is an independent gasless
+ * transfer on its own chain. Returns the tx hash of every leg in order.
+ *
+ * Note: legs are NOT atomic across chains. They run sequentially; if a later leg
+ * fails, earlier legs have already settled. The caller surfaces partial state.
+ */
+export async function executeRoutedTransfer(
+  provider: EIP1193Provider,
+  recipientAddress: string,
+  legs: RouteLeg[],
+): Promise<string[]> {
+  const txHashes: string[] = [];
+  for (const leg of legs) {
+    const hash = await executeCircleGaslessTransfer(
+      provider,
+      recipientAddress,
+      leg.amount,
+      leg.chain,
+    );
+    txHashes.push(hash);
+  }
+  return txHashes;
+}
+
 export async function executeCircleGaslessBatchTransfer(
   provider: EIP1193Provider,
   transfers: { recipientAddress: string; amountUSDC: string }[],
@@ -46,6 +73,7 @@ export async function executeCircleGaslessBatchTransfer(
   // 1. Get Circle smart account
   const { account } = await getCircleClient(
     provider as unknown as Parameters<typeof getCircleClient>[0],
+    targetChain
   );
 
   // 2. Create bundler client using Circle's send transport
@@ -73,12 +101,28 @@ export async function executeCircleGaslessBatchTransfer(
     };
   });
 
+  const policyId = GAS_POLICY_IDS[targetChain];
+
+  const modularClient = bundlerClient.extend(modularWalletActions);
+  const gasPrices = await modularClient.getUserOperationGasPrice().catch(() => null);
+  const gasLevel = gasPrices?.medium ?? gasPrices?.high ?? null;
+
+  const maxPriorityFeePerGas = gasLevel?.maxPriorityFeePerGas
+    ? BigInt(gasLevel.maxPriorityFeePerGas)
+    : 1_000_000n;
+  const maxFeePerGas = gasLevel?.maxFeePerGas
+    ? BigInt(gasLevel.maxFeePerGas)
+    : undefined;
+
   // 4. Send UserOperation in one batch
   console.log(`[BatchTransfer] Sending UserOp with ${calls.length} calls on ${targetChain}...`);
 
   const userOpHash = await bundlerClient.sendUserOperation({
     calls,
+    maxFeePerGas,
+    maxPriorityFeePerGas,
     paymaster: true,
+    paymasterContext: policyId ? { policyId } : undefined,
   });
 
   console.log('[BatchTransfer] UserOp Hash:', userOpHash);

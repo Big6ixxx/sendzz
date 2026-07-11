@@ -1,12 +1,12 @@
 import * as React from 'react';
 import { Search } from 'lucide-react';
-import { PaycrestInstitution } from '@/lib/paycrest/types';
+import { RampInstitution } from '@/lib/ramp';
 
 interface BankSelectorDropdownProps {
   isOpen: boolean;
   search: string;
   onSearchChange: (value: string) => void;
-  filteredInstitutions: PaycrestInstitution[];
+  filteredInstitutions: RampInstitution[];
   onSelect: (bank: { code: string; name: string }) => void;
 }
 

@@ -144,7 +144,7 @@ export async function POST(req: Request) {
         const { error } = await supabaseAdmin
           .from('deposits')
           .update({ status: 'confirmed', tx_hash: txHash })
-          .eq('paycrest_tx_id', orderId);
+          .eq('provider_order_id', orderId);
 
         if (error) {
           console.error(`[Paycrest Webhook] [${requestId}] Failed to confirm deposit ${orderId}:`, error.message);
@@ -159,7 +159,7 @@ export async function POST(req: Request) {
         const { error } = await supabaseAdmin
           .from('deposits')
           .update({ status: finalStatus })
-          .eq('paycrest_tx_id', orderId);
+          .eq('provider_order_id', orderId);
 
         if (error) {
           console.error(`[Paycrest Webhook] [${requestId}] Failed to update deposit ${orderId} status:`, error.message);
@@ -203,7 +203,7 @@ export async function POST(req: Request) {
           const { error: updateErr } = await supabaseAdmin
             .from('withdrawals')
             .update({ status: 'reversed' })
-            .eq('paycrest_order_id', orderId);
+            .eq('provider_order_id', orderId);
           if (updateErr) {
             console.error(`[Paycrest Webhook] [${requestId}] Failed to set withdrawal status to reversed:`, updateErr.message);
           }

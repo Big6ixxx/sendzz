@@ -1,7 +1,7 @@
 'use client';
 
 import { checkOrderById } from '@/lib/actions/ramp';
-import { PaycrestOrderStatus } from '@/lib/paycrest/types';
+import { RampOrderStatus } from '@/lib/ramp';
 import { cn } from '@/lib/utils';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -24,7 +24,7 @@ import { toast } from 'sonner';
 
 interface OrderData {
   id: string;
-  status: PaycrestOrderStatus;
+  status: RampOrderStatus;
   amount: string;
   createdAt: string;
   providerAccount?: {
@@ -45,7 +45,7 @@ interface OrderData {
 }
 
 const STATUS_MAP: Record<
-  PaycrestOrderStatus,
+  RampOrderStatus,
   {
     label: string;
     sub: string;
@@ -115,6 +115,13 @@ const STATUS_MAP: Record<
     sub: 'The payment window timed out. Please initiate a new order.',
     icon: XCircle,
     color: 'rgba(248,248,246,0.3)',
+    progress: 0,
+  },
+  failed: {
+    label: 'Transaction Failed',
+    sub: 'Something went wrong processing this order. Please try again.',
+    icon: XCircle,
+    color: '#f87171',
     progress: 0,
   },
 };
@@ -256,7 +263,7 @@ export default function TxStatusPage({
                 </div>
               </div>
               <p className="text-xs font-bold uppercase tracking-[0.3em] opacity-30">
-                Syncing with Paycrest...
+                Syncing order status...
               </p>
             </motion.div>
           ) : error ? (

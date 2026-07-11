@@ -15,7 +15,8 @@ import {
 } from "@/lib/supabase/contacts";
 import { AddContactModal } from "@/components/contacts/AddContactModal";
 import { getInstitutions } from "@/lib/actions/ramp";
-import { PaycrestInstitution } from "@/lib/paycrest/types";
+import { RampInstitution } from "@/lib/ramp";
+import { CHAIN_NAMES } from "@/lib/circle/gateway";
 import { usePrivy } from "@privy-io/react-auth";
 import {
   AtSign,
@@ -32,6 +33,7 @@ import {
   EyeOff,
   HelpCircle,
   Smartphone,
+  Network,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -57,7 +59,7 @@ export default function SettingsPage() {
 
   const [bankContacts, setBankContacts] = useState<BankContactRow[]>([]);
   const [emailContacts, setEmailContacts] = useState<ContactRow[]>([]);
-  const [institutions, setInstitutions] = useState<PaycrestInstitution[]>([]);
+  const [institutions, setInstitutions] = useState<RampInstitution[]>([]);
   const [addBankModalOpen, setAddBankModalOpen] = useState(false);
   const [addEmailModalOpen, setAddEmailModalOpen] = useState(false);
   const [contactToDelete, setContactToDelete] = useState<{
@@ -272,6 +274,12 @@ export default function SettingsPage() {
           icon: User,
         },
         { label: "Wallet", value: "Smart Account Active", icon: Shield },
+        {
+          label: "Networks",
+          // EVM chains share one smart-account address; Solana is a separate rail.
+          value: `Active on ${Object.keys(CHAIN_NAMES).length + 1} networks (EVM + Solana)`,
+          icon: Network,
+        },
       ],
     },
     {

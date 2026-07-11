@@ -2,7 +2,9 @@
 
 import { DashboardPageHeader } from '@/components/layout/DashboardPageHeader';
 import { SmartBridgeModule } from '@/components/SmartBridgeModule';
+import { ChainBridgeModule } from '@/components/ChainBridgeModule';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 import { getCircleAddress } from '@/lib/web3/circle-client';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { Loader2 } from 'lucide-react';
@@ -25,6 +27,7 @@ export default function SmartBridgePage() {
   const { wallets } = useWallets();
   const [smartAddress, setSmartAddress] = useState<string>('');
   const [stellarWallet, setStellarWallet] = useState<StellarWalletState | null>(null);
+  const [tab, setTab] = useState<'move' | 'consolidate'>('move');
 
   // Embedded Privy Solana wallet
   const privySolAccount = user?.linkedAccounts.find(
@@ -53,7 +56,9 @@ export default function SmartBridgePage() {
   useEffect(() => {
     if (user?.id) {
       const w = loadStellarWallet(user.id);
-      if (w) setStellarWallet(w);
+      if (w) {
+        setTimeout(() => setStellarWallet(w), 0);
+      }
     }
   }, [user?.id]);
 
@@ -69,16 +74,50 @@ export default function SmartBridgePage() {
     <TooltipProvider>
       <div className="max-w-3xl mx-auto space-y-10">
         <DashboardPageHeader
-          title="Smart Bridge"
-          subtitle="Consolidate your funds from other chains to Base instantly."
+          title="Bridge"
+          subtitle="Move USDC between your networks, or consolidate idle funds to Base."
         />
 
-        <SmartBridgeModule
-          smartAddress={smartAddress}
-          userEmail={user.email?.address || ''}
-          solanaAddress={privySolanaAddress}
-          stellarWallet={stellarWallet}
-        />
+        {/* Tab switcher */}
+        <div className="flex bg-white/5 p-1 rounded-2xl border border-white/5 max-w-md">
+          <button
+            onClick={() => setTab('move')}
+            className={cn(
+              'flex-1 py-3 text-[10px] font-bold uppercase tracking-[0.2em] rounded-xl transition-all',
+              tab === 'move'
+                ? 'bg-accent text-[#07070a] shadow-lg'
+                : 'text-white/40 hover:text-white/60',
+            )}
+          >
+            Move Between Networks
+          </button>
+          <button
+            onClick={() => setTab('consolidate')}
+            className={cn(
+              'flex-1 py-3 text-[10px] font-bold uppercase tracking-[0.2em] rounded-xl transition-all',
+              tab === 'consolidate'
+                ? 'bg-accent text-[#07070a] shadow-lg'
+                : 'text-white/40 hover:text-white/60',
+            )}
+          >
+            Consolidate to Base
+          </button>
+        </div>
+
+        {tab === 'move' ? (
+          <ChainBridgeModule
+            smartAddress={smartAddress}
+            userEmail={user.email?.address || ''}
+            solanaAddress={privySolanaAddress}
+          />
+        ) : (
+          <SmartBridgeModule
+            smartAddress={smartAddress}
+            userEmail={user.email?.address || ''}
+            solanaAddress={privySolanaAddress}
+            stellarWallet={stellarWallet}
+          />
+        )}
       </div>
     </TooltipProvider>
   );

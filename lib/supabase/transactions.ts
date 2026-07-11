@@ -29,6 +29,8 @@ export async function recordTransfer(params: {
   status: 'completed' | 'pending_claim';
   note?: string;
   txHash?: string;
+  /** Network the transfer settled on (e.g. 'base', 'polygon'). Optional. */
+  chain?: string;
 }): Promise<void> {
   try {
     console.log(
@@ -53,7 +55,7 @@ export async function recordTransfer(params: {
       return;
     }
 
-    const { error: insertError } = await supabaseAdmin.from('transfers').insert({
+    const baseRow = {
       sender_id: sender.id,
       sender_email: params.senderEmail,
       recipient_id: recipient?.id || null,
@@ -62,10 +64,23 @@ export async function recordTransfer(params: {
       status: params.status,
       note: params.note || null,
       tx_hash: params.txHash || null,
-      asset: 'USDC',
-    });
+      asset: 'USDC' as const,
+    };
 
-    if (insertError) {
+    const { error: insertError } = await supabaseAdmin
+      .from('transfers')
+      .insert(params.chain ? { ...baseRow, source_chain: params.chain } : baseRow);
+
+    if (insertError && params.chain) {
+      // `source_chain` may not exist yet (migration 024 not applied) — retry without it
+      // so the ledger record still succeeds.
+      const { error: retryError } = await supabaseAdmin
+        .from('transfers')
+        .insert(baseRow);
+      if (retryError) {
+        console.error('[Supabase] Failed to record transfer:', retryError);
+      }
+    } else if (insertError) {
       console.error('[Supabase] Failed to record transfer:', insertError);
     } else {
       console.log('[Supabase] Transfer recorded successfully');
@@ -84,6 +99,10 @@ export async function recordDeposit(params: {
   amountUsdc: number;
   status: 'pending' | 'confirmed';
   paycrestTxId?: string;
+  /** Chain the purchased USDC landed on (the user's home chain). Optional. */
+  network?: string;
+  /** Ramp provider that created the order ('bitnob' | 'paycrest'). Optional. */
+  provider?: string;
 }): Promise<void> {
   try {
     const { data: user, error: userError } = await supabaseAdmin
@@ -97,16 +116,34 @@ export async function recordDeposit(params: {
       return;
     }
 
-    const { error: insertError } = await supabaseAdmin.from('deposits').insert({
+    const baseRow = {
       user_id: user.id,
       amount_fiat: params.amountFiat,
       currency_fiat: params.currencyFiat,
       amount_usdc: params.amountUsdc,
       status: params.status,
       paycrest_tx_id: params.paycrestTxId || null,
-    });
+    };
 
-    if (insertError) {
+    const extra: Record<string, unknown> = {};
+    if (params.network) extra.network = params.network;
+    if (params.provider) extra.provider = params.provider;
+    if (params.paycrestTxId) extra.provider_order_id = params.paycrestTxId;
+    if (params.network) extra.provider_metadata = { network: params.network };
+    const hasExtra = Object.keys(extra).length > 0;
+
+    const { error: insertError } = await supabaseAdmin
+      .from('deposits')
+      .insert(hasExtra ? { ...baseRow, ...extra } : baseRow);
+
+    if (insertError && hasExtra) {
+      // `network`/`provider` may not exist yet (migration 025 not applied) — retry without.
+      const { error: retryError } = await supabaseAdmin.from('deposits').insert(baseRow);
+      if (retryError) {
+        console.error('[Supabase] recordDeposit INSERT ERROR:', retryError);
+        return;
+      }
+    } else if (insertError) {
       console.error('[Supabase] recordDeposit INSERT ERROR:', insertError);
       return;
     }
@@ -124,7 +161,7 @@ export async function updateDepositStatus(
     const { error } = await supabaseAdmin
       .from('deposits')
       .update({ status })
-      .eq('paycrest_tx_id', paycrestTxId);
+      .eq('provider_order_id', paycrestTxId);
 
     if (error) throw error;
   } catch (err) {
@@ -144,6 +181,16 @@ export async function recordWithdrawal(params: {
   institutionCode: string;
   status: 'processing' | 'completed';
   paycrestOrderId?: string;
+  /** Paycrest-supported chain the off-ramp settled from (base/polygon/ethereum). Optional. */
+  sourceChain?: string;
+  /** True when funds were spread across networks and auto-bridged onto sourceChain first. */
+  consolidated?: boolean;
+  /** Ramp provider that created the order ('bitnob' | 'paycrest'). Optional. */
+  provider?: string;
+  /** Bitnob quote id — used to finalize the payout after the USDC deposit lands. */
+  bitnobQuoteId?: string;
+  /** Bitnob deposit address — matches the `deposit.success` webhook to this withdrawal. */
+  bitnobDepositAddress?: string;
 }): Promise<void> {
   try {
     const { data: user } = await supabaseAdmin
@@ -154,7 +201,7 @@ export async function recordWithdrawal(params: {
 
     if (!user) throw new Error('User not found');
 
-    const { error: insertError } = await supabaseAdmin.from('withdrawals').insert({
+    const baseRow = {
       user_id: user.id,
       amount_usdc: params.amountUsdc,
       fiat_currency: params.fiatCurrency,
@@ -164,10 +211,37 @@ export async function recordWithdrawal(params: {
       institution_code: params.institutionCode,
       status: params.status,
       paycrest_order_id: params.paycrestOrderId || null,
-      verification_status: 'verified',
-    });
+      verification_status: 'verified' as const,
+    };
 
-    if (insertError) {
+    const extra: Record<string, unknown> = {};
+    if (params.sourceChain || params.consolidated) {
+      extra.source_chain = params.sourceChain ?? null;
+      extra.consolidated = params.consolidated ?? false;
+    }
+    if (params.provider) extra.provider = params.provider;
+    // Provider-agnostic: everything provider-specific lives in provider_metadata (JSONB).
+    // paycrest_order_id is still dual-written (baseRow) ONLY for prod rollback safety and is
+    // dropped in the final post-rollout migration.
+    if (params.paycrestOrderId) extra.provider_order_id = params.paycrestOrderId;
+    const metadata: Record<string, unknown> = {};
+    if (params.bitnobQuoteId) metadata.quote_id = params.bitnobQuoteId;
+    if (params.bitnobDepositAddress) metadata.deposit_address = params.bitnobDepositAddress;
+    if (params.sourceChain) metadata.network = params.sourceChain;
+    if (Object.keys(metadata).length > 0) extra.provider_metadata = metadata;
+
+    const chainRow = Object.keys(extra).length > 0 ? { ...baseRow, ...extra } : baseRow;
+
+    const { error: insertError } = await supabaseAdmin.from('withdrawals').insert(chainRow);
+
+    if (insertError && chainRow !== baseRow) {
+      // extra columns may not exist yet (migration not applied) — retry without.
+      const { error: retryError } = await supabaseAdmin.from('withdrawals').insert(baseRow);
+      if (retryError) {
+        console.error('[Supabase] Failed to record withdrawal:', retryError.message);
+        return;
+      }
+    } else if (insertError) {
       console.error('[Supabase] Failed to record withdrawal:', insertError.message);
       return;
     }
@@ -185,7 +259,7 @@ export async function updateWithdrawalStatus(
     const { error } = await supabaseAdmin
       .from('withdrawals')
       .update({ status })
-      .eq('paycrest_order_id', paycrestOrderId);
+      .eq('provider_order_id', paycrestOrderId);
 
     if (error) throw error;
   } catch (err) {
@@ -201,7 +275,7 @@ export async function saveWithdrawalTxHash(
     const { error } = await supabaseAdmin
       .from('withdrawals')
       .update({ tx_hash: txHash })
-      .eq('paycrest_order_id', paycrestOrderId);
+      .eq('provider_order_id', paycrestOrderId);
 
     if (error) throw error;
   } catch (err) {
@@ -217,7 +291,7 @@ export async function saveDepositTxHash(
     const { error } = await supabaseAdmin
       .from('deposits')
       .update({ tx_hash: txHash })
-      .eq('paycrest_tx_id', paycrestTxId);
+      .eq('provider_order_id', paycrestTxId);
 
     if (error) throw error;
   } catch (err) {
@@ -288,13 +362,28 @@ export async function getUserActivities(userEmail: string) {
   try {
     const { data: userRecord } = await supabaseAdmin
       .from('users')
-      .select('id')
+      .select('id, smart_account_address, solana_address')
       .ilike('email', userEmail.trim())
       .single();
 
     const internalId = userRecord?.id;
     if (!internalId)
       return { sent: [], received: [], deposits: [], withdrawals: [], bridges: [] };
+
+    // Record any new on-chain USDC deposits BEFORE reading the deposits table, so freshly
+    // received crypto shows up in history. Best-effort + throttled — never blocks the load.
+    if (userRecord?.smart_account_address || userRecord?.solana_address) {
+      try {
+        const { scanUsdcDeposits } = await import('@/lib/web3/deposit-scanner');
+        await scanUsdcDeposits({
+          userId: internalId,
+          address: userRecord.smart_account_address ?? '',
+          solanaAddress: userRecord.solana_address ?? undefined,
+        });
+      } catch (e) {
+        console.error('[Supabase] deposit scan failed (non-fatal):', e);
+      }
+    }
 
     const [
       { data: sent },
@@ -327,28 +416,31 @@ export async function getUserActivities(userEmail: string) {
     }
 
     // Check for pending deposits and update them
-    const pendingDeposits = (deposits || []).filter(d => d.status === 'pending' && d.paycrest_tx_id);
+    const pendingDeposits = (deposits || []).filter(d => d.status === 'pending' && d.provider_order_id);
     if (pendingDeposits.length > 0) {
       await Promise.all(pendingDeposits.map(async (d) => {
         try {
           const { getOrderStatus } = await import('@/lib/actions/ramp');
-          const result = await getOrderStatus(d.paycrest_tx_id!);
+          const result = await getOrderStatus(
+            d.provider_order_id!,
+            (d.provider as 'bitnob' | 'paycrest') || 'paycrest',
+          );
           const statusLower = result?.status?.toLowerCase();
-          
+
           if (statusLower === 'settled' || statusLower === 'completed') {
-            await updateDepositStatus(d.paycrest_tx_id!, 'confirmed');
+            await updateDepositStatus(d.provider_order_id!, 'confirmed');
             d.status = 'confirmed';
             
             const settlementTxHash = result.txHash || result.settlementTxHash || result.transactionHash;
             if (settlementTxHash) {
-              await saveDepositTxHash(d.paycrest_tx_id!, settlementTxHash);
+              await saveDepositTxHash(d.provider_order_id!, settlementTxHash);
               d.tx_hash = settlementTxHash;
             }
           } else if (statusLower && ['refunded', 'refunding'].includes(statusLower)) {
-             await updateDepositStatus(d.paycrest_tx_id!, 'reversed');
+             await updateDepositStatus(d.provider_order_id!, 'reversed');
              d.status = 'reversed';
           } else if (statusLower && ['expired', 'failed'].includes(statusLower)) {
-             await updateDepositStatus(d.paycrest_tx_id!, 'failed');
+             await updateDepositStatus(d.provider_order_id!, 'failed');
              d.status = 'failed';
           }
         } catch (e) {
@@ -360,37 +452,50 @@ export async function getUserActivities(userEmail: string) {
     // Check for pending withdrawals and update them via RPCs (same as webhook)
     // IMPORTANT: Must use finalize_withdrawal_success/failed RPCs — NOT updateWithdrawalStatus().
     // The RPCs atomically update balances + write audit logs. Direct status updates skip this.
-    const pendingWithdrawals = (withdrawals || []).filter(w => w.status === 'processing' && w.paycrest_order_id);
+    const pendingWithdrawals = (withdrawals || []).filter(w => w.status === 'processing' && w.provider_order_id);
     if (pendingWithdrawals.length > 0) {
       await Promise.all(pendingWithdrawals.map(async (w) => {
         try {
+          // Route to the provider that created the order (tolerant of legacy rows). Provider
+          // resolution lives in the ramp registry, so adding/removing a provider needs no change
+          // here — see resolveLedgerProvider.
+          const { resolveLedgerProvider } = await import('@/lib/ramp');
+          const provider = resolveLedgerProvider(w);
+
           const { getOrderStatus } = await import('@/lib/actions/ramp');
-          const result = await getOrderStatus(w.paycrest_order_id!);
+          let result;
+          try {
+            result = await getOrderStatus(w.provider_order_id!, provider);
+          } catch {
+            // Order not found / not indexed at the provider yet (e.g. an old expired payout).
+            // Leave it pending and let the webhook/cron reconcile — don't spam on every load.
+            return;
+          }
           const statusLower = result?.status?.toLowerCase();
 
           if (statusLower && ['settled', 'completed', 'validated', 'deposited'].includes(statusLower)) {
             const { error } = await supabaseAdmin.rpc('finalize_withdrawal_success', {
-              p_paycrest_order_id: w.paycrest_order_id!,
+              p_paycrest_order_id: w.provider_order_id!,
             });
             if (error) {
               console.error('[Supabase] finalize_withdrawal_success failed (polling):', error.message);
             } else {
-              console.log(`[Supabase] Polling: Withdrawal ${w.paycrest_order_id} finalized successfully`);
+              console.log(`[Supabase] Polling: Withdrawal ${w.provider_order_id} finalized successfully`);
               w.status = 'completed';
             }
           } else if (statusLower && ['refunded', 'expired', 'failed', 'refunding'].includes(statusLower)) {
             const { error } = await supabaseAdmin.rpc('finalize_withdrawal_failed', {
-              p_paycrest_order_id: w.paycrest_order_id!,
-              p_reason: `Polling: Paycrest status=${statusLower}`,
+              p_paycrest_order_id: w.provider_order_id!,
+              p_reason: `Polling: ${provider} status=${statusLower}`,
             });
             if (error) {
               console.error('[Supabase] finalize_withdrawal_failed failed (polling):', error.message);
             } else {
               const finalStatus = ['refunded', 'refunding'].includes(statusLower) ? 'reversed' : 'failed';
               if (finalStatus === 'reversed') {
-                await updateWithdrawalStatus(w.paycrest_order_id!, 'reversed');
+                await updateWithdrawalStatus(w.provider_order_id!, 'reversed');
               }
-              console.log(`[Supabase] Polling: Withdrawal ${w.paycrest_order_id} failed/refunded -> ${finalStatus}`);
+              console.log(`[Supabase] Polling: Withdrawal ${w.provider_order_id} failed/refunded -> ${finalStatus}`);
               w.status = finalStatus;
             }
           }

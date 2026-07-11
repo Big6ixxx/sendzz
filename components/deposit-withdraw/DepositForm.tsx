@@ -18,6 +18,7 @@ import {
   PAYCREST_PARTNER_FEE_PERCENT,
 } from "@/lib/paycrest/config";
 import { BankSelector } from "./BankSelector";
+import { DepositNetworkAccordion } from "./DepositNetworkAccordion";
 import { useDepositWithdraw } from "./useDepositWithdraw";
 import { ReceiptActions } from "@/components/receipt/ReceiptActions";
 import { ReceiptData } from "@/lib/receipt/types";
@@ -153,6 +154,12 @@ export function DepositForm({ hook }: DepositFormProps) {
             * In case of any issues, funds will be returned to this account.
           </p>
         </div>
+
+        <DepositNetworkAccordion
+          networks={hook.depositNetworks}
+          value={hook.depositNetwork}
+          onChange={(c) => hook.setDepositNetwork(c as typeof hook.depositNetwork)}
+        />
 
         <button
           onClick={() => hook.handleDepositInitiate()}

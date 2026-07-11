@@ -12,6 +12,9 @@ import {
   ArrowLeft,
 } from "lucide-react";
 import { BankSelector } from "./BankSelector";
+import { SourceSelector } from "@/components/SourceSelector";
+import { OrderAdvancedDetails } from "./OrderAdvancedDetails";
+import { CHAIN_NAMES, type SupportedChain } from "@/lib/circle/gateway";
 import { useDepositWithdraw } from "./useDepositWithdraw";
 import { PAYCREST_PARTNER_FEE_PERCENT } from "@/lib/paycrest/config";
 import { ReceiptActions } from "@/components/receipt/ReceiptActions";
@@ -24,7 +27,7 @@ interface WithdrawFormProps {
 
 export function WithdrawForm({ hook }: WithdrawFormProps) {
   // Track whether user is typing in USD or their local fiat currency
-  const [amountCurrency, setAmountCurrency] = useState<"usd" | "fiat">("fiat");
+  const [amountCurrency, setAmountCurrency] = useState<"usd" | "fiat">("usd");
 
   const fiatSymbol = getCurrencySymbol(hook.fiatCurrency);
   const parsedAmount = parseFloat(hook.amount || "0");
@@ -39,6 +42,10 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
   // Total USDC that will be deducted (base + fee)
   const feeRate = PAYCREST_PARTNER_FEE_PERCENT / 100;
   const usdcTotal = usdcBase * (1 + feeRate);
+
+  // The full deduction (incl. fee) can't exceed the user's combined balance.
+  const totalAvailable = parseFloat(hook.balance) || 0;
+  const isOverBalance = parsedAmount > 0 && usdcTotal > totalAvailable + 1e-9;
 
   // What the user will receive in local fiat
   const fiatOut =
@@ -216,13 +223,31 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
           </div>
         </div>
 
+        {parsedAmount > 0 &&
+          Object.values(hook.chainBalances).filter((b) => (b ?? 0) > 0).length +
+            (hook.solanaBalance > 0 ? 1 : 0) >
+            1 && (
+            <SourceSelector
+              balances={hook.chainBalances}
+              solanaBalance={hook.solanaBalance}
+              requiredAmount={usdcTotal}
+              singleSourceChains={hook.rampNetworks}
+              allowConsolidate
+              consolidationTarget="Base"
+              value={hook.sourcePref}
+              onChange={hook.setSourcePref}
+            />
+          )}
+
         <button
           onClick={hook.handleWithdrawQuote}
-          disabled={hook.loading || hook.rateLoading || !hook.amount}
+          disabled={hook.loading || hook.rateLoading || !hook.amount || isOverBalance}
           className="btn-primary w-full gap-2"
         >
           {hook.loading ? (
             <Loader2 className="w-5 h-5 animate-spin" />
+          ) : isOverBalance ? (
+            "Insufficient Balance"
           ) : (
             "Get Quote"
           )}
@@ -371,12 +396,28 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
         <div className="p-4 bg-muted/30 rounded-xl border border-border text-left space-y-2">
           <div className="flex justify-between text-xs font-bold text-muted-foreground uppercase">
             <span>Destination</span>
-            <span>Network: Base</span>
+            <span>
+              Network:{" "}
+              {CHAIN_NAMES[
+                (hook.order.providerAccount?.network ?? hook.withdrawChain) as SupportedChain
+              ] ??
+                hook.order.providerAccount?.network ??
+                hook.withdrawChain}
+            </span>
           </div>
           <div className="p-3 bg-background border border-border rounded-lg font-mono text-[10px] break-all">
             {hook.order.providerAccount?.receiveAddress}
           </div>
         </div>
+
+        <OrderAdvancedDetails
+          provider={hook.order.provider}
+          orderId={hook.order.id}
+          network={hook.order.providerAccount?.network ?? hook.withdrawChain}
+          receiveAddress={hook.order.providerAccount?.receiveAddress}
+          consolidated={hook.mustConsolidate}
+          validUntil={hook.order.providerAccount?.validUntil}
+        />
 
         <div className="flex items-center justify-center gap-2 text-xs font-bold text-green-400 bg-green-950/30 py-2 rounded-lg">
           <ShieldCheck className="w-4 h-4" />
@@ -423,6 +464,16 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
                 Status: {hook.txStatus || "Pending"}
               </p>
             </div>
+            {hook.order && (
+              <OrderAdvancedDetails
+                provider={hook.order.provider}
+                orderId={hook.order.id}
+                network={hook.order.providerAccount?.network ?? hook.withdrawChain}
+                receiveAddress={hook.order.providerAccount?.receiveAddress}
+                consolidated={hook.mustConsolidate}
+                status={hook.txStatus || "Pending"}
+              />
+            )}
           </>
         ) : (
           <>

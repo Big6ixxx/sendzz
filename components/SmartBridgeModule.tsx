@@ -22,20 +22,17 @@ import {
   SMART_BRIDGE_CHAINS,
   type SupportedChain,
 } from "@/lib/circle/gateway";
-import {
-  buildDepositForBurnTx,
-  SOLANA_CCTP_DOMAIN,
-} from "@/lib/circle/solana-gateway";
-import { fetchCctpFees } from "@/lib/circle/gateway";
-import { recordBridgeTransaction, updateBridgeStatus } from "@/lib/supabase/transactions";
+import { recordBridgeTransaction, updateBridgeStatus, getUserActivities } from "@/lib/supabase/transactions";
 import { executeSmartBridge } from "@/lib/web3/bridge-actions";
-import { cn } from "@/lib/utils";import { useWallets, usePrivy } from "@privy-io/react-auth";
+import { prepareSolanaBurnTx } from "@/lib/web3/solana-bridge";
+import { cn } from "@/lib/utils";
+import { useWallets, usePrivy, type ConnectedWallet } from "@privy-io/react-auth";
 import {
   useSignTransaction,
   useWallets as useSolanaWallets,
 } from "@privy-io/react-auth/solana";
-import { useQueryClient } from "@tanstack/react-query";
-import { Connection, PublicKey, Transaction } from "@solana/web3.js";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
+import { Connection } from "@solana/web3.js";
 import { Buffer } from "buffer";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -48,7 +45,7 @@ import {
   AlertCircle,
   ExternalLink,
 } from "lucide-react";
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 
 if (typeof window !== "undefined") {
@@ -136,6 +133,25 @@ export function SmartBridgeModule({
   const [monitoringTx, setMonitoringTx] = useState<MonitoringTx>(null);
   const [isComplete, setIsComplete] = useState(false);
   const [mintTxHash, setMintTxHash] = useState<string | null>(null);
+
+  // ─── Fetch Bridge History for Pending Claims ──────────────────────────────
+  const { data: bridgeHistory, refetch: refetchHistory } = useQuery({
+    queryKey: ['bridge-history', userEmail],
+    queryFn: async () => {
+      if (!userEmail) return [];
+      const res = await getUserActivities(userEmail);
+      return res.bridges || [];
+    },
+    enabled: !!userEmail,
+    refetchInterval: 10000,
+  });
+
+  const pendingClaims = useMemo(() => {
+    if (!bridgeHistory) return [];
+    return bridgeHistory.filter(
+      (b) => !b.mint_tx_hash && (b.source_chain === 'stellar' || b.source_chain === 'solana')
+    );
+  }, [bridgeHistory]);
 
   // ─── EVM attestation monitor ─────────────────────────────────────────────
 
@@ -314,62 +330,13 @@ export function SmartBridgeModule({
     }
     setBridgingChain("solana");
     try {
-      // Calculate CCTP fee (non-fatal — fallback to 0)
-      let feeSubunits = 0n;
-      try {
-        const [whole, frac = ""] = amount.split(".");
-        const frac6 = (frac + "000000").slice(0, 6);
-        const amtSubunits = BigInt(whole + frac6);
-        const fees = await fetchCctpFees(SOLANA_CCTP_DOMAIN, 6);
-        const fast = fees.find((f) => f.finalityThreshold === 1000) ?? fees[0];
-        const fee = (amtSubunits * BigInt(Math.round(fast.minimumFee * 100))) / 1_000_000n;
-        feeSubunits = (fee * 120n) / 100n; // 20% buffer
-      } catch { /* use 0 fee */ }
-
-      const walletPubkey = new PublicKey(embeddedSolWallet.address);
-
-      // Build the transaction. buildDepositForBurnTx pre-signs with messageSentEventData internally.
-      const { transaction, messageSentEventData } = await buildDepositForBurnTx(
-        solConn.current,
-        walletPubkey,
+      // Build + fee-sponsor the Solana burn (shared with the routing consolidation path).
+      const { sponsoredTx } = await prepareSolanaBurnTx({
+        connection: solConn.current,
+        walletAddress: embeddedSolWallet.address,
         amount,
-        // Destination is the user's EVM smart address on Base
-        smartAddress,
-        feeSubunits,
-      );
-
-      // Serialize to base64 and send to our backend to get Circle fee-payer signature.
-      // This means the user does not need any SOL in their embedded wallet.
-      const txBase64 = transaction
-        .serialize({ requireAllSignatures: false, verifySignatures: false })
-        .toString('base64');
-
-      const sponsorRes = await fetch('/api/bridge/solana-sponsor', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transaction: txBase64 }),
+        recipientEvm: smartAddress, // user's EVM smart address on Base
       });
-
-      if (!sponsorRes.ok) {
-        const errData = await sponsorRes.json().catch(() => ({})) as { error?: string };
-        throw new Error(`Gas station error: ${errData.error ?? sponsorRes.statusText}`);
-      }
-
-      const { sponsoredTransaction: sponsoredBase64 } = await sponsorRes.json() as {
-        sponsoredTransaction: string;
-      };
-
-      // Convert the sponsored tx (base64) back to a Transaction object
-      const binaryString = atob(sponsoredBase64);
-      const sponsoredBytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        sponsoredBytes[i] = binaryString.charCodeAt(i);
-      }
-      const sponsoredTx = Transaction.from(sponsoredBytes);
-
-      // Circle Gas Station replaces the feePayer and adds its signature, which might
-      // strip our existing messageSentEventData signature. So we re-apply it here.
-      sponsoredTx.partialSign(messageSentEventData);
 
       // Privy signs the already-fee-sponsored transaction with the embedded Solana wallet
       const { signedTransaction: signedBytes } = await signTransaction({
@@ -479,6 +446,21 @@ export function SmartBridgeModule({
 
   return (
     <div className="space-y-8">
+      {/* Pending Claims Section */}
+      <AnimatePresence>
+        {pendingClaims.map((claim) => (
+          <PendingClaimCard
+            key={claim.id}
+            claim={claim}
+            embeddedEvmWallet={embeddedEvmWallet}
+            onSuccess={() => {
+              void refetchHistory();
+              void refetch();
+            }}
+          />
+        ))}
+      </AnimatePresence>
+
       <AnimatePresence mode="wait">
         {monitoringTx ? (
           /* ── Monitoring state ────────────────────────────────────── */
@@ -727,5 +709,128 @@ export function SmartBridgeModule({
         </div>
       </div>
     </div>
+  );
+}
+
+interface PendingClaimCardProps {
+  claim: {
+    id: string;
+    burn_tx_hash: string;
+    source_chain: string;
+    amount: number;
+  };
+  embeddedEvmWallet: ConnectedWallet | null | undefined;
+  onSuccess: () => void;
+}
+
+function PendingClaimCard({ claim, embeddedEvmWallet, onSuccess }: PendingClaimCardProps) {
+  const [isClaiming, setIsClaiming] = useState(false);
+
+  const handleClaim = async () => {
+    if (!embeddedEvmWallet) {
+      toast.error("Embedded EVM wallet not found. Please log in.");
+      return;
+    }
+    setIsClaiming(true);
+    try {
+      const sourceChain = claim.source_chain.toLowerCase();
+      const domain = sourceChain === 'solana' ? 5 : sourceChain === 'stellar' ? 27 : null;
+      if (domain === null) {
+        toast.error('Unsupported bridge recovery chain.');
+        return;
+      }
+
+      toast.info('Fetching CCTP attestation from Circle...');
+      const res = await fetch(
+        `https://iris-api.circle.com/v2/messages/${domain}?transactionHash=${claim.burn_tx_hash}`
+      );
+      if (!res.ok) {
+        throw new Error(`Circle API error: ${res.statusText}`);
+      }
+      const data = await res.json();
+      const message = data.messages?.[0];
+      if (!message || message.status !== 'complete') {
+        toast.error('Circle attestation is still pending. Try again in 1-2 minutes.');
+        return;
+      }
+
+      toast.info('Requesting signature to claim USDC on Base...');
+      const { executeReceiveMessage } = await import("@/lib/web3/bridge-actions");
+      const mintTxHash = await executeReceiveMessage(
+        embeddedEvmWallet,
+        message.message,
+        message.attestation
+      );
+
+      toast.success('USDC claimed successfully on Base!');
+      
+      // Update database status
+      await fetch('/api/bridge/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          burnTxHash: claim.burn_tx_hash,
+          mintTxHash
+        })
+      });
+
+      onSuccess();
+    } catch (err: unknown) {
+      console.error('[Pending Claim] Error:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(msg || 'Failed to claim USDC.');
+    } finally {
+      setIsClaiming(false);
+    }
+  }
+
+  const chainName = claim.source_chain.charAt(0).toUpperCase() + claim.source_chain.slice(1);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      className="card-glass p-6 border-amber-500/30 bg-gradient-to-r from-amber-500/5 to-yellow-500/5 shadow-[0_0_20px_rgba(245,158,11,0.1)] relative overflow-hidden"
+    >
+      <div className="absolute inset-0 bg-amber-500/2 blur-2xl animate-pulse" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 relative z-10">
+        <div className="flex items-start gap-4">
+          <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
+            <CircleDollarSign className="w-6 h-6" />
+          </div>
+          <div className="space-y-1 text-left">
+            <h4 className="text-sm font-bold text-white uppercase tracking-widest flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
+              Pending Bridge Claim
+            </h4>
+            <p className="text-lg font-bold text-white tracking-tight">
+              {claim.amount} USDC from {chainName}
+            </p>
+            <p className="text-xs text-white/40 font-medium">
+              Your transfer is ready to be claimed on Base. No gas required.
+            </p>
+          </div>
+        </div>
+
+        <button
+          onClick={handleClaim}
+          disabled={isClaiming}
+          className="h-12 px-6 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs uppercase tracking-widest transition-all shadow-[0_0_15px_rgba(245,158,11,0.3)] disabled:opacity-50 flex items-center gap-2 justify-center cursor-pointer"
+        >
+          {isClaiming ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Claiming...
+            </>
+          ) : (
+            <>
+              Claim {claim.amount} USDC
+              <ArrowRight className="w-4 h-4" />
+            </>
+          )}
+        </button>
+      </div>
+    </motion.div>
   );
 }

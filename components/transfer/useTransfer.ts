@@ -3,7 +3,16 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useUserContacts } from "@/components/contacts/useContacts";
 import { useExchangeRate } from "@/lib/hooks/useExchangeRate";
 import { ConnectedWallet } from "@privy-io/react-auth";
-import { executeCircleGaslessTransfer } from "@/lib/web3/circle-actions";
+import { executeRoutedTransfer } from "@/lib/web3/circle-actions";
+import { consolidateFundsToChain } from "@/lib/web3/bridge-actions";
+import {
+  planTransferRoute,
+  AUTO_SOURCE,
+  type ChainBalances,
+  type SolanaSource,
+  type SourcePreference,
+} from "@/lib/web3/routing";
+import { CHAIN_NAMES } from "@/lib/circle/gateway";
 import { sendTransferEmail } from "@/lib/email/sendEmail";
 import { type FiatCurrencyCode } from "@/lib/currency-config";
 import { ReceiptData } from "@/lib/receipt/types";
@@ -68,6 +77,10 @@ interface UseTransferProps {
   smartAddress: string;
   embeddedProvider?: ConnectedWallet;
   balance: string;
+  /** Per-chain EVM balances used by the routing engine to source funds. */
+  chainBalances?: ChainBalances;
+  /** Solana source — bridged to Base on demand when EVM funds are short. */
+  solanaSource?: SolanaSource;
   senderEmail: string;
   initialRecipientEmail?: string;
   onClearInitialRecipient?: () => void;
@@ -77,6 +90,8 @@ export function useTransfer({
   smartAddress,
   embeddedProvider,
   balance,
+  chainBalances,
+  solanaSource,
   senderEmail,
   initialRecipientEmail,
   onClearInitialRecipient,
@@ -87,6 +102,8 @@ export function useTransfer({
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState<"USD" | FiatCurrencyCode>("USD");
   const [memo, setMemo] = useState("");
+  // User source override (default smart auto). p2p only offers auto + single chain.
+  const [sourcePref, setSourcePref] = useState<SourcePreference>(AUTO_SOURCE);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string>("");
   const [isPendingClaim, setIsPendingClaim] = useState(false);
@@ -106,6 +123,7 @@ export function useTransfer({
   const [twoFaThreshold, setTwoFaThreshold] = useState(500);
   const [totpEnabled, setTotpEnabled] = useState(false);
   const [passkeyEnabled, setPasskeyEnabled] = useState(false);
+  const [warningModalOpen, setWarningModalOpen] = useState(false);
 
   // Cache recipient check results for 30s to avoid hammering on keystrokes
   const checkCacheRef = useRef<
@@ -175,7 +193,7 @@ export function useTransfer({
       });
       try {
         const res = await fetch(
-          `/api/transfer/check-recipient?email=${encodeURIComponent(emailLower)}`,
+          `/api/transfer/check-recipient?email=${encodeURIComponent(emailLower)}&senderEmail=${encodeURIComponent(senderEmail)}`,
         );
         if (res.ok) {
           const data = await res.json();
@@ -200,12 +218,52 @@ export function useTransfer({
     if (e) e.preventDefault();
     if (!amount || !recipientEmail || !embeddedProvider) return;
 
+    setLoading(true);
+    setStatus("Checking transaction history...");
+
+    try {
+      const emailLower = recipientEmail.toLowerCase().trim();
+      const res = await fetch(
+        `/api/transfer/check-recipient?email=${encodeURIComponent(emailLower)}&senderEmail=${encodeURIComponent(senderEmail)}`,
+      );
+      if (res.ok) {
+        const checkData = await res.json();
+        setRecipientCheck({ status: "done", ...checkData });
+
+        if (checkData.priorTransactionCount === 0) {
+          setWarningModalOpen(true);
+          setLoading(false);
+          setStatus("");
+          return;
+        }
+      }
+    } catch (err) {
+      console.error("[Transfer] Check recipient error:", err);
+    }
+
+    await executeTransferFlow();
+  };
+
+  const handleWarningConfirm = async () => {
+    setWarningModalOpen(false);
+    await executeTransferFlow();
+  };
+
+  const handleTwoFaClose = () => {
+    setTwoFaModalOpen(false);
+    setLoading(false);
+    setStatus("");
+    setTwoFaError(null);
+  };
+
+  const executeTransferFlow = async () => {
     const valUsdc = parseFloat(amountUsdc);
     if (valUsdc >= twoFaThreshold) {
       if (!twoFaEnabled) {
         toast.error(
           `Transfers over ${twoFaThreshold} USDC require 2FA. Please enable it in Settings.`,
         );
+        setLoading(false);
         return;
       }
       // 2FA Required - open modal without sending OTP
@@ -331,11 +389,68 @@ export function useTransfer({
       }
 
       const provider = await embeddedProvider.getEthereumProvider();
-      const txHash = await executeCircleGaslessTransfer(
+
+      // Source funds from wherever the sender holds them. The recipient owns the same
+      // address on every EVM chain, so each leg is a plain same-chain transfer — no bridge.
+      const balancesForRoute: ChainBalances =
+        chainBalances && Object.keys(chainBalances).length > 0
+          ? chainBalances
+          : { base: parseFloat(balance) || 0 };
+
+      let plan = planTransferRoute(amountUsdc, balancesForRoute, {
+        homeChain: "base",
+        source: sourcePref,
+      });
+
+      // A manual single-chain choice that can't cover the amount: don't silently
+      // fall back to consolidation — tell the user.
+      if (sourcePref.mode === "single" && !plan.feasible) {
+        toast.error(
+          `${CHAIN_NAMES[sourcePref.chain]} doesn't hold enough for this transfer.`,
+        );
+        setLoading(false);
+        setStatus("");
+        return;
+      }
+
+      if (!plan.feasible) {
+        // EVM alone can't cover it — pull in Solana (bridged to Base) if that closes
+        // the gap, then send everything from Base.
+        const solBal = solanaSource?.balance ?? 0;
+        if (solanaSource && plan.totalAvailable + solBal + 1e-9 >= parseFloat(amountUsdc)) {
+          setStatus("Preparing your funds across networks…");
+          await consolidateFundsToChain(embeddedProvider, {
+            targetChain: "base",
+            requiredAmount: amountUsdc,
+            balances: balancesForRoute,
+            recipient: smartAddress,
+            solana: solanaSource,
+            onStatus: setStatus,
+          });
+          plan = {
+            feasible: true,
+            multiSource: false,
+            legs: [{ chain: "base", amount: amountUsdc }],
+            totalAvailable: parseFloat(amountUsdc),
+            requested: parseFloat(amountUsdc),
+          };
+        } else {
+          throw new Error("Insufficient balance to complete this transfer.");
+        }
+      }
+
+      setStatus(
+        plan.multiSource
+          ? `Sending across ${plan.legs.length} networks...`
+          : `Sending on ${CHAIN_NAMES[plan.legs[0].chain]}...`,
+      );
+
+      const txHashes = await executeRoutedTransfer(
         provider,
         recipientAddress as string,
-        amountUsdc,
+        plan.legs,
       );
+      const txHash = txHashes[0];
 
       toast.success("Transfer completed!");
       setStatus("");
@@ -360,6 +475,7 @@ export function useTransfer({
         status: isPendingClaim ? "pending_claim" : "completed",
         note: memo,
         txHash,
+        chain: plan.legs[0]?.chain,
       });
 
       // Notify recipient — fire-and-forget so a failed email never blocks the transfer
@@ -385,6 +501,7 @@ export function useTransfer({
       setRecipientEmail("");
       setMemo("");
       setIsPendingClaim(false);
+      setSourcePref(AUTO_SOURCE);
     } catch (err) {
       console.error("[Transfer] Fatal Error:", err);
       toast.error(parseFriendlyError(err));
@@ -405,6 +522,10 @@ export function useTransfer({
     setCurrency,
     memo,
     setMemo,
+    sourcePref,
+    setSourcePref,
+    chainBalances: chainBalances ?? {},
+    solanaBalance: solanaSource?.balance ?? 0,
     loading,
     status,
     setStatus,
@@ -433,5 +554,9 @@ export function useTransfer({
     handleTwoFaResend,
     totpEnabled,
     passkeyEnabled,
+    warningModalOpen,
+    setWarningModalOpen,
+    handleWarningConfirm,
+    handleTwoFaClose,
   };
 }

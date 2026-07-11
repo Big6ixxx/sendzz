@@ -1,8 +1,8 @@
 'use client';
 
-import { getUserActivities } from '@/lib/supabase/transactions';
+import { useActivities } from '@/hooks/useActivities';
 import { cn } from '@/lib/utils';
-import { useQueryClient, useQuery } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { History, RefreshCw, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -40,7 +40,21 @@ export interface Activity {
   /** ISO timestamp — present on outgoing pending_claim transfers */
   expiresAt?: string;
   sourceChain?: string;
+  /** Bridges: the destination chain funds were minted on. */
+  destChain?: string;
   mintTxHash?: string;
+  /** Withdrawals: true when funds were bridged/consolidated onto sourceChain first. */
+  consolidated?: boolean;
+  /** Ramp provider that settled a deposit/withdrawal (e.g. "bitnob", "paycrest", "onchain"). */
+  provider?: string;
+  /** The provider's own order/reference id, for support + tracing. */
+  providerOrderId?: string;
+  /** Provider-specific reference kept in metadata (e.g. a Bitnob payout quote id). */
+  providerRef?: string;
+  /** Settlement/deposit network when it differs from (or refines) sourceChain. */
+  settlementNetwork?: string;
+  /** Last time the record changed — useful for pending/failed diagnostics. */
+  updatedAt?: string;
 }
 
 const ACTIVITY_LABELS: Record<ActivityType, string> = {
@@ -131,84 +145,7 @@ export function HistoryModule({
     isLoading,
     refetch,
     isRefetching,
-  } = useQuery({
-    queryKey: ['history', userEmail], // Simplified key to prevent blinking during limit changes
-    queryFn: async () => {
-      const data = await getUserActivities(userEmail);
-
-      const unified: Activity[] = [
-        ...(data.sent || []).map((t) => ({
-          id: t.id,
-          type: 'sent' as ActivityType,
-          amount: t.amount,
-          status: t.status,
-          timestamp: t.created_at,
-          details: `To: ${t.recipient_email}`,
-          asset: t.asset,
-          txHash: t.tx_hash || (t.note?.startsWith('0x') ? t.note : undefined),
-          senderEmail: t.sender_email,
-          note: t.note && !t.note.startsWith('0x') ? t.note : undefined,
-          expiresAt: t.expires_at ?? undefined,
-        })),
-        ...(data.received || [])
-          .filter((t) => t.sender_id !== userId)
-          .map((t) => ({
-            id: t.id,
-            type: 'received' as ActivityType,
-            amount: t.amount,
-            status: t.status,
-            timestamp: t.created_at,
-            details: `From: ${t.sender_email}`,
-            asset: t.asset,
-            txHash:
-              t.tx_hash || (t.note?.startsWith('0x') ? t.note : undefined),
-            senderEmail: t.sender_email,
-            note: t.note && !t.note.startsWith('0x') ? t.note : undefined,
-          })),
-        ...(data.deposits || []).map((d) => ({
-          id: d.id,
-          type: 'deposit' as ActivityType,
-          amount: d.amount_usdc || 0,
-          status: d.status,
-          timestamp: d.created_at,
-          details: `Via: ${d.currency_fiat} Gateway`,
-          asset: 'USDC',
-          txHash: d.tx_hash || undefined,
-          fiatAmount: d.amount_fiat ?? undefined,
-          fiatCurrency: d.currency_fiat ?? undefined,
-        })),
-        ...(data.withdrawals || []).map((w) => ({
-          id: w.id,
-          type: 'withdrawal' as ActivityType,
-          amount: w.amount_usdc,
-          status: w.status,
-          timestamp: w.created_at,
-          details: `To: ${w.bank_account_masked}`,
-          asset: 'USDC',
-          txHash: w.tx_hash || undefined,
-          fiatAmount: w.fiat_amount ?? undefined,
-          fiatCurrency: w.fiat_currency ?? undefined,
-          exchangeRate: w.exchange_rate ?? undefined,
-        })),
-        ...(data.bridges || []).map((b) => ({
-          id: b.id,
-          type: 'bridge' as ActivityType,
-          amount: b.amount,
-          status: b.attestation_status,
-          timestamp: b.created_at,
-          details: `From: ${b.source_chain.toUpperCase()}`,
-          asset: 'USDC',
-          txHash: b.burn_tx_hash,
-          sourceChain: b.source_chain,
-          mintTxHash: b.mint_tx_hash || undefined,
-        })),
-      ];
-
-      return unified;
-    },
-    enabled: !!userEmail,
-    refetchInterval: 15000,
-  });
+  } = useActivities(userEmail, userId);
 
   const filteredAndSorted = useMemo(() => {
     if (!allActivities) return [];

@@ -10,6 +10,7 @@ const CHAIN_LOGOS: Record<string, string> = {
   avalanche:    '/chains/avalanche.png',
   solana:       '/chains/solana.png',
   stellar:      '/chains/stellar.png',
+  base:          '/chains/base.png',
   'base-direct': '/chains/base.png',
 };
 

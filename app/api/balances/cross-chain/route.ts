@@ -96,10 +96,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid EVM address' }, { status: 400 });
   }
 
+  // Portfolio scope (`?all=1`) scans every supported chain — including Base — and
+  // returns a balance for each chain regardless of whether it's zero. Without it, the
+  // route keeps its legacy behavior: non-Base chains only, filtered to funded chains
+  // (used by the "bridge to Base" nudge).
+  const includeAll = req.nextUrl.searchParams.get('all') === '1';
+  const evmChains: SupportedChain[] = includeAll
+    ? [...SOURCE_CHAINS, 'base']
+    : SOURCE_CHAINS;
+
   const clients = getEvmClients();
 
-  // Scan all EVM source chains in parallel
-  const evmPromises = SOURCE_CHAINS.map(async (chain) => {
+  // Scan all selected EVM chains in parallel
+  const evmPromises = evmChains.map(async (chain) => {
     try {
       const client = clients[chain];
       const usdcAddress = USDC_ADDRESSES[chain];
@@ -155,11 +164,17 @@ export async function GET(req: NextRequest) {
     stellarPromise,
   ]);
 
-  const results = [
-    ...evmResults.filter((r) => r.hasBalance),
-    ...(solanaResult?.hasBalance ? [solanaResult] : []),
-    ...(stellarResult?.hasBalance ? [stellarResult] : []),
-  ];
+  const results = includeAll
+    ? [
+        ...evmResults,
+        ...(solanaResult ? [solanaResult] : []),
+        ...(stellarResult ? [stellarResult] : []),
+      ]
+    : [
+        ...evmResults.filter((r) => r.hasBalance),
+        ...(solanaResult?.hasBalance ? [solanaResult] : []),
+        ...(stellarResult?.hasBalance ? [stellarResult] : []),
+      ];
 
   return NextResponse.json(results);
 }

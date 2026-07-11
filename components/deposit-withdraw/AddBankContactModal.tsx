@@ -4,7 +4,7 @@ import { ChevronDown, Loader2, Landmark, Plus, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { addBankContact } from '@/lib/supabase/bank-contacts';
 import { verifyBankAccount } from '@/lib/actions/ramp';
-import { PaycrestInstitution } from '@/lib/paycrest/types';
+import { RampInstitution } from '@/lib/ramp';
 import { cn } from '@/lib/utils';
 import {
   Dialog,
@@ -18,7 +18,7 @@ interface AddBankContactModalProps {
   onClose: () => void;
   userEmail: string;
   defaultAccountNumber: string;
-  institutions: PaycrestInstitution[];
+  institutions: RampInstitution[];
   onSuccess?: () => void;
 }
 
