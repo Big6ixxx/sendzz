@@ -147,6 +147,7 @@ export async function buildStellarDepositForBurnTx(
   maxFeeSubunits: bigint,
   destChain: string = 'base',
   account?: Account,
+  minFinalityThreshold: number = 1000,
 ): Promise<StellarDepositForBurnResult> {
   if (!STELLAR_TOKEN_MESSENGER_CONTRACT) {
     throw new Error(
@@ -202,7 +203,7 @@ export async function buildStellarDepositForBurnTx(
     new Address(STELLAR_USDC_CONTRACT).toScVal(),      // burn_token
     zeroBytes32ScVal(),                               // destination_caller = no restriction
     nativeToScVal(maxFeeSubunits, { type: 'i128' }),   // max_fee (i128 local units)
-    nativeToScVal(1000, { type: 'u32' }),             // min_finality_threshold = Fast Transfer
+    nativeToScVal(minFinalityThreshold, { type: 'u32' }), // min_finality_threshold
   ];
 
   const operation = contract.call('deposit_for_burn', ...callArgs);
@@ -292,22 +293,25 @@ export async function fetchStellarAttestation(
  *
  * @returns maxFee in 6-decimal USDC subunits
  */
-export async function calculateStellarMaxFee(amountUsdc: string, destChain: string = 'base'): Promise<bigint> {
+export async function calculateStellarMaxFee(
+  amountUsdc: string,
+  destChain: string = 'base',
+  minFinalityThreshold: number = 1000,
+): Promise<bigint> {
   const { fetchCctpFees, CCTP_DOMAINS } = await import('./gateway');
   const destinationDomain = destChain in CCTP_DOMAINS 
     ? CCTP_DOMAINS[destChain as keyof typeof CCTP_DOMAINS]
     : BASE_CCTP_DOMAIN;
   const fees = await fetchCctpFees(STELLAR_CCTP_DOMAIN, destinationDomain);
-  const fastFee = fees.find((f) => f.finalityThreshold === 1000) ?? fees[0];
-  const bps = fastFee.minimumFee;
+  const matchingFee = fees.find((f) => f.finalityThreshold === minFinalityThreshold) ?? fees[0];
+  const minimumFeeUSDC = matchingFee.minimumFee; // e.g. 1.3 or 0
 
-  const [whole, frac = ''] = amountUsdc.split('.');
-  const frac7 = (frac + '0000000').slice(0, 7);
-  const amountSubunits = BigInt(whole + frac7);
+  // Convert flat fee to 7-decimal subunits (Stellar native precision)
+  const minimumFeeSubunits = BigInt(Math.round(minimumFeeUSDC * 10_000_000));
 
-  const protocolFee =
-    (amountSubunits * BigInt(Math.round(bps * 100))) / 1_000_000n;
-  return (protocolFee * 120n) / 100n; // +20% buffer
+  // Add 20% safety buffer
+  const maxFee = (minimumFeeSubunits * 120n) / 100n;
+  return maxFee;
 }
 
 /**

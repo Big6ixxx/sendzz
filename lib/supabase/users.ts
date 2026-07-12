@@ -54,7 +54,6 @@ export async function registerStellarAddress(
   privyUserId?: string,
 ): Promise<void> {
   const row: {
-    id?: string;
     email: string;
     stellar_address: string;
     stellar_wallet_id: string;
@@ -64,16 +63,13 @@ export async function registerStellarAddress(
     stellar_address: stellarAddress,
     stellar_wallet_id: stellarWalletId,
   };
-  if (privyUserId) {
-    row.id = privyUserId;
-  }
   if (stellarSignerGranted !== undefined) {
     row.stellar_signer_granted = stellarSignerGranted;
   }
 
   const { error } = await supabaseAdmin
     .from('users')
-    .upsert(row, { onConflict: privyUserId ? 'id' : 'email' });
+    .upsert(row, { onConflict: 'email' });
 
   if (error) throw new Error(`Failed to map Stellar address: ${error.message}`);
 }
@@ -88,19 +84,14 @@ export async function getUserAddresses(
   stellar_wallet_id: string | null;
   stellar_signer_granted: boolean;
 } | null> {
-  let query = supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from('users')
-    .select('smart_account_address, solana_address, stellar_address, stellar_wallet_id, stellar_signer_granted');
-
-  if (privyUserId) {
-    query = query.eq('id', privyUserId);
-  } else {
-    query = query.eq('email', email);
-  }
-
-  const { data, error } = await query.single();
+    .select('smart_account_address, solana_address, stellar_address, stellar_wallet_id, stellar_signer_granted')
+    .eq('email', email)
+    .maybeSingle();
 
   if (error || !data) return null;
+
   return {
     smart_account_address: data.smart_account_address,
     solana_address: data.solana_address,

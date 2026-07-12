@@ -121,27 +121,22 @@ export async function calculateMaxFee(
   sourceChain: SupportedChain,
   amountUSDC: string,
   destChain: SupportedChain | 'stellar' = 'base',
+  minFinalityThreshold: number = 1000,
 ): Promise<bigint> {
   const sourceDomain = CCTP_DOMAINS[sourceChain];
   const destDomain = destChain === 'stellar' ? 27 : CCTP_DOMAINS[destChain as SupportedChain];
 
-  // Convert USDC to subunits (6 decimals)
-  const [whole, decimal = ''] = amountUSDC.split('.');
-  const decimal6 = (decimal + '000000').slice(0, 6);
-  const transferAmount = BigInt(whole + decimal6);
-
   const fees = await fetchCctpFees(sourceDomain, destDomain);
 
-  // Use Fast Transfer fee (finalityThreshold === 1000) if available
-  const fastFee = fees.find((f) => f.finalityThreshold === 1000) ?? fees[0];
-  const minimumFeeBps = fastFee.minimumFee;
+  // Find fee matching the chosen finality threshold (defaulting to the first returned)
+  const matchingFee = fees.find((f) => f.finalityThreshold === minFinalityThreshold) ?? fees[0];
+  const minimumFeeUSDC = matchingFee.minimumFee; // e.g. 1.3 or 0
 
-  // Calculate protocol fee
-  const protocolFee =
-    (transferAmount * BigInt(Math.round(minimumFeeBps * 100))) / 1_000_000n;
+  // Convert flat fee to subunits (USDC has 6 decimals)
+  const minimumFeeSubunits = BigInt(Math.round(minimumFeeUSDC * 1_000_000));
 
   // Add 20% buffer
-  const maxFee = (protocolFee * 120n) / 100n;
+  const maxFee = (minimumFeeSubunits * 120n) / 100n;
   return maxFee;
 }
 

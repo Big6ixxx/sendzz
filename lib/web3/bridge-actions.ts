@@ -68,6 +68,22 @@ const TOKEN_MESSENGER_ABI = [
     ],
     outputs: [{ name: 'nonce', type: 'uint64' }],
   },
+  {
+    name: 'depositForBurnWithHook',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'amount', type: 'uint256' },
+      { name: 'destinationDomain', type: 'uint32' },
+      { name: 'mintRecipient', type: 'bytes32' },
+      { name: 'burnToken', type: 'address' },
+      { name: 'destinationCaller', type: 'bytes32' },
+      { name: 'maxFee', type: 'uint256' },
+      { name: 'minFinalityThreshold', type: 'uint32' },
+      { name: 'hookData', type: 'bytes' },
+    ],
+    outputs: [{ name: 'nonce', type: 'uint64' }],
+  },
 ] as const;
 
 export async function executeSmartBridge(
@@ -96,15 +112,28 @@ export async function executeSmartBridge(
     const amountRaw = parseUnits(amountUSDC, 6);
     
     let mintRecipient: `0x${string}`;
+    let destinationCaller = `0x${'0'.repeat(64)}` as `0x${string}`;
+    let hookData: `0x${string}` | undefined;
+
     if (destChain === 'stellar') {
-      const { Keypair } = await import('@stellar/stellar-sdk');
-      const rawBytes = Keypair.fromPublicKey(recipientAddress).rawPublicKey();
-      mintRecipient = `0x${rawBytes.toString('hex')}`;
+      const { StrKey } = await import('@stellar/stellar-sdk');
+      // Set mintRecipient and destinationCaller to CctpForwarder contract address
+      const forwarderRawBytes = StrKey.decodeContract('CBZL2IH7F6BIDAA3WBNXYKIXSATJGMSW7K5P5MJ6STX5RXN47TZJDF5T');
+      mintRecipient = `0x${forwarderRawBytes.toString('hex')}`;
+      destinationCaller = `0x${forwarderRawBytes.toString('hex')}`;
+
+      // Build CCTP V2 hookData for Stellar:
+      // magic (24 bytes) + version (4 bytes) + length (4 bytes uint32 BE) + recipient strkey string
+      const magic = Buffer.alloc(24, 0);
+      const version = Buffer.alloc(4, 0);
+      const addrBytes = Buffer.from(recipientAddress, 'utf-8');
+      const lenBuf = Buffer.alloc(4, 0);
+      lenBuf.writeUInt32BE(addrBytes.length, 0);
+      
+      hookData = `0x${Buffer.concat([magic, version, lenBuf, addrBytes]).toString('hex')}` as `0x${string}`;
     } else {
       mintRecipient = `0x${'0'.repeat(24)}${recipientAddress.slice(2).toLowerCase()}` as `0x${string}`;
     }
-
-    const destinationCaller = `0x${'0'.repeat(64)}` as `0x${string}`;
 
     const policyId = GAS_POLICY_IDS[sourceChain];
 
@@ -141,25 +170,46 @@ export async function executeSmartBridge(
 
     // 3. Execute Deposit for Burn
     toast.info('Initiating bridge transfer...');
-    const maxFee = await calculateMaxFee(sourceChain, amountUSDC, destChain);
+    const amountVal = parseFloat(amountUSDC);
+    // Use Standard Transfer (2000) for small transactions (<= 2 USDC) to keep it free,
+    // otherwise use Fast Transfer (1000) for larger amounts.
+    const minFinalityThreshold = amountVal <= 2.0 ? 2000 : 1000;
+    const maxFee = await calculateMaxFee(sourceChain, amountUSDC, destChain, minFinalityThreshold);
 
-    const bridgeOpHash = await bundlerClient.sendUserOperation({
-      account,
-      calls: [{
-        to: TOKEN_MESSENGER_V2 as `0x${string}`,
-        data: encodeFunctionData({
+    const callData = destChain === 'stellar'
+      ? encodeFunctionData({
+          abi: TOKEN_MESSENGER_ABI,
+          functionName: 'depositForBurnWithHook',
+          args: [
+            amountRaw,
+            destinationDomain,
+            mintRecipient,
+            usdcAddress as `0x${string}`,
+            destinationCaller,
+            maxFee,
+            minFinalityThreshold,
+            hookData!
+          ],
+        })
+      : encodeFunctionData({
           abi: TOKEN_MESSENGER_ABI,
           functionName: 'depositForBurn',
           args: [
             amountRaw,
             destinationDomain,
-            mintRecipient as `0x${string}`,
+            mintRecipient,
             usdcAddress as `0x${string}`,
             destinationCaller,
             maxFee,
-            1000 // minFinalityThreshold
+            minFinalityThreshold
           ],
-        }),
+        });
+
+    const bridgeOpHash = await bundlerClient.sendUserOperation({
+      account,
+      calls: [{
+        to: TOKEN_MESSENGER_V2 as `0x${string}`,
+        data: callData,
       }],
       maxFeePerGas,
       maxPriorityFeePerGas,

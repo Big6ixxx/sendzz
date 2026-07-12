@@ -73,14 +73,13 @@ export function ReceiveCryptoFlow({
           setLocalTrustlineReady(true);
           toast.success("USDC trustline configured successfully!");
         } else {
-          toast.error("Trustline setup is still pending on-chain. Please try again in a few seconds.");
+          console.warn("Trustline setup is still pending on-chain.");
         }
       } else {
-        toast.error("Retrying setup failed. Please contact support.");
+        console.error("Retrying setup failed.");
       }
     } catch (err) {
-      console.error(err);
-      toast.error("An unexpected error occurred.");
+      console.error("Stellar setup error:", err);
     } finally {
       setIsRetrying(false);
     }

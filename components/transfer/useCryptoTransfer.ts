@@ -166,8 +166,6 @@ export function useCryptoTransfer({
       return info;
     } catch (err: unknown) {
       console.error("Stellar setup error:", err);
-      const errMsg = err instanceof Error ? err.message : String(err);
-      toast.error(`Stellar setup failed: ${errMsg}`);
       setStatus("");
       setIsSettingUpStellar(false);
       return null;

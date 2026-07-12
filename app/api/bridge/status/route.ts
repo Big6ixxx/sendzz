@@ -26,7 +26,10 @@ export async function GET(req: NextRequest) {
   const txHash = searchParams.get('txHash');
   const sourceChain = searchParams.get('sourceChain') as ExtendedChain;
 
+  console.log(`[Bridge Status API] GET request received - txHash: ${txHash}, sourceChain: ${sourceChain}`);
+
   if (!txHash || !sourceChain) {
+    console.warn('[Bridge Status API] Missing parameters:', { txHash, sourceChain });
     return NextResponse.json(
       { error: 'Missing txHash or sourceChain' },
       { status: 400 },
@@ -35,9 +38,15 @@ export async function GET(req: NextRequest) {
 
   try {
     const result = await getAttestation(sourceChain, txHash);
+    console.log(`[Bridge Status API] Attestation query result for ${txHash}:`, {
+      status: result.status,
+      hasAttestation: !!result.attestation,
+      hasMessageBytes: !!result.messageBytes,
+      mintTxHash: result.mintTxHash,
+    });
     return NextResponse.json(result);
   } catch (error) {
-    console.error('[Bridge Status] Error:', error);
+    console.error('[Bridge Status API] Failed to fetch attestation:', error);
     return NextResponse.json(
       {
         status: 'pending',

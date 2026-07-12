@@ -100,44 +100,77 @@ export function ActivityDetailModal({
         return;
       }
 
+      console.log('[Manual Claim Modal] Triggering claim with params:', {
+        sourceChain,
+        destChain,
+        txHash: activity.txHash,
+        domain,
+      });
+
       toast.info('Fetching CCTP attestation from Circle...');
       const res = await fetch(
-        `https://iris-api.circle.com/v2/messages/${domain}?transactionHash=${activity.txHash}`
+        `/api/bridge/status?txHash=${activity.txHash}&sourceChain=${sourceChain}`
       );
       if (!res.ok) {
         throw new Error(`Circle API error: ${res.statusText}`);
       }
       const data = await res.json();
-      const message = data.messages?.[0];
-      if (!message || message.status !== 'complete') {
+      console.log('[Manual Claim Modal] Attestation status API response:', data);
+
+      if (!data || data.status !== 'complete') {
+        console.warn('[Manual Claim Modal] Attestation is still pending. Circle CCTP requires block confirmations (approx 1-2 mins on EVM chains, longer on mainnets).');
         toast.error('Circle attestation is still pending. Try again in 1-2 minutes.');
         setIsClaiming(false);
         return;
       }
 
-      let mintTxHash = message.forwardTxHash || message.mintTxHash || null;
+      let mintTxHash = data.mintTxHash || null;
+      console.log('[Manual Claim Modal] Extracted mintTxHash:', mintTxHash);
 
       const isEvmDest = destChain && destChain in CCTP_DOMAINS;
       if (isEvmDest) {
         if (!mintTxHash) {
+          console.log('[Manual Claim Modal] EVM destination - initiating client-side signature via executeReceiveMessage...');
           toast.info(`Requesting signature to claim USDC on ${activity.destChain || 'destination'}...`);
           mintTxHash = await executeReceiveMessage(
             embeddedWallet,
-            message.message,
-            message.attestation,
+            data.messageBytes!,
+            data.attestation!,
             destChain
           );
+          console.log('[Manual Claim Modal] executeReceiveMessage completed. Mint tx hash:', mintTxHash);
+        } else {
+          console.log('[Manual Claim Modal] EVM destination already minted or relayed: ', mintTxHash);
+        }
+      } else if ((destChain as string) === 'stellar') {
+        if (!mintTxHash) {
+          console.log('[Manual Claim Modal] Stellar destination - initiating server-side claim...');
+          toast.info('Claiming USDC on Stellar (gas paid by sponsor)...');
+          const claimRes = await fetch('/api/stellar/claim', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ txHash: activity.txHash, sourceChain }),
+          });
+          if (!claimRes.ok) {
+            const claimErr = await claimRes.json();
+            throw new Error(claimErr.error || 'Failed to claim on Stellar');
+          }
+          const claimData = await claimRes.json();
+          mintTxHash = claimData.txHash;
+          console.log('[Manual Claim Modal] Stellar claim completed. Mint tx hash:', mintTxHash);
+        } else {
+          console.log('[Manual Claim Modal] Stellar destination already minted: ', mintTxHash);
         }
       } else {
-        if (!mintTxHash) {
-          toast.info("Circle's automatic relayer is currently minting your funds on the destination chain. Please wait 1–2 minutes.");
-          setIsClaiming(false);
-          return;
-        }
+        console.log('[Manual Claim Modal] Non-EVM/Non-Stellar destination attestation is complete. Marking as complete since Circle relayer will process the mint.');
       }
 
       toast.success('USDC claimed successfully!');
 
+      console.log('[Manual Claim Modal] Calling /api/bridge/complete to update status in DB...', {
+        burnTxHash: activity.txHash,
+        mintTxHash,
+      });
       await fetch('/api/bridge/complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

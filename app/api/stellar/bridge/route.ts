@@ -84,7 +84,10 @@ export async function POST(req: Request) {
 
     // ── Calculate CCTP max fee ─────────────────────────────────────────────
     console.log('[Stellar/Bridge] Calculating CCTP max fee...');
-    const maxFeeSubunits = await calculateStellarMaxFee(amount, finalDestChain);
+    // Use Standard Transfer (2000) for small transactions (<= 2 USDC) to keep it free,
+    // otherwise use Fast Transfer (1000) for larger amounts.
+    const minFinalityThreshold = parsedAmount <= 2.0 ? 2000 : 1000;
+    const maxFeeSubunits = await calculateStellarMaxFee(amount, finalDestChain, minFinalityThreshold);
     console.log(`[Stellar/Bridge] Max fee subunits: ${maxFeeSubunits}`);
 
     // ── Step 1: Ensure USDC allowance for TokenMessenger ──────────────────
@@ -125,6 +128,8 @@ export async function POST(req: Request) {
       amount,
       maxFeeSubunits,
       finalDestChain,
+      undefined,
+      minFinalityThreshold
     );
 
     // ── Step 3: Sign depositForBurn via Privy TEE ──────────────────────────

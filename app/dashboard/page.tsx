@@ -18,7 +18,6 @@ import { getCircleAddress } from "@/lib/web3/circle-client";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { useSolanaBridge } from "@/hooks/useSolanaBridge";
 import { ChainLogo } from "@/components/deposit-withdraw/ChainLogo";
-import { BridgeNudge } from "@/components/BridgeNudge";
 import { CHAIN_NAMES } from "@/lib/circle/gateway";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import {
@@ -356,30 +355,6 @@ export default function Dashboard() {
                 )}
 
                 <div className="flex flex-wrap items-center gap-x-6 gap-y-3 pt-2">
-                  <div
-                    className="flex items-center gap-2 group cursor-pointer"
-                    onClick={() => (
-                      navigator.clipboard.writeText(smartAddress),
-                      toast.success("Address copied")
-                    )}
-                  >
-                    <div
-                      className="w-1.5 h-1.5 rounded-full animate-beacon"
-                      style={{ background: "#00e87a" }}
-                    />
-                    <span
-                      className="text-[10px] font-mono font-bold transition-colors"
-                      style={{ color: "rgba(248,248,246,0.4)" }}
-                    >
-                      {smartAddress
-                        ? `${smartAddress.slice(0, 6)}...${smartAddress.slice(-4)}`
-                        : "Loading..."}
-                    </span>
-                    <Copy
-                      className="w-3 h-3"
-                      style={{ color: "rgba(248,248,246,0.2)" }}
-                    />
-                  </div>
                   <div className="flex items-center gap-2">
                     <ShieldCheck
                       className="w-3.5 h-3.5"
@@ -441,11 +416,6 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
-          <BridgeNudge
-            smartAddress={smartAddress}
-            solanaAddress={embeddedSolWallet?.address}
-            stellarAddress={stellarAddress || undefined}
-          />
         </section>
 
         {/* Pending Incoming Payments — shown only when there are payments awaiting acceptance */}

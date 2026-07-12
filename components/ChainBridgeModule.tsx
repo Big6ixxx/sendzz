@@ -135,6 +135,20 @@ export function ChainBridgeModule({
               data.attestation,
               monitor.destChain as SupportedChain,
             );
+          } else {
+            setBridgeStep("mint_sig");
+            toast.info("Attestation ready! Claiming USDC on Stellar...");
+            const claimRes = await fetch("/api/stellar/claim", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ txHash: monitor.burnTxHash, sourceChain: monitor.sourceChain }),
+            });
+            if (!claimRes.ok) {
+              const claimErr = await claimRes.json();
+              throw new Error(claimErr.error || "Failed to claim on Stellar");
+            }
+            const claimData = await claimRes.json();
+            mintHash = claimData.txHash;
           }
         }
 
@@ -255,20 +269,20 @@ export function ChainBridgeModule({
           <h3 className="text-xl font-display font-bold text-white tracking-tight">
             {isDone
               ? "Bridge Complete"
-              : dest === "stellar"
-                ? `Step 1/1: ${bridgeStep === "burn_sig" ? "Submitting Burn" : "Verifying Burn"}`
-                : bridgeStep === "mint_sig"
-                  ? "Step 2/2: Minting Funds"
-                  : `Step 1/2: ${bridgeStep === "burn_sig" ? "Submitting Burn" : "Verifying Burn"}`}
+              : bridgeStep === "mint_sig"
+                ? "Step 2/2: Claiming USDC"
+                : `Step 1/2: ${bridgeStep === "burn_sig" ? "Submitting Burn" : "Verifying Attestation"}`}
           </h3>
           <p className="text-sm text-white/40 max-w-xs mx-auto">
             {isDone && monitor
               ? `Your USDC has arrived on ${CHAIN_DISPLAY_NAMES[monitor.destChain]}.`
-              : dest === "stellar"
-                ? "Burning USDC on the source chain and waiting for Circle attestation..."
-                : bridgeStep === "mint_sig"
-                  ? "Please approve the second signature popup to claim your funds on the destination chain."
-                  : "Burning USDC on the source chain and waiting for Circle attestation..."}
+              : bridgeStep === "burn_sig"
+                ? "Please approve the signature popup to initiate the burn on the source chain."
+                : bridgeStep === "attestation"
+                  ? "Waiting for confirmations and Circle attestation (typically 1–10 minutes depending on the source chain)..."
+                  : dest === "stellar"
+                    ? "Submitting claim transaction on Stellar..."
+                    : "Please approve the second signature popup to claim your funds on the destination chain."}
           </p>
         </div>
 
@@ -282,20 +296,20 @@ export function ChainBridgeModule({
           <div className="flex items-start gap-3">
             <div className={cn(
               "w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold border transition-colors",
-              bridgeStep === "burn_sig"
+              (bridgeStep === "burn_sig" || bridgeStep === "attestation")
                 ? "bg-accent/10 border-accent text-accent animate-pulse"
                 : "bg-accent border-accent text-[#07070a]"
             )}>
-              {bridgeStep === "burn_sig" ? "1" : "✓"}
+              {(bridgeStep === "mint_sig" || bridgeStep === "complete") ? "✓" : "1"}
             </div>
             <div>
               <p className={cn("text-xs font-bold transition-colors", 
-                bridgeStep === "burn_sig" ? "text-white" : "text-white/60"
+                (bridgeStep === "burn_sig" || bridgeStep === "attestation") ? "text-white" : "text-white/60"
               )}>
-                Step 1: Burn USDC
+                Step 1: Burn & Verify USDC
               </p>
               <p className="text-[10px] text-white/30">
-                Approve the transaction to burn the funds on the source chain.
+                Burn funds on the source chain and wait for Circle's attestation.
               </p>
             </div>
           </div>
@@ -307,51 +321,22 @@ export function ChainBridgeModule({
           <div className="flex items-start gap-3">
             <div className={cn(
               "w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold border transition-colors",
-              bridgeStep === "attestation"
-                ? "bg-accent/10 border-accent text-accent animate-pulse"
-                : (bridgeStep === "mint_sig" || bridgeStep === "complete")
-                  ? "bg-accent border-accent text-[#07070a]"
-                  : "border-white/10 text-white/30"
-            )}>
-              {(bridgeStep === "mint_sig" || bridgeStep === "complete") ? "✓" : "2"}
-            </div>
-            <div>
-              <p className={cn("text-xs font-bold transition-colors", 
-                bridgeStep === "attestation" ? "text-white" : "text-white/60"
-              )}>
-                Step 2: Circle Verification
-              </p>
-              <p className="text-[10px] text-white/30">
-                Waiting for Circle's attestation verification (~1–2 mins).
-              </p>
-            </div>
-          </div>
-
-          {/* Divider */}
-          <div className="w-[1px] h-3 bg-white/10 ml-2.5" />
-
-          {/* Step 3 */}
-          <div className="flex items-start gap-3">
-            <div className={cn(
-              "w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold border transition-colors",
               bridgeStep === "mint_sig"
                 ? "bg-accent/10 border-accent text-accent animate-pulse"
                 : bridgeStep === "complete"
                   ? "bg-accent border-accent text-[#07070a]"
                   : "border-white/10 text-white/30"
             )}>
-              {bridgeStep === "complete" ? "✓" : "3"}
+              {bridgeStep === "complete" ? "✓" : "2"}
             </div>
             <div>
               <p className={cn("text-xs font-bold transition-colors", 
                 bridgeStep === "mint_sig" ? "text-white" : "text-white/60"
               )}>
-                {dest === "stellar" ? "Step 3: Automatic Mint" : "Step 3: Mint on Destination"}
+                Step 2: Claim USDC on Destination
               </p>
               <p className="text-[10px] text-white/30">
-                {dest === "stellar" 
-                  ? "Circle automatically completes the mint on Stellar." 
-                  : "Sign the second wallet popup to mint your funds."}
+                Claim your funds on the destination chain (gas is sponsored).
               </p>
             </div>
           </div>
