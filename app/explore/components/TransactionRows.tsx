@@ -71,6 +71,61 @@ function MintLine({ row }: { row: PublicFeedRow }) {
   );
 }
 
+/** Column-aware skeleton row mirroring the desktop table layout. */
+export function TxTableRowSkeleton() {
+  return (
+    <tr className="animate-pulse">
+      <td className="px-6 py-4">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-white/5" />
+          <div className="h-3 w-16 rounded bg-white/5" />
+        </div>
+      </td>
+      <td className="px-6 py-4">
+        <div className="h-6 w-32 rounded-lg bg-white/5" />
+      </td>
+      <td className="px-6 py-4">
+        <div className="h-3 w-24 rounded bg-white/5" />
+      </td>
+      <td className="px-6 py-4">
+        <div className="h-3 w-16 rounded bg-white/5" />
+      </td>
+      <td className="px-6 py-4">
+        <div className="h-5 w-20 rounded-full bg-white/5" />
+      </td>
+      <td className="px-6 py-4">
+        <div className="h-3 w-28 rounded bg-white/5" />
+      </td>
+      <td className="px-6 py-4">
+        <div className="ml-auto w-9 h-9 rounded-lg bg-white/5" />
+      </td>
+    </tr>
+  );
+}
+
+/** Skeleton mirroring the mobile card layout. */
+export function TxCardSkeleton() {
+  return (
+    <div className="card-glass p-4! space-y-3 animate-pulse">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-white/5" />
+          <div className="h-3 w-16 rounded bg-white/5" />
+        </div>
+        <div className="h-5 w-16 rounded-full bg-white/5" />
+      </div>
+      <div className="flex items-center justify-between">
+        <div className="h-5 w-24 rounded bg-white/5" />
+        <div className="h-3 w-20 rounded bg-white/5" />
+      </div>
+      <div className="flex items-center justify-between">
+        <div className="h-3 w-24 rounded bg-white/5" />
+        <div className="h-3 w-16 rounded bg-white/5" />
+      </div>
+    </div>
+  );
+}
+
 /** Desktop table row. Actions live in the trailing kebab menu, not a whole-row click. */
 export function TxTableRow({ row, timeZone, timeMode, onOpenActions }: RowProps) {
   const explorerUrl = explorerUrlFor(row);

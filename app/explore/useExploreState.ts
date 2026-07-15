@@ -123,7 +123,10 @@ export function useExploreState() {
     statsLoading: statsQuery.isLoading,
     rows,
     total,
-    feedLoading: feedQuery.isLoading,
+    // Show the skeleton on the first load AND whenever we're holding stale rows while a new
+    // filter/sort/search/page loads (keepPreviousData → isPlaceholderData). This deliberately
+    // does NOT trigger on same-query background refetches (e.g. window refocus).
+    feedLoading: feedQuery.isLoading || feedQuery.isPlaceholderData,
     feedFetching: feedQuery.isFetching,
     totals: totalsQuery.data ?? null,
 

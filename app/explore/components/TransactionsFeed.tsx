@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { PAGE_SIZE } from '../constants';
 import type { TimeMode } from '../shared';
 import { RowActionsMenu } from './RowActionsMenu';
-import { TxCard, TxTableRow } from './TransactionRows';
+import { TxCard, TxCardSkeleton, TxTableRow, TxTableRowSkeleton } from './TransactionRows';
 
 /** Share a transaction via the Web Share API, falling back to copying its deep link. */
 async function shareTransaction(row: PublicFeedRow) {
@@ -97,13 +97,7 @@ export function TransactionsFeed({
             </thead>
             <tbody className="divide-y divide-white/5">
               {loading ? (
-                Array.from({ length: 8 }).map((_, i) => (
-                  <tr key={i} className="animate-pulse">
-                    <td colSpan={7} className="px-6 py-6">
-                      <div className="h-4 bg-white/5 rounded-full w-full" />
-                    </td>
-                  </tr>
-                ))
+                Array.from({ length: 8 }).map((_, i) => <TxTableRowSkeleton key={i} />)
               ) : rows.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-6 py-20 text-center text-white/40 font-medium">
@@ -129,7 +123,7 @@ export function TransactionsFeed({
       {/* Mobile cards */}
       <div className="md:hidden space-y-3">
         {loading ? (
-          Array.from({ length: 5 }).map((_, i) => <div key={i} className="card-glass h-24 animate-pulse" />)
+          Array.from({ length: 5 }).map((_, i) => <TxCardSkeleton key={i} />)
         ) : rows.length === 0 ? (
           <div className="card-glass py-16 text-center text-white/40 font-medium">
             No transactions match these filters.
