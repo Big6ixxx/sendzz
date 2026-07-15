@@ -230,8 +230,7 @@ export async function executeOffRamp(params: {
   network: RampNetwork;
   consolidated?: boolean;
 }): Promise<{ order: RampOrderResponse; provider: RampProviderName }> {
-  // Constrain to providers that can settle on the chosen network — so a Solana withdrawal
-  // never falls back to Paycrest (which can't settle on Solana).
+  // Constrain to providers that can settle on the chosen network
   const providersToTry = await Ramp.offRampProviderOrder(params.fiatCurrency, params.network);
   let lastError: unknown =
     providersToTry.length === 0
