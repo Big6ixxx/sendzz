@@ -375,6 +375,7 @@ export default function Landing() {
         <nav className="hidden md:flex items-center gap-8">
           {[
             { label: 'Features', href: '/features' },
+            { label: 'Explore', href: '/explore' },
             { label: 'Security', href: '/security' },
             { label: 'Pricing', href: '/pricing' },
           ].map((l) => (
@@ -689,6 +690,7 @@ export default function Landing() {
           <div className="flex items-center gap-8">
             {[
               { label: 'Documentation', href: '/documentation' },
+              { label: 'Explore', href: '/explore' },
               { label: 'Security', href: '/security' },
               { label: 'Privacy', href: '/privacy' },
             ].map((l) => (

@@ -631,9 +631,43 @@ export interface Database {
       };
     };
     Views: {
-      [_ in never]: never;
+      // Anonymized, PII-free union of all transaction tables (migration 031).
+      // Read-only source for the public /explore dashboard.
+      public_transaction_feed: {
+        Row: {
+          id: string;
+          tx_type: "transfer" | "deposit" | "withdrawal" | "bridge";
+          amount: number;
+          asset: string;
+          status: string;
+          is_settled: boolean;
+          source_chain: string | null;
+          dest_chain: string | null;
+          consolidated: boolean;
+          tx_hash: string | null;
+          secondary_tx_hash: string | null;
+          fiat_currency: string | null;
+          created_at: string;
+        };
+        Relationships: [];
+      };
     };
     Functions: {
+      // Public dashboard aggregates (migration 031). Return JSON blobs.
+      get_public_stats: {
+        Args: Record<string, never>;
+        Returns: Json;
+      };
+      get_public_feed_totals: {
+        Args: {
+          p_type?: string | null;
+          p_chain?: string | null;
+          p_start?: string | null;
+          p_end?: string | null;
+          p_search?: string | null;
+        };
+        Returns: Json;
+      };
       create_transfer_and_lock_balance: {
         Args: {
           p_sender_id: string;
