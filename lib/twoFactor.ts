@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import crypto from "crypto";
 import { sendEmail } from "@/lib/email/sendEmail";
+import { transactionOTPTemplate, otpEmailSubject } from "@/lib/email/templates";
 import { encrypt, decrypt } from "@/lib/encryption";
 
 type TransferPayload = {
@@ -76,53 +77,34 @@ export async function generateAndSend2FA(
     throw new Error("Failed to create OTP");
   }
 
-  let transactionDetails = "";
-  if (actionType === "withdrawal") {
-    const withdrawalPayload = payload as WithdrawalPayload;
-    transactionDetails = `
-          <div style="margin: 20px auto; padding: 15px; background-color: #ecfdf5; border-left: 4px solid #10b981; border-radius: 4px; text-align: left;">
-            <p style="color: #065f46; font-size: 14px; margin: 0;">
-              <strong>Transaction Details:</strong><br>
-              Amount: ${withdrawalPayload.amountUsdc} USDC<br>
-              Currency: ${withdrawalPayload.fiatCurrency}
-            </p>
-          </div>
-        `;
-  } else if (actionType === "transfer") {
-    const transferPayload = payload as TransferPayload;
-    transactionDetails = `
-          <div style="margin: 20px auto; padding: 15px; background-color: #ecfdf5; border-left: 4px solid #10b981; border-radius: 4px; text-align: left;">
-            <p style="color: #065f46; font-size: 14px; margin: 0;">
-              <strong>Transaction Details:</strong><br>
-              Amount: ${transferPayload.amount} USDC<br>
-              Recipient: ${transferPayload.recipientEmail}
-            </p>
-          </div>
-        `;
+  // Build template details from payload
+  let emailSubject: string;
+  let emailHtml: string;
+
+  if (actionType === 'withdrawal') {
+    const p = payload as WithdrawalPayload;
+    const templateDetails = {
+      amount: p.amountUsdc.toString(),
+      fiatCurrency: p.fiatCurrency,
+      fiatAmount: p.fiatAmount?.toString(),
+    };
+    emailSubject = otpEmailSubject('withdrawal', templateDetails);
+    emailHtml = transactionOTPTemplate(otpCode, 'withdrawal', templateDetails);
+  } else {
+    const p = payload as TransferPayload;
+    const templateDetails = {
+      amount: p.amount.toString(),
+      recipientEmail: p.recipientEmail,
+      note: p.note,
+    };
+    emailSubject = otpEmailSubject('transfer', templateDetails);
+    emailHtml = transactionOTPTemplate(otpCode, 'transfer', templateDetails);
   }
 
   await sendEmail({
     to: userEmail,
-    subject: `Your Sendzz Authorization Code`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; text-align: center;">
-        <h2 style="color: #333;">Authorization Required</h2>
-        <p style="color: #666; font-size: 16px;">
-          You are attempting a ${actionType} on Sendzz.
-        </p>
-        ${transactionDetails}
-        <p style="color: #666; font-size: 16px; margin-top: 20px;">
-          Please use the following code to authorize this transaction:
-        </p>
-        <div style="margin: 30px auto; padding: 20px; background-color: #f4f4f4; border-radius: 8px; font-size: 32px; font-weight: bold; letter-spacing: 4px; color: #000; max-width: 250px;">
-          ${otpCode}
-        </div>
-        <p style="color: #999; font-size: 12px; margin-top: 20px;">This code will expire in 10 minutes.</p>
-        <p style="color: #dc2626; font-size: 11px; margin-top: 15px;">
-          If you did not initiate this transaction, please ignore this email and contact support immediately.
-        </p>
-      </div>
-    `,
+    subject: emailSubject,
+    html: emailHtml,
   });
 
   return data.id;

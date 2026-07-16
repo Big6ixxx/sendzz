@@ -18,13 +18,24 @@ import {
 } from "@/lib/circle/gateway";
 import { EVM_CHAINS } from "@/lib/web3/routing";
 import { executeSmartBridge, executeReceiveMessage } from "@/lib/web3/bridge-actions";
+import { prepareSolanaBurnTx } from "@/lib/web3/solana-bridge";
+import { buildReceiveMessageOnSolanaTx } from "@/lib/circle/solana-gateway";
+import { PublicKey, Transaction } from "@solana/web3.js";
+import bs58 from "bs58";
+
 import {
   recordBridgeTransaction,
   updateBridgeStatus,
 } from "@/lib/supabase/transactions";
 import { cn } from "@/lib/utils";
 import { useWallets } from "@privy-io/react-auth";
+import {
+  useSignTransaction,
+  useWallets as useSolanaWallets,
+} from "@privy-io/react-auth/solana";
 import { useQueryClient } from "@tanstack/react-query";
+import { Connection } from "@solana/web3.js";
+
 import {
   ArrowDown,
   CheckCircle2,
@@ -34,9 +45,13 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+const SOLANA_RPC =
+  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com";
+
 const CHAIN_DISPLAY_NAMES: Record<string, string> = {
   ...CHAIN_NAMES,
   stellar: "Stellar",
+  solana: "Solana",
 };
 
 const CHAIN_EXPLORER_TX: Record<string, (hash: string) => string> = {
@@ -47,6 +62,7 @@ const CHAIN_EXPLORER_TX: Record<string, (hash: string) => string> = {
     ]),
   ),
   stellar: (hash: string) => `https://stellar.expert/explorer/public/tx/${hash}`,
+  solana: (hash: string) => `https://solscan.io/tx/${hash}`,
 };
 
 interface ChainBridgeModuleProps {
@@ -61,8 +77,8 @@ type BridgeStep = "burn_sig" | "attestation" | "mint_sig" | "complete";
 
 interface Monitor {
   burnTxHash: string;
-  sourceChain: SupportedChain | "stellar";
-  destChain: SupportedChain | "stellar";
+  sourceChain: SupportedChain | "stellar" | "solana";
+  destChain: SupportedChain | "stellar" | "solana";
 }
 
 export function ChainBridgeModule({
@@ -75,15 +91,21 @@ export function ChainBridgeModule({
   const queryClient = useQueryClient();
   const embeddedWallet = wallets.find((w) => w.walletClientType === "privy");
 
+  const { wallets: solanaWallets } = useSolanaWallets();
+  const { signTransaction } = useSignTransaction();
+  const solConn = useRef(new Connection(SOLANA_RPC, "confirmed"));
+
+  const embeddedSolWallet = (solanaAddress ? solanaWallets.find((w) => w.address === solanaAddress) : null) ?? null;
+
   const { data: portfolio, refetch } = usePortfolio(smartAddress, solanaAddress, stellarWallet?.address);
 
-  const balanceOf = (chain: SupportedChain | "stellar") =>
+  const balanceOf = (chain: SupportedChain | "stellar" | "solana") =>
     parseFloat(
       portfolio?.byChain.find((c) => c.chain === chain)?.balance ?? "0",
     ) || 0;
 
-  const [source, setSource] = useState<SupportedChain | "stellar" | null>(null);
-  const [dest, setDest] = useState<SupportedChain | "stellar" | null>(null);
+  const [source, setSource] = useState<SupportedChain | "stellar" | "solana" | null>(null);
+  const [dest, setDest] = useState<SupportedChain | "stellar" | "solana" | null>(null);
   const [amount, setAmount] = useState("");
   const [phase, setPhase] = useState<Phase>("form");
   const [monitor, setMonitor] = useState<Monitor | null>(null);
@@ -99,11 +121,14 @@ export function ChainBridgeModule({
     source !== dest &&
     amountNum > 0 &&
     amountNum <= sourceBalance &&
-    !!embeddedWallet;
+    (source === "solana" || dest === "solana" ? !!embeddedSolWallet : true) &&
+    (source !== "solana" || dest !== "solana" ? !!embeddedWallet : true);
+
 
   // ─── Attestation monitor → mint on destination ──────────────────────────────
   useEffect(() => {
-    if (!monitor || phase !== "monitoring") return;
+  if (!monitor || phase !== "monitoring") return;
+
     let cancelled = false;
     let attempts = 0;
 
@@ -124,9 +149,55 @@ export function ChainBridgeModule({
         clearInterval(interval);
 
         let mintHash: string | undefined = data.mintTxHash;
-        // Circle auto-relays the mint only on some routes (e.g. to Stellar/Solana); otherwise submit it ourselves.
-        if (!mintHash && data.attestation && data.messageBytes && embeddedWallet) {
-          if (monitor.destChain !== "stellar") {
+        // Circle auto-relays the mint only on some routes (e.g. to Stellar); otherwise submit it ourselves.
+        if (!mintHash && data.attestation && data.messageBytes) {
+          if (monitor.destChain === 'solana') {
+            // EVM → Solana: build receiveMessage on Solana and have the user sign it
+            if (!embeddedSolWallet) throw new Error('Solana wallet not found for minting');
+            setBridgeStep('mint_sig');
+            toast.info('Attestation ready! Approve the popup to receive USDC on Solana.');
+            const walletPubkey = new PublicKey(embeddedSolWallet.address);
+            const { transaction } = await buildReceiveMessageOnSolanaTx(
+              solConn.current,
+              walletPubkey,
+              data.messageBytes,
+              data.attestation,
+            );
+            // 1. Sponsor transaction
+            const txBase64 = transaction
+              .serialize({ requireAllSignatures: false, verifySignatures: false })
+              .toString('base64');
+            const sponsorRes = await fetch('/api/bridge/solana-sponsor', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ transaction: txBase64 }),
+            });
+            if (!sponsorRes.ok) {
+              const errData = await sponsorRes.json().catch(() => ({}));
+              throw new Error(errData.error || 'Failed to sponsor Solana claim transaction');
+            }
+            const { sponsoredTransaction } = await sponsorRes.json();
+            const sponsoredTx = Transaction.from(Buffer.from(sponsoredTransaction, 'base64'));
+
+            // 2. Sign transaction
+            const { signedTransaction: signedBytes } = await signTransaction({
+              transaction: sponsoredTx.serialize({ requireAllSignatures: false }),
+              wallet: embeddedSolWallet,
+            });
+
+            // 3. Broadcast transaction
+            const signature = await solConn.current.sendRawTransaction(signedBytes, {
+              skipPreflight: false,
+              preflightCommitment: 'confirmed',
+            });
+
+            const lb = await solConn.current.getLatestBlockhash();
+            await solConn.current.confirmTransaction(
+              { signature, blockhash: lb.blockhash, lastValidBlockHeight: lb.lastValidBlockHeight },
+              'confirmed',
+            );
+            mintHash = signature;
+          } else if (monitor.destChain !== 'stellar' && embeddedWallet) {
             setBridgeStep("mint_sig");
             toast.info("Attestation ready! Please approve the popup to mint USDC on the destination chain.");
             mintHash = await executeReceiveMessage(
@@ -138,6 +209,7 @@ export function ChainBridgeModule({
           } else {
             setBridgeStep("mint_sig");
             toast.info("Attestation ready! Claiming USDC on Stellar...");
+
             const claimRes = await fetch("/api/stellar/claim", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -165,6 +237,8 @@ export function ChainBridgeModule({
         toast.success(`Bridge complete! USDC is now on ${CHAIN_DISPLAY_NAMES[monitor.destChain]}.`);
       } catch (err) {
         console.error("[ChainBridge] monitor error:", err);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        toast.error(`Bridge claim failed: ${errMsg}`);
         mintingRef.current = false;
         setBridgeStep("attestation");
       }
@@ -177,8 +251,9 @@ export function ChainBridgeModule({
   }, [monitor, phase, embeddedWallet, queryClient]);
 
   const handleBridge = async () => {
-    if (!canBridge || !source || !dest || !embeddedWallet) return;
+    if (!canBridge || !source || !dest) return;
     setPhase("submitting");
+
     setBridgeStep("burn_sig");
     mintingRef.current = false;
     setMintTxHash(null);
@@ -194,7 +269,7 @@ export function ChainBridgeModule({
           body: JSON.stringify({
             walletId: stellarWallet.walletId,
             senderAddress: stellarWallet.address,
-            recipientAddress: smartAddress,
+            recipientAddress: dest === "ethereum" ? embeddedWallet!.address : smartAddress,
             amount: amount,
             destChain: dest,
           }),
@@ -202,14 +277,54 @@ export function ChainBridgeModule({
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Stellar bridge failed");
         burnTxHash = data.burnTxHash;
+      } else if (source === "solana") {
+        if (!embeddedSolWallet) {
+          throw new Error("Solana wallet not ready. Please wait a moment.");
+        }
+        const recipient = dest === "ethereum" ? embeddedWallet!.address : smartAddress;
+        toast.info("Preparing gasless Solana transfer...");
+        const { sponsoredTx } = await prepareSolanaBurnTx({
+          connection: solConn.current,
+          walletAddress: embeddedSolWallet.address,
+          amount: amount,
+          recipientEvm: recipient,
+          destChain: dest as SupportedChain,
+        });
+
+        // Privy signs the already-fee-sponsored transaction with the embedded Solana wallet
+        const { signedTransaction: signedBytes } = await signTransaction({
+          transaction: sponsoredTx.serialize({ requireAllSignatures: false }),
+          wallet: embeddedSolWallet,
+        });
+
+        // Broadcast the fully-signed transaction ourselves
+        const signature = await solConn.current.sendRawTransaction(signedBytes, {
+          skipPreflight: false,
+          preflightCommitment: "confirmed",
+        });
+        const latestBlockhash = await solConn.current.getLatestBlockhash();
+        await solConn.current.confirmTransaction({
+          signature,
+          blockhash: latestBlockhash.blockhash,
+          lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+        }, "confirmed");
+
+        burnTxHash = signature;
       } else {
-        const recipient = dest === "stellar" ? stellarWallet!.address : smartAddress;
+        const recipient = dest === "stellar"
+          ? stellarWallet!.address
+          : dest === "solana"
+            ? solanaAddress! // recipient on Solana = the user's Solana wallet (CCTP mints to their ATA)
+            : dest === "ethereum"
+              ? embeddedWallet!.address
+              : smartAddress;
         const { txHashPromise } = await executeSmartBridge(
-          embeddedWallet,
+
+          embeddedWallet!,
           source as SupportedChain,
           amount,
           recipient,
-          dest,
+          dest as SupportedChain | "stellar" | "solana",
         );
         burnTxHash = await txHashPromise;
       }
@@ -279,7 +394,7 @@ export function ChainBridgeModule({
               : bridgeStep === "burn_sig"
                 ? "Please approve the signature popup to initiate the burn on the source chain."
                 : bridgeStep === "attestation"
-                  ? "Waiting for confirmations and Circle attestation (typically 1–10 minutes depending on the source chain)..."
+                  ? "Waiting for network verification (typically 1–10 minutes depending on the source chain)..."
                   : dest === "stellar"
                     ? "Submitting claim transaction on Stellar..."
                     : "Please approve the second signature popup to claim your funds on the destination chain."}
@@ -309,7 +424,7 @@ export function ChainBridgeModule({
                 Step 1: Burn & Verify USDC
               </p>
               <p className="text-[10px] text-white/30">
-                Burn funds on the source chain and wait for Circle's attestation.
+                Burn funds on the source chain and wait for verification.
               </p>
             </div>
           </div>
@@ -342,33 +457,35 @@ export function ChainBridgeModule({
           </div>
         </div>
 
-        <div className="flex flex-col gap-3 w-full max-w-xs">
-          {monitor && (
-            <a
-              href={CHAIN_EXPLORER_TX[monitor.sourceChain]?.(monitor.burnTxHash) || "#"}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn-secondary h-11 rounded-xl flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              View burn transaction
-            </a>
-          )}
-          {isDone && mintTxHash && monitor && (
-            <a
-              href={CHAIN_EXPLORER_TX[monitor.destChain]?.(mintTxHash) || "#"}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn-secondary h-11 rounded-xl flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              View mint transaction
-            </a>
-          )}
+        <div className="flex flex-col gap-3 w-full max-w-sm">
+          <div className="flex gap-3 w-full justify-center">
+            {monitor && (
+              <a
+                href={CHAIN_EXPLORER_TX[monitor.sourceChain]?.(monitor.burnTxHash) || "#"}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 btn-secondary h-11 rounded-xl flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest text-center"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                Burn Tx
+              </a>
+            )}
+            {isDone && mintTxHash && monitor && (
+              <a
+                href={CHAIN_EXPLORER_TX[monitor.destChain]?.(mintTxHash) || "#"}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 btn-secondary h-11 rounded-xl flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest text-center"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                Mint Tx
+              </a>
+            )}
+          </div>
           {isDone && (
             <button
               onClick={resetForm}
-              className="btn-accent h-11 rounded-xl text-[10px] font-bold uppercase tracking-widest"
+              className="btn-accent h-11 w-full rounded-xl text-[10px] font-bold uppercase tracking-widest"
             >
               Bridge Again
             </button>
@@ -384,9 +501,23 @@ export function ChainBridgeModule({
   }
 
   // ─── Form ────────────────────────────────────────────────────────────────────
-  const allSources = [...EVM_CHAINS, ...(stellarWallet?.address ? ["stellar" as const] : [])];
+  const allSources = [
+    ...EVM_CHAINS,
+    ...(stellarWallet?.address ? ["stellar" as const] : []),
+    ...(solanaAddress ? ["solana" as const] : []),
+  ];
   const fundedSources = allSources.filter((c) => balanceOf(c) > 0);
-  const destinationChains = allSources.filter((c) => c !== source);
+  const destinationChains = source === "solana"
+    ? allSources.filter((c) => c !== source && c !== "stellar")
+    : source === "stellar"
+      ? allSources.filter((c) => c !== source && c !== "solana")
+      : allSources.filter((c) => {
+          if (c === source) return false;
+          // Allow Solana as dest only if the user has a Solana wallet
+          if (c === "solana" && !solanaAddress) return false;
+          return true;
+        });
+
 
   return (
     <div className="card-glass p-6 sm:p-8 space-y-8">
@@ -406,7 +537,16 @@ export function ChainBridgeModule({
                 key={c}
                 onClick={() => {
                   setSource(c);
-                  if (dest === c) setDest(null);
+                  if (c === "solana") {
+                    // Solana → EVM: default to Base
+                    setDest((prev) => (prev && prev !== "solana" && prev !== "stellar") ? prev : "base");
+                  } else if (c === "stellar") {
+                    // Stellar can't go to Solana
+                    if (dest === c || dest === "solana") setDest(null);
+                  } else {
+                    // EVM source: only reset dest if it equals the new source
+                    if (dest === c) setDest(null);
+                  }
                 }}
                 className={cn(
                   "flex items-center gap-2.5 px-3 py-3 rounded-xl border transition-all text-left",
@@ -512,10 +652,10 @@ export function ChainBridgeModule({
           : "Select networks"}
       </button>
 
-      <p className="text-[11px] text-white/30 leading-relaxed text-center">
+      {/* <p className="text-[11px] text-white/30 leading-relaxed text-center">
         Funds move between your own wallets via Circle CCTP. Gasless on both sides; a
         small Circle network fee is deducted from the bridged amount.
-      </p>
+      </p> */}
     </div>
   );
 }

@@ -337,7 +337,7 @@ export default function Dashboard() {
                             >
                               {CHAIN_NAMES[
                                 c.chain as keyof typeof CHAIN_NAMES
-                              ] ?? (c.chain === "solana" ? "Solana" : c.chain)}
+                              ] ?? (c.chain === "solana" ? "Solana" : c.chain === "stellar" ? "Stellar" : c.chain)}
                             </span>
                           </div>
                           <span

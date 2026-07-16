@@ -180,10 +180,10 @@ export function Sidebar({
             <button
               onClick={onLogout}
               className="flex items-center gap-3 px-3 py-2.5 w-full rounded-xl text-sm font-medium transition-all"
-              style={{ color: "rgba(248,248,246,0.35)" }}
+              style={{ color: "rgba(248,248,246,0.35)", background: "transparent" }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.color = "#f87171";
-                e.currentTarget.style.background = "rgba(248, 113, 113, 0.08)";
+                e.currentTarget.style.background = "rgba(248,113,113,0.08)";
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.color = "rgba(248,248,246,0.35)";

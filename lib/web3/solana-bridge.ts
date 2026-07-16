@@ -17,7 +17,7 @@ import {
   SOLANA_CCTP_DOMAIN,
   BASE_CCTP_DOMAIN,
 } from '@/lib/circle/solana-gateway';
-import { fetchCctpFees } from '@/lib/circle/gateway';
+import { fetchCctpFees, CCTP_DOMAINS, type SupportedChain } from '@/lib/circle/gateway';
 import { executeReceiveMessage } from './bridge-actions';
 import type { ConnectedWallet } from '@privy-io/react-auth';
 
@@ -31,15 +31,17 @@ export async function prepareSolanaBurnTx(params: {
   walletAddress: string;
   amount: string;
   recipientEvm: string;
+  destChain?: SupportedChain;
 }): Promise<{ sponsoredTx: Transaction }> {
-  const { connection, walletAddress, amount, recipientEvm } = params;
+  const { connection, walletAddress, amount, recipientEvm, destChain = 'base' } = params;
 
   // CCTP fee (non-fatal — fall back to 0).
   let feeSubunits = 0n;
   try {
     const [whole, frac = ''] = amount.split('.');
     const amtSubunits = BigInt(whole + (frac + '000000').slice(0, 6));
-    const fees = await fetchCctpFees(SOLANA_CCTP_DOMAIN, BASE_CCTP_DOMAIN);
+    const destDomain = CCTP_DOMAINS[destChain];
+    const fees = await fetchCctpFees(SOLANA_CCTP_DOMAIN, destDomain);
     const fast = fees.find((f) => f.finalityThreshold === 1000) ?? fees[0];
     const fee = (amtSubunits * BigInt(Math.round(fast.minimumFee * 100))) / 1_000_000n;
     feeSubunits = (fee * 120n) / 100n; // 20% buffer
@@ -53,6 +55,7 @@ export async function prepareSolanaBurnTx(params: {
     amount,
     recipientEvm,
     feeSubunits,
+    destChain,
   );
 
   const txBase64 = transaction

@@ -39,7 +39,7 @@ export async function GET(req: Request) {
           const emailAccount = privyUser.linked_accounts.find(
             (acc) => acc.type === 'email',
           ) as any;
-          senderEmail = emailAccount?.address || '';
+          senderEmail = (emailAccount?.address || '').toLowerCase().trim();
         } catch (authError) {
           console.error('[CheckRecipient API] Auth error:', authError);
         }

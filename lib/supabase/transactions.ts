@@ -33,33 +33,35 @@ export async function recordTransfer(params: {
   chain?: string;
 }): Promise<void> {
   try {
+    const senderEmail = params.senderEmail.toLowerCase();
+    const recipientEmail = params.recipientEmail.toLowerCase();
     console.log(
-      `[Supabase] Recording transfer: ${params.senderEmail} -> ${params.recipientEmail} ($${params.amount})`,
+      `[Supabase] Recording transfer: ${senderEmail} -> ${recipientEmail} ($${params.amount})`,
     );
 
     const { data: users, error: fetchError } = await supabaseAdmin
       .from('users')
       .select('id, email')
-      .or(`email.eq.${params.senderEmail},email.eq.${params.recipientEmail}`);
+      .or(`email.eq.${senderEmail},email.eq.${recipientEmail}`);
 
     if (fetchError) {
       console.error('[Supabase] Failed to fetch users for recording:', fetchError);
       return;
     }
 
-    const sender = users?.find((u) => u.email === params.senderEmail);
-    const recipient = users?.find((u) => u.email === params.recipientEmail);
+    const sender = users?.find((u) => u.email.toLowerCase() === senderEmail);
+    const recipient = users?.find((u) => u.email.toLowerCase() === recipientEmail);
 
     if (!sender) {
-      console.warn(`[Supabase] Sender ${params.senderEmail} not found. Skipping.`);
+      console.warn(`[Supabase] Sender ${senderEmail} not found. Skipping.`);
       return;
     }
 
     const baseRow = {
       sender_id: sender.id,
-      sender_email: params.senderEmail,
+      sender_email: senderEmail,
       recipient_id: recipient?.id || null,
-      recipient_email: params.recipientEmail,
+      recipient_email: recipientEmail,
       amount: params.amount,
       status: params.status,
       note: params.note || null,
@@ -67,23 +69,63 @@ export async function recordTransfer(params: {
       asset: 'USDC' as const,
     };
 
-    const { error: insertError } = await supabaseAdmin
+    const { data: inserted, error: insertError } = await supabaseAdmin
       .from('transfers')
-      .insert(params.chain ? { ...baseRow, source_chain: params.chain } : baseRow);
+      .insert(params.chain ? { ...baseRow, source_chain: params.chain } : baseRow)
+      .select('id')
+      .single();
+
+    let transferId = inserted?.id || '';
 
     if (insertError && params.chain) {
       // `source_chain` may not exist yet (migration 024 not applied) — retry without it
       // so the ledger record still succeeds.
-      const { error: retryError } = await supabaseAdmin
+      const { data: retryInserted, error: retryError } = await supabaseAdmin
         .from('transfers')
-        .insert(baseRow);
+        .insert(baseRow)
+        .select('id')
+        .single();
       if (retryError) {
         console.error('[Supabase] Failed to record transfer:', retryError);
+      } else {
+        transferId = retryInserted?.id || '';
       }
     } else if (insertError) {
       console.error('[Supabase] Failed to record transfer:', insertError);
-    } else {
+    }
+
+    if (!insertError) {
       console.log('[Supabase] Transfer recorded successfully');
+
+      // 1. Send transaction receipt email to sender
+      try {
+        const { sendTransferSentEmail } = await import('@/lib/email/sendEmail');
+        await sendTransferSentEmail(
+          params.senderEmail,
+          params.amount.toString(),
+          params.recipientEmail,
+          transferId,
+          params.note
+        );
+      } catch (emailErr) {
+        console.error('[Supabase] Failed to send sender transfer receipt email:', emailErr);
+      }
+
+      // 2. Send in-app notification to recipient
+      if (recipient) {
+        try {
+          const { createNotification } = await import('./notifications');
+          await createNotification(
+            params.recipientEmail,
+            'USDC Received',
+            `You received ${params.amount} USDC from ${params.senderEmail}!`,
+            'transfer',
+            { url: '/dashboard/history', amount: params.amount, sender: params.senderEmail }
+          );
+        } catch (notifErr) {
+          console.error('[Supabase] Failed to send transfer notification:', notifErr);
+        }
+      }
     }
   } catch (err) {
     console.error('[Supabase] Critical failure in recordTransfer:', err);
@@ -105,14 +147,15 @@ export async function recordDeposit(params: {
   provider?: string;
 }): Promise<void> {
   try {
+    const normalizedEmail = params.userEmail.toLowerCase();
     const { data: user, error: userError } = await supabaseAdmin
       .from('users')
       .select('id')
-      .eq('email', params.userEmail)
+      .eq('email', normalizedEmail)
       .single();
 
     if (userError || !user) {
-      console.error(`[Supabase] recordDeposit: User not found for ${params.userEmail}`, userError);
+      console.error(`[Supabase] recordDeposit: User not found for ${normalizedEmail}`, userError);
       return;
     }
 
@@ -164,6 +207,33 @@ export async function updateDepositStatus(
       .eq('provider_order_id', paycrestTxId);
 
     if (error) throw error;
+
+    if (status === 'confirmed') {
+      const { data: depData } = await supabaseAdmin
+        .from('deposits')
+        .select('amount_usdc, users (email)')
+        .eq('provider_order_id', paycrestTxId)
+        .maybeSingle();
+
+      if (depData && (depData as any).users?.email) {
+        const email = (depData as any).users.email;
+        const amount = depData.amount_usdc;
+        const { createNotification } = await import('./notifications');
+        await createNotification(
+          email,
+          'Deposit Confirmed',
+          `Your deposit of ${amount} USDC has been successfully credited.`,
+          'deposit',
+          { url: '/dashboard' }
+        );
+        try {
+          const { sendDepositEmail } = await import('@/lib/email/sendEmail');
+          await sendDepositEmail(email, (amount || 0).toString());
+        } catch (emailErr) {
+          console.error('[Supabase] Failed to send deposit email notification:', emailErr);
+        }
+      }
+    }
   } catch (err) {
     console.error('[Supabase] Failed to update deposit status:', err);
   }
@@ -193,13 +263,14 @@ export async function recordWithdrawal(params: {
   bitnobDepositAddress?: string;
 }): Promise<void> {
   try {
+    const normalizedEmail = params.userEmail.toLowerCase();
     const { data: user } = await supabaseAdmin
       .from('users')
       .select('id')
-      .eq('email', params.userEmail)
+      .eq('email', normalizedEmail)
       .single();
 
-    if (!user) throw new Error('User not found');
+    if (!user) throw new Error(`User not found: ${normalizedEmail}`);
 
     const baseRow = {
       user_id: user.id,
@@ -262,6 +333,40 @@ export async function updateWithdrawalStatus(
       .eq('provider_order_id', paycrestOrderId);
 
     if (error) throw error;
+
+    if (status === 'completed') {
+      const { data: wData } = await supabaseAdmin
+        .from('withdrawals')
+        .select('id, amount_usdc, fiat_amount, fiat_currency, bank_account_masked, provider_order_id, users (email)')
+        .eq('provider_order_id', paycrestOrderId)
+        .maybeSingle();
+
+      if (wData && (wData as any).users?.email) {
+        const email = (wData as any).users.email;
+        const amount = wData.amount_usdc;
+        const fiatAmount = (wData as any).fiat_amount || amount;
+        const fiatCurrency = (wData as any).fiat_currency || 'USD';
+        const bankMasked = (wData as any).bank_account_masked || '••••';
+        const referenceId = wData.id;
+        const orderId = wData.provider_order_id || paycrestOrderId;
+
+        const { createNotification } = await import('./notifications');
+        await createNotification(
+          email,
+          'Withdrawal Completed',
+          `Your withdrawal of ${amount} USDC has been successfully processed to your bank account.`,
+          'withdrawal',
+          { url: '/dashboard' }
+        );
+
+        try {
+          const { sendWithdrawalEmail } = await import('@/lib/email/sendEmail');
+          await sendWithdrawalEmail(email, amount.toString(), fiatAmount.toString(), fiatCurrency, bankMasked, referenceId, orderId);
+        } catch (emailErr) {
+          console.error('[Supabase] Failed to send withdrawal email notification:', emailErr);
+        }
+      }
+    }
   } catch (err) {
     console.error('[Supabase] Failed to update withdrawal status:', err);
   }
@@ -309,14 +414,15 @@ export async function recordBridgeTransaction(params: {
   burnTxHash: string;
 }): Promise<void> {
   try {
+    const normalizedEmail = params.userEmail.toLowerCase();
     const { data: user, error: userError } = await supabaseAdmin
       .from('users')
       .select('id')
-      .ilike('email', params.userEmail.trim())
+      .eq('email', normalizedEmail)
       .single();
 
     if (userError || !user) {
-      console.error(`[Supabase] User not found for bridge: ${params.userEmail}`);
+      console.error(`[Supabase] User not found for bridge: ${normalizedEmail}`);
       return;
     }
 
@@ -351,6 +457,39 @@ export async function updateBridgeStatus(
       .eq('burn_tx_hash', burnTxHash);
 
     if (error) throw error;
+
+    if (status === 'complete') {
+      const { data: txData } = await supabaseAdmin
+        .from('bridge_transactions')
+        .select('id, amount, source_chain, dest_chain, burn_tx_hash, users (email)')
+        .eq('burn_tx_hash', burnTxHash)
+        .maybeSingle();
+
+      if (txData && (txData as any).users?.email) {
+        const email = (txData as any).users.email;
+        const amount = txData.amount;
+        const src = txData.source_chain;
+        const dest = txData.dest_chain;
+        const referenceId = txData.id;
+        const txHash = mintTxHash || txData.burn_tx_hash || burnTxHash;
+        
+        const { createNotification } = await import('./notifications');
+        await createNotification(
+          email,
+          'USDC Bridge Completed',
+          `Successfully bridged ${amount} USDC from ${src.toUpperCase()} to ${dest.toUpperCase()}!`,
+          'bridge',
+          { url: '/dashboard/history', amount, src, dest }
+        );
+
+        try {
+          const { sendBridgeEmail } = await import('@/lib/email/sendEmail');
+          await sendBridgeEmail(email, amount.toString(), src, dest, referenceId, txHash);
+        } catch (emailErr) {
+          console.error('[Supabase] Failed to send bridge email notification:', emailErr);
+        }
+      }
+    }
   } catch (err) {
     console.error('[Supabase] Failed to update bridge status:', err);
   }
@@ -360,10 +499,11 @@ export async function updateBridgeStatus(
 
 export async function getUserActivities(userEmail: string) {
   try {
+    const normalizedEmail = userEmail.toLowerCase();
     const { data: userRecord } = await supabaseAdmin
       .from('users')
       .select('id, smart_account_address, solana_address')
-      .ilike('email', userEmail.trim())
+      .eq('email', normalizedEmail)
       .single();
 
     const internalId = userRecord?.id;
@@ -393,7 +533,7 @@ export async function getUserActivities(userEmail: string) {
       { data: bridges },
     ] = await Promise.all([
       supabaseAdmin.from('transfers').select('*, sender:sender_id(email)').eq('sender_id', internalId),
-      supabaseAdmin.from('transfers').select('*, sender:sender_id(email)').or(`recipient_id.eq.${internalId},recipient_email.eq.${userEmail}`),
+      supabaseAdmin.from('transfers').select('*, sender:sender_id(email)').or(`recipient_id.eq.${internalId},recipient_email.eq.${normalizedEmail}`),
       supabaseAdmin.from('deposits').select('*').eq('user_id', internalId),
       supabaseAdmin.from('withdrawals').select('*').eq('user_id', internalId),
       supabaseAdmin.from('bridge_transactions').select('*').eq('user_id', internalId),

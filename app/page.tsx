@@ -14,7 +14,7 @@ import {
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useRef } from 'react';
+import { useRef, useEffect } from 'react';
 
 /* ─── Mock UI Card Components ─── */
 
@@ -311,9 +311,47 @@ function CardTriptych() {
 
 /* ─── Main Landing Page ─── */
 export default function Landing() {
-  const { authenticated, login } = usePrivy();
+  const { ready, authenticated, login } = usePrivy();
   const router = useRouter();
   const heroRef = useRef<HTMLDivElement>(null);
+  
+  // Track if they just logged in during this session
+  const wasAuthenticatedRef = useRef(authenticated);
+
+  useEffect(() => {
+    if (authenticated && !wasAuthenticatedRef.current) {
+      console.log('[Landing] User successfully logged in, redirecting to dashboard...');
+      router.push('/dashboard');
+    }
+    wasAuthenticatedRef.current = authenticated;
+  }, [authenticated, router]);
+
+  // Track if we already triggered auto-login to prevent loops when closing Privy modal
+  const hasTriggeredRef = useRef(false);
+
+  // Auto-trigger login and prefill email if query param exists
+  useEffect(() => {
+    if (!ready || hasTriggeredRef.current) return;
+    if (typeof window !== 'undefined') {
+      const searchParams = new URLSearchParams(window.location.search);
+      const emailParam = searchParams.get('email');
+      if (emailParam) {
+        hasTriggeredRef.current = true;
+        if (!authenticated) {
+          console.log(`[Auto-Login] Pre-filling email in Privy: ${emailParam}`);
+          login({
+            prefill: {
+              type: 'email',
+              value: emailParam,
+            },
+          });
+        } else {
+          console.log('[Auto-Login] Already logged in, redirecting to dashboard...');
+          router.push('/dashboard');
+        }
+      }
+    }
+  }, [ready, authenticated, login, router]);
 
   const handleAction = () => {
     if (authenticated) {

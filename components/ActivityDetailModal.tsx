@@ -17,10 +17,20 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useWallets } from '@privy-io/react-auth';
+import { useWallets, usePrivy } from '@privy-io/react-auth';
+import {
+  useSignTransaction,
+  useWallets as useSolanaWallets,
+} from '@privy-io/react-auth/solana';
+import { Connection, PublicKey, Transaction } from '@solana/web3.js';
+import { buildReceiveMessageOnSolanaTx } from '@/lib/circle/solana-gateway';
+import bs58 from 'bs58';
 import { executeReceiveMessage } from '@/lib/web3/bridge-actions';
 import { toast } from 'sonner';
 import { CCTP_DOMAINS, type SupportedChain } from '@/lib/circle/gateway';
+
+const SOLANA_RPC =
+  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com';
 
 import { Activity } from './HistoryModule';
 import { ReceiptActions } from './receipt/ReceiptActions';
@@ -71,6 +81,9 @@ export function ActivityDetailModal({
   const [estimatedFiatRate, setEstimatedFiatRate] = useState<number | null>(null);
 
   const { wallets } = useWallets();
+  const { user } = usePrivy();
+  const { wallets: solanaWallets } = useSolanaWallets();
+  const { signTransaction } = useSignTransaction();
   const [isClaiming, setIsClaiming] = useState(false);
 
   const handleClaim = async () => {
@@ -161,8 +174,78 @@ export function ActivityDetailModal({
         } else {
           console.log('[Manual Claim Modal] Stellar destination already minted: ', mintTxHash);
         }
+      } else if ((destChain as string) === 'solana') {
+        if (!mintTxHash) {
+          console.log('[Manual Claim Modal] Solana destination - initiating client-side receiveMessage...');
+          toast.info('Claiming USDC on Solana...');
+          
+          const solAccount = user?.linkedAccounts.find(
+            (a) =>
+              a.type === 'wallet' &&
+              (a as { walletClientType?: string }).walletClientType === 'privy' &&
+              (a as { chainType?: string }).chainType === 'solana',
+          );
+          const solAddress =
+            solAccount && 'address' in solAccount
+              ? (solAccount as { address: string }).address
+              : undefined;
+          
+          const solWallet = solAddress ? solanaWallets.find((w) => w.address === solAddress) : null;
+          if (!solWallet || !solAddress) {
+            throw new Error('Solana wallet not found. Please link a Solana wallet first.');
+          }
+
+          const walletPubkey = new PublicKey(solAddress);
+          const solConn = new Connection(SOLANA_RPC, 'confirmed');
+
+          const { transaction } = await buildReceiveMessageOnSolanaTx(
+            solConn,
+            walletPubkey,
+            data.messageBytes!,
+            data.attestation!,
+          );
+
+          // 1. Sponsor transaction
+          const txBase64 = transaction
+            .serialize({ requireAllSignatures: false, verifySignatures: false })
+            .toString('base64');
+          const sponsorRes = await fetch('/api/bridge/solana-sponsor', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transaction: txBase64 }),
+          });
+          if (!sponsorRes.ok) {
+            const errData = await sponsorRes.json().catch(() => ({}));
+            throw new Error(errData.error || 'Failed to sponsor Solana claim transaction');
+          }
+          const { sponsoredTransaction } = await sponsorRes.json();
+          const sponsoredTx = Transaction.from(Buffer.from(sponsoredTransaction, 'base64'));
+
+          toast.info('Please approve the popup to claim USDC on Solana.');
+          // 2. Sign transaction
+          const { signedTransaction: signedBytes } = await signTransaction({
+            transaction: sponsoredTx.serialize({ requireAllSignatures: false }),
+            wallet: solWallet,
+          });
+
+          // 3. Broadcast transaction
+          const signature = await solConn.sendRawTransaction(signedBytes, {
+            skipPreflight: false,
+            preflightCommitment: 'confirmed',
+          });
+
+          const lb = await solConn.getLatestBlockhash();
+          await solConn.confirmTransaction(
+            { signature, blockhash: lb.blockhash, lastValidBlockHeight: lb.lastValidBlockHeight },
+            'confirmed',
+          );
+          mintTxHash = signature;
+          console.log('[Manual Claim Modal] Solana claim completed. Mint tx hash:', mintTxHash);
+        } else {
+          console.log('[Manual Claim Modal] Solana destination already minted: ', mintTxHash);
+        }
       } else {
-        console.log('[Manual Claim Modal] Non-EVM/Non-Stellar destination attestation is complete. Marking as complete since Circle relayer will process the mint.');
+        console.log('[Manual Claim Modal] Non-EVM/Non-Stellar/Non-Solana destination attestation is complete. Marking as complete since Circle relayer will process the mint.');
       }
 
       toast.success('USDC claimed successfully!');
@@ -345,6 +428,8 @@ export function ActivityDetailModal({
                 </p>
               </div>
             )}
+
+
 
             {activity.note && (
               <div className="p-4 rounded-2xl bg-accent/5 border border-accent/10">

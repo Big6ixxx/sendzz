@@ -14,6 +14,8 @@ import {
   type SupportedChain,
   calculateMaxFee
 } from '../circle/gateway';
+import { solanaAddressToBytes32 } from '../circle/solana-gateway';
+
 import { getCircleClient } from './circle-client';
 import { EVM_CHAINS, type ChainBalances, type SolanaSource } from './routing';
 import { modularWalletActions } from '@circle-fin/modular-wallets-core';
@@ -91,17 +93,21 @@ export async function executeSmartBridge(
   sourceChain: SupportedChain,
   amountUSDC: string,
   recipientAddress: string,
-  destChain: SupportedChain | 'stellar' = 'base'
+  destChain: SupportedChain | 'stellar' | 'solana' = 'base'
 ): Promise<{ userOpHash: `0x${string}`; txHashPromise: Promise<string> }> {
+
   try {
     if (sourceChain === destChain) {
       throw new Error('Source and destination chains must differ');
     }
     const chain = VIEM_CHAINS[sourceChain];
     const usdcAddress = USDC_ADDRESSES[sourceChain];
-    const destinationDomain = destChain === 'stellar' 
-      ? 27 
-      : CCTP_DOMAINS[destChain as SupportedChain];
+    const destinationDomain = destChain === 'stellar'
+      ? 27
+      : destChain === 'solana'
+        ? 5
+        : CCTP_DOMAINS[destChain as SupportedChain];
+
 
     if (!chain || !usdcAddress) throw new Error('Unsupported chain config');
 
@@ -131,9 +137,13 @@ export async function executeSmartBridge(
       lenBuf.writeUInt32BE(addrBytes.length, 0);
       
       hookData = `0x${Buffer.concat([magic, version, lenBuf, addrBytes]).toString('hex')}` as `0x${string}`;
+    } else if (destChain === 'solana') {
+      // For Solana destination: mintRecipient is the recipient's Solana public key as bytes32
+      mintRecipient = solanaAddressToBytes32(recipientAddress);
     } else {
       mintRecipient = `0x${'0'.repeat(24)}${recipientAddress.slice(2).toLowerCase()}` as `0x${string}`;
     }
+
 
     const policyId = GAS_POLICY_IDS[sourceChain];
 
@@ -290,7 +300,71 @@ export async function executeReceiveMessage(
       : '0x81D40F21F12A8F0E3252Bccb954D722d4c464B64';
 
   const provider = await embeddedWallet.getEthereumProvider();
+
+
+  // Fallback for Ethereum mainnet L1 since gas sponsorship/bundlers are not supported/feasible there.
+  // This submits the transaction directly from the user's Privy EOA wallet and triggers the Privy wallet confirmation.
+  if (destChain === 'ethereum') {
+    // 1. Attempt to switch the network via Privy ConnectedWallet API
+    await embeddedWallet.switchChain(1).catch((err) => {
+      console.warn("[executeReceiveMessage] Privy switchChain failed, fallback to provider request...", err);
+    });
+
+    // 2. Allow network switch state to propagate in the Privy iframe
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    // 3. Re-acquire the EIP1193 provider to fetch the updated chain configuration
+    let ethereumProvider = await embeddedWallet.getEthereumProvider();
+
+    // 4. Verify chain ID and force switch via direct EIP1193 RPC request if not matched
+    const currentChainHex = await ethereumProvider.request({ method: 'eth_chainId' }).catch(() => null);
+    if (currentChainHex !== '0x1') {
+      console.log(`[executeReceiveMessage] Provider chain is ${currentChainHex}, forcing switch to 0x1...`);
+      try {
+        await ethereumProvider.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: '0x1' }],
+        });
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        ethereumProvider = await embeddedWallet.getEthereumProvider();
+      } catch (switchErr) {
+        console.error("[executeReceiveMessage] Forced chain switch failed:", switchErr);
+      }
+    }
+
+    const { createWalletClient, custom } = await import('viem');
+    const [eoaAddress] = await ethereumProvider.request({
+      method: 'eth_requestAccounts',
+    }) as `0x${string}`[];
+
+    const walletClient = createWalletClient({
+      chain: VIEM_CHAINS.ethereum,
+      transport: custom(ethereumProvider),
+    });
+
+    const hash = await walletClient.writeContract({
+      address: MESSAGE_TRANSMITTER as `0x${string}`,
+      abi: MESSAGE_TRANSMITTER_ABI,
+      functionName: 'receiveMessage',
+      args: [messageHex as `0x${string}`, attestationHex as `0x${string}`],
+      account: eoaAddress,
+    });
+    return hash;
+  }
+
   const { bundlerClient, account } = await getCircleClient(provider, destChain);
+
+  const policyId = GAS_POLICY_IDS[destChain];
+  const modularClient = bundlerClient.extend(modularWalletActions);
+  const gasPrices = await modularClient.getUserOperationGasPrice().catch(() => null);
+  const gasLevel = gasPrices?.medium ?? gasPrices?.high ?? null;
+
+  const maxPriorityFeePerGas = gasLevel?.maxPriorityFeePerGas
+    ? BigInt(gasLevel.maxPriorityFeePerGas)
+    : 1_000_000n;
+  const maxFeePerGas = gasLevel?.maxFeePerGas
+    ? BigInt(gasLevel.maxFeePerGas)
+    : undefined;
 
   const userOpHash = await bundlerClient.sendUserOperation({
     account,
@@ -304,7 +378,10 @@ export async function executeReceiveMessage(
         }),
       },
     ],
+    maxFeePerGas,
+    maxPriorityFeePerGas,
     paymaster: true,
+    paymasterContext: policyId ? { policyId } : undefined,
   });
 
   return resolveUserOpToTxHash(bundlerClient, userOpHash);

@@ -25,6 +25,7 @@ export default function TransfersPage() {
   const [twoFaThreshold, setTwoFaThreshold] = useState(500);
   const [totpEnabled, setTotpEnabled] = useState(false);
   const [passkeyEnabled, setPasskeyEnabled] = useState(false);
+  const [stellarAddress, setStellarAddress] = useState<string>("");
 
   // Embedded Solana wallet address (for the portfolio total).
   const solAccount = user?.linkedAccounts.find(
@@ -38,7 +39,31 @@ export default function TransfersPage() {
       ? (solAccount as { address: string }).address
       : undefined;
 
-  const { data: portfolio } = usePortfolio(smartAddress, solanaAddress);
+  const { data: portfolio } = usePortfolio(smartAddress, solanaAddress, stellarAddress || undefined);
+
+  // Automatically provision or retrieve the user's Stellar wallet from the DB/API
+  useEffect(() => {
+    async function initStellar() {
+      if (user?.id && user?.email?.address) {
+        try {
+          const res = await fetch('/api/stellar/provision', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ privyUserId: user.id, email: user.email.address }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.address) {
+              setStellarAddress(data.address);
+            }
+          }
+        } catch (err) {
+          console.error('[Transfer] Failed to load Stellar wallet:', err);
+        }
+      }
+    }
+    initStellar();
+  }, [user?.id, user?.email?.address]);
 
   // EVM per-chain balances + total — what's spendable via routing.
   const evmChainBalances: ChainBalances = useMemo(() => {
@@ -162,7 +187,7 @@ export default function TransfersPage() {
                         <ChainLogo chain={c.chain} size={18} />
                         <span className="text-sm font-medium text-brand-secondary/80">
                           {CHAIN_NAMES[c.chain as keyof typeof CHAIN_NAMES] ??
-                            (c.chain === "solana" ? "Solana" : c.chain)}
+                            (c.chain === "solana" ? "Solana" : c.chain === "stellar" ? "Stellar" : c.chain)}
                         </span>
                       </div>
                       <span className="text-sm font-mono font-bold text-brand-secondary">

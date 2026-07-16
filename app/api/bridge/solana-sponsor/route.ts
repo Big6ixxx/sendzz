@@ -38,10 +38,12 @@ export async function POST(req: NextRequest) {
     tx.feePayer = new PublicKey(circleWalletAddress);
 
     // Also replace the eventRentPayer in the depositForBurn instruction (index 1 in the keys array)
+    // only if the instruction targets the TokenMessengerMinterV2 program (burn transaction).
     if (tx.instructions.length > 0) {
-      const depositIx = tx.instructions[0];
-      if (depositIx.keys.length > 1) {
-        depositIx.keys[1].pubkey = new PublicKey(circleWalletAddress);
+      const firstIx = tx.instructions[0];
+      const TOKEN_MESSENGER_MINTER_V2_PID = 'CCTPV2vPZJS2u2BBsUoscuikbYjnpFmbFsvVuJdgUMQe';
+      if (firstIx.programId.toBase58() === TOKEN_MESSENGER_MINTER_V2_PID && firstIx.keys.length > 1) {
+        firstIx.keys[1].pubkey = new PublicKey(circleWalletAddress);
       }
     }
 

@@ -120,11 +120,16 @@ export async function fetchCctpFees(
 export async function calculateMaxFee(
   sourceChain: SupportedChain,
   amountUSDC: string,
-  destChain: SupportedChain | 'stellar' = 'base',
+  destChain: SupportedChain | 'stellar' | 'solana' = 'base',
   minFinalityThreshold: number = 1000,
 ): Promise<bigint> {
   const sourceDomain = CCTP_DOMAINS[sourceChain];
-  const destDomain = destChain === 'stellar' ? 27 : CCTP_DOMAINS[destChain as SupportedChain];
+  const destDomain = destChain === 'stellar'
+    ? 27
+    : destChain === 'solana'
+      ? 5
+      : CCTP_DOMAINS[destChain as SupportedChain];
+
 
   const fees = await fetchCctpFees(sourceDomain, destDomain);
 

@@ -5,10 +5,11 @@ import { supabaseAdmin } from './adminClient';
 export async function getUserAddressByEmail(
   email: string,
 ): Promise<string | null> {
+  const normalizedEmail = email.toLowerCase();
   const { data, error } = await supabaseAdmin
     .from('users')
     .select('smart_account_address')
-    .eq('email', email)
+    .eq('email', normalizedEmail)
     .single();
 
   if (error || !data) return null;
@@ -23,6 +24,7 @@ export async function registerUserAddress(
   stellarWalletId?: string,
   stellarSignerGranted?: boolean,
 ): Promise<void> {
+  const normalizedEmail = email.toLowerCase();
   const row: {
     email: string;
     smart_account_address: string;
@@ -31,7 +33,7 @@ export async function registerUserAddress(
     stellar_wallet_id?: string;
     stellar_signer_granted?: boolean;
   } = {
-    email,
+    email: normalizedEmail,
     smart_account_address: address,
   };
   if (solanaAddress) row.solana_address = solanaAddress;
@@ -53,13 +55,14 @@ export async function registerStellarAddress(
   stellarSignerGranted?: boolean,
   privyUserId?: string,
 ): Promise<void> {
+  const normalizedEmail = email.toLowerCase();
   const row: {
     email: string;
     stellar_address: string;
     stellar_wallet_id: string;
     stellar_signer_granted?: boolean;
   } = {
-    email,
+    email: normalizedEmail,
     stellar_address: stellarAddress,
     stellar_wallet_id: stellarWalletId,
   };
@@ -84,10 +87,11 @@ export async function getUserAddresses(
   stellar_wallet_id: string | null;
   stellar_signer_granted: boolean;
 } | null> {
+  const normalizedEmail = email.toLowerCase();
   const { data, error } = await supabaseAdmin
     .from('users')
     .select('smart_account_address, solana_address, stellar_address, stellar_wallet_id, stellar_signer_granted')
-    .eq('email', email)
+    .eq('email', normalizedEmail)
     .maybeSingle();
 
   if (error || !data) return null;
