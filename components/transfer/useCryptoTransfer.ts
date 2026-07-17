@@ -1,6 +1,11 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { ConnectedWallet, usePrivy, useSigners } from "@privy-io/react-auth";
+import {
+  useSignTransaction,
+  useWallets as useSolanaWallets,
+} from '@privy-io/react-auth/solana';
+import { Connection } from '@solana/web3.js';
 import { executeCircleGaslessTransfer } from "@/lib/web3/circle-actions";
 import { bridgeAndDeliver, consolidateFundsToChain } from "@/lib/web3/bridge-actions";
 import { toast } from "sonner";
@@ -18,7 +23,7 @@ import { isAddress } from "viem";
 
 export interface CrossChainSendInfo {
   sourceChain: SupportedChain;
-  destChain: SupportedChain;
+  destChain: SupportedChain | 'stellar' | 'solana';
   amount: string;
   recipient: string;
   /** When true, funds are gathered onto Base (from EVM chains + Solana) before delivery. */
@@ -46,7 +51,7 @@ export function useCryptoTransfer({
 }: UseCryptoTransferProps) {
   const [recipientAddress, setRecipientAddress] = useState("");
   const [amount, setAmount] = useState("");
-  const [selectedChain, setSelectedChain] = useState<SupportedChain | 'stellar'>("base");
+  const [selectedChain, setSelectedChain] = useState<SupportedChain | 'stellar' | 'solana'>("base");
   const [memo, setMemo] = useState("");
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string>("");
@@ -66,6 +71,14 @@ export function useCryptoTransfer({
   const [twoFaThreshold, setTwoFaThreshold] = useState(500);
   const [totpEnabled, setTotpEnabled] = useState(false);
   const [passkeyEnabled, setPasskeyEnabled] = useState(false);
+
+  const { wallets: solWallets } = useSolanaWallets();
+  const { signTransaction } = useSignTransaction();
+
+  const solanaConnection = useMemo(() => new Connection(
+    process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com',
+    'confirmed'
+  ), []);
 
   const queryClient = useQueryClient();
   const { user } = usePrivy();
@@ -219,7 +232,11 @@ export function useCryptoTransfer({
     0,
   );
 
-  const balance = selectedChain === "stellar" ? stellarUsdcBalance : spendableNum.toFixed(2);
+  const balance = selectedChain === "stellar"
+    ? stellarUsdcBalance
+    : selectedChain === "solana"
+      ? (solanaSource?.balance ?? 0).toFixed(2)
+      : spendableNum.toFixed(2);
   const isFetchingBalance = selectedChain === "stellar" ? isFetchingStellarBalance : false;
 
   const handleTransfer = async (e?: React.FormEvent) => {
@@ -229,6 +246,14 @@ export function useCryptoTransfer({
     if (selectedChain === "stellar") {
       if (!recipientAddress.startsWith("G") || recipientAddress.length !== 56) {
         toast.error("Invalid Stellar recipient address. It must be a G-address.");
+        return;
+      }
+    } else if (selectedChain === "solana") {
+      try {
+        const { PublicKey } = await import("@solana/web3.js");
+        new PublicKey(recipientAddress);
+      } catch {
+        toast.error("Invalid Solana recipient address.");
         return;
       }
     } else {
@@ -271,7 +296,7 @@ export function useCryptoTransfer({
   const proceedAfterAuth = async () => {
     const amt = parseFloat(amount);
 
-    if (selectedChain === "stellar") {
+    if (selectedChain === "stellar" || selectedChain === "solana") {
       await executeDirectTransfer();
       return;
     }
@@ -303,8 +328,11 @@ export function useCryptoTransfer({
     // User override: combine chosen networks onto Base, then deliver.
     if (sourcePref.mode === "consolidate") {
       const sum = sourcePref.from.reduce(
-        (s, k) =>
-          s + (k === "solana" ? solanaSource?.balance ?? 0 : chainBalances?.[k] ?? 0),
+        (s, k) => {
+          if (k === "solana") return s + (solanaSource?.balance ?? 0);
+          if (k === "stellar") return s;
+          return s + (chainBalances?.[k] ?? 0);
+        },
         0,
       );
       if (sum + 1e-9 < amt) {
@@ -434,7 +462,7 @@ export function useCryptoTransfer({
           payload: {
             amount: valUsdc,
             recipientEmail: recipientAddress,
-            note: `Crypto transfer on ${selectedChain === "stellar" ? "Stellar" : CHAIN_NAMES[selectedChain]}`,
+            note: `Crypto transfer on ${selectedChain === "stellar" ? "Stellar" : selectedChain === "solana" ? "Solana" : CHAIN_NAMES[selectedChain]}`,
           },
         }),
       });
@@ -469,7 +497,7 @@ export function useCryptoTransfer({
   const recordSentTransfer = async (
     txHash: string,
     note: string,
-    chain: SupportedChain | 'stellar',
+    chain: SupportedChain | 'stellar' | 'solana',
   ) => {
     const { recordTransfer } = await import("@/lib/supabase/transactions");
     await recordTransfer({
@@ -485,7 +513,10 @@ export function useCryptoTransfer({
 
   // Same-chain send: the recipient is on a chain the user already holds funds on.
   const executeDirectTransfer = async () => {
-    if (!amount || !recipientAddress || !embeddedProvider) return;
+    if (!amount || !recipientAddress) return;
+    if (selectedChain !== "stellar" && selectedChain !== "solana" && !embeddedProvider) {
+      return;
+    }
     setLoading(true);
     setStatus("Requesting signature...");
 
@@ -520,7 +551,55 @@ export function useCryptoTransfer({
           throw new Error(data.error || "Stellar transfer failed");
         }
         txHash = data.txHash;
+      } else if (selectedChain === "solana") {
+        const solAccount = user?.linkedAccounts.find(
+          (a) =>
+            a.type === 'wallet' &&
+            (a as { walletClientType?: string }).walletClientType === 'privy' &&
+            (a as { chainType?: string }).chainType === 'solana',
+        );
+        const solAddress =
+          solAccount && 'address' in solAccount
+            ? (solAccount as { address: string }).address
+            : undefined;
+        const solWallet = solWallets.find((w) => w.address === solAddress) ?? null;
+
+        if (!solAddress || !solWallet) {
+          throw new Error("No Solana wallet found. Please link a Solana wallet first.");
+        }
+
+        setStatus("Building Solana transfer transaction...");
+        const { buildSolanaUsdcTransferTx } = await import("@/lib/web3/solana-bridge");
+        const tx = await buildSolanaUsdcTransferTx({
+          connection: solanaConnection,
+          senderAddress: solAddress,
+          recipientAddress,
+          amount,
+        });
+
+        setStatus("Confirming on Solana...");
+        const { signedTransaction } = await signTransaction({
+          transaction: tx.serialize({ requireAllSignatures: false }),
+          wallet: solWallet,
+        });
+
+        const sig = await solanaConnection.sendRawTransaction(signedTransaction, {
+          skipPreflight: false,
+          preflightCommitment: 'confirmed',
+        });
+        const bh = await solanaConnection.getLatestBlockhash();
+        await solanaConnection.confirmTransaction(
+          {
+            signature: sig,
+            blockhash: bh.blockhash,
+            lastValidBlockHeight: bh.lastValidBlockHeight,
+          },
+          'confirmed',
+        );
+
+        txHash = sig;
       } else {
+        if (!embeddedProvider) throw new Error("Wallet provider not connected.");
         const provider = await embeddedProvider.getEthereumProvider();
         txHash = await executeCircleGaslessTransfer(
           provider,
@@ -538,6 +617,12 @@ export function useCryptoTransfer({
           txHash,
           memo ? memo : `Crypto transfer on Stellar`,
           'stellar'
+        );
+      } else if (selectedChain === "solana") {
+        await recordSentTransfer(
+          txHash,
+          memo ? memo : `Crypto transfer on Solana`,
+          'solana'
         );
       } else {
         await recordSentTransfer(
@@ -605,7 +690,7 @@ export function useCryptoTransfer({
         } else {
           const { burnTxHash, mintTxHash } = await bridgeAndDeliver(embeddedProvider, {
             sourceChain: "base",
-            destChain: info.destChain,
+            destChain: info.destChain as SupportedChain,
             amountUSDC: info.amount,
             recipient: info.recipient,
             onStatus: setStatus,
@@ -617,7 +702,7 @@ export function useCryptoTransfer({
         setStatus(`Bridging from ${CHAIN_NAMES[info.sourceChain]}…`);
         const { burnTxHash, mintTxHash } = await bridgeAndDeliver(embeddedProvider, {
           sourceChain: info.sourceChain,
-          destChain: info.destChain,
+          destChain: info.destChain as SupportedChain,
           amountUSDC: info.amount,
           recipient: info.recipient,
           onStatus: setStatus,
@@ -628,7 +713,7 @@ export function useCryptoTransfer({
       setStatus("");
       await recordSentTransfer(
         txHash,
-        `Cross-chain transfer to ${CHAIN_NAMES[info.destChain]}`,
+        `Cross-chain transfer to ${info.destChain === "stellar" ? "Stellar" : info.destChain === "solana" ? "Solana" : CHAIN_NAMES[info.destChain as SupportedChain]}`,
         info.destChain,
       );
       invalidateBalances();

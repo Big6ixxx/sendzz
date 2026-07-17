@@ -8,7 +8,16 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { ChainLogo } from "@/components/deposit-withdraw/ChainLogo";
-import { CHAIN_NAMES } from "@/lib/circle/gateway";
+const ALL_CHAIN_NAMES: Record<string, string> = {
+  base: "Base",
+  ethereum: "Ethereum",
+  arbitrum: "Arbitrum",
+  optimism: "Optimism",
+  polygon: "Polygon",
+  avalanche: "Avalanche",
+  stellar: "Stellar",
+  solana: "Solana",
+};
 import { type CrossChainSendInfo } from "./useCryptoTransfer";
 import { ArrowRight, Layers, Loader2, Route } from "lucide-react";
 
@@ -49,7 +58,7 @@ export function CrossChainSendModal({
                   <span className="font-bold text-brand-secondary/80">Base</span>, then
                   deliver to the recipient on{" "}
                   <span className="font-bold text-brand-secondary/80">
-                    {CHAIN_NAMES[info.destChain]}
+                    {ALL_CHAIN_NAMES[info.destChain]}
                   </span>
                   .
                 </>
@@ -57,11 +66,11 @@ export function CrossChainSendModal({
                 <>
                   Your USDC is on{" "}
                   <span className="font-bold text-brand-secondary/80">
-                    {CHAIN_NAMES[info.sourceChain]}
+                    {ALL_CHAIN_NAMES[info.sourceChain]}
                   </span>
                   , but you&apos;re sending to an address on{" "}
                   <span className="font-bold text-brand-secondary/80">
-                    {CHAIN_NAMES[info.destChain]}
+                    {ALL_CHAIN_NAMES[info.destChain]}
                   </span>
                   . We&apos;ll bridge it across automatically and deliver it to the
                   recipient.
@@ -88,7 +97,7 @@ export function CrossChainSendModal({
                   <>
                     <ChainLogo chain={info.sourceChain} size={32} />
                     <span className="text-[10px] font-bold uppercase tracking-widest text-brand-secondary/50">
-                      {CHAIN_NAMES[info.sourceChain]}
+                      {ALL_CHAIN_NAMES[info.sourceChain]}
                     </span>
                   </>
                 )}
@@ -97,7 +106,7 @@ export function CrossChainSendModal({
               <div className="flex flex-col items-center gap-1.5">
                 <ChainLogo chain={info.destChain} size={32} />
                 <span className="text-[10px] font-bold uppercase tracking-widest text-brand-secondary/50">
-                  {CHAIN_NAMES[info.destChain]}
+                  {ALL_CHAIN_NAMES[info.destChain]}
                 </span>
               </div>
             </div>

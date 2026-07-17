@@ -28,10 +28,12 @@ interface DepositWithdrawDialogProps {
   userAddress: string;
   solanaAddress?: string;
   stellarAddress?: string;
+  stellarWalletId?: string;
   stellarTrustlineReady?: boolean;
   balance: string;
   chainBalances?: ChainBalances;
   solanaSource?: SolanaSource;
+  stellarBalance?: number;
   userEmail: string;
   embeddedProvider?: ConnectedWallet;
 }
@@ -44,10 +46,12 @@ export function DepositWithdrawDialog({
   userAddress,
   solanaAddress,
   stellarAddress,
+  stellarWalletId,
   stellarTrustlineReady,
   balance,
   chainBalances,
   solanaSource,
+  stellarBalance = 0,
   userEmail,
   embeddedProvider,
 }: DepositWithdrawDialogProps) {
@@ -63,6 +67,9 @@ export function DepositWithdrawDialog({
     onClose,
     chainBalances,
     solanaSource,
+    stellarAddress,
+    stellarWalletId,
+    stellarBalance,
   );
 
   const withdrawHook = useDepositWithdraw(
@@ -75,6 +82,9 @@ export function DepositWithdrawDialog({
     onClose,
     chainBalances,
     solanaSource,
+    stellarAddress,
+    stellarWalletId,
+    stellarBalance,
   );
 
   const handleClose = () => {

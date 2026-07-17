@@ -381,7 +381,7 @@ export function withdrawalCompletedTemplate(
     { label: 'Transaction Receipt', value: `#${ref.substring(0, 8)}`, isMonospace: true },
     { label: 'Fiat Amount', value: `${cleanFiat.toLocaleString()} ${currency}` },
     { label: 'Exchange Rate', value: `1 USDC = ${rate} ${currency}` },
-    { label: 'Sent To', value: `Account ending ${bankMasked}` },
+    { label: 'Sent To', value: bankMasked },
     { label: 'Order ID', value: ord, isMonospace: true }
   ]);
 }

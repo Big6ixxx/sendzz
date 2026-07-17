@@ -16,6 +16,8 @@ interface SourceSelectorProps {
   balances: ChainBalances;
   /** Optional Solana balance (USDC) — offered for consolidation only. */
   solanaBalance?: number;
+  /** Optional Stellar balance (USDC) — offered for consolidation only. */
+  stellarBalance?: number;
   /** Amount the movement needs (USDC). */
   requiredAmount: number;
   /**
@@ -31,8 +33,11 @@ interface SourceSelectorProps {
   onChange: (next: SourcePreference) => void;
 }
 
-const NAME = (c: SourceChainKey) =>
-  c === 'solana' ? 'Solana' : CHAIN_NAMES[c as SupportedChain] ?? c;
+const NAME = (c: SourceChainKey) => {
+  if (c === 'solana') return 'Solana';
+  if (c === 'stellar') return 'Stellar';
+  return CHAIN_NAMES[c as SupportedChain] ?? c;
+};
 
 /**
  * Progressive-disclosure source picker. Collapsed by default ("Change source ▾"); when
@@ -43,6 +48,7 @@ const NAME = (c: SourceChainKey) =>
 export function SourceSelector({
   balances,
   solanaBalance = 0,
+  stellarBalance = 0,
   requiredAmount,
   singleSourceChains,
   allowConsolidate = false,
@@ -62,8 +68,12 @@ export function SourceSelector({
   );
 
   const allConsolidatable: SourceChainKey[] = useMemo(
-    () => [...fundedChains, ...(solanaBalance > 0 ? (['solana'] as const) : [])],
-    [fundedChains, solanaBalance],
+    () => [
+      ...fundedChains,
+      ...(solanaBalance > 0 ? (['solana'] as const) : []),
+      ...(stellarBalance > 0 ? (['stellar'] as const) : [])
+    ],
+    [fundedChains, solanaBalance, stellarBalance],
   );
 
   const hasEnough = (c: SupportedChain) => (balances[c] ?? 0) + 1e-9 >= requiredAmount;
@@ -75,8 +85,11 @@ export function SourceSelector({
   const consolidateFrom =
     value.mode === 'consolidate' ? value.from : allConsolidatable;
 
-  const balOf = (c: SourceChainKey) =>
-    c === 'solana' ? solanaBalance : balances[c as SupportedChain] ?? 0;
+  const balOf = (c: SourceChainKey) => {
+    if (c === 'solana') return solanaBalance;
+    if (c === 'stellar') return stellarBalance;
+    return balances[c as SupportedChain] ?? 0;
+  };
 
   const selectedSum = consolidateFrom.reduce((s, c) => s + balOf(c), 0);
 

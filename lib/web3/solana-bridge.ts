@@ -16,7 +16,13 @@ import {
   buildDepositForBurnTx,
   SOLANA_CCTP_DOMAIN,
   BASE_CCTP_DOMAIN,
+  SOLANA_USDC_MINT,
 } from '@/lib/circle/solana-gateway';
+import {
+  createTransferCheckedInstruction,
+  getAssociatedTokenAddressSync,
+  createAssociatedTokenAccountInstruction,
+} from '@solana/spl-token';
 import { fetchCctpFees, CCTP_DOMAINS, type SupportedChain } from '@/lib/circle/gateway';
 import { executeReceiveMessage } from './bridge-actions';
 import type { ConnectedWallet } from '@privy-io/react-auth';
@@ -148,4 +154,54 @@ export async function bridgeSolanaToBase(params: {
   }
 
   return { burnTxHash };
+}
+
+/**
+ * Build a Solana same-chain SPL USDC transfer transaction.
+ * Appends associated token account initialization if the recipient doesn't have one.
+ */
+export async function buildSolanaUsdcTransferTx(params: {
+  connection: Connection;
+  senderAddress: string;
+  recipientAddress: string;
+  amount: string;
+}): Promise<Transaction> {
+  const { connection, senderAddress, recipientAddress, amount } = params;
+  const senderPubKey = new PublicKey(senderAddress);
+  const recipientPubKey = new PublicKey(recipientAddress);
+
+  const senderAta = getAssociatedTokenAddressSync(SOLANA_USDC_MINT, senderPubKey);
+  const recipientAta = getAssociatedTokenAddressSync(SOLANA_USDC_MINT, recipientPubKey);
+
+  const tx = new Transaction();
+
+  const recipientAtaInfo = await connection.getAccountInfo(recipientAta);
+  if (!recipientAtaInfo) {
+    tx.add(
+      createAssociatedTokenAccountInstruction(
+        senderPubKey,
+        recipientAta,
+        recipientPubKey,
+        SOLANA_USDC_MINT
+      )
+    );
+  }
+
+  const amountSubunits = BigInt(Math.round(parseFloat(amount) * 1_000_000));
+  tx.add(
+    createTransferCheckedInstruction(
+      senderAta,
+      SOLANA_USDC_MINT,
+      recipientAta,
+      senderPubKey,
+      amountSubunits,
+      6
+    )
+  );
+
+  const { blockhash } = await connection.getLatestBlockhash('confirmed');
+  tx.recentBlockhash = blockhash;
+  tx.feePayer = senderPubKey;
+
+  return tx;
 }

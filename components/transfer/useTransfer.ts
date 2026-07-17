@@ -84,6 +84,9 @@ interface UseTransferProps {
   senderEmail: string;
   initialRecipientEmail?: string;
   onClearInitialRecipient?: () => void;
+  stellarAddress?: string;
+  stellarWalletId?: string;
+  stellarBalance?: number;
 }
 
 export function useTransfer({
@@ -95,6 +98,9 @@ export function useTransfer({
   senderEmail,
   initialRecipientEmail,
   onClearInitialRecipient,
+  stellarAddress,
+  stellarWalletId,
+  stellarBalance,
 }: UseTransferProps) {
   const [recipientEmail, setRecipientEmail] = useState(
     initialRecipientEmail || "",
@@ -414,25 +420,47 @@ export function useTransfer({
       }
 
       if (!plan.feasible) {
-        // EVM alone can't cover it — pull in Solana (bridged to Base) if that closes
+        // EVM alone can't cover it — pull in Solana or Stellar (bridged to Base) if that closes
         // the gap, then send everything from Base.
         const solBal = solanaSource?.balance ?? 0;
-        if (solanaSource && plan.totalAvailable + solBal + 1e-9 >= parseFloat(amountUsdc)) {
+        const stelBal = stellarBalance ?? 0;
+        if (plan.totalAvailable + solBal + stelBal + 1e-9 >= parseFloat(amountUsdc)) {
           setStatus("Preparing your funds across networks…");
+
+          const stellarSource = (stellarAddress && stellarWalletId && stelBal > 0)
+            ? {
+                walletId: stellarWalletId,
+                address: stellarAddress,
+                balance: stelBal,
+                bridgeToBase: async (amt: string, recipient: string, onStatus?: (status: string) => void) => {
+                  const { bridgeStellarToBase } = await import("@/lib/web3/stellar-bridge");
+                  await bridgeStellarToBase({
+                    walletId: stellarWalletId,
+                    senderAddress: stellarAddress,
+                    amount: amt,
+                    recipientEvm: recipient,
+                    evmWallet: embeddedProvider,
+                    onStatus,
+                  });
+                }
+              }
+            : undefined;
+
           await consolidateFundsToChain(embeddedProvider, {
             targetChain: "base",
             requiredAmount: amountUsdc,
             balances: balancesForRoute,
             recipient: smartAddress,
             solana: solanaSource,
+            stellar: stellarSource,
             onStatus: setStatus,
           });
           plan = {
             feasible: true,
-            multiSource: false,
             legs: [{ chain: "base", amount: amountUsdc }],
             totalAvailable: parseFloat(amountUsdc),
             requested: parseFloat(amountUsdc),
+            multiSource: false,
           };
         } else {
           throw new Error("Insufficient balance to complete this transfer.");

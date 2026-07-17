@@ -22,8 +22,8 @@ interface CryptoTransferFormProps {
   setRecipientAddress: (address: string) => void;
   amount: string;
   setAmount: (amount: string) => void;
-  selectedChain: SupportedChain | 'stellar';
-  setSelectedChain: (chain: SupportedChain | 'stellar') => void;
+  selectedChain: SupportedChain | 'stellar' | 'solana';
+  setSelectedChain: (chain: SupportedChain | 'stellar' | 'solana') => void;
   memo: string;
   setMemo: (memo: string) => void;
   loading: boolean;
@@ -40,7 +40,7 @@ interface CryptoTransferFormProps {
   solanaBalance: number;
 }
 
-const AVAILABLE_CHAINS: (SupportedChain | 'stellar')[] = [
+const AVAILABLE_CHAINS: (SupportedChain | 'stellar' | 'solana')[] = [
   'base',
   'ethereum',
   'arbitrum',
@@ -48,9 +48,10 @@ const AVAILABLE_CHAINS: (SupportedChain | 'stellar')[] = [
   'polygon',
   'avalanche',
   'stellar',
+  'solana',
 ];
 
-const ALL_CHAIN_NAMES: Record<SupportedChain | 'stellar', string> = {
+const ALL_CHAIN_NAMES: Record<SupportedChain | 'stellar' | 'solana', string> = {
   base: 'Base',
   ethereum: 'Ethereum',
   arbitrum: 'Arbitrum',
@@ -58,6 +59,7 @@ const ALL_CHAIN_NAMES: Record<SupportedChain | 'stellar', string> = {
   polygon: 'Polygon',
   avalanche: 'Avalanche',
   stellar: 'Stellar',
+  solana: 'Solana',
 };
 
 export function CryptoTransferForm({
@@ -112,7 +114,7 @@ export function CryptoTransferForm({
         
         <Select
           value={selectedChain}
-          onValueChange={(val) => setSelectedChain(val as SupportedChain | 'stellar')}
+          onValueChange={(val) => setSelectedChain(val as SupportedChain | 'stellar' | 'solana')}
         >
           <SelectTrigger className="w-full h-14 bg-white/5 border border-white/10 text-sm">
             <SelectValue placeholder="Select network" />
@@ -155,7 +157,7 @@ export function CryptoTransferForm({
             value={recipientAddress}
             onChange={(e) => setRecipientAddress(e.target.value)}
             className="input-elegant h-14 text-sm font-mono w-full pr-10"
-            placeholder={isStellar ? "G..." : "0x..."}
+            placeholder={selectedChain === "stellar" ? "G..." : selectedChain === "solana" ? "Solana address..." : "0x..."}
             required
             autoComplete="off"
             spellCheck="false"
@@ -166,7 +168,7 @@ export function CryptoTransferForm({
         </div>
       </div>
 
-      {isStellar && (
+      {selectedChain === 'stellar' && (
         <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
           <div className="flex items-center gap-2 mb-1">
             <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">

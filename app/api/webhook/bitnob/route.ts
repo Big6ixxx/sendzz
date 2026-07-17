@@ -1,6 +1,7 @@
 import { Database, Json } from '@/types/database';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
+import { triggerWithdrawalNotifications } from '@/lib/supabase/transactions';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -270,6 +271,19 @@ export async function POST(req: Request) {
     } else if (wd?.provider_order_id) {
       // Payout (off-ramp) — the finalize RPCs match provider_order_id (or legacy id).
       const rpcOrderId = wd.provider_order_id;
+
+      // Guard against duplicate webhook runs or race conditions with polling
+      const { data: currentW } = await supabaseAdmin
+        .from('withdrawals')
+        .select('status')
+        .eq('provider_order_id', rpcOrderId)
+        .maybeSingle();
+
+      if (currentW && currentW.status !== 'processing') {
+        console.log(`[Bitnob Webhook] [${requestId}] Withdrawal ${rpcOrderId} already processed (status=${currentW.status})`);
+        return new Response('Already processed', { status: 200 });
+      }
+
       if (isSuccess) {
         const { error } = await supabaseAdmin.rpc('finalize_withdrawal_success', {
           p_paycrest_order_id: rpcOrderId,
@@ -278,6 +292,7 @@ export async function POST(req: Request) {
           console.error(`[Bitnob Webhook] [${requestId}] finalize success failed:`, error.message);
           return new Response('Internal error', { status: 500 });
         }
+        await triggerWithdrawalNotifications(rpcOrderId, 'completed');
       } else {
         const { error } = await supabaseAdmin.rpc('finalize_withdrawal_failed', {
           p_paycrest_order_id: rpcOrderId,
@@ -292,6 +307,8 @@ export async function POST(req: Request) {
             .from('withdrawals')
             .update({ status: 'reversed' })
             .eq('provider_order_id', rpcOrderId);
+        } else {
+          await triggerWithdrawalNotifications(rpcOrderId, 'failed');
         }
       }
       handled = true;

@@ -209,14 +209,14 @@ export async function updateDepositStatus(
     if (error) throw error;
 
     if (status === 'confirmed') {
-      const { data: depData } = await supabaseAdmin
+      const { data: depData } = (await supabaseAdmin
         .from('deposits')
         .select('amount_usdc, users (email)')
         .eq('provider_order_id', paycrestTxId)
-        .maybeSingle();
+        .maybeSingle()) as unknown as { data: { amount_usdc: number; users: { email: string } | null } | null };
 
-      if (depData && (depData as any).users?.email) {
-        const email = (depData as any).users.email;
+      if (depData && depData.users?.email) {
+        const email = depData.users.email;
         const amount = depData.amount_usdc;
         const { createNotification } = await import('./notifications');
         await createNotification(
@@ -322,6 +322,71 @@ export async function recordWithdrawal(params: {
   }
 }
 
+export async function triggerWithdrawalNotifications(
+  paycrestOrderId: string,
+  status: 'completed' | 'failed' | 'reversed',
+): Promise<void> {
+  try {
+    interface WithdrawalNotificationData {
+      id: string;
+      amount_usdc: number;
+      fiat_amount?: number | null;
+      fiat_currency?: string | null;
+      bank_account_masked?: string | null;
+      provider_order_id?: string | null;
+      users?: { email: string } | null;
+    }
+
+    const { data: wData } = (await supabaseAdmin
+      .from('withdrawals')
+      .select('id, amount_usdc, fiat_amount, fiat_currency, bank_account_masked, provider_order_id, users (email)')
+      .eq('provider_order_id', paycrestOrderId)
+      .maybeSingle()) as unknown as { data: WithdrawalNotificationData | null };
+
+    if (!wData || !wData.users?.email) {
+      console.warn(`[Supabase] No withdrawal data found for order ${paycrestOrderId} to trigger notifications`);
+      return;
+    }
+
+    const email = wData.users.email;
+    const amount = wData.amount_usdc;
+    const fiatAmount = wData.fiat_amount || amount;
+    const fiatCurrency = wData.fiat_currency || 'USD';
+    const bankMasked = wData.bank_account_masked || '••••';
+    const referenceId = wData.id;
+    const orderId = wData.provider_order_id || paycrestOrderId;
+
+    const { createNotification } = await import('./notifications');
+
+    if (status === 'completed') {
+      await createNotification(
+        email,
+        'Withdrawal Completed',
+        `Your withdrawal of ${amount} USDC has been successfully processed to your bank account.`,
+        'withdrawal',
+        { url: '/dashboard' }
+      );
+
+      try {
+        const { sendWithdrawalEmail } = await import('@/lib/email/sendEmail');
+        await sendWithdrawalEmail(email, amount.toString(), fiatAmount.toString(), fiatCurrency, bankMasked, referenceId, orderId);
+      } catch (emailErr) {
+        console.error('[Supabase] Failed to send withdrawal email notification:', emailErr);
+      }
+    } else {
+      await createNotification(
+        email,
+        'Withdrawal Failed',
+        `Your withdrawal of ${amount} USDC has failed. Funds have been returned to your balance.`,
+        'withdrawal',
+        { url: '/dashboard' }
+      );
+    }
+  } catch (err) {
+    console.error('[Supabase] Failed to trigger withdrawal notifications:', err);
+  }
+}
+
 export async function updateWithdrawalStatus(
   paycrestOrderId: string,
   status: 'completed' | 'failed' | 'reversed',
@@ -335,37 +400,9 @@ export async function updateWithdrawalStatus(
     if (error) throw error;
 
     if (status === 'completed') {
-      const { data: wData } = await supabaseAdmin
-        .from('withdrawals')
-        .select('id, amount_usdc, fiat_amount, fiat_currency, bank_account_masked, provider_order_id, users (email)')
-        .eq('provider_order_id', paycrestOrderId)
-        .maybeSingle();
-
-      if (wData && (wData as any).users?.email) {
-        const email = (wData as any).users.email;
-        const amount = wData.amount_usdc;
-        const fiatAmount = (wData as any).fiat_amount || amount;
-        const fiatCurrency = (wData as any).fiat_currency || 'USD';
-        const bankMasked = (wData as any).bank_account_masked || '••••';
-        const referenceId = wData.id;
-        const orderId = wData.provider_order_id || paycrestOrderId;
-
-        const { createNotification } = await import('./notifications');
-        await createNotification(
-          email,
-          'Withdrawal Completed',
-          `Your withdrawal of ${amount} USDC has been successfully processed to your bank account.`,
-          'withdrawal',
-          { url: '/dashboard' }
-        );
-
-        try {
-          const { sendWithdrawalEmail } = await import('@/lib/email/sendEmail');
-          await sendWithdrawalEmail(email, amount.toString(), fiatAmount.toString(), fiatCurrency, bankMasked, referenceId, orderId);
-        } catch (emailErr) {
-          console.error('[Supabase] Failed to send withdrawal email notification:', emailErr);
-        }
-      }
+      await triggerWithdrawalNotifications(paycrestOrderId, 'completed');
+    } else {
+      await triggerWithdrawalNotifications(paycrestOrderId, 'failed');
     }
   } catch (err) {
     console.error('[Supabase] Failed to update withdrawal status:', err);
@@ -459,14 +496,23 @@ export async function updateBridgeStatus(
     if (error) throw error;
 
     if (status === 'complete') {
-      const { data: txData } = await supabaseAdmin
+      interface BridgeTxWithUser {
+        id: string;
+        amount: number;
+        source_chain: string;
+        dest_chain: string;
+        burn_tx_hash: string;
+        users: { email: string } | null;
+      }
+
+      const { data: txData } = (await supabaseAdmin
         .from('bridge_transactions')
         .select('id, amount, source_chain, dest_chain, burn_tx_hash, users (email)')
         .eq('burn_tx_hash', burnTxHash)
-        .maybeSingle();
+        .maybeSingle()) as unknown as { data: BridgeTxWithUser | null };
 
-      if (txData && (txData as any).users?.email) {
-        const email = (txData as any).users.email;
+      if (txData && txData.users?.email) {
+        const email = txData.users.email;
         const amount = txData.amount;
         const src = txData.source_chain;
         const dest = txData.dest_chain;
@@ -622,6 +668,7 @@ export async function getUserActivities(userEmail: string) {
             } else {
               console.log(`[Supabase] Polling: Withdrawal ${w.provider_order_id} finalized successfully`);
               w.status = 'completed';
+              await triggerWithdrawalNotifications(w.provider_order_id!, 'completed');
             }
           } else if (statusLower && ['refunded', 'expired', 'failed', 'refunding'].includes(statusLower)) {
             const { error } = await supabaseAdmin.rpc('finalize_withdrawal_failed', {
@@ -634,6 +681,8 @@ export async function getUserActivities(userEmail: string) {
               const finalStatus = ['refunded', 'refunding'].includes(statusLower) ? 'reversed' : 'failed';
               if (finalStatus === 'reversed') {
                 await updateWithdrawalStatus(w.provider_order_id!, 'reversed');
+              } else {
+                await triggerWithdrawalNotifications(w.provider_order_id!, 'failed');
               }
               console.log(`[Supabase] Polling: Withdrawal ${w.provider_order_id} failed/refunded -> ${finalStatus}`);
               w.status = finalStatus;
@@ -709,6 +758,16 @@ export async function reconcileOrderStatus(
 
     // Withdrawal — always use RPCs, never direct status update
     if (['settled', 'completed', 'validated', 'deposited'].includes(statusLower)) {
+      const { data: currentW } = await supabaseAdmin
+        .from('withdrawals')
+        .select('status')
+        .eq('provider_order_id', orderId)
+        .maybeSingle();
+
+      if (currentW && currentW.status !== 'processing') {
+        return { ok: true, newStatus: currentW.status };
+      }
+
       const { error } = await supabaseAdmin.rpc('finalize_withdrawal_success', {
         p_paycrest_order_id: orderId,
       });
@@ -716,9 +775,20 @@ export async function reconcileOrderStatus(
         console.error('[reconcileOrderStatus] finalize_withdrawal_success failed:', error.message);
         return { ok: false, error: error.message };
       }
+      await triggerWithdrawalNotifications(orderId, 'completed');
       return { ok: true, newStatus: 'completed' };
 
     } else if (['refunded', 'expired', 'failed', 'refunding'].includes(statusLower)) {
+      const { data: currentW } = await supabaseAdmin
+        .from('withdrawals')
+        .select('status')
+        .eq('provider_order_id', orderId)
+        .maybeSingle();
+
+      if (currentW && currentW.status !== 'processing') {
+        return { ok: true, newStatus: currentW.status };
+      }
+
       const { error } = await supabaseAdmin.rpc('finalize_withdrawal_failed', {
         p_paycrest_order_id: orderId,
         p_reason: `Client polling: Paycrest status=${statusLower}`,
@@ -730,6 +800,8 @@ export async function reconcileOrderStatus(
       const finalStatus = ['refunded', 'refunding'].includes(statusLower) ? 'reversed' : 'failed';
       if (finalStatus === 'reversed') {
         await updateWithdrawalStatus(orderId, 'reversed');
+      } else {
+        await triggerWithdrawalNotifications(orderId, 'failed');
       }
       return { ok: true, newStatus: finalStatus };
     }

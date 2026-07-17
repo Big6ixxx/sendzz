@@ -49,7 +49,7 @@ export type ChainBalances = Partial<Record<SupportedChain, number>>;
  *  - `consolidate` — gather from exactly these chains (CCTP → settlement chain) first.
  * `solana` is allowed in the `consolidate` list; the executor bridges it via Base.
  */
-export type SourceChainKey = SupportedChain | 'solana';
+export type SourceChainKey = SupportedChain | 'solana' | 'stellar';
 export type SourcePreference =
   | { mode: 'auto' }
   | { mode: 'single'; chain: SupportedChain }

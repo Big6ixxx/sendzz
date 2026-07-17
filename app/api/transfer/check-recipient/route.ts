@@ -38,7 +38,7 @@ export async function GET(req: Request) {
           const privyUser = await privy.users()._get(verifiedClaims.user_id);
           const emailAccount = privyUser.linked_accounts.find(
             (acc) => acc.type === 'email',
-          ) as any;
+          ) as { address?: string } | undefined;
           senderEmail = (emailAccount?.address || '').toLowerCase().trim();
         } catch (authError) {
           console.error('[CheckRecipient API] Auth error:', authError);

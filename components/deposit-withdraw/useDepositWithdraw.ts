@@ -33,6 +33,7 @@ import {
 } from "@/lib/ramp";
 import { executeCircleGaslessTransfer } from "@/lib/web3/circle-actions";
 import { consolidateFundsToChain } from "@/lib/web3/bridge-actions";
+import { bridgeStellarToBase } from "@/lib/web3/stellar-bridge";
 import {
   planWithdrawalRoute,
   AUTO_SOURCE,
@@ -72,6 +73,9 @@ export function useDepositWithdraw(
   onClose?: () => void,
   chainBalances?: ChainBalances,
   solanaSource?: SolanaSource,
+  stellarAddress?: string,
+  stellarWalletId?: string,
+  stellarBalance = 0,
 ) {
   const queryClient = useQueryClient();
   const { data: currencies } = useCurrencies();
@@ -364,7 +368,7 @@ export function useDepositWithdraw(
     });
 
     const combinedAvailable =
-      route.totalAvailable + (solanaSource?.balance ?? 0);
+      route.totalAvailable + (solanaSource?.balance ?? 0) + (stellarBalance ?? 0);
 
     // Validate a manual override before proceeding.
     if (sourcePref.mode === "single" && !route.feasible) {
@@ -375,8 +379,11 @@ export function useDepositWithdraw(
     }
     if (sourcePref.mode === "consolidate") {
       const selSum = sourcePref.from.reduce(
-        (s, c) =>
-          s + (c === "solana" ? solanaSource?.balance ?? 0 : routeBalances[c] ?? 0),
+        (s, c) => {
+          if (c === "solana") return s + (solanaSource?.balance ?? 0);
+          if (c === "stellar") return s + (stellarBalance ?? 0);
+          return s + (routeBalances[c] ?? 0);
+        },
         0,
       );
       if (selSum + 1e-9 < totalUsdcRequired) {
@@ -566,6 +573,26 @@ export function useDepositWithdraw(
         const includeSolana = consolidateFrom
           ? consolidateFrom.includes("solana")
           : true;
+        const includeStellar = consolidateFrom
+          ? consolidateFrom.includes("stellar")
+          : true;
+        const stellarSource = (stellarAddress && stellarWalletId && stellarBalance > 0)
+          ? {
+              walletId: stellarWalletId,
+              address: stellarAddress,
+              balance: stellarBalance,
+              bridgeToBase: async (amount: string, recipient: string, onStatus?: (status: string) => void) => {
+                await bridgeStellarToBase({
+                  walletId: stellarWalletId,
+                  senderAddress: stellarAddress,
+                  amount,
+                  recipientEvm: recipient,
+                  evmWallet: embeddedProvider,
+                  onStatus,
+                });
+              }
+            }
+          : undefined;
         toast.loading(`Gathering your funds onto ${targetName}…`, { id: "consolidate" });
         await consolidateFundsToChain(embeddedProvider, {
           targetChain,
@@ -573,6 +600,7 @@ export function useDepositWithdraw(
           balances: sourceBalances,
           recipient: userAddress,
           solana: includeSolana ? solanaSource : undefined,
+          stellar: includeStellar ? stellarSource : undefined,
           onStatus: (s) => toast.loading(s, { id: "consolidate" }),
         });
         toast.success(`Funds ready on ${targetName}.`, { id: "consolidate" });
@@ -786,6 +814,7 @@ export function useDepositWithdraw(
     setSourcePref,
     chainBalances: chainBalances ?? {},
     solanaBalance: solanaSource?.balance ?? 0,
+    stellarBalance: stellarBalance ?? 0,
     rampNetworks,
     depositNetwork,
     setDepositNetwork,

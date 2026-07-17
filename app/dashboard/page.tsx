@@ -57,6 +57,7 @@ export default function Dashboard() {
 
   const [smartAddress, setSmartAddress] = useState<string>("");
   const [stellarAddress, setStellarAddress] = useState<string>("");
+  const [stellarWalletId, setStellarWalletId] = useState<string>("");
   const [stellarTrustlineReady, setStellarTrustlineReady] = useState<boolean>(false);
   const [rampModalOpen, setRampModalOpen] = useState(false);
   const [batchSendDialogOpen, setBatchSendDialogOpen] = useState(false);
@@ -106,7 +107,13 @@ export default function Dashboard() {
     bridgeToBase && solanaBalance > 0
       ? { balance: solanaBalance, bridgeToBase }
       : undefined;
-  const totalSpendable = (evmSpendable + solanaBalance).toFixed(2);
+
+  const stellarBalance =
+    parseFloat(
+      portfolio?.byChain.find((c) => c.chain === "stellar")?.balance ?? "0",
+    ) || 0;
+
+  const totalSpendable = (evmSpendable + solanaBalance + stellarBalance).toFixed(2);
 
   useEffect(() => {
     if (ready && !authenticated) router.push("/");
@@ -139,6 +146,7 @@ export default function Dashboard() {
             .then((data) => {
               if (data.address) {
                 setStellarAddress(data.address);
+                setStellarWalletId(data.walletId || "");
                 setStellarTrustlineReady(!!data.trustlineReady);
               }
             })
@@ -484,6 +492,9 @@ export default function Dashboard() {
                 chainBalances={evmChainBalances}
                 solanaSource={solanaSource}
                 senderEmail={user?.email?.address || ""}
+                stellarAddress={stellarAddress || undefined}
+                stellarWalletId={stellarWalletId || undefined}
+                stellarBalance={stellarBalance}
               />
             </div>
 
@@ -574,10 +585,12 @@ export default function Dashboard() {
           userAddress={smartAddress}
           solanaAddress={embeddedSolWallet?.address}
           stellarAddress={stellarAddress || undefined}
+          stellarWalletId={stellarWalletId || undefined}
           stellarTrustlineReady={stellarTrustlineReady}
           balance={totalSpendable}
           chainBalances={evmChainBalances}
           solanaSource={solanaSource}
+          stellarBalance={stellarBalance}
           userEmail={user?.email?.address || ""}
           embeddedProvider={wallets.find((w) => w.walletClientType === "privy")}
         />

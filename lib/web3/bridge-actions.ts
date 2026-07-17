@@ -12,12 +12,13 @@ import {
   GAS_POLICY_IDS,
   CHAIN_NAMES,
   type SupportedChain,
+  type AttestationResponse,
   calculateMaxFee
 } from '../circle/gateway';
 import { solanaAddressToBytes32 } from '../circle/solana-gateway';
 
 import { getCircleClient } from './circle-client';
-import { EVM_CHAINS, type ChainBalances, type SolanaSource } from './routing';
+import { EVM_CHAINS, type ChainBalances, type SolanaSource, type SourceChainKey } from './routing';
 import { modularWalletActions } from '@circle-fin/modular-wallets-core';
 import { toast } from 'sonner';
 
@@ -30,10 +31,18 @@ export async function resolveUserOpToTxHash(
   while (Date.now() < deadline) {
     try {
       const receipt = await bundlerClient.getUserOperationReceipt({ hash: userOpHash });
-      if (receipt?.receipt?.transactionHash) {
-        return receipt.receipt.transactionHash;
+      if (receipt) {
+        if (receipt.success === false) {
+          throw new Error('UserOperation reverted on-chain');
+        }
+        if (receipt.receipt?.transactionHash) {
+          return receipt.receipt.transactionHash;
+        }
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof Error && err.message === 'UserOperation reverted on-chain') {
+        throw err;
+      }
       // receipt not yet available
     }
     await new Promise((r) => setTimeout(r, 3_000));
@@ -425,25 +434,19 @@ export async function bridgeAndDeliver(
   const burnTxHash = await txHashPromise;
 
   onStatus?.('Waiting for network confirmation…');
+  let attestationData: AttestationResponse | null = null;
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
       const res = await fetch(
         `/api/bridge/status?txHash=${burnTxHash}&sourceChain=${sourceChain}`,
       );
-      const data = await res.json();
-      if (data.status === 'complete') {
-        let mintTxHash: string | undefined = data.mintTxHash;
-        if (!mintTxHash && data.attestation && data.messageBytes) {
-          onStatus?.(`Delivering on ${destChain}…`);
-          mintTxHash = await executeReceiveMessage(
-            embeddedWallet,
-            data.messageBytes,
-            data.attestation,
-            destChain,
-          );
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === 'complete') {
+          attestationData = data;
+          break;
         }
-        return { burnTxHash, mintTxHash };
       }
     } catch (err) {
       console.warn('[bridgeAndDeliver] status poll error:', err);
@@ -451,9 +454,22 @@ export async function bridgeAndDeliver(
     await new Promise((r) => setTimeout(r, 5_000));
   }
 
-  // Burn settled but attestation/mint didn't complete in time — funds are safely bridged
-  // and the mint can still be finalized later. Surface the burn hash.
-  return { burnTxHash };
+  if (!attestationData) {
+    throw new Error('Bridge attestation timed out');
+  }
+
+  let mintTxHash: string | undefined = attestationData.mintTxHash;
+  if (!mintTxHash && attestationData.attestation && attestationData.messageBytes) {
+    onStatus?.(`Delivering on ${destChain}…`);
+    mintTxHash = await executeReceiveMessage(
+      embeddedWallet,
+      attestationData.messageBytes,
+      attestationData.attestation,
+      destChain,
+    );
+  }
+
+  return { burnTxHash, mintTxHash };
 }
 
 /**
@@ -475,38 +491,71 @@ export async function consolidateFundsToChain(
     onStatus?: (status: string) => void;
     /** Optional Solana source — drawn from last (only when target is Base). */
     solana?: SolanaSource;
+    /** Optional Stellar source — drawn from last (only when target is Base). */
+    stellar?: {
+      walletId: string;
+      address: string;
+      balance: number;
+      bridgeToBase: (amount: string, recipient: string, onStatus?: (status: string) => void) => Promise<void>;
+    };
   },
 ): Promise<void> {
-  const { targetChain, requiredAmount, balances, recipient, onStatus, solana } = params;
+  const { targetChain, requiredAmount, balances, recipient, onStatus, solana, stellar } = params;
   const required = parseFloat(requiredAmount) || 0;
   const have = balances[targetChain] ?? 0;
   let remaining = (required - have) * 1.01; // 1% buffer for CCTP fees
   if (remaining <= 0) return;
 
-  const sources = EVM_CHAINS.filter(
-    (c) => c !== targetChain && (balances[c] ?? 0) > 0,
-  ).sort((a, b) => (balances[b] ?? 0) - (balances[a] ?? 0));
-
-  for (const source of sources) {
-    if (remaining <= 0) break;
-    const take = Math.min(balances[source] ?? 0, remaining);
-    if (take <= 0) continue;
-    onStatus?.(`Moving funds from ${CHAIN_NAMES[source]} to ${CHAIN_NAMES[targetChain]}…`);
-    await bridgeAndDeliver(embeddedWallet, {
-      sourceChain: source,
-      destChain: targetChain,
-      amountUSDC: take.toFixed(6),
-      recipient,
-      onStatus,
-    });
-    remaining -= take;
+  interface UnifiedSource {
+    type: 'evm' | 'solana' | 'stellar';
+    chain: SourceChainKey;
+    balance: number;
   }
 
-  // Solana can only bridge to Base (CCTP mints there). Draw on it last if still short.
-  if (remaining > 0 && targetChain === 'base' && solana && solana.balance > 0) {
-    const take = Math.min(solana.balance, remaining);
-    onStatus?.(`Moving funds from Solana to ${CHAIN_NAMES[targetChain]}…`);
-    await solana.bridgeToBase(take.toFixed(6), recipient, onStatus);
+  const allSources: UnifiedSource[] = [];
+
+  // Add EVM sources (excluding target chain)
+  for (const c of EVM_CHAINS) {
+    if (c !== targetChain && (balances[c] ?? 0) > 0) {
+      allSources.push({ type: 'evm', chain: c, balance: balances[c]! });
+    }
+  }
+
+  // Add Solana source (only if target is Base)
+  if (targetChain === 'base' && solana && solana.balance > 0) {
+    allSources.push({ type: 'solana', chain: 'solana', balance: solana.balance });
+  }
+
+  // Add Stellar source (only if target is Base)
+  if (targetChain === 'base' && stellar && stellar.balance > 0) {
+    allSources.push({ type: 'stellar', chain: 'stellar', balance: stellar.balance });
+  }
+
+  // Sort all sources descending by balance
+  allSources.sort((a, b) => b.balance - a.balance);
+
+  for (const source of allSources) {
+    if (remaining <= 0) break;
+    const take = Math.min(source.balance, remaining);
+    if (take <= 0) continue;
+
+    if (source.type === 'evm') {
+      const evmChain = source.chain as SupportedChain;
+      onStatus?.(`Moving funds from ${CHAIN_NAMES[evmChain]} to ${CHAIN_NAMES[targetChain]}…`);
+      await bridgeAndDeliver(embeddedWallet, {
+        sourceChain: evmChain,
+        destChain: targetChain,
+        amountUSDC: take.toFixed(6),
+        recipient,
+        onStatus,
+      });
+    } else if (source.type === 'solana' && solana) {
+      onStatus?.(`Moving funds from Solana to ${CHAIN_NAMES[targetChain]}…`);
+      await solana.bridgeToBase(take.toFixed(6), recipient, onStatus);
+    } else if (source.type === 'stellar' && stellar) {
+      onStatus?.(`Moving funds from Stellar to ${CHAIN_NAMES[targetChain]}…`);
+      await stellar.bridgeToBase(take.toFixed(6), recipient, onStatus);
+    }
     remaining -= take;
   }
 }
