@@ -48,8 +48,8 @@ function baseTemplate(content: string): string {
     <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 584px; margin: 0 auto; background-color: #F2FBF1;">
       <!-- Header -->
       <tr>
-        <td align="center" style="background-color: #0E2406; border-radius: 24px 24px 0 0; padding: 60px 20px; background-image: url('https://sendzz.io/headerBg.svg'); background-repeat: no-repeat; background-position: center;">
-          <img src="https://sendzz.io/logo.svg" alt="Sendzz" width="180" style="display: block;">
+        <td align="center" style="background-color: #0E2406; border-radius: 24px 24px 0 0; padding: 60px 20px; background-image: url('${APP_URL}/headerBg.svg'); background-repeat: no-repeat; background-position: center;">
+          <img src="${APP_URL}/logo.svg" alt="Sendzz" width="180" style="display: block;">
         </td>
       </tr>
       
@@ -57,6 +57,13 @@ function baseTemplate(content: string): string {
       <tr>
         <td style="background-color: #ffffff; padding: 40px 20px;">
           ${content}
+        </td>
+      </tr>
+      
+      <!-- Coil Divider -->
+      <tr>
+        <td style="padding: 0; line-height: 0; font-size: 0; background-color: #ffffff;">
+          <img src="${APP_URL}/coil.svg" width="584" style="width: 100%; max-width: 100%; height: auto; display: block; border: 0;" alt="">
         </td>
       </tr>
       
@@ -69,7 +76,7 @@ function baseTemplate(content: string): string {
           
           <!-- ILLUSTRATION PRESERVED AS REQUESTED (COMMENTED OUT) -->
           <div style="margin-top: 40px; position: relative; width: 100%; max-width: 450px;">
-            <img src="https://sendzz.io/Group%20275.svg" alt="Illustration" width="450" style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+            <img src="${APP_URL}/Group%20275.svg" alt="Illustration" width="450" style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
           </div>
           
           <p style="font-size: 12px; color: #94a3b8; margin-top: 60px;">
@@ -339,7 +346,7 @@ function baseReceiptTemplate(
       <table width="100%" border="0" cellpadding="0" cellspacing="0" style="margin-bottom: 24px;">
         <tr>
           <td align="left" valign="middle">
-            <img src="https://sendzz.io/logo-black.svg" alt="Sendzz" width="90" style="display: block;">
+            <img src="${APP_URL}/logo-black.svg" alt="Sendzz" width="90" style="display: block;">
           </td>
           <td align="right" valign="middle">
             <span style="background-color: #006633; color: #ffffff !important; padding: 6px 14px; border-radius: 20px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; display: inline-block;">CONFIRMED</span>
