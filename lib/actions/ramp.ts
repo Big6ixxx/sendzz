@@ -1,12 +1,23 @@
 "use server";
 
 import { Ramp } from "@/lib/ramp";
+import { applyFee, getProviderFee, resolveFeeTreasury } from "@/lib/ramp/fees";
 import type {
   RampCurrency,
   RampNetwork,
   RampOrderResponse,
   RampProviderName,
 } from "@/lib/ramp";
+
+/**
+ * Platform fee percentage for a provider — for UI (fee line, balance math). The actual fee
+ * amount + treasury address are resolved server-side and embedded in the order (see below).
+ */
+export async function getProviderFeePercent(
+  provider: RampProviderName,
+): Promise<number> {
+  return getProviderFee(provider).percent;
+}
 
 /**
  * Fiat on/off-ramp server actions.
@@ -219,11 +230,24 @@ export async function executeOffRamp(params: {
   network: RampNetwork;
   consolidated?: boolean;
 }): Promise<{ order: RampOrderResponse; provider: RampProviderName }> {
-  const providersToTry = await Ramp.offRampProviderOrder(params.fiatCurrency);
-  let lastError: unknown = new Error("No off-ramp provider available");
+  // Constrain to providers that can settle on the chosen network
+  const providersToTry = await Ramp.offRampProviderOrder(params.fiatCurrency, params.network);
+  let lastError: unknown =
+    providersToTry.length === 0
+      ? new Error(`No off-ramp provider can settle ${params.fiatCurrency} on ${params.network}`)
+      : new Error("No off-ramp provider available");
 
   for (const provider of providersToTry) {
     try {
+      // Fee config for this provider. For on-chain collection, resolve the treasury address
+      // for the settlement chain BEFORE creating an order — fail-closed on a misconfig so we
+      // never create a payout we can't take our fee on (this just moves to the next provider).
+      const feeCfg = getProviderFee(provider);
+      const feeAddress =
+        feeCfg.collection === "onchain" && feeCfg.percent > 0
+          ? resolveFeeTreasury(provider, params.network)
+          : undefined;
+
       const resolved = await Ramp.resolveBankCode(
         provider,
         params.bank.bankName,
@@ -253,6 +277,18 @@ export async function executeOffRamp(params: {
       const isFiat = params.inputMode === "fiat" && !!params.fiatAmount;
       const finalAmountUsdc = isFiat ? Number(created.amount || params.amountUsdc) : params.amountUsdc;
 
+      // Platform fee on the base amount (resolved server-side so the client can execute it
+      // without reading secret env). Embedded in the order for the transfer step.
+      const { fee } = applyFee(finalAmountUsdc, provider);
+      if (feeCfg.percent > 0) {
+        created.fee = {
+          percent: feeCfg.percent,
+          usdc: fee.toFixed(6),
+          collection: feeCfg.collection,
+          address: feeAddress,
+        };
+      }
+
       const { recordWithdrawal } = await import("@/lib/supabase/transactions");
       await recordWithdrawal({
         userEmail: params.userEmail,
@@ -272,6 +308,8 @@ export async function executeOffRamp(params: {
         bitnobQuoteId: created.provider === "bitnob" ? created.providerRef : undefined,
         bitnobDepositAddress:
           created.provider === "bitnob" ? created.providerAccount?.receiveAddress : undefined,
+        feeUsdc: feeCfg.percent > 0 ? fee : undefined,
+        feePercent: feeCfg.percent > 0 ? feeCfg.percent : undefined,
       });
 
       console.log(`[Action] executeOffRamp: order ${created.id} created on ${provider}`);

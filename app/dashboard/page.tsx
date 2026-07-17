@@ -97,15 +97,16 @@ export default function Dashboard() {
     0,
   );
 
-  // Solana is spendable too — auto-bridged to Base on demand by the routing/consolidation.
-  const { bridgeToBase } = useSolanaBridge();
+  // Solana is spendable too — auto-bridged to Base on demand by the routing/consolidation,
+  // and can also settle an off-ramp directly on Solana (settleOffRamp).
+  const { bridgeToBase, settleOffRamp } = useSolanaBridge();
   const solanaBalance =
     parseFloat(
       portfolio?.byChain.find((c) => c.chain === "solana")?.balance ?? "0",
     ) || 0;
   const solanaSource =
     bridgeToBase && solanaBalance > 0
-      ? { balance: solanaBalance, bridgeToBase }
+      ? { balance: solanaBalance, bridgeToBase, settleOffRamp: settleOffRamp ?? undefined }
       : undefined;
 
   const stellarBalance =

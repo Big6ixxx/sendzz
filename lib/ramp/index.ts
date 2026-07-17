@@ -124,16 +124,29 @@ export const Ramp = {
   // all consistent). Fallback is handled by the caller re-resolving the bank code for the
   // next provider — NOT by per-call switching (which breaks because bank codes differ).
 
-  /** Ordered off-ramp providers to try for a currency (capable + supports first). */
-  async offRampProviderOrder(currency: RampCurrency): Promise<RampProviderName[]> {
-    const { primary, fallback } = providers();
-    const order: RampProviderName[] = [];
-    if (primary.capabilities.offRamp) {
-      const supports = await primary.supportsCurrency(currency).catch(() => true);
-      if (supports) order.push(primary.name);
+  /**
+   * Ordered off-ramp providers to try for a currency, optionally constrained to those that can
+   * settle on `network`. When a network is given, a provider that can't settle there is dropped
+   * entirely — so e.g. a Solana-settled withdrawal returns only Bitnob and never falls back to
+   * Paycrest (which can't settle on Solana).
+   */
+  async offRampProviderOrder(
+    currency: RampCurrency,
+    network?: string,
+  ): Promise<RampProviderName[]> {
+    const wanted = network?.toLowerCase();
+    const out: RampProviderName[] = [];
+    for (const p of allProviders()) {
+      if (!p.capabilities.offRamp) continue;
+      const supportsCurrency = await p.supportsCurrency(currency).catch(() => true);
+      if (!supportsCurrency) continue;
+      if (wanted) {
+        const nets = await p.getSettlementNetworks().catch(() => [] as string[]);
+        if (!nets.some((n) => n.toLowerCase() === wanted)) continue;
+      }
+      out.push(p.name);
     }
-    if (!order.includes(fallback.name)) order.push(fallback.name);
-    return order;
+    return out;
   },
 
   institutionsFor(provider: RampProviderName, currency: RampCurrency) {

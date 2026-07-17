@@ -411,9 +411,9 @@ export function useTransfer({
       // A manual single-chain choice that can't cover the amount: don't silently
       // fall back to consolidation — tell the user.
       if (sourcePref.mode === "single" && !plan.feasible) {
-        toast.error(
-          `${CHAIN_NAMES[sourcePref.chain]} doesn't hold enough for this transfer.`,
-        );
+        const label =
+          sourcePref.chain === "solana" ? "Solana" : CHAIN_NAMES[sourcePref.chain];
+        toast.error(`${label} doesn't hold enough for this transfer.`);
         setLoading(false);
         setStatus("");
         return;
