@@ -209,15 +209,25 @@ export async function updateDepositStatus(
     if (error) throw error;
 
     if (status === 'confirmed') {
+      interface DepositWithUser {
+        id: string;
+        amount_usdc: number;
+        tx_hash?: string | null;
+        users: { email: string } | null;
+      }
+
       const { data: depData } = (await supabaseAdmin
         .from('deposits')
-        .select('amount_usdc, users (email)')
+        .select('id, amount_usdc, tx_hash, users (email)')
         .eq('provider_order_id', paycrestTxId)
-        .maybeSingle()) as unknown as { data: { amount_usdc: number; users: { email: string } | null } | null };
+        .maybeSingle()) as unknown as { data: DepositWithUser | null };
 
       if (depData && depData.users?.email) {
         const email = depData.users.email;
         const amount = depData.amount_usdc;
+        const referenceId = depData.id;
+        const txHash = depData.tx_hash || paycrestTxId;
+
         const { createNotification } = await import('./notifications');
         await createNotification(
           email,
@@ -228,7 +238,7 @@ export async function updateDepositStatus(
         );
         try {
           const { sendDepositEmail } = await import('@/lib/email/sendEmail');
-          await sendDepositEmail(email, (amount || 0).toString());
+          await sendDepositEmail(email, (amount || 0).toString(), referenceId, txHash);
         } catch (emailErr) {
           console.error('[Supabase] Failed to send deposit email notification:', emailErr);
         }
@@ -523,7 +533,8 @@ export async function updateBridgeStatus(
         const src = txData.source_chain;
         const dest = txData.dest_chain;
         const referenceId = txData.id;
-        const txHash = mintTxHash || txData.burn_tx_hash || burnTxHash;
+        const sourceHash = txData.burn_tx_hash || burnTxHash;
+        const destinationHash = mintTxHash || undefined;
         
         const { createNotification } = await import('./notifications');
         await createNotification(
@@ -536,7 +547,15 @@ export async function updateBridgeStatus(
 
         try {
           const { sendBridgeEmail } = await import('@/lib/email/sendEmail');
-          await sendBridgeEmail(email, amount.toString(), src, dest, referenceId, txHash);
+          await sendBridgeEmail(
+            email,
+            amount.toString(),
+            src,
+            dest,
+            referenceId,
+            destinationHash,
+            sourceHash
+          );
         } catch (emailErr) {
           console.error('[Supabase] Failed to send bridge email notification:', emailErr);
         }
