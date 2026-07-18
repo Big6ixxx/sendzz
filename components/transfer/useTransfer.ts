@@ -412,7 +412,11 @@ export function useTransfer({
       // fall back to consolidation — tell the user.
       if (sourcePref.mode === "single" && !plan.feasible) {
         const label =
-          sourcePref.chain === "solana" ? "Solana" : CHAIN_NAMES[sourcePref.chain];
+          sourcePref.chain === "solana"
+            ? "Solana"
+            : sourcePref.chain === "stellar"
+              ? "Stellar"
+              : CHAIN_NAMES[sourcePref.chain];
         toast.error(`${label} doesn't hold enough for this transfer.`);
         setLoading(false);
         setStatus("");

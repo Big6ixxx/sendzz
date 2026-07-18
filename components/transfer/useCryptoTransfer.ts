@@ -311,19 +311,27 @@ export function useCryptoTransfer({
         setStatus("");
         return;
       }
-      if ((chainBalances?.[c] ?? 0) + 1e-9 < amt) {
-        toast.error(`${CHAIN_NAMES[c]} doesn't hold enough for this send.`);
+      if (c === "stellar") {
+        toast.error("Bridging from Stellar is not supported.");
         setLoading(false);
         setStatus("");
         return;
       }
-      if (c === selectedChain) {
+
+      const evmChain = c as SupportedChain;
+      if ((chainBalances?.[evmChain] ?? 0) + 1e-9 < amt) {
+        toast.error(`${CHAIN_NAMES[evmChain]} doesn't hold enough for this send.`);
+        setLoading(false);
+        setStatus("");
+        return;
+      }
+      if (evmChain === selectedChain) {
         await executeDirectTransfer();
       } else {
         setLoading(false);
         setStatus("");
         setBridgeConfirm({
-          sourceChain: c,
+          sourceChain: evmChain,
           destChain: selectedChain,
           amount,
           recipient: recipientAddress,

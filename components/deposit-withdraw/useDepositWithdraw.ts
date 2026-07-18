@@ -242,6 +242,108 @@ export function useDepositWithdraw(
     }
   }, [type, fiatCurrency, userEmail]);
 
+  // Dynamic bank code resolution for saved contacts across different providers
+  const handleSelectContact = useCallback(
+    (contact: {
+      bankCode: string;
+      bankName: string;
+      accountNumber: string;
+      accountName: string;
+    }) => {
+      const normalizeBankName = (s: string): string => {
+        const normalized = (s || "")
+          .toLowerCase()
+          .replace(/\b(bank|plc|ltd|limited|nigeria|microfinance|mfb|company)\b/g, "")
+          .replace(/[^a-z0-9]/g, "");
+
+        // Map common abbreviations and aliases to a single canonical term
+        if (
+          normalized === "gtb" ||
+          normalized === "gt" ||
+          normalized === "gtbank" ||
+          normalized === "guarantytrust" ||
+          normalized === "guarantytrustbank"
+        ) {
+          return "gtb";
+        }
+        if (normalized === "uba" || normalized === "unitedbankforafrica") {
+          return "uba";
+        }
+        if (normalized === "fcmb" || normalized === "firstcitymonument") {
+          return "fcmb";
+        }
+        if (normalized === "first" || normalized === "firstbank" || normalized === "fbn") {
+          return "firstbank";
+        }
+        if (normalized === "stanbic" || normalized === "stanbicibtc" || normalized === "ibtc") {
+          return "stanbic";
+        }
+        if (normalized === "access" || normalized === "accessbank") {
+          return "access";
+        }
+        if (normalized === "zenith" || normalized === "zenithbank") {
+          return "zenith";
+        }
+        if (normalized === "sterling" || normalized === "sterlingbank") {
+          return "sterling";
+        }
+        if (normalized === "wema" || normalized === "wemabank") {
+          return "wema";
+        }
+        if (normalized === "union" || normalized === "unionbank") {
+          return "union";
+        }
+        if (normalized === "keystone" || normalized === "keystonebank") {
+          return "keystone";
+        }
+        if (normalized === "polaris" || normalized === "polarisbank") {
+          return "polaris";
+        }
+        if (normalized === "fidelity" || normalized === "fidelitybank") {
+          return "fidelity";
+        }
+        if (normalized === "ecobank") {
+          return "ecobank";
+        }
+
+        return normalized;
+      };
+
+      const resolveBankCodeFromInstitutions = (
+        insts: RampInstitution[],
+        bankName: string,
+        fallbackCode: string,
+      ): { code: string; name: string } => {
+        const target = normalizeBankName(bankName);
+        if (!target) return { code: fallbackCode, name: bankName };
+
+        const exact = insts.find((b) => normalizeBankName(b.name) === target);
+        if (exact) return { code: exact.code, name: exact.name };
+
+        const partial = insts.find((b) => {
+          const n = normalizeBankName(b.name);
+          return n.length > 2 && (n.includes(target) || target.includes(n));
+        });
+        if (partial) return { code: partial.code, name: partial.name };
+
+        return { code: fallbackCode, name: bankName };
+      };
+
+      const resolved = resolveBankCodeFromInstitutions(
+        institutions,
+        contact.bankName,
+        contact.bankCode,
+      );
+      setBankDetails({
+        bankCode: resolved.code,
+        bankName: resolved.name,
+        accountNumber: contact.accountNumber,
+        accountName: contact.accountName,
+      });
+    },
+    [institutions],
+  );
+
   // Bank Auto-Verification
   const handleVerifyBank = useCallback(async (details: BankDetails) => {
     const key = `${details.bankCode}-${details.accountNumber}`;
@@ -890,6 +992,7 @@ export function useDepositWithdraw(
     depositNetworks: RAMP_NETWORKS,
     userEmail,
     userAddress,
+    handleSelectContact,
     refreshBankContacts,
     handleDepositInitiate,
     handleWithdrawQuote,
