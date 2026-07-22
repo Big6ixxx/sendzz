@@ -90,7 +90,11 @@ export default function TransfersPage() {
     bridgeToBase && solanaBalance > 0
       ? { balance: solanaBalance, bridgeToBase }
       : undefined;
-  const totalSpendable = (evmSpendable + solanaBalance).toFixed(2);
+  const stellarBalance =
+    parseFloat(
+      portfolio?.byChain.find((c) => c.chain === "stellar")?.balance ?? "0",
+    ) || 0;
+  const totalSpendable = (evmSpendable + solanaBalance + stellarBalance).toFixed(2);
 
   useEffect(() => {
     async function initAccount() {
@@ -141,7 +145,7 @@ export default function TransfersPage() {
 
   return (
     <TooltipProvider>
-      <div className="max-w-5xl mx-auto space-y-10">
+      <div className="max-w-5xl mx-auto space-y-8">
         <DashboardPageHeader
           title="Transfer"
           subtitle="Send to an email or wallet — we route from whichever network holds your funds."

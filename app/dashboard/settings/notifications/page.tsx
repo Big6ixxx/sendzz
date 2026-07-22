@@ -173,14 +173,14 @@ export default function NotificationsSettingsPage() {
 
   if (!mounted) {
     return (
-      <div className="max-w-4xl mx-auto py-12 text-center text-white/30 text-xs">
+      <div className="max-w-5xl mx-auto py-12 text-center text-white/30 text-xs">
         Loading preferences...
       </div>
     );
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
+    <div className="max-w-5xl mx-auto space-y-8">
       {/* Header with back button */}
       <div>
         <button

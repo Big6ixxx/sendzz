@@ -19,7 +19,7 @@ export default function HistoryPage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-12">
+    <div className="max-w-5xl mx-auto space-y-8">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <DashboardPageHeader
           title="History"

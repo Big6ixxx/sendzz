@@ -665,7 +665,7 @@ export function ChainBridgeModule({
     ...(stellarWallet?.address ? ["stellar" as const] : []),
     ...(solanaAddress ? ["solana" as const] : []),
   ];
-  const fundedSources = allSources.filter((c) => balanceOf(c) > 0);
+  const fundedSources = allSources.filter((c) => balanceOf(c) > 0 && c !== "polygon");
   const destinationChains =
     source === "solana"
       ? allSources.filter((c) => c !== source && c !== "stellar")

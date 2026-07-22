@@ -419,8 +419,18 @@ export function bridgeCompletedTemplate(
   burnTxHash?: string
 ): string {
   const ref = referenceId || Math.random().toString(36).substring(2, 10).toUpperCase();
-  const burn = burnTxHash ? `${burnTxHash.substring(0, 6)}...${burnTxHash.substring(burnTxHash.length - 4)}` : 'N/A';
-  const mint = mintTxHash ? `${mintTxHash.substring(0, 6)}...${mintTxHash.substring(mintTxHash.length - 4)}` : 'Processing';
+  const formatHash = (h: string | undefined, fallback: string) => {
+    if (!h) return fallback;
+    const clean = h.trim();
+    if (clean.toLowerCase() === 'n/a' || clean === '0x0000000000000000000000000000000000000000000000000000000000000000') {
+      return 'N/A';
+    }
+    if (clean.length < 10) return clean;
+    return `${clean.substring(0, 6)}...${clean.substring(clean.length - 4)}`;
+  };
+
+  const burn = formatHash(burnTxHash, 'N/A');
+  const mint = formatHash(mintTxHash, 'Processing');
 
   return baseReceiptTemplate(amountUsdc, [
     { label: 'Reference ID', value: ref, isMonospace: true },

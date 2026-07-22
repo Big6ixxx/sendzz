@@ -227,16 +227,11 @@ export function useCryptoTransfer({
     enabled: selectedChain === "stellar" && !!stellarWallet?.address,
   });
 
-  const spendableNum = Object.values(chainBalances ?? {}).reduce(
-    (s, n) => s + (n ?? 0),
-    0,
-  );
-
   const balance = selectedChain === "stellar"
     ? stellarUsdcBalance
     : selectedChain === "solana"
       ? (solanaSource?.balance ?? 0).toFixed(2)
-      : spendableNum.toFixed(2);
+      : (chainBalances?.[selectedChain as SupportedChain] ?? 0).toFixed(2);
   const isFetchingBalance = selectedChain === "stellar" ? isFetchingStellarBalance : false;
 
   const handleTransfer = async (e?: React.FormEvent) => {

@@ -190,7 +190,10 @@ export async function createNotification(
       }
     });
 
-    await Promise.all(pushPromises);
+    // Fire-and-forget: do not block the caller/webhook waiting for push responses
+    Promise.all(pushPromises).catch((pushErr) => {
+      console.error('[Notifications] Background push dispatch failed:', pushErr);
+    });
   } catch (err) {
     console.error('[Notifications] Failed to create or dispatch notification:', err);
   }

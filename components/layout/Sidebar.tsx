@@ -2,6 +2,9 @@
 
 import { cn } from "@/lib/utils";
 import {
+  Bell,
+  ChevronLeft,
+  ChevronRight,
   History,
   LayoutDashboard,
   LogOut,
@@ -14,12 +17,14 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
+import { useState, useEffect } from "react";
 
 const NAV_ITEMS = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Transfer", href: "/dashboard/transfer", icon: Send },
   { name: "Smart Bridge", href: "/dashboard/bridge", icon: Repeat },
   { name: "History", href: "/dashboard/history", icon: History },
+  { name: "Notifications", href: "/dashboard/notifications", icon: Bell },
   { name: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
 
@@ -38,6 +43,26 @@ export function Sidebar({
   onClose,
   onLogout,
 }: SidebarProps) {
+  const [isCollapsed, setIsCollapsed] = useState(false);
+
+  // Initialize from localStorage on mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("sidebar-collapsed");
+      if (stored === "true") {
+        setIsCollapsed(true);
+      }
+    }
+  }, []);
+
+  const toggleCollapse = () => {
+    setIsCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem("sidebar-collapsed", String(next));
+      return next;
+    });
+  };
+
   return (
     <>
       {/* Mobile Overlay */}
@@ -55,8 +80,9 @@ export function Sidebar({
       {/* Sidebar Panel */}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 w-64 transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0",
-          isOpen ? "translate-x-0" : "-translate-x-full",
+          "fixed inset-y-0 left-0 z-50 transform transition-all duration-300 ease-in-out lg:relative lg:translate-x-0",
+          isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
+          isCollapsed ? "w-64 lg:w-20" : "w-64"
         )}
         style={{
           background: "rgba(10, 10, 11, 0.7)",
@@ -64,18 +90,55 @@ export function Sidebar({
           borderRight: "1px solid rgba(255,255,255,0.06)",
         }}
       >
-        <div className="flex flex-col h-full p-5 overflow-y-auto">
+        <div className={cn("flex flex-col h-full overflow-y-auto transition-all duration-300", isCollapsed ? "p-3 lg:px-4" : "p-5")}>
           {/* Logo */}
-          <div className="flex items-center justify-between mb-10 px-2 shrink-0">
-            <Link href="/">
-              <Image
-                src="/logo.svg"
-                alt="Sendzz"
-                width={100}
-                height={30}
-                priority
-              />
+          <div className={cn("flex items-center justify-between mb-10 shrink-0", isCollapsed ? "lg:flex-col lg:gap-4 lg:items-center" : "px-2")}>
+            <Link href="/" className="block shrink-0">
+              {isCollapsed ? (
+                <div className="w-8 h-8 relative flex items-center justify-center">
+                  <Image
+                    src="/Sendz-512.png"
+                    alt="Sendzz"
+                    width={32}
+                    height={32}
+                    priority
+                    className="object-contain"
+                  />
+                </div>
+              ) : (
+                <div
+                  className="transition-all duration-300 overflow-hidden"
+                  style={{
+                    width: "100px",
+                    height: "30px",
+                  }}
+                >
+                  <Image
+                    src="/logo.svg"
+                    alt="Sendzz"
+                    width={100}
+                    height={30}
+                    priority
+                    className="max-w-none"
+                  />
+                </div>
+              )}
             </Link>
+
+            {/* Desktop Collapse Toggle */}
+            <button
+              onClick={toggleCollapse}
+              className="hidden lg:flex p-1.5 rounded-lg transition-colors text-brand-secondary/40 hover:text-brand-secondary/80 hover:bg-white/5 outline-none"
+              title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              {isCollapsed ? (
+                <ChevronRight className="w-4.5 h-4.5" />
+              ) : (
+                <ChevronLeft className="w-4.5 h-4.5" />
+              )}
+            </button>
+
+            {/* Mobile close button */}
             <button
               onClick={onClose}
               className="p-1.5 rounded-lg transition-colors lg:hidden"
@@ -100,7 +163,11 @@ export function Sidebar({
                   key={item.name}
                   href={item.href}
                   onClick={onClose}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all relative"
+                  title={isCollapsed ? item.name : undefined}
+                  className={cn(
+                    "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all relative",
+                    isCollapsed && "lg:justify-center lg:px-0"
+                  )}
                   style={{
                     color: active ? "#f8f8f6" : "rgba(248,248,246,0.4)",
                     background: active
@@ -125,14 +192,16 @@ export function Sidebar({
                     }
                   }}
                 >
-                  {active && (
+                  {active && !isCollapsed && (
                     <div
                       className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-full"
                       style={{ background: "#00e87a" }}
                     />
                   )}
-                  <item.icon className="w-4 h-4" />
-                  {item.name}
+                  <item.icon className="w-4.5 h-4.5 shrink-0" />
+                  <span className={cn("transition-all duration-300", isCollapsed ? "lg:hidden" : "inline")}>
+                    {item.name}
+                  </span>
                 </Link>
               );
             })}
@@ -144,23 +213,31 @@ export function Sidebar({
             style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
           >
             <div
-              className="px-3 py-3 rounded-xl"
-              style={{
-                background: "rgba(255,255,255,0.04)",
-                border: "1px solid rgba(255,255,255,0.06)",
-              }}
+              className={cn(
+                "px-3 py-3 rounded-xl transition-all",
+                isCollapsed ? "lg:bg-transparent lg:border-transparent lg:px-0 lg:py-1" : "rgba(255,255,255,0.04)"
+              )}
+              style={
+                isCollapsed
+                  ? undefined
+                  : {
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid rgba(255,255,255,0.06)",
+                    }
+              }
             >
-              <div className="flex items-center gap-2.5">
+              <div className={cn("flex items-center gap-2.5", isCollapsed && "lg:justify-center")}>
                 <div
                   className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
                   style={{
                     background: "rgba(0, 232, 122, 0.15)",
                     color: "#00e87a",
                   }}
+                  title={isCollapsed ? (userEmail || "Anonymous") : undefined}
                 >
                   <User className="w-3.5 h-3.5" />
                 </div>
-                <div className="flex-1 min-w-0">
+                <div className={cn("flex-1 min-w-0 transition-all duration-300", isCollapsed ? "lg:hidden" : "block")}>
                   <p
                     className="text-xs font-semibold truncate"
                     style={{ color: "rgba(248,248,246,0.8)" }}
@@ -179,7 +256,11 @@ export function Sidebar({
 
             <button
               onClick={onLogout}
-              className="flex items-center gap-3 px-3 py-2.5 w-full rounded-xl text-sm font-medium transition-all"
+              className={cn(
+                "flex items-center gap-3 px-3 py-2.5 w-full rounded-xl text-sm font-medium transition-all",
+                isCollapsed && "lg:justify-center lg:px-0"
+              )}
+              title={isCollapsed ? "Sign Out" : undefined}
               style={{ color: "rgba(248,248,246,0.35)", background: "transparent" }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.color = "#f87171";
@@ -190,8 +271,10 @@ export function Sidebar({
                 e.currentTarget.style.background = "transparent";
               }}
             >
-              <LogOut className="w-4 h-4" />
-              Sign Out
+              <LogOut className="w-4 h-4 shrink-0" />
+              <span className={cn("transition-all duration-300", isCollapsed ? "lg:hidden" : "inline")}>
+                Sign Out
+              </span>
             </button>
           </div>
         </div>

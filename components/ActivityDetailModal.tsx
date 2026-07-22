@@ -53,9 +53,14 @@ const EXPLORER_BASE_URL = "https://basescan.org/tx/";
 const chainLabel = (chain: string) =>
   (CHAIN_META[chain.toLowerCase()]?.name ?? chain).toUpperCase();
 
-const explorerFor = (chain: string | undefined, hash: string) =>
-  (chain ? CHAIN_META[chain.toLowerCase()] : null)?.explorerTx(hash) ??
-  `${EXPLORER_BASE_URL}${hash}`;
+const isPlaceholder = (h: string | null | undefined) =>
+  !h || h.trim() === '' || h.toLowerCase() === 'n/a' || h === '0x0000000000000000000000000000000000000000000000000000000000000000';
+
+const explorerFor = (chain: string | undefined, hash: string | null | undefined) => {
+  if (isPlaceholder(hash)) return undefined;
+  return (chain ? CHAIN_META[chain.toLowerCase()] : null)?.explorerTx(hash!) ??
+    `${EXPLORER_BASE_URL}${hash}`;
+};
 
 interface ActivityDetailModalProps {
   activity: Activity | null;
@@ -456,11 +461,9 @@ export function ActivityDetailModal({
   const networkValue =
     activity.type === "bridge" && activity.sourceChain
       ? `${chainLabel(activity.sourceChain)} → ${chainLabel(activity.destChain ?? "base")}`
-      : activity.type === "withdrawal" && activity.consolidated
-        ? `YOUR NETWORKS → ${chainLabel(activity.sourceChain ?? "base")}`
-        : activity.sourceChain
-          ? chainLabel(activity.sourceChain)
-          : null;
+      : activity.sourceChain
+        ? chainLabel(activity.sourceChain)
+        : null;
 
   const viewFullDetails = () => {
     onClose();
@@ -627,7 +630,7 @@ export function ActivityDetailModal({
             <div className="flex gap-3">
               {activity.type === "bridge" ? (
                 <>
-                  {activity.txHash && (
+                  {activity.txHash && !isPlaceholder(activity.txHash) && (
                     <a
                       href={explorerFor(activity.sourceChain, activity.txHash)}
                       target="_blank"
@@ -638,34 +641,45 @@ export function ActivityDetailModal({
                     </a>
                   )}
 
-                  {activity.mintTxHash ? (
-                    <a
-                      href={explorerFor(
-                        activity.destChain ?? "base",
-                        activity.mintTxHash,
-                      )}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest transition-all bg-white/6 text-brand-secondary border border-white/10 hover:bg-white/10 outline-none focus:ring-2 focus:ring-accent/50"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" /> Mint Tx
-                    </a>
-                  ) : activity.status === "complete" &&
-                    Date.now() - new Date(activity.timestamp).getTime() <
-                      10 * 60 * 1000 ? (
-                    // Completed very recently — Circle's relayer handled the mint, hash saving in progress
-                    <div className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                      ✓ Completed
-                    </div>
-                  ) : (
-                    <button
-                      onClick={handleClaim}
-                      disabled={isClaiming}
-                      className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest transition-all bg-accent text-background border border-accent hover:opacity-90 outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50"
-                    >
-                      {isClaiming ? "Claiming..." : "Claim USDC"}
-                    </button>
-                  )}
+                  {(() => {
+                    const hasValidMint = !!activity.mintTxHash && explorerFor(activity.destChain ?? "base", activity.mintTxHash) !== undefined;
+                    if (hasValidMint) {
+                      return (
+                        <a
+                          href={explorerFor(
+                            activity.destChain ?? "base",
+                            activity.mintTxHash,
+                          )}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest transition-all bg-white/6 text-brand-secondary border border-white/10 hover:bg-white/10 outline-none focus:ring-2 focus:ring-accent/50"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" /> Mint Tx
+                        </a>
+                      );
+                    }
+                    if (activity.status === "complete") {
+                      return null;
+                    }
+                    if (activity.status === "complete" &&
+                      Date.now() - new Date(activity.timestamp).getTime() <
+                        10 * 60 * 1000) {
+                      return (
+                        <div className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          ✓ Completed
+                        </div>
+                      );
+                    }
+                    return (
+                      <button
+                        onClick={handleClaim}
+                        disabled={isClaiming}
+                        className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest transition-all bg-accent text-background border border-accent hover:opacity-90 outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50"
+                      >
+                        {isClaiming ? "Claiming..." : "Claim USDC"}
+                      </button>
+                    );
+                  })()}
                 </>
               ) : (
                 activity.txHash && (

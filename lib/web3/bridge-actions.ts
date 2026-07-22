@@ -23,7 +23,6 @@ import { solanaAddressToBytes32 } from '../circle/solana-gateway';
 
 import { getCircleClient, getStandardRpcUrl } from './circle-client';
 import { EVM_CHAINS, type ChainBalances, type SolanaSource, type SourceChainKey } from './routing';
-import { modularWalletActions } from '@circle-fin/modular-wallets-core';
 import { toast } from 'sonner';
 
 export async function resolveUserOpToTxHash(
@@ -323,7 +322,7 @@ export async function executeReceiveMessage(
   const normMessage = messageHex.toLowerCase();
   if (pendingClaims.has(normMessage)) {
     console.warn('[executeReceiveMessage] Claim already in progress for this message.');
-    return '0x0000000000000000000000000000000000000000000000000000000000000000';
+    return 'N/A';
   }
   pendingClaims.add(normMessage);
 
@@ -436,7 +435,7 @@ export async function executeReceiveMessage(
     console.log('[executeReceiveMessage] Message already processed on-chain.');
     const mintTx = await findMintTxHashFromLogs(standardRpcClient, MESSAGE_TRANSMITTER, messageHash);
     if (mintTx) return mintTx;
-    return '0x0000000000000000000000000000000000000000000000000000000000000000'; // fallback mock hash
+    return 'N/A'; // fallback mock hash
   }
   const feeData = await standardRpcClient.estimateFeesPerGas().catch(() => null);
   const defaultPriorityFee = destChain === 'polygon' ? 30_000_000_000n : 1_000_000n;
@@ -469,7 +468,7 @@ export async function executeReceiveMessage(
     });
 
     // Poll both standard RPC client (processedMessages) and bundler client (with timeout) for instant, hang-free resolution
-    const deadline = Date.now() + 120_000;
+    const deadline = Date.now() + 15_000; // Poll for max 15 seconds to avoid freezing the UI
     while (Date.now() < deadline) {
       const receipt = await withTimeout(
         bundlerClient.getUserOperationReceipt({ hash: userOpHash }),
@@ -488,15 +487,15 @@ export async function executeReceiveMessage(
       }).catch(() => false);
 
       if (isProcessedNow) {
-        console.log('[executeReceiveMessage] Message processed on-chain during polling.');
-        const mintTx = await findMintTxHashFromLogs(standardRpcClient, MESSAGE_TRANSMITTER, messageHash);
-        if (mintTx) return mintTx;
-        return '0x0000000000000000000000000000000000000000000000000000000000000000';
+        console.log('[executeReceiveMessage] Message processed on-chain during polling. Returning userOpHash.');
+        return userOpHash;
       }
 
-      await new Promise((r) => setTimeout(r, 3000));
+      await new Promise((r) => setTimeout(r, 2000));
     }
-    throw new Error('Claim transaction resolution timed out.');
+
+    console.log('[executeReceiveMessage] Polling timed out. Returning userOpHash in-flight.');
+    return userOpHash;
   } catch (error) {
     if (standardRpcClient) {
       const isProcessedNow = await standardRpcClient.readContract({
@@ -510,7 +509,7 @@ export async function executeReceiveMessage(
         console.log('[executeReceiveMessage] UserOperation reverted because message is already processed. Recovering mint hash...');
         const mintTx = await findMintTxHashFromLogs(standardRpcClient, MESSAGE_TRANSMITTER, messageHash);
         if (mintTx) return mintTx;
-        return '0x0000000000000000000000000000000000000000000000000000000000000000';
+        return 'N/A';
       }
     }
     throw error;
@@ -604,7 +603,7 @@ export async function bridgeAndDeliver(
       console.log('[bridgeAndDeliver] Message already processed on-chain. Skipping manual claim popup.');
       mintTxHash = await findMintTxHashFromLogs(standardRpcClient, MESSAGE_TRANSMITTER, messageHash);
       if (!mintTxHash) {
-        mintTxHash = '0x0000000000000000000000000000000000000000000000000000000000000000';
+        mintTxHash = 'N/A';
       }
     } else {
       onStatus?.(`Delivering on ${destChain}…`);

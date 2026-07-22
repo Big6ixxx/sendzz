@@ -42,12 +42,17 @@ export async function GET(req: NextRequest) {
     const { supabaseAdmin } = await import('@/lib/supabase/adminClient');
     const { data: dbTx } = await supabaseAdmin
       .from('bridge_transactions')
-      .select('attestation_status, mint_tx_hash')
+      .select('attestation_status, mint_tx_hash, dest_chain')
       .eq('burn_tx_hash', txHash)
       .maybeSingle();
 
-    // Check DB first — if already complete WITH a mint tx hash, return immediately (no need to hit Circle)
-    if (dbTx?.attestation_status === 'complete' && dbTx?.mint_tx_hash) {
+    const isPlaceholder = (h: string | null | undefined) => 
+      !h || h.trim() === '' || h.toLowerCase() === 'n/a' || h === '0x0000000000000000000000000000000000000000000000000000000000000000';
+
+    const dbMintIsReal = dbTx?.mint_tx_hash && !isPlaceholder(dbTx.mint_tx_hash);
+
+    // Check DB first — if already complete AND we have a real mint hash, return immediately (no need to hit Circle)
+    if ((dbTx?.attestation_status as string) === 'complete' && dbMintIsReal) {
       return NextResponse.json({ status: 'complete', mintTxHash: dbTx.mint_tx_hash });
     }
     // Otherwise always hit Circle Iris to get fresh attestation data
@@ -55,13 +60,73 @@ export async function GET(req: NextRequest) {
 
     const result = await getAttestation(sourceChain, txHash);
 
-    // If Circle's relayer already minted (forwardTxHash present), persist via
-    // updateBridgeStatus so notifications fire correctly — same as Stellar path.
-    // Only do this when relayer provided the mint hash; for EVM→EVM manual-claim
-    // bridges, leave the DB alone so the monitoring loop can save it after the user signs.
-    if (result.status === 'complete' && result.mintTxHash && dbTx && dbTx.attestation_status !== 'complete') {
+    // Fallback: If DB is complete but Circle says pending/not_found, preserve completion status
+    if (dbTx?.attestation_status === 'complete' && result.status !== 'complete') {
+      result.status = 'complete';
+      if (!result.mintTxHash && dbTx.mint_tx_hash) {
+        result.mintTxHash = dbTx.mint_tx_hash;
+      }
+    }
+
+    // If Iris attestation is complete but mintTxHash is still missing/manual-claim, check on-chain processed state
+    if (result.status === 'complete' && !result.mintTxHash && result.messageBytes) {
+      const destChain = dbTx?.dest_chain || 'base';
+      const evmDestChains = ['base', 'arbitrum', 'optimism', 'polygon', 'avalanche', 'ethereum'];
+      
+      if (evmDestChains.includes(destChain.toLowerCase())) {
+        try {
+          const { createPublicClient, http, keccak256 } = await import('viem');
+          const { getStandardRpcUrl } = await import('@/lib/web3/circle-client');
+
+          const messageHash = keccak256(result.messageBytes as `0x${string}`);
+          const client = createPublicClient({
+            transport: http(getStandardRpcUrl(destChain)),
+          });
+
+          const MESSAGE_TRANSMITTER =
+            process.env.NEXT_PUBLIC_SIMULATION_MODE === 'true'
+              ? '0x81D40F2169b009c9103C280963d76e4B4d4c464B'
+              : '0x81D40F21F12A8F0E3252Bccb954D722d4c464B64';
+
+          const isProcessed = await client.readContract({
+            address: MESSAGE_TRANSMITTER as `0x${string}`,
+            abi: [
+              {
+                name: 'processedMessages',
+                type: 'function',
+                stateMutability: 'view',
+                inputs: [{ name: 'messageHash', type: 'bytes32' }],
+                outputs: [{ name: '', type: 'bool' }],
+              },
+            ],
+            functionName: 'processedMessages',
+            args: [messageHash],
+          }).catch(() => false);
+
+          if (isProcessed) {
+            console.log(`[Bridge Status API] Message already processed on-chain on ${destChain} for ${txHash}. Skipping expensive log query.`);
+            result.mintTxHash = '0x0000000000000000000000000000000000000000000000000000000000000000';
+          }
+        } catch (chainErr) {
+          console.error('[Bridge Status API] On-chain check failed:', chainErr);
+        }
+      }
+    }
+
+    // If Circle's relayer or the manual claim on-chain check complete, persist and update DB status
+    const dbMintIsPlaceholder = !dbTx?.mint_tx_hash || isPlaceholder(dbTx.mint_tx_hash);
+    const newMintIsReal = result.mintTxHash && !isPlaceholder(result.mintTxHash);
+
+    if (
+      result.status === 'complete' &&
+      result.mintTxHash &&
+      dbTx &&
+      ((dbTx.attestation_status as string) !== 'complete' || (dbMintIsPlaceholder && newMintIsReal))
+    ) {
       const { updateBridgeStatus } = await import('@/lib/supabase/transactions');
-      updateBridgeStatus(txHash, 'complete', result.mintTxHash).catch(() => {});
+      await updateBridgeStatus(txHash, 'complete', result.mintTxHash).catch((err) => {
+        console.error('[Bridge Status API] updateBridgeStatus failed:', err);
+      });
     }
 
     console.log(`[Bridge Status API] Attestation query result for ${txHash}:`, {

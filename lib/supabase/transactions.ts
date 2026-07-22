@@ -131,7 +131,8 @@ export async function recordTransfer(params: {
             `You received ${params.amount} USDC from ${params.senderEmail}!`,
             "transfer",
             {
-              url: "/dashboard/history",
+              url: `/dashboard/activity/${transferId}`,
+              transactionId: transferId,
               amount: params.amount,
               sender: params.senderEmail,
             },
@@ -256,7 +257,11 @@ export async function updateDepositStatus(
           "Deposit Confirmed",
           `Your deposit of ${amount} USDC has been successfully credited.`,
           "deposit",
-          { url: "/dashboard" },
+          {
+            url: `/dashboard/activity/${referenceId}`,
+            transactionId: referenceId,
+            amount,
+          },
         );
         try {
           const { sendDepositEmail } = await import("@/lib/email/sendEmail");
@@ -422,39 +427,59 @@ export async function triggerWithdrawalNotifications(
     const { createNotification } = await import("./notifications");
 
     if (status === "completed") {
-      await createNotification(
+      const notifPromise = createNotification(
         email,
         "Withdrawal Completed",
         `Your withdrawal of ${amount} USDC has been successfully processed to your bank account.`,
         "withdrawal",
-        { url: "/dashboard" },
-      );
-
-      try {
-        const { sendWithdrawalEmail } = await import("@/lib/email/sendEmail");
-        await sendWithdrawalEmail(
-          email,
-          amount.toString(),
-          fiatAmount.toString(),
+        {
+          url: `/dashboard/activity/${referenceId}`,
+          transactionId: referenceId,
+          amount,
+          fiatAmount,
           fiatCurrency,
-          bankMasked,
-          referenceId,
-          orderId,
-        );
-      } catch (emailErr) {
-        console.error(
-          "[Supabase] Failed to send withdrawal email notification:",
-          emailErr,
-        );
-      }
+        },
+      ).catch((err) => {
+        console.error("[Supabase] Failed to create in-app notification:", err);
+      });
+
+      const emailPromise = (async () => {
+        try {
+          const { sendWithdrawalEmail } = await import("@/lib/email/sendEmail");
+          await sendWithdrawalEmail(
+            email,
+            amount.toString(),
+            fiatAmount.toString(),
+            fiatCurrency,
+            bankMasked,
+            referenceId,
+            orderId,
+          );
+        } catch (emailErr) {
+          console.error(
+            "[Supabase] Failed to send withdrawal email notification:",
+            emailErr,
+          );
+        }
+      })();
+
+      await Promise.all([notifPromise, emailPromise]);
     } else {
       await createNotification(
         email,
         "Withdrawal Failed",
         `Your withdrawal of ${amount} USDC has failed. Funds have been returned to your balance.`,
         "withdrawal",
-        { url: "/dashboard" },
-      );
+        {
+          url: `/dashboard/activity/${referenceId}`,
+          transactionId: referenceId,
+          amount,
+          fiatAmount,
+          fiatCurrency,
+        },
+      ).catch((err) => {
+        console.error("[Supabase] Failed to create failed in-app notification:", err);
+      });
     }
   } catch (err) {
     console.error(
@@ -571,19 +596,33 @@ export async function updateBridgeStatus(
       `[updateBridgeStatus] burn=${burnTxHash.slice(0, 10)} existing=${JSON.stringify(existing)} mintTxHash=${mintTxHash?.slice(0, 10)}`,
     );
 
-    if (existing?.mint_tx_hash) {
-      console.log(
-        `[updateBridgeStatus] Already complete with mint hash — skipping`,
-      );
-      return;
-    }
-
     if (!existing) {
       console.error(
         `[updateBridgeStatus] No row found for burn_tx_hash=${burnTxHash} — recordBridgeTransaction may have failed`,
       );
       return;
     }
+
+    const isPlaceholder = (h: string | null | undefined) => 
+      !h || h.toLowerCase() === 'n/a' || h === '0x0000000000000000000000000000000000000000000000000000000000000000';
+
+    const existingIsReal = existing.mint_tx_hash && !isPlaceholder(existing.mint_tx_hash);
+    const newIsReal = mintTxHash && !isPlaceholder(mintTxHash);
+
+    if (existingIsReal && !newIsReal) {
+      console.log(
+        `[updateBridgeStatus] Existing hash is real, but new hash is placeholder/empty — skipping update.`
+      );
+      return;
+    }
+    if (existingIsReal && newIsReal && existing.mint_tx_hash === mintTxHash) {
+      console.log(
+        `[updateBridgeStatus] Already complete with same real mint hash — skipping update.`
+      );
+      return;
+    }
+
+    const wasAlreadyComplete = existing.attestation_status === "complete";
 
     const { error, count } = await supabaseAdmin
       .from("bridge_transactions")
@@ -603,7 +642,7 @@ export async function updateBridgeStatus(
       `[updateBridgeStatus] Updated — mintTxHash saved: ${mintTxHash ?? "null"}`,
     );
 
-    if (status === "complete") {
+    if (status === "complete" && !wasAlreadyComplete) {
       interface BridgeTxWithUser {
         id: string;
         amount: number;
@@ -636,7 +675,13 @@ export async function updateBridgeStatus(
           "USDC Bridge Completed",
           `Successfully bridged ${amount} USDC from ${src.toUpperCase()} to ${dest.toUpperCase()}!`,
           "bridge",
-          { url: "/dashboard/history", amount, src, dest },
+          {
+            url: `/dashboard/activity/${referenceId}`,
+            transactionId: referenceId,
+            amount,
+            src,
+            dest,
+          },
         );
 
         try {

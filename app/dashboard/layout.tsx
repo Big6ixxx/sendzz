@@ -135,7 +135,7 @@ export default function DashboardLayout({
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         {/* Unified Dashboard Header containing Notification Center */}
         <header
-          className="flex items-center justify-between lg:justify-end p-4 lg:px-12 sticky top-0 z-30 shrink-0"
+          className="flex items-center justify-between lg:justify-end py-4 px-4 md:px-6 lg:px-8 sticky top-0 z-30 shrink-0"
           style={{
             background: "rgba(7, 7, 10, 0.4)",
             backdropFilter: "blur(24px) saturate(180%)",
@@ -168,7 +168,7 @@ export default function DashboardLayout({
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-4 md:p-8 lg:p-12">
+        <div className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
           {children}
         </div>
       </main>

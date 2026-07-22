@@ -220,7 +220,7 @@ export default function Dashboard() {
 
   return (
     <TooltipProvider>
-      <div className="max-w-5xl mx-auto space-y-12">
+      <div className="max-w-5xl mx-auto space-y-8">
         {/* Balance Header */}
         <section>
           <div className="card-glass p-8 md:p-10 rounded-3xl">

@@ -10,7 +10,6 @@ import {
   ShieldAlert,
   ArrowDownCircle,
   ArrowUpCircle,
-  ArrowLeft,
   ChevronRight,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -166,17 +165,25 @@ export default function DedicatedNotificationsPage() {
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 10;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTab, searchQuery]);
+
+  const totalItems = filteredNotifications.length;
+  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
+
+  const paginatedNotifications = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredNotifications.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [filteredNotifications, currentPage]);
+
   return (
-    <div className="max-w-4xl mx-auto space-y-8 pb-12">
+    <div className="max-w-5xl mx-auto space-y-8">
       {/* Header */}
       <div>
-        <button
-          onClick={() => router.back()}
-          className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors mb-6"
-        >
-          <ArrowLeft className="w-3 h-3" />
-          Back to Dashboard
-        </button>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <DashboardPageHeader
             title="Notifications Center"
@@ -251,7 +258,7 @@ export default function DedicatedNotificationsPage() {
           </div>
         ) : (
           <div className="divide-y divide-white/5">
-            {filteredNotifications.map((notif) => (
+            {paginatedNotifications.map((notif) => (
               <div
                 key={notif.id}
                 onClick={() => handleNotificationClick(notif)}
@@ -301,6 +308,53 @@ export default function DedicatedNotificationsPage() {
           </div>
         )}
       </div>
+
+      {/* Pagination Controls */}
+      {!loading && totalPages > 1 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
+          <p className="text-xs text-white/40">
+            Showing <span className="font-bold text-white/70">{(currentPage - 1) * ITEMS_PER_PAGE + 1}</span> to{" "}
+            <span className="font-bold text-white/70">
+              {Math.min(currentPage * ITEMS_PER_PAGE, totalItems)}
+            </span>{" "}
+            of <span className="font-bold text-white/70">{totalItems}</span> notifications
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-1.5 rounded-xl text-xs font-bold transition-all bg-white/5 border border-white/10 text-white hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5"
+            >
+              Previous
+            </button>
+            <div className="flex items-center gap-1">
+              {Array.from({ length: totalPages }).map((_, i) => {
+                const pageNum = i + 1;
+                return (
+                  <button
+                    key={pageNum}
+                    onClick={() => setCurrentPage(pageNum)}
+                    className={`w-8 h-8 rounded-xl text-xs font-bold transition-all border ${
+                      currentPage === pageNum
+                        ? "bg-white/10 border-white/25 text-white"
+                        : "bg-white/5 border-white/10 text-white/40 hover:text-white/70 hover:bg-white/10"
+                    }`}
+                  >
+                    {pageNum}
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1.5 rounded-xl text-xs font-bold transition-all bg-white/5 border border-white/10 text-white hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -84,7 +84,7 @@ export default function SmartBridgePage() {
 
   return (
     <TooltipProvider>
-      <div className="max-w-3xl mx-auto space-y-10">
+      <div className="max-w-5xl mx-auto space-y-8">
         <DashboardPageHeader
           title="Bridge"
           subtitle="Move USDC between your networks, or consolidate idle funds to Base."

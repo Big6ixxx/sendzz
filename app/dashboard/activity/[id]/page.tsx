@@ -43,6 +43,9 @@ import { activityToReceiptData } from '@/lib/receipt/utils';
 import { getOffRampRate } from '@/lib/actions/ramp';
 import { executeReceiveMessage } from '@/lib/web3/bridge-actions';
 import type { ActivityType } from '@/components/HistoryModule';
+
+const isPlaceholder = (h: string | null | undefined) =>
+  !h || h.trim() === '' || h.toLowerCase() === 'n/a' || h === '0x0000000000000000000000000000000000000000000000000000000000000000';
 import { CCTP_DOMAINS, type SupportedChain } from '@/lib/circle/gateway';
 import { classifyAppError } from '@/lib/errors/appErrors';
 
@@ -543,7 +546,7 @@ export default function ActivityDetailPage({
   const sourceMeta = activity.sourceChain
     ? CHAIN_META[activity.sourceChain.toLowerCase()]
     : null;
-  const burnExplorer = activity.txHash
+  const burnExplorer = activity.txHash && !isPlaceholder(activity.txHash)
     ? (sourceMeta ? sourceMeta.explorerTx(activity.txHash) : `${BASE_EXPLORER}${activity.txHash}`)
     : null;
 
@@ -589,13 +592,6 @@ export default function ActivityDetailPage({
       label: 'Route',
       value: `${chainLabel(activity.sourceChain)} → ${chainLabel(activity.destChain ?? 'base')}`,
     });
-  } else if (activity.type === 'withdrawal' && activity.consolidated) {
-    // Funds were spread across networks, auto-bridged onto the settlement chain, then off-ramped.
-    detailRows.push({
-      icon: Network,
-      label: 'Route',
-      value: `YOUR NETWORKS → ${chainLabel(activity.sourceChain ?? 'base')}`,
-    });
   } else if (activity.sourceChain) {
     detailRows.push({
       icon: Network,
@@ -612,9 +608,10 @@ export default function ActivityDetailPage({
   }
 
   // ── Advanced details: provider refs, full hashes, rate, timestamps ───────────
-  const mintExplorer = activity.mintTxHash
+  const hasValidMint = !!activity.mintTxHash && !isPlaceholder(activity.mintTxHash);
+  const mintExplorer = hasValidMint
     ? (activity.destChain ? CHAIN_META[activity.destChain.toLowerCase()] : null)?.explorerTx(
-        activity.mintTxHash,
+        activity.mintTxHash!,
       ) ?? `${BASE_EXPLORER}${activity.mintTxHash}`
     : null;
 
@@ -651,8 +648,8 @@ export default function ActivityDetailPage({
       href: burnExplorer ?? undefined,
     });
   }
-  if (activity.mintTxHash) {
-    advancedRows.push({ label: 'Mint tx', value: activity.mintTxHash, display: shorten(activity.mintTxHash), copyable: true, href: mintExplorer ?? undefined });
+  if (hasValidMint) {
+    advancedRows.push({ label: 'Mint tx', value: activity.mintTxHash!, display: shorten(activity.mintTxHash!), copyable: true, href: mintExplorer ?? undefined });
   }
   advancedRows.push({
     label: 'Created',
@@ -749,7 +746,7 @@ export default function ActivityDetailPage({
       )}
 
       {/* On-chain transactions */}
-      {(activity.txHash || activity.mintTxHash) && (
+      {(burnExplorer || (activity.type === 'bridge' && (hasValidMint || activity.status !== 'complete'))) && (
         <div className="space-y-2">
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/25 px-1">
             On-chain
@@ -767,26 +764,20 @@ export default function ActivityDetailPage({
               </a>
             )}
             {activity.type === 'bridge' &&
-              (activity.mintTxHash ? (
+              (hasValidMint ? (
                 <a
-                  href={
-                    (activity.destChain
-                      ? CHAIN_META[activity.destChain.toLowerCase()]
-                      : null
-                    )?.explorerTx(activity.mintTxHash) ??
-                    `${BASE_EXPLORER}${activity.mintTxHash}`
-                  }
+                  href={mintExplorer || '#'}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest bg-white/6 text-brand-secondary border border-white/10 hover:bg-white/10 transition-all"
                 >
                   <ExternalLink className="w-3.5 h-3.5" /> Mint transaction
                 </a>
-              ) : claimSuccess ? (
+              ) : activity.status === 'complete' ? null : claimSuccess ? (
                 <div className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                   <Check className="w-3.5 h-3.5" /> Claimed Successfully
                 </div>
-              ) : activity.status === 'complete' && Date.now() - new Date(activity.timestamp).getTime() < 10 * 60 * 1000 ? (
+              ) : Date.now() - new Date(activity.timestamp).getTime() < 10 * 60 * 1000 ? (
                 <div className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                   <Check className="w-3.5 h-3.5" /> Completed
                 </div>

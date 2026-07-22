@@ -67,7 +67,6 @@ export const SMART_BRIDGE_CHAINS: SupportedChain[] = [
   'avalanche',
   'ethereum',
   'optimism',
-  'polygon',
 ];
 
 /**

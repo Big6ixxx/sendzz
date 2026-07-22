@@ -77,13 +77,16 @@ export function chainName(chain: string | null | undefined): string {
   return CHAIN_META[chain.toLowerCase()]?.name ?? chain;
 }
 
+const isPlaceholder = (h: string | null | undefined) =>
+  !h || h.trim() === '' || h.toLowerCase() === 'n/a' || h === '0x0000000000000000000000000000000000000000000000000000000000000000';
+
 /**
  * Explorer URL for a feed row's PRIMARY hash.
  * For bridges the burn hash lives on the source chain; everything else settles on its
  * source chain (default Base).
  */
 export function explorerUrlFor(row: PublicFeedRow): string | null {
-  if (!row.tx_hash) return null;
+  if (!row.tx_hash || isPlaceholder(row.tx_hash)) return null;
   return chainMeta(row.source_chain).explorerTx(row.tx_hash);
 }
 
@@ -92,7 +95,7 @@ export function explorerUrlFor(row: PublicFeedRow): string | null {
  * chain (falls back to Base).
  */
 export function secondaryExplorerUrlFor(row: PublicFeedRow): string | null {
-  if (!row.secondary_tx_hash) return null;
+  if (!row.secondary_tx_hash || isPlaceholder(row.secondary_tx_hash)) return null;
   return chainMeta(row.dest_chain).explorerTx(row.secondary_tx_hash);
 }
 
