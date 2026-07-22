@@ -2,6 +2,7 @@ import { Database } from '@/types/database';
 import { getBitnobClient } from '@/lib/bitnob/client';
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { triggerWithdrawalNotifications } from '@/lib/supabase/transactions';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -86,6 +87,7 @@ export async function GET(req: Request) {
       const state = (tx.state || '').toUpperCase();
       if (['SETTLED', 'COMPLETED', 'SUCCESS'].includes(state)) {
         await supabaseAdmin.rpc('finalize_withdrawal_success', { p_paycrest_order_id: orderId });
+        await triggerWithdrawalNotifications(orderId, 'completed');
         results.push({ id: w.id, action: 'reconciled-success' });
       } else if (['FAILED', 'REVERSED', 'EXPIRED'].includes(state)) {
         await supabaseAdmin.rpc('finalize_withdrawal_failed', {
@@ -94,6 +96,8 @@ export async function GET(req: Request) {
         });
         if (state === 'REVERSED') {
           await supabaseAdmin.from('withdrawals').update({ status: 'reversed' }).eq('provider_order_id', orderId);
+        } else {
+          await triggerWithdrawalNotifications(orderId, 'failed');
         }
         results.push({ id: w.id, action: 'reconciled-failed', detail: state });
       }

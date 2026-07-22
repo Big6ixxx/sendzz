@@ -41,6 +41,7 @@
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.89.0",
     "@tanstack/react-query": "^5.100.9",
+    "bs58": "^6.0.0",
     "buffer": "^6.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -63,6 +64,7 @@
     "standardwebhooks": "^1.0.0",
     "tailwind-merge": "^3.4.0",
     "viem": "^2.47.10",
+    "web-push": "^3.6.7",
     "zod": "^3.24.4"
   },
   "devDependencies": {
@@ -72,6 +74,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/speakeasy": "^2.0.10",
+    "@types/web-push": "^3.6.4",
     "dotenv": "^17.2.3",
     "eslint": "^9",
     "eslint-config-next": "16.1.0",

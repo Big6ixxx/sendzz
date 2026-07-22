@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Info, Loader2, ShieldCheck, Wallet } from 'lucide-react';
-import { CHAIN_NAMES, SupportedChain } from '@/lib/circle/gateway';
+import { SupportedChain } from '@/lib/circle/gateway';
 import { SourceSelector } from '@/components/SourceSelector';
 import type { ChainBalances, SourcePreference } from '@/lib/web3/routing';
 
@@ -22,14 +22,17 @@ interface CryptoTransferFormProps {
   setRecipientAddress: (address: string) => void;
   amount: string;
   setAmount: (amount: string) => void;
-  selectedChain: SupportedChain;
-  setSelectedChain: (chain: SupportedChain) => void;
+  selectedChain: SupportedChain | 'stellar' | 'solana';
+  setSelectedChain: (chain: SupportedChain | 'stellar' | 'solana') => void;
+  memo: string;
+  setMemo: (memo: string) => void;
   loading: boolean;
   status: string;
   balance: string;
   isFetchingBalance: boolean;
   isOverBalance: boolean;
   isZeroBalance: boolean;
+  isSettingUpStellar: boolean;
   handleTransfer: (e: React.FormEvent) => void;
   sourcePref: SourcePreference;
   setSourcePref: (p: SourcePreference) => void;
@@ -37,14 +40,27 @@ interface CryptoTransferFormProps {
   solanaBalance: number;
 }
 
-const AVAILABLE_CHAINS: SupportedChain[] = [
+const AVAILABLE_CHAINS: (SupportedChain | 'stellar' | 'solana')[] = [
   'base',
   'ethereum',
   'arbitrum',
   'optimism',
   'polygon',
   'avalanche',
+  'stellar',
+  'solana',
 ];
+
+const ALL_CHAIN_NAMES: Record<SupportedChain | 'stellar' | 'solana', string> = {
+  base: 'Base',
+  ethereum: 'Ethereum',
+  arbitrum: 'Arbitrum',
+  optimism: 'Optimism',
+  polygon: 'Polygon',
+  avalanche: 'Avalanche',
+  stellar: 'Stellar',
+  solana: 'Solana',
+};
 
 export function CryptoTransferForm({
   recipientAddress,
@@ -53,18 +69,22 @@ export function CryptoTransferForm({
   setAmount,
   selectedChain,
   setSelectedChain,
+  memo,
+  setMemo,
   loading,
   status,
   balance,
   isFetchingBalance,
   isOverBalance,
   isZeroBalance,
+  isSettingUpStellar,
   handleTransfer,
   sourcePref,
   setSourcePref,
   chainBalances,
   solanaBalance,
 }: CryptoTransferFormProps) {
+  const isStellar = selectedChain === 'stellar';
   const fundedSources =
     Object.values(chainBalances).filter((b) => (b ?? 0) > 0).length +
     (solanaBalance > 0 ? 1 : 0);
@@ -94,7 +114,7 @@ export function CryptoTransferForm({
         
         <Select
           value={selectedChain}
-          onValueChange={(val) => setSelectedChain(val as SupportedChain)}
+          onValueChange={(val) => setSelectedChain(val as SupportedChain | 'stellar' | 'solana')}
         >
           <SelectTrigger className="w-full h-14 bg-white/5 border border-white/10 text-sm">
             <SelectValue placeholder="Select network" />
@@ -104,7 +124,7 @@ export function CryptoTransferForm({
               <SelectItem key={chain} value={chain}>
                 <div className="flex items-center gap-3">
                   <img src={`/chains/${chain}.png`} alt={chain} className="w-5 h-5 rounded-full object-cover" />
-                  <span className="text-xs font-bold">{CHAIN_NAMES[chain]}</span>
+                  <span className="text-xs font-bold">{ALL_CHAIN_NAMES[chain]}</span>
                 </div>
               </SelectItem>
             ))}
@@ -137,7 +157,7 @@ export function CryptoTransferForm({
             value={recipientAddress}
             onChange={(e) => setRecipientAddress(e.target.value)}
             className="input-elegant h-14 text-sm font-mono w-full pr-10"
-            placeholder="0x..."
+            placeholder={selectedChain === "stellar" ? "G..." : selectedChain === "solana" ? "Solana address..." : "0x..."}
             required
             autoComplete="off"
             spellCheck="false"
@@ -147,6 +167,27 @@ export function CryptoTransferForm({
           </div>
         </div>
       </div>
+
+      {selectedChain === 'stellar' && (
+        <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex items-center gap-2 mb-1">
+            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+              Memo (optional)
+            </label>
+          </div>
+          <div className="relative">
+            <input
+              type="text"
+              value={memo}
+              onChange={(e) => setMemo(e.target.value)}
+              className="input-elegant h-14 text-sm w-full pr-10"
+              placeholder="Memo text (max 28 chars)"
+              maxLength={28}
+              autoComplete="off"
+            />
+          </div>
+        </div>
+      )}
 
       <div className="space-y-3">
         <div className="flex items-center justify-between">
@@ -198,10 +239,10 @@ export function CryptoTransferForm({
       <div className="space-y-4 pt-4">
         <button
           type="submit"
-          disabled={loading || isZeroBalance || isOverBalance || !recipientAddress || isFetchingBalance}
+          disabled={loading || isSettingUpStellar || isZeroBalance || isOverBalance || !recipientAddress || isFetchingBalance}
           className="btn-primary w-full h-14 text-lg gap-3 shadow-xl hover:shadow-2xl transition-all disabled:opacity-50"
         >
-          {loading ? (
+          {loading || isSettingUpStellar ? (
             <Loader2 className="animate-spin" />
           ) : isZeroBalance ? (
             'Insufficient Funds'

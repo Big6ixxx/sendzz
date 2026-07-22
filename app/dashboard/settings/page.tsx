@@ -38,7 +38,6 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useBalanceVisibility } from "@/components/providers/BalanceVisibilityProvider";
-import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -50,6 +49,39 @@ import { useRouter } from "next/navigation";
 import { TOTPSetupWizard } from "@/components/TOTPSetupWizard";
 import { PasskeySetupWizard } from "@/components/PasskeySetupWizard";
 import { Fingerprint } from "lucide-react";
+
+interface ToggleProps {
+  checked: boolean;
+  onChange: () => void;
+  disabled?: boolean;
+  activeColor: string;
+  activeBg: string;
+}
+
+function PremiumToggle({ checked, onChange, disabled, activeColor, activeBg }: ToggleProps) {
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        if (!disabled) onChange();
+      }}
+      disabled={disabled}
+      className={`relative inline-flex h-[26px] w-[46px] shrink-0 cursor-pointer rounded-full border transition-all duration-300 ease-in-out focus:outline-none ${
+        checked 
+          ? `${activeBg} shadow-inner` 
+          : 'bg-white/5 border-white/10 hover:border-white/20'
+      } ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+    >
+      <span
+        className={`pointer-events-none absolute top-[2px] left-[2px] block h-5 w-5 rounded-full transition-all duration-300 ease-in-out ${
+          checked 
+            ? `${activeColor} translate-x-[20px] shadow-[0_0_8px_rgba(255,255,255,0.2)]` 
+            : 'bg-white/30 translate-x-0'
+        }`}
+      />
+    </button>
+  );
+}
 
 export default function SettingsPage() {
   const { user, logout } = usePrivy();
@@ -89,6 +121,20 @@ export default function SettingsPage() {
   const [passkeySetupOpen, setPasskeySetupOpen] = useState(false);
   const [passkeyDisableOpen, setPasskeyDisableOpen] = useState(false);
 
+  // Notification Preferences
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [isTogglingPush, setIsTogglingPush] = useState(false);
+
+  // Email Notification Preferences
+  const [emailPrefs, setEmailPrefs] = useState({
+    email_notif_transfer:   true,
+    email_notif_deposit:    true,
+    email_notif_withdrawal: true,
+    email_notif_bridge:     true,
+    email_notif_security:   true,
+  });
+  const [isSavingEmailPrefs, setIsSavingEmailPrefs] = useState(false);
+
   const fetchBankContacts = useCallback(async () => {
     if (!userEmail) return;
     setIsBankLoading(true);
@@ -96,6 +142,34 @@ export default function SettingsPage() {
     setBankContacts(contacts);
     setIsBankLoading(false);
   }, [userEmail]);
+
+  // Fetch email notification preferences once the user email is known
+  useEffect(() => {
+    if (!userEmail) return;
+    fetch(`/api/notifications/email-prefs?email=${encodeURIComponent(userEmail)}`)
+      .then((r) => r.json())
+      .then((data) => { if (data.prefs) setEmailPrefs(data.prefs); })
+      .catch(() => {});
+  }, [userEmail]);
+
+  const handleEmailPrefToggle = async (key: keyof typeof emailPrefs) => {
+    if (isSavingEmailPrefs) return;
+    const next = { ...emailPrefs, [key]: !emailPrefs[key] };
+    setEmailPrefs(next);
+    setIsSavingEmailPrefs(true);
+    try {
+      await fetch('/api/notifications/email-prefs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: userEmail, prefs: { [key]: next[key] } }),
+      });
+    } catch {
+      setEmailPrefs(emailPrefs); // revert on failure
+      toast.error('Failed to save notification preference.');
+    } finally {
+      setIsSavingEmailPrefs(false);
+    }
+  };
 
   const fetchEmailContacts = useCallback(async () => {
     if (!userEmail) return;
@@ -212,6 +286,12 @@ export default function SettingsPage() {
       toast.success("Authenticator app disabled");
       setTotpEnabled(false);
       setTotpDisableOpen(false);
+      // Security alert notification
+      fetch("/api/notifications/security", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: userEmail, event: "totp_disabled" }),
+      }).catch(() => {});
     } catch {
       toast.error("Failed to disable authenticator app");
     } finally {
@@ -257,10 +337,60 @@ export default function SettingsPage() {
       toast.success("Passkey disabled successfully");
       setPasskeyDisableOpen(false);
       fetchSecurityPrefs();
+      // Security alert notification
+      fetch("/api/notifications/security", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: userEmail, event: "passkey_disabled" }),
+      }).catch(() => {});
     } catch {
       toast.error("Failed to disable passkey. Please try again.");
     } finally {
       setIsUpdatingSecurity(false);
+    }
+  };
+
+  const handleTogglePush = async () => {
+    if (isTogglingPush) return;
+    if (!('serviceWorker' in navigator) || !('Notification' in window)) {
+      toast.error("Push notifications are not supported in this browser.");
+      return;
+    }
+    setIsTogglingPush(true);
+    try {
+      if (!pushEnabled) {
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') {
+          toast.error("Notification permission was denied.");
+          return;
+        }
+        const registration = await navigator.serviceWorker.ready;
+        const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+        if (!vapidKey) return;
+        const padding = '='.repeat((4 - vapidKey.length % 4) % 4);
+        const base64 = (vapidKey + padding).replace(/-/g, '+').replace(/_/g, '/');
+        const rawData = window.atob(base64);
+        const key = new Uint8Array(rawData.length);
+        for (let i = 0; i < rawData.length; i++) key[i] = rawData.charCodeAt(i);
+        const subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+        await fetch('/api/notifications/subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: userEmail, subscription }),
+        });
+        setPushEnabled(true);
+        toast.success("Push notifications enabled!");
+      } else {
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
+        if (subscription) await subscription.unsubscribe();
+        setPushEnabled(false);
+        toast.success("Push notifications disabled.");
+      }
+    } catch (err) {
+      toast.error("Failed to update notification settings.");
+    } finally {
+      setIsTogglingPush(false);
     }
   };
 
@@ -285,7 +415,12 @@ export default function SettingsPage() {
     {
       title: "Preferences",
       items: [
-        { label: "Notifications", value: "Email only", icon: Bell },
+        {
+          label: "Notifications",
+          value: "Manage push & email notification preferences",
+          icon: Bell,
+          onClick: () => router.push("/dashboard/settings/notifications"),
+        },
         { label: "Language", value: "English (US)", icon: Globe },
         {
           label: "Hide Sensitive Data",
@@ -309,7 +444,7 @@ export default function SettingsPage() {
   ];
 
   return (
-    <div className="max-w-3xl mx-auto space-y-10">
+    <div className="max-w-5xl mx-auto space-y-8">
       <DashboardPageHeader
         title="Settings"
         subtitle="Manage your personal account and preferences."
@@ -322,11 +457,11 @@ export default function SettingsPage() {
               {section.title}
             </h3>
             <div className="card-glass p-0 overflow-hidden divide-y divide-white/4">
-              {section.items.map((item) => (
+              {section.items.map((item: any) => (
                 <div
                   key={item.label}
                   className="p-6 flex items-center justify-between group cursor-pointer hover:bg-white/2 transition-colors"
-                  onClick={item.onClick}
+                  onClick={item.action ? undefined : item.onClick}
                 >
                   <div className="flex items-center gap-5">
                     <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-brand-secondary/40 group-hover:text-accent transition-colors border border-white/8">
@@ -341,7 +476,9 @@ export default function SettingsPage() {
                       </p>
                     </div>
                   </div>
-                  {item.onClick ? (
+                  {item.action ? (
+                    <div onClick={(e) => e.stopPropagation()}>{item.action}</div>
+                  ) : item.onClick ? (
                     <ChevronRight className="w-4 h-4 text-brand-secondary/20 group-hover:text-brand-secondary/60 transition-colors" />
                   ) : null}
                 </div>
@@ -393,14 +530,22 @@ export default function SettingsPage() {
                       </p>
                     </div>
                   </div>
-                  <Switch
-                    checked={twoFaEnabled}
-                    onCheckedChange={(checked: boolean) => {
-                      setTwoFaEnabled(checked);
-                      updateSecurityPrefs(checked, twoFaThreshold);
-                    }}
-                    disabled={isUpdatingSecurity}
-                  />
+                  <div className="flex items-center gap-3">
+                    <span className={`text-xs font-black tracking-wider ${twoFaEnabled ? 'text-accent' : 'text-white/35'}`}>
+                      {twoFaEnabled ? 'ON' : 'OFF'}
+                    </span>
+                    <PremiumToggle
+                      checked={twoFaEnabled}
+                      onChange={() => {
+                        const checked = !twoFaEnabled;
+                        setTwoFaEnabled(checked);
+                        updateSecurityPrefs(checked, twoFaThreshold);
+                      }}
+                      disabled={isUpdatingSecurity}
+                      activeColor="bg-[#00e87a]"
+                      activeBg="bg-[#00e87a]/15 border-[#00e87a]/40"
+                    />
+                  </div>
                 </div>
 
                 <div
@@ -726,6 +871,11 @@ export default function SettingsPage() {
         onComplete={() => {
           fetchSecurityPrefs();
           toast.success("Authenticator app enabled");
+          fetch("/api/notifications/security", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: userEmail, event: "totp_enabled" }),
+          }).catch(() => {});
         }}
       />
 

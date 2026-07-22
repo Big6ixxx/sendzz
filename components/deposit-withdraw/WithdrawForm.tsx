@@ -225,11 +225,13 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
 
         {parsedAmount > 0 &&
           Object.values(hook.chainBalances).filter((b) => (b ?? 0) > 0).length +
-            (hook.solanaBalance > 0 ? 1 : 0) >
+            (hook.solanaBalance > 0 ? 1 : 0) +
+            (hook.stellarBalance > 0 ? 1 : 0) >
             1 && (
             <SourceSelector
               balances={hook.chainBalances}
               solanaBalance={hook.solanaBalance}
+              stellarBalance={hook.stellarBalance}
               requiredAmount={usdcTotal}
               singleSourceChains={hook.rampNetworks}
               allowConsolidate
@@ -325,14 +327,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
                 accountName: "",
               })
             }
-            onSelectContact={(contact) =>
-              hook.setBankDetails({
-                bankCode: contact.bankCode,
-                bankName: contact.bankName,
-                accountNumber: contact.accountNumber,
-                accountName: contact.accountName,
-              })
-            }
+            onSelectContact={hook.handleSelectContact}
             accountNumber={hook.bankDetails.accountNumber}
             onAccountNumberChange={(val) =>
               hook.setBankDetails({

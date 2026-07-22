@@ -54,6 +54,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${oswald.variable} ${jetbrains.variable}`}>
+      <head>
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#00e87a" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <link rel="apple-touch-icon" href="/pwa-icon-192.png" />
+      </head>
       <body className="antialiased min-h-screen bg-background text-foreground flex flex-col">
         <Providers>{children}</Providers>
       </body>

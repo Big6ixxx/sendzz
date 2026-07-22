@@ -128,14 +128,7 @@ export function DepositForm({ hook }: DepositFormProps) {
                 accountName: "",
               })
             }
-            onSelectContact={(contact) =>
-              hook.setBankDetails({
-                bankCode: contact.bankCode,
-                bankName: contact.bankName,
-                accountNumber: contact.accountNumber,
-                accountName: contact.accountName,
-              })
-            }
+            onSelectContact={hook.handleSelectContact}
             accountNumber={hook.bankDetails.accountNumber}
             onAccountNumberChange={(val) =>
               hook.setBankDetails({

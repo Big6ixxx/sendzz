@@ -23,6 +23,9 @@ export function TransferModule({
   senderEmail,
   initialRecipientEmail,
   onClearInitialRecipient,
+  stellarAddress,
+  stellarWalletId,
+  stellarBalance,
 }: {
   smartAddress: string;
   embeddedProvider?: ConnectedWallet;
@@ -32,6 +35,9 @@ export function TransferModule({
   senderEmail: string;
   initialRecipientEmail?: string;
   onClearInitialRecipient?: () => void;
+  stellarAddress?: string;
+  stellarWalletId?: string;
+  stellarBalance?: number;
 }) {
   const [transferMode, setTransferMode] = useState<"email" | "crypto">("email");
 
@@ -87,6 +93,9 @@ export function TransferModule({
     senderEmail,
     initialRecipientEmail,
     onClearInitialRecipient,
+    stellarAddress,
+    stellarWalletId,
+    stellarBalance,
   });
 
   const cryptoTransfer = useCryptoTransfer({
@@ -177,12 +186,15 @@ export function TransferModule({
           setAmount={cryptoTransfer.setAmount}
           selectedChain={cryptoTransfer.selectedChain}
           setSelectedChain={cryptoTransfer.setSelectedChain}
+          memo={cryptoTransfer.memo}
+          setMemo={cryptoTransfer.setMemo}
           loading={cryptoTransfer.loading}
           status={cryptoTransfer.status}
           balance={cryptoTransfer.balance}
           isFetchingBalance={cryptoTransfer.isFetchingBalance}
           isOverBalance={cryptoTransfer.isOverBalance}
           isZeroBalance={cryptoTransfer.isZeroBalance}
+          isSettingUpStellar={cryptoTransfer.isSettingUpStellar}
           handleTransfer={cryptoTransfer.handleTransfer}
           sourcePref={cryptoTransfer.sourcePref}
           setSourcePref={cryptoTransfer.setSourcePref}

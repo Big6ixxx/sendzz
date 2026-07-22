@@ -17,7 +17,7 @@ async function resolveUserId(userEmail: string): Promise<string> {
   const { data: user } = await supabaseAdmin
     .from('users')
     .select('id')
-    .eq('email', userEmail)
+    .eq('email', userEmail.toLowerCase())
     .single();
   if (!user) throw new Error('User not found');
   return user.id;

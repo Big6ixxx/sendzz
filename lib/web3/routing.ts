@@ -49,7 +49,7 @@ export type ChainBalances = Partial<Record<SupportedChain, number>>;
  *  - `consolidate` — gather from exactly these chains (CCTP → settlement chain) first.
  * `solana` is allowed in the `consolidate` list; the executor bridges it via Base.
  */
-export type SourceChainKey = SupportedChain | 'solana';
+export type SourceChainKey = SupportedChain | 'solana' | 'stellar';
 export type SourcePreference =
   | { mode: 'auto' }
   | { mode: 'single'; chain: SourceChainKey }
@@ -154,8 +154,8 @@ export function planTransferRoute(
   // User override: pay entirely from one chosen chain (only valid if it holds enough).
   if (opts.source?.mode === 'single') {
     const c = opts.source.chain;
-    // Solana settlement isn't an EVM route — it's handled directly by the caller.
-    if (c === 'solana') return infeasible();
+    // Solana/Stellar settlement isn't an EVM route — handled directly by the caller.
+    if (c === 'solana' || c === 'stellar') return infeasible();
     if (toMicro(balances[c] ?? 0) >= requestedMicro) {
       return {
         feasible: true,
@@ -395,8 +395,8 @@ export function planWithdrawalRoute(
   // User override: force a single supported chain (must hold enough and be ramp-supported).
   if (opts.source?.mode === 'single') {
     const c = opts.source.chain;
-    // Solana settlement isn't an EVM route — the caller handles it directly.
-    if (c === 'solana') {
+    // Solana/Stellar settlement isn't an EVM route — the caller handles it directly.
+    if (c === 'solana' || c === 'stellar') {
       return { feasible: false, needsConsolidation: false, totalAvailable, requested };
     }
     if (supported.includes(c) && toMicro(balances[c] ?? 0) >= requestedMicro) {

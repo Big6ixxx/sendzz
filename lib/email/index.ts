@@ -4,7 +4,15 @@
  * Centralized exports for email functionality.
  */
 
-export { sendEmail } from './sendEmail';
+export { 
+  sendEmail, 
+  sendTransferEmail, 
+  sendBridgeEmail, 
+  sendDepositEmail, 
+  sendWithdrawalEmail,
+  sendSecurityEmail,
+  sendTransferSentEmail
+} from './sendEmail';
 export type { SendEmailOptions, SendEmailResult } from './sendEmail';
 
 export {
@@ -12,6 +20,12 @@ export {
     otpLoginTemplate,
     transferReceivedTemplate,
     withdrawalCompletedTemplate,
-    withdrawalOTPTemplate
+    withdrawalOTPTemplate,
+    depositConfirmedTemplate,
+    bridgeCompletedTemplate,
+    securityAlertTemplate,
+    transactionOTPTemplate,
+    otpEmailSubject,
+    transferSentTemplate
 } from './templates';
 

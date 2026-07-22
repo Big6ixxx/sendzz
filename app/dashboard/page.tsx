@@ -48,17 +48,7 @@ export default function Dashboard() {
 
   // Embedded Privy Solana wallet — look up via linkedAccounts (walletClientType is not exposed on ConnectedStandardSolanaWallet)
   const privySolAccount = user?.linkedAccounts.find(
-    (
-      a: any,
-    ): a is {
-      type: string;
-      walletClientType: string;
-      chainType: string;
-      address?: string;
-    } =>
-      a.type === "wallet" &&
-      a.walletClientType === "privy" &&
-      a.chainType === "solana",
+    (a) => a.type === "wallet" && a.walletClientType === "privy" && a.chainType === "solana"
   );
   const embeddedSolWallet =
     privySolAccount && "address" in privySolAccount
@@ -66,6 +56,9 @@ export default function Dashboard() {
       : null;
 
   const [smartAddress, setSmartAddress] = useState<string>("");
+  const [stellarAddress, setStellarAddress] = useState<string>("");
+  const [stellarWalletId, setStellarWalletId] = useState<string>("");
+  const [stellarTrustlineReady, setStellarTrustlineReady] = useState<boolean>(false);
   const [rampModalOpen, setRampModalOpen] = useState(false);
   const [batchSendDialogOpen, setBatchSendDialogOpen] = useState(false);
   const [rampType, setRampType] = useState<"deposit" | "withdraw">("deposit");
@@ -84,7 +77,7 @@ export default function Dashboard() {
     isLoading: isPortfolioLoading,
     isFetching: isPortfolioFetching,
     refetch: refetchPortfolio,
-  } = usePortfolio(smartAddress, embeddedSolWallet?.address);
+  } = usePortfolio(smartAddress, embeddedSolWallet?.address, stellarAddress || undefined);
 
   const portfolioTotal = portfolio?.total ?? "0.00";
   const fundedChains = portfolio?.byChain.filter((c) => c.hasBalance) ?? [];
@@ -94,7 +87,7 @@ export default function Dashboard() {
   const evmChainBalances: ChainBalances = useMemo(() => {
     const map: ChainBalances = {};
     for (const c of portfolio?.byChain ?? []) {
-      if (c.chain === "solana") continue;
+      if (c.chain === "solana" || c.chain === "stellar") continue;
       map[c.chain] = parseFloat(c.balance) || 0;
     }
     return map;
@@ -115,7 +108,13 @@ export default function Dashboard() {
     bridgeToBase && solanaBalance > 0
       ? { balance: solanaBalance, bridgeToBase, settleOffRamp: settleOffRamp ?? undefined }
       : undefined;
-  const totalSpendable = (evmSpendable + solanaBalance).toFixed(2);
+
+  const stellarBalance =
+    parseFloat(
+      portfolio?.byChain.find((c) => c.chain === "stellar")?.balance ?? "0",
+    ) || 0;
+
+  const totalSpendable = (evmSpendable + solanaBalance + stellarBalance).toFixed(2);
 
   useEffect(() => {
     if (ready && !authenticated) router.push("/");
@@ -137,6 +136,22 @@ export default function Dashboard() {
             address,
             embeddedSolWallet?.address,
           ).catch(console.error);
+
+          // Automatically provision or retrieve the user's Stellar wallet from the DB/API
+          fetch("/api/stellar/provision", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ privyUserId: user.id, email: user.email.address }),
+          })
+            .then((res) => res.json())
+            .then((data) => {
+              if (data.address) {
+                setStellarAddress(data.address);
+                setStellarWalletId(data.walletId || "");
+                setStellarTrustlineReady(!!data.trustlineReady);
+              }
+            })
+            .catch((err) => console.error("[Dashboard] Stellar provision error:", err));
         }
       } catch (err) {
         console.error("[Dashboard] INIT ACCOUNT FATAL ERROR:", err);
@@ -168,7 +183,7 @@ export default function Dashboard() {
       initAccount();
       fetchSecurityPrefs();
     }
-  }, [ready, authenticated, wallets, user]);
+  }, [ready, authenticated, wallets, user, embeddedSolWallet?.address]);
 
   if (!ready || !authenticated || !user) {
     return (
@@ -205,7 +220,7 @@ export default function Dashboard() {
 
   return (
     <TooltipProvider>
-      <div className="max-w-5xl mx-auto space-y-12">
+      <div className="max-w-5xl mx-auto space-y-8">
         {/* Balance Header */}
         <section>
           <div className="card-glass p-8 md:p-10 rounded-3xl">
@@ -331,7 +346,7 @@ export default function Dashboard() {
                             >
                               {CHAIN_NAMES[
                                 c.chain as keyof typeof CHAIN_NAMES
-                              ] ?? (c.chain === "solana" ? "Solana" : c.chain)}
+                              ] ?? (c.chain === "solana" ? "Solana" : c.chain === "stellar" ? "Stellar" : c.chain)}
                             </span>
                           </div>
                           <span
@@ -349,30 +364,6 @@ export default function Dashboard() {
                 )}
 
                 <div className="flex flex-wrap items-center gap-x-6 gap-y-3 pt-2">
-                  <div
-                    className="flex items-center gap-2 group cursor-pointer"
-                    onClick={() => (
-                      navigator.clipboard.writeText(smartAddress),
-                      toast.success("Address copied")
-                    )}
-                  >
-                    <div
-                      className="w-1.5 h-1.5 rounded-full animate-beacon"
-                      style={{ background: "#00e87a" }}
-                    />
-                    <span
-                      className="text-[10px] font-mono font-bold transition-colors"
-                      style={{ color: "rgba(248,248,246,0.4)" }}
-                    >
-                      {smartAddress
-                        ? `${smartAddress.slice(0, 6)}...${smartAddress.slice(-4)}`
-                        : "Loading..."}
-                    </span>
-                    <Copy
-                      className="w-3 h-3"
-                      style={{ color: "rgba(248,248,246,0.2)" }}
-                    />
-                  </div>
                   <div className="flex items-center gap-2">
                     <ShieldCheck
                       className="w-3.5 h-3.5"
@@ -502,6 +493,9 @@ export default function Dashboard() {
                 chainBalances={evmChainBalances}
                 solanaSource={solanaSource}
                 senderEmail={user?.email?.address || ""}
+                stellarAddress={stellarAddress || undefined}
+                stellarWalletId={stellarWalletId || undefined}
+                stellarBalance={stellarBalance}
               />
             </div>
 
@@ -591,9 +585,13 @@ export default function Dashboard() {
           userId={user?.id || ""}
           userAddress={smartAddress}
           solanaAddress={embeddedSolWallet?.address}
+          stellarAddress={stellarAddress || undefined}
+          stellarWalletId={stellarWalletId || undefined}
+          stellarTrustlineReady={stellarTrustlineReady}
           balance={totalSpendable}
           chainBalances={evmChainBalances}
           solanaSource={solanaSource}
+          stellarBalance={stellarBalance}
           userEmail={user?.email?.address || ""}
           embeddedProvider={wallets.find((w) => w.walletClientType === "privy")}
         />

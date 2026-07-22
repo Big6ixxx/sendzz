@@ -14,14 +14,14 @@
  */
 
 import { truncateAddress } from '@/lib/utils';
-import { ArrowRight, Copy } from 'lucide-react';
+import { ArrowRight, Copy, Loader2 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { ChainLogo } from './ChainLogo';
 
-type Rail = 'evm' | 'solana';
+type Rail = 'evm' | 'solana' | 'stellar';
 
 // EVM networks the single smart-account address can receive on (shared CREATE2 address).
 const EVM_NETWORKS: { key: string; name: string }[] = [
@@ -36,12 +36,54 @@ const EVM_NETWORKS: { key: string; name: string }[] = [
 interface ReceiveCryptoFlowProps {
   evmAddress: string;
   solanaAddress?: string;
+  stellarAddress?: string;
+  stellarTrustlineReady?: boolean;
+  userId?: string;
+  userEmail?: string;
 }
 
-export function ReceiveCryptoFlow({ evmAddress, solanaAddress }: ReceiveCryptoFlowProps) {
+export function ReceiveCryptoFlow({
+  evmAddress,
+  solanaAddress,
+  stellarAddress,
+  stellarTrustlineReady,
+  userId,
+  userEmail,
+}: ReceiveCryptoFlowProps) {
   const [rail, setRail] = useState<Rail>('evm');
+  const [localTrustlineReady, setLocalTrustlineReady] = useState<boolean | undefined>(undefined);
+  const [isRetrying, setIsRetrying] = useState(false);
 
-  const address = rail === 'evm' ? evmAddress : solanaAddress ?? '';
+  const isTrustlineReady = localTrustlineReady !== undefined ? localTrustlineReady : stellarTrustlineReady;
+
+  const address = rail === 'evm' ? evmAddress : rail === 'solana' ? solanaAddress ?? '' : stellarAddress ?? '';
+
+  const handleRetry = async () => {
+    if (!userId || !userEmail) return;
+    setIsRetrying(true);
+    try {
+      const res = await fetch('/api/stellar/provision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ privyUserId: userId, email: userEmail }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.trustlineReady) {
+          setLocalTrustlineReady(true);
+          toast.success("USDC trustline configured successfully!");
+        } else {
+          console.warn("Trustline setup is still pending on-chain.");
+        }
+      } else {
+        console.error("Retrying setup failed.");
+      }
+    } catch (err) {
+      console.error("Stellar setup error:", err);
+    } finally {
+      setIsRetrying(false);
+    }
+  };
 
   const copy = () => {
     if (!address) return;
@@ -75,6 +117,17 @@ export function ReceiveCryptoFlow({ evmAddress, solanaAddress }: ReceiveCryptoFl
         >
           Solana
         </button>
+        <button
+          onClick={() => setRail('stellar')}
+          className={
+            'flex-1 py-2.5 text-[10px] font-bold uppercase tracking-[0.2em] rounded-xl transition-all ' +
+            (rail === 'stellar'
+              ? 'bg-white/10 text-brand-secondary'
+              : 'text-brand-secondary/40 hover:text-brand-secondary/60')
+          }
+        >
+          Stellar
+        </button>
       </div>
 
       {/* Instruction banner */}
@@ -85,7 +138,9 @@ export function ReceiveCryptoFlow({ evmAddress, solanaAddress }: ReceiveCryptoFl
         <p className="text-sm font-bold" style={{ color: '#00e87a' }}>
           {rail === 'evm'
             ? 'Send USDC on any of these networks'
-            : 'Send USDC on Solana'}
+            : rail === 'solana'
+            ? 'Send USDC on Solana'
+            : 'Send USDC on Stellar'}
         </p>
         <p className="text-[11px] mt-0.5" style={{ color: 'rgba(248,248,246,0.4)' }}>
           It appears in your balance automatically — no bridging needed.
@@ -98,6 +153,43 @@ export function ReceiveCryptoFlow({ evmAddress, solanaAddress }: ReceiveCryptoFl
           style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(248,248,246,0.5)' }}
         >
           Your Solana wallet is still being set up. Please try again in a moment.
+        </div>
+      ) : rail === 'stellar' && !stellarAddress ? (
+        <div
+          className="p-6 rounded-3xl text-center text-sm"
+          style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(248,248,246,0.5)' }}
+        >
+          Your Stellar wallet is still being set up. Please try again in a moment.
+        </div>
+      ) : rail === 'stellar' && !isTrustlineReady ? (
+        <div
+          className="p-6 rounded-3xl text-center text-sm space-y-4"
+          style={{ background: 'rgba(239,68,68,0.03)', border: '1px solid rgba(239,68,68,0.2)', color: '#f87171' }}
+        >
+          <p className="font-bold text-base">⚠️ Stellar USDC Deposits Disabled</p>
+          <p className="text-xs leading-relaxed text-red-300">
+            Your Stellar wallet's USDC trustline setup is currently pending on-chain. To protect your assets, deposits have been temporarily disabled.
+          </p>
+          
+          <button
+            onClick={handleRetry}
+            disabled={isRetrying}
+            className="flex items-center gap-1.5 mx-auto text-xs font-bold uppercase tracking-widest py-2.5 px-5 rounded-xl transition-all disabled:opacity-50 hover:bg-red-500/10"
+            style={{ background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)' }}
+          >
+            {isRetrying ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Retrying Setup...
+              </>
+            ) : (
+              'Retry Trustline Setup'
+            )}
+          </button>
+          
+          <p className="text-[11px]" style={{ color: 'rgba(248,248,246,0.4)' }}>
+            If retrying fails, please contact support to resolve this issue.
+          </p>
         </div>
       ) : (
         <>
@@ -160,7 +252,9 @@ export function ReceiveCryptoFlow({ evmAddress, solanaAddress }: ReceiveCryptoFl
               <strong>Only send USDC</strong>
               {rail === 'evm'
                 ? ' on one of the networks above. '
-                : ' on the Solana network. '}
+                : rail === 'solana'
+                ? ' on the Solana network. '
+                : ' on the Stellar network. '}
               Sending other tokens or using an unsupported network may result in permanent loss.
             </p>
           </div>

@@ -91,19 +91,28 @@ export function useActivities(userEmail: string, userId: string) {
             updatedAt: w.updated_at ?? undefined,
           };
         }),
-        ...(data.bridges || []).map((b) => ({
-          id: b.id,
-          type: 'bridge' as ActivityType,
-          amount: b.amount,
-          status: b.attestation_status,
-          timestamp: b.created_at,
-          details: `From: ${b.source_chain.toUpperCase()}`,
-          asset: 'USDC',
-          txHash: b.burn_tx_hash,
-          sourceChain: b.source_chain,
-          destChain: b.dest_chain ?? undefined,
-          mintTxHash: b.mint_tx_hash || undefined,
-        })),
+        ...(data.bridges || []).map((b) => {
+          const srcName = b.source_chain.charAt(0).toUpperCase() + b.source_chain.slice(1).toLowerCase();
+          // Map DB attestation_status to a user-facing status
+          const status = b.attestation_status === 'complete'
+            ? 'complete'
+            : b.attestation_status === 'pending_confirmations'
+              ? 'confirming'  // almost ready — waiting on block finality
+              : 'pending';
+          return {
+            id: b.id,
+            type: 'bridge' as ActivityType,
+            amount: b.amount,
+            status,
+            timestamp: b.created_at,
+            details: `From: ${srcName}`,
+            asset: 'USDC',
+            txHash: b.burn_tx_hash,
+            sourceChain: b.source_chain,
+            destChain: b.dest_chain ?? undefined,
+            mintTxHash: b.mint_tx_hash || undefined,
+          };
+        }),
       ];
 
       return unified;

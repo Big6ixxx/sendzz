@@ -13,10 +13,21 @@ import {
   optimism,
   polygon,
 } from 'viem/chains';
-import { ReactNode, useState } from 'react';
+import { ReactNode, useState, useEffect } from 'react';
 import { BalanceVisibilityProvider } from '@/components/providers/BalanceVisibilityProvider';
 
 export function Providers({ children }: { children: ReactNode }) {
+  useEffect(() => {
+    if ('serviceWorker' in navigator && typeof window !== 'undefined') {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker
+          .register('/sw.js')
+          .then((reg) => console.log('[PWA] Service Worker registered with scope:', reg.scope))
+          .catch((err) => console.error('[PWA] Service Worker registration failed:', err));
+      });
+    }
+  }, []);
+
   const [queryClient] = useState(
     () =>
       new QueryClient({

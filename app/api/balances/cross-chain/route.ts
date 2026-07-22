@@ -88,12 +88,51 @@ function isValidSolanaAddress(addr: string): boolean {
   }
 }
 
+async function withTimeout<T>(promise: Promise<T>, ms: number, defaultValue: T): Promise<T> {
+  let timeoutId: NodeJS.Timeout;
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timeoutId = setTimeout(() => resolve(defaultValue), ms);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    clearTimeout(timeoutId!);
+  }
+}
+
 export async function GET(req: NextRequest) {
   const address = req.nextUrl.searchParams.get('address');
-  const solanaAddress = req.nextUrl.searchParams.get('solanaAddress');
+  const paramSol = req.nextUrl.searchParams.get('solanaAddress');
+  const paramStellar = req.nextUrl.searchParams.get('stellarAddress');
 
   if (!address || !/^0x[0-9a-fA-F]{40}$/.test(address)) {
     return NextResponse.json({ error: 'Invalid EVM address' }, { status: 400 });
+  }
+
+  let solanaAddressToUse = (paramSol && paramSol !== 'undefined') ? paramSol : undefined;
+  let stellarAddressToUse = (paramStellar && paramStellar !== 'undefined') ? paramStellar : undefined;
+
+  // Fallback to database lookup if Solana or Stellar addresses are missing from params
+  if (!solanaAddressToUse || !stellarAddressToUse) {
+    try {
+      const { supabaseAdmin } = await import('@/lib/supabase/adminClient');
+      const { data } = await supabaseAdmin
+        .from('users')
+        .select('solana_address, stellar_address')
+        .eq('smart_account_address', address)
+        .maybeSingle();
+
+      if (data) {
+        if (!solanaAddressToUse && data.solana_address) {
+          solanaAddressToUse = data.solana_address;
+        }
+        if (!stellarAddressToUse && data.stellar_address) {
+          stellarAddressToUse = data.stellar_address;
+        }
+      }
+    } catch (err) {
+      console.error('[API Cross-chain balances] Supabase lookup error:', err);
+    }
   }
 
   // Portfolio scope (`?all=1`) scans every supported chain — including Base — and
@@ -107,18 +146,22 @@ export async function GET(req: NextRequest) {
 
   const clients = getEvmClients();
 
-  // Scan all selected EVM chains in parallel
+  // Scan all selected EVM chains in parallel, capped at 2.5 seconds timeout
   const evmPromises = evmChains.map(async (chain) => {
     try {
       const client = clients[chain];
       const usdcAddress = USDC_ADDRESSES[chain];
 
-      const balance = await client.readContract({
-        address: usdcAddress as `0x${string}`,
-        abi: BALANCE_ABI,
-        functionName: 'balanceOf',
-        args: [address as `0x${string}`],
-      });
+      const balance = await withTimeout(
+        client.readContract({
+          address: usdcAddress as `0x${string}`,
+          abi: BALANCE_ABI,
+          functionName: 'balanceOf',
+          args: [address as `0x${string}`],
+        }),
+        2500,
+        0n
+      );
 
       const formatted = (Number(balance) / 1_000_000).toString();
       return { chain, balance: formatted, hasBalance: Number(balance) > 0 };
@@ -127,28 +170,56 @@ export async function GET(req: NextRequest) {
     }
   });
 
-  // Scan Solana if address provided and valid
-  const solanaPromise = (solanaAddress && isValidSolanaAddress(solanaAddress))
+  // Scan Solana if address provided and valid, capped at 2.5 seconds timeout
+  const solanaPromise = (solanaAddressToUse && isValidSolanaAddress(solanaAddressToUse))
     ? (async () => {
-        const bal = await getSolanaUsdcBalance(solanaAddress);
-        return {
-          chain: 'solana' as const,
-          balance: bal.toString(),
-          hasBalance: bal > 0,
-        };
+        try {
+          const bal = await withTimeout(getSolanaUsdcBalance(solanaAddressToUse), 2500, 0);
+          return {
+            chain: 'solana' as const,
+            balance: bal.toString(),
+            hasBalance: bal > 0,
+          };
+        } catch {
+          return null;
+        }
       })()
     : Promise.resolve(null);
 
-  const [evmResults, solanaResult] = await Promise.all([
+  // Scan Stellar if address provided, capped at 2.5 seconds timeout
+  const stellarPromise = (stellarAddressToUse && stellarAddressToUse.startsWith('G'))
+    ? (async () => {
+        try {
+          const { getStellarUsdcBalance } = await import('@/lib/stellar/transactions');
+          const bal = await withTimeout(getStellarUsdcBalance(stellarAddressToUse), 2500, '0');
+          const balance = parseFloat(bal);
+          return {
+            chain: 'stellar' as const,
+            balance: bal,
+            hasBalance: balance > 0,
+          };
+        } catch {
+          return null;
+        }
+      })()
+    : Promise.resolve(null);
+
+  const [evmResults, solanaResult, stellarResult] = await Promise.all([
     Promise.all(evmPromises),
     solanaPromise,
+    stellarPromise,
   ]);
 
   const results = includeAll
-    ? [...evmResults, ...(solanaResult ? [solanaResult] : [])]
+    ? [
+        ...evmResults,
+        ...(solanaResult ? [solanaResult] : []),
+        ...(stellarResult ? [stellarResult] : []),
+      ]
     : [
         ...evmResults.filter((r) => r.hasBalance),
         ...(solanaResult?.hasBalance ? [solanaResult] : []),
+        ...(stellarResult?.hasBalance ? [stellarResult] : []),
       ];
 
   return NextResponse.json(results);

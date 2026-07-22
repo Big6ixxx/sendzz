@@ -91,6 +91,7 @@ export function TwoFactorModal({
       }, 100);
     } else {
       if (timerRef.current) clearInterval(timerRef.current);
+      setCode("");
     }
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);

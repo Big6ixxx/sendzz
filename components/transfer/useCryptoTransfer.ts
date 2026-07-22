@@ -1,6 +1,11 @@
-import { useState, useEffect } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { ConnectedWallet } from "@privy-io/react-auth";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
+import { ConnectedWallet, usePrivy, useSigners } from "@privy-io/react-auth";
+import {
+  useSignTransaction,
+  useWallets as useSolanaWallets,
+} from '@privy-io/react-auth/solana';
+import { Connection } from '@solana/web3.js';
 import { executeCircleGaslessTransfer } from "@/lib/web3/circle-actions";
 import { bridgeAndDeliver, consolidateFundsToChain } from "@/lib/web3/bridge-actions";
 import { toast } from "sonner";
@@ -18,7 +23,7 @@ import { isAddress } from "viem";
 
 export interface CrossChainSendInfo {
   sourceChain: SupportedChain;
-  destChain: SupportedChain;
+  destChain: SupportedChain | 'stellar' | 'solana';
   amount: string;
   recipient: string;
   /** When true, funds are gathered onto Base (from EVM chains + Solana) before delivery. */
@@ -35,6 +40,8 @@ interface UseCryptoTransferProps {
   solanaSource?: SolanaSource;
 }
 
+
+
 export function useCryptoTransfer({
   smartAddress,
   embeddedProvider,
@@ -44,9 +51,11 @@ export function useCryptoTransfer({
 }: UseCryptoTransferProps) {
   const [recipientAddress, setRecipientAddress] = useState("");
   const [amount, setAmount] = useState("");
-  const [selectedChain, setSelectedChain] = useState<SupportedChain>("base");
+  const [selectedChain, setSelectedChain] = useState<SupportedChain | 'stellar' | 'solana'>("base");
+  const [memo, setMemo] = useState("");
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string>("");
+  const [isSettingUpStellar, setIsSettingUpStellar] = useState(false);
   // Cross-chain confirmation: when set, the recipient is on a chain the user has no
   // (or insufficient) funds on, so the send must bridge first — surfaced via a modal.
   const [bridgeConfirm, setBridgeConfirm] = useState<CrossChainSendInfo | null>(null);
@@ -63,7 +72,127 @@ export function useCryptoTransfer({
   const [totpEnabled, setTotpEnabled] = useState(false);
   const [passkeyEnabled, setPasskeyEnabled] = useState(false);
 
+  const { wallets: solWallets } = useSolanaWallets();
+  const { signTransaction } = useSignTransaction();
+
+  const solanaConnection = useMemo(() => new Connection(
+    process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com',
+    'confirmed'
+  ), []);
+
   const queryClient = useQueryClient();
+  const { user } = usePrivy();
+  const { addSigners } = useSigners();
+  const privyUserId = user?.id;
+
+  // Load Stellar TEE wallet details
+  const { data: stellarWallet } = useQuery({
+    queryKey: ["stellar-wallet", privyUserId],
+    queryFn: async () => {
+      if (!privyUserId || !user?.email?.address) return null;
+      try {
+        const res = await fetch("/api/stellar/provision", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ privyUserId, email: user.email.address }),
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        return {
+          walletId: data.walletId,
+          address: data.address,
+          trustlineReady: data.trustlineReady,
+          signerGranted: data.signerGranted || false,
+        };
+      } catch {
+        return null;
+      }
+    },
+    enabled: !!privyUserId && !!user?.email?.address && selectedChain === 'stellar',
+  });
+
+  const ensureStellarSetup = useCallback(async () => {
+    if (!privyUserId) return null;
+    setIsSettingUpStellar(true);
+    setStatus("Checking Stellar wallet status...");
+    try {
+      // 1. Get signer ID
+      const signerRes = await fetch('/api/stellar/signer-id');
+      if (!signerRes.ok) throw new Error('Could not get signer ID');
+      const { keyQuorumId } = await signerRes.json();
+
+      // 2. Provision (creates wallet if needed)
+      setStatus("Provisioning Stellar wallet in TEE...");
+      const provRes = await fetch('/api/stellar/provision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ privyUserId, email: senderEmail }),
+      });
+      const provData = await provRes.json();
+      if (!provRes.ok) throw new Error(provData.error || 'Provisioning failed');
+
+      const walletAddress = provData.address;
+      const walletId = provData.walletId;
+      const isSignerGranted = provData.signerGranted || false;
+
+      if (!isSignerGranted) {
+        setStatus("Authorizing signing access in Privy TEE...");
+        try {
+          await addSigners({
+            address: walletAddress,
+            signers: [{ signerId: keyQuorumId }],
+          });
+          
+          // Save in database that the signer is now granted
+          const { registerStellarAddress } = await import("@/lib/supabase/users");
+          await registerStellarAddress(senderEmail, walletAddress, walletId, true);
+        } catch (err: unknown) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          if (!errMsg.toLowerCase().includes('duplicate')) {
+            throw err;
+          }
+        }
+      }
+
+      // Provision once more to ensure trustline and active state on-chain
+      setStatus("Activating account & setting trustline...");
+      const finalRes = await fetch('/api/stellar/provision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ privyUserId, email: senderEmail }),
+      });
+      const finalData = await finalRes.json();
+      if (!finalRes.ok) throw new Error(finalData.error || 'Final setup failed');
+
+      const info = {
+        walletId: finalData.walletId || walletId,
+        address: finalData.address || walletAddress,
+        trustlineReady: finalData.trustlineReady || false,
+        signerGranted: true,
+      };
+      
+      queryClient.invalidateQueries({ queryKey: ["stellar-wallet", privyUserId] });
+      queryClient.invalidateQueries({ queryKey: ["balance-stellar", info.address] });
+
+      setStatus("");
+      setIsSettingUpStellar(false);
+      return info;
+    } catch (err: unknown) {
+      console.error("Stellar setup error:", err);
+      setStatus("");
+      setIsSettingUpStellar(false);
+      return null;
+    }
+  }, [privyUserId, addSigners, queryClient, senderEmail]);
+
+  // Auto-setup Stellar when selected
+  useEffect(() => {
+    if (selectedChain === "stellar" && privyUserId) {
+      if (!stellarWallet || !stellarWallet.trustlineReady || !stellarWallet.signerGranted) {
+        ensureStellarSetup();
+      }
+    }
+  }, [selectedChain, privyUserId, ensureStellarSetup, stellarWallet]);
 
   // Fetch security preferences
   useEffect(() => {
@@ -85,22 +214,52 @@ export function useCryptoTransfer({
     }
   }, [senderEmail]);
 
-  // Total spendable across EVM chains — the router decides whether each send is a
-  // direct transfer or a bridge, so the whole unified balance is available.
-  const spendableNum = Object.values(chainBalances ?? {}).reduce(
-    (s, n) => s + (n ?? 0),
-    0,
-  );
-  const balance = spendableNum.toFixed(2);
-  const isFetchingBalance = false;
+  // Query balance for Stellar when selected, otherwise sum EVM balances
+  const { data: stellarUsdcBalance = "0.00", isFetching: isFetchingStellarBalance } = useQuery({
+    queryKey: ["balance-stellar", stellarWallet?.address],
+    queryFn: async () => {
+      if (!stellarWallet?.address) return "0.00";
+      const res = await fetch(`/api/stellar/balance?address=${stellarWallet.address}`);
+      if (!res.ok) return "0.00";
+      const data = await res.json();
+      return data.usdc || "0.00";
+    },
+    enabled: selectedChain === "stellar" && !!stellarWallet?.address,
+  });
+
+  const balance = selectedChain === "stellar"
+    ? stellarUsdcBalance
+    : selectedChain === "solana"
+      ? (solanaSource?.balance ?? 0).toFixed(2)
+      : (chainBalances?.[selectedChain as SupportedChain] ?? 0).toFixed(2);
+  const isFetchingBalance = selectedChain === "stellar" ? isFetchingStellarBalance : false;
 
   const handleTransfer = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!amount || !recipientAddress || !embeddedProvider) return;
+    if (!amount || !recipientAddress) return;
 
-    if (!isAddress(recipientAddress)) {
-      toast.error("Invalid recipient wallet address.");
-      return;
+    if (selectedChain === "stellar") {
+      if (!recipientAddress.startsWith("G") || recipientAddress.length !== 56) {
+        toast.error("Invalid Stellar recipient address. It must be a G-address.");
+        return;
+      }
+    } else if (selectedChain === "solana") {
+      try {
+        const { PublicKey } = await import("@solana/web3.js");
+        new PublicKey(recipientAddress);
+      } catch {
+        toast.error("Invalid Solana recipient address.");
+        return;
+      }
+    } else {
+      if (!isAddress(recipientAddress)) {
+        toast.error("Invalid recipient wallet address.");
+        return;
+      }
+      if (!embeddedProvider) {
+        toast.error("Wallet provider not connected.");
+        return;
+      }
     }
 
     setLoading(true);
@@ -132,6 +291,11 @@ export function useCryptoTransfer({
   const proceedAfterAuth = async () => {
     const amt = parseFloat(amount);
 
+    if (selectedChain === "stellar" || selectedChain === "solana") {
+      await executeDirectTransfer();
+      return;
+    }
+
     // User override: pay entirely from one chosen chain.
     if (sourcePref.mode === "single") {
       const c = sourcePref.chain;
@@ -142,19 +306,27 @@ export function useCryptoTransfer({
         setStatus("");
         return;
       }
-      if ((chainBalances?.[c] ?? 0) + 1e-9 < amt) {
-        toast.error(`${CHAIN_NAMES[c]} doesn't hold enough for this send.`);
+      if (c === "stellar") {
+        toast.error("Bridging from Stellar is not supported.");
         setLoading(false);
         setStatus("");
         return;
       }
-      if (c === selectedChain) {
+
+      const evmChain = c as SupportedChain;
+      if ((chainBalances?.[evmChain] ?? 0) + 1e-9 < amt) {
+        toast.error(`${CHAIN_NAMES[evmChain]} doesn't hold enough for this send.`);
+        setLoading(false);
+        setStatus("");
+        return;
+      }
+      if (evmChain === selectedChain) {
         await executeDirectTransfer();
       } else {
         setLoading(false);
         setStatus("");
         setBridgeConfirm({
-          sourceChain: c,
+          sourceChain: evmChain,
           destChain: selectedChain,
           amount,
           recipient: recipientAddress,
@@ -166,8 +338,11 @@ export function useCryptoTransfer({
     // User override: combine chosen networks onto Base, then deliver.
     if (sourcePref.mode === "consolidate") {
       const sum = sourcePref.from.reduce(
-        (s, k) =>
-          s + (k === "solana" ? solanaSource?.balance ?? 0 : chainBalances?.[k] ?? 0),
+        (s, k) => {
+          if (k === "solana") return s + (solanaSource?.balance ?? 0);
+          if (k === "stellar") return s;
+          return s + (chainBalances?.[k] ?? 0);
+        },
         0,
       );
       if (sum + 1e-9 < amt) {
@@ -297,7 +472,7 @@ export function useCryptoTransfer({
           payload: {
             amount: valUsdc,
             recipientEmail: recipientAddress,
-            note: `Crypto transfer on ${CHAIN_NAMES[selectedChain]}`,
+            note: `Crypto transfer on ${selectedChain === "stellar" ? "Stellar" : selectedChain === "solana" ? "Solana" : CHAIN_NAMES[selectedChain]}`,
           },
         }),
       });
@@ -324,12 +499,15 @@ export function useCryptoTransfer({
     queryClient.invalidateQueries({ queryKey: ["portfolio"] });
     queryClient.invalidateQueries({ queryKey: ["cross-chain-balances"] });
     queryClient.invalidateQueries({ queryKey: ["history", senderEmail] });
+    if (stellarWallet?.address) {
+      queryClient.invalidateQueries({ queryKey: ["balance-stellar", stellarWallet.address] });
+    }
   };
 
   const recordSentTransfer = async (
     txHash: string,
     note: string,
-    chain: SupportedChain,
+    chain: SupportedChain | 'stellar' | 'solana',
   ) => {
     const { recordTransfer } = await import("@/lib/supabase/transactions");
     await recordTransfer({
@@ -345,29 +523,129 @@ export function useCryptoTransfer({
 
   // Same-chain send: the recipient is on a chain the user already holds funds on.
   const executeDirectTransfer = async () => {
-    if (!amount || !recipientAddress || !embeddedProvider) return;
+    if (!amount || !recipientAddress) return;
+    if (selectedChain !== "stellar" && selectedChain !== "solana" && !embeddedProvider) {
+      return;
+    }
     setLoading(true);
     setStatus("Requesting signature...");
 
     try {
-      const provider = await embeddedProvider.getEthereumProvider();
-      const txHash = await executeCircleGaslessTransfer(
-        provider,
-        recipientAddress,
-        amount,
-        selectedChain,
-      );
+      let txHash: string;
+
+      if (selectedChain === "stellar") {
+        let currentWallet = stellarWallet;
+        if (!currentWallet || !currentWallet.trustlineReady || !currentWallet.signerGranted) {
+          const ok = await ensureStellarSetup();
+          if (!ok) {
+            setLoading(false);
+            return;
+          }
+          currentWallet = ok;
+        }
+
+        setStatus("Submitting Stellar transfer...");
+        const res = await fetch("/api/stellar/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            walletId: currentWallet.walletId,
+            senderAddress: currentWallet.address,
+            recipientAddress,
+            amount,
+            memo: memo || undefined,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || "Stellar transfer failed");
+        }
+        txHash = data.txHash;
+      } else if (selectedChain === "solana") {
+        const solAccount = user?.linkedAccounts.find(
+          (a) =>
+            a.type === 'wallet' &&
+            (a as { walletClientType?: string }).walletClientType === 'privy' &&
+            (a as { chainType?: string }).chainType === 'solana',
+        );
+        const solAddress =
+          solAccount && 'address' in solAccount
+            ? (solAccount as { address: string }).address
+            : undefined;
+        const solWallet = solWallets.find((w) => w.address === solAddress) ?? null;
+
+        if (!solAddress || !solWallet) {
+          throw new Error("No Solana wallet found. Please link a Solana wallet first.");
+        }
+
+        setStatus("Building Solana transfer transaction...");
+        const { buildSolanaUsdcTransferTx } = await import("@/lib/web3/solana-bridge");
+        const tx = await buildSolanaUsdcTransferTx({
+          connection: solanaConnection,
+          senderAddress: solAddress,
+          recipientAddress,
+          amount,
+        });
+
+        setStatus("Confirming on Solana...");
+        const { signedTransaction } = await signTransaction({
+          transaction: tx.serialize({ requireAllSignatures: false }),
+          wallet: solWallet,
+        });
+
+        const sig = await solanaConnection.sendRawTransaction(signedTransaction, {
+          skipPreflight: false,
+          preflightCommitment: 'confirmed',
+        });
+        const bh = await solanaConnection.getLatestBlockhash();
+        await solanaConnection.confirmTransaction(
+          {
+            signature: sig,
+            blockhash: bh.blockhash,
+            lastValidBlockHeight: bh.lastValidBlockHeight,
+          },
+          'confirmed',
+        );
+
+        txHash = sig;
+      } else {
+        if (!embeddedProvider) throw new Error("Wallet provider not connected.");
+        const provider = await embeddedProvider.getEthereumProvider();
+        txHash = await executeCircleGaslessTransfer(
+          provider,
+          recipientAddress,
+          amount,
+          selectedChain,
+        );
+      }
 
       toast.success("Transfer completed!");
       setStatus("");
-      await recordSentTransfer(
-        txHash as string,
-        `Crypto transfer on ${CHAIN_NAMES[selectedChain]}`,
-        selectedChain,
-      );
+
+      if (selectedChain === "stellar") {
+        await recordSentTransfer(
+          txHash,
+          memo ? memo : `Crypto transfer on Stellar`,
+          'stellar'
+        );
+      } else if (selectedChain === "solana") {
+        await recordSentTransfer(
+          txHash,
+          memo ? memo : `Crypto transfer on Solana`,
+          'solana'
+        );
+      } else {
+        await recordSentTransfer(
+          txHash as string,
+          `Crypto transfer on ${CHAIN_NAMES[selectedChain]}`,
+          selectedChain,
+        );
+      }
+      
       invalidateBalances();
       setAmount("");
       setRecipientAddress("");
+      setMemo("");
       setSourcePref(AUTO_SOURCE);
     } catch (err) {
       console.error("[Crypto Transfer] Fatal Error:", err);
@@ -422,7 +700,7 @@ export function useCryptoTransfer({
         } else {
           const { burnTxHash, mintTxHash } = await bridgeAndDeliver(embeddedProvider, {
             sourceChain: "base",
-            destChain: info.destChain,
+            destChain: info.destChain as SupportedChain,
             amountUSDC: info.amount,
             recipient: info.recipient,
             onStatus: setStatus,
@@ -434,7 +712,7 @@ export function useCryptoTransfer({
         setStatus(`Bridging from ${CHAIN_NAMES[info.sourceChain]}…`);
         const { burnTxHash, mintTxHash } = await bridgeAndDeliver(embeddedProvider, {
           sourceChain: info.sourceChain,
-          destChain: info.destChain,
+          destChain: info.destChain as SupportedChain,
           amountUSDC: info.amount,
           recipient: info.recipient,
           onStatus: setStatus,
@@ -445,7 +723,7 @@ export function useCryptoTransfer({
       setStatus("");
       await recordSentTransfer(
         txHash,
-        `Cross-chain transfer to ${CHAIN_NAMES[info.destChain]}`,
+        `Cross-chain transfer to ${info.destChain === "stellar" ? "Stellar" : info.destChain === "solana" ? "Solana" : CHAIN_NAMES[info.destChain as SupportedChain]}`,
         info.destChain,
       );
       invalidateBalances();
@@ -476,12 +754,15 @@ export function useCryptoTransfer({
     setAmount,
     selectedChain,
     setSelectedChain,
+    memo,
+    setMemo,
     loading,
     status,
     balance,
     isFetchingBalance,
     isOverBalance,
     isZeroBalance,
+    isSettingUpStellar,
     handleTransfer,
     twoFaModalOpen,
     setTwoFaModalOpen,

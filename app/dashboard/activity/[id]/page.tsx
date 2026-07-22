@@ -1,13 +1,26 @@
 'use client';
 
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useState, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
+import { DashboardPageHeader } from '@/components/layout/DashboardPageHeader';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
+import {
+  useSignTransaction,
+  useWallets as useSolanaWallets,
+} from '@privy-io/react-auth/solana';
+import { Connection, PublicKey, Transaction } from '@solana/web3.js';
+import { buildReceiveMessageOnSolanaTx } from '@/lib/circle/solana-gateway';
+import bs58 from 'bs58';
 import Link from 'next/link';
+
+const SOLANA_RPC =
+  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com';
 import { format } from 'date-fns';
 import {
   ArrowDownLeft,
   ArrowLeft,
   ArrowUpRight,
+  Bell,
   Check,
   ChevronDown,
   Clock,
@@ -18,16 +31,23 @@ import {
   MessageSquare,
   Network,
   RefreshCw,
+  ShieldAlert,
   Wallet,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useActivities } from '@/hooks/useActivities';
+import { useQueryClient } from '@tanstack/react-query';
 import { CHAIN_META } from '@/components/deposit-withdraw/deposit-shared';
 import { ReceiptActions } from '@/components/receipt/ReceiptActions';
 import { activityToReceiptData } from '@/lib/receipt/utils';
 import { getOffRampRate } from '@/lib/actions/ramp';
 import { executeReceiveMessage } from '@/lib/web3/bridge-actions';
 import type { ActivityType } from '@/components/HistoryModule';
+
+const isPlaceholder = (h: string | null | undefined) =>
+  !h || h.trim() === '' || h.toLowerCase() === 'n/a' || h === '0x0000000000000000000000000000000000000000000000000000000000000000';
+import { CCTP_DOMAINS, type SupportedChain } from '@/lib/circle/gateway';
+import { classifyAppError } from '@/lib/errors/appErrors';
 
 const BASE_EXPLORER = 'https://basescan.org/tx/';
 
@@ -98,6 +118,7 @@ const TYPE_META: Record<
   deposit: { label: 'Deposit', color: '#3b82f6', Icon: Wallet },
   withdrawal: { label: 'Withdrawal', color: '#fb923c', Icon: Landmark },
   bridge: { label: 'Bridge Transfer', color: '#60a5fa', Icon: RefreshCw },
+  security: { label: 'Security Alert', color: '#f59e0b', Icon: ShieldAlert },
 };
 
 const SUCCESS_STATUSES = ['settled', 'completed', 'confirmed', 'success', 'complete'];
@@ -107,18 +128,165 @@ export default function ActivityDetailPage({
 }: {
   params: Promise<{ id: string }> | { id: string };
 }) {
+  const router = useRouter();
   const isPromise =
     params && typeof (params as Promise<{ id: string }>).then === 'function';
   const { id } = isPromise ? use(params as Promise<{ id: string }>) : (params as { id: string });
 
   const { user } = usePrivy();
   const { wallets } = useWallets();
+  const { wallets: solanaWallets } = useSolanaWallets();
+  const { signTransaction } = useSignTransaction();
   const userEmail = user?.email?.address || '';
+  const queryClient = useQueryClient();
 
-  const { data: activities, isLoading } = useActivities(userEmail, user?.id || '');
-  const activity = activities?.find((a) => a.id === id) ?? null;
+  const { data: activities, isLoading, refetch } = useActivities(userEmail, user?.id || '');
+
+  const [notificationDetail, setNotificationDetail] = useState<{
+    id: string;
+    title: string;
+    body: string;
+    type: string;
+    created_at: string;
+    data?: Record<string, unknown> | null;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!userEmail || !id) return;
+    let active = true;
+    fetch(`/api/notifications?email=${encodeURIComponent(userEmail)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!active) return;
+        const notifs = (data.notifications || []) as any[];
+        const found = notifs.find((n) => n.id === id);
+        if (found) {
+          setNotificationDetail(found);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [userEmail, id]);
+
+  const activity = useMemo(() => {
+    if (!id) return null;
+    const lower = id.toLowerCase();
+
+    // 1. Try to find direct match in user activities by id, orderId, or txHash
+    let direct = activities?.find(
+      (a) =>
+        a.id === id ||
+        a.id.toLowerCase() === lower ||
+        a.providerOrderId === id ||
+        (a.txHash && a.txHash.toLowerCase() === lower)
+    );
+    if (direct) return direct;
+
+    // 2. If notificationDetail has a target transactionId, search activities with that
+    const targetTxId = (notificationDetail?.data?.transactionId ||
+      notificationDetail?.data?.id ||
+      notificationDetail?.data?.txId ||
+      notificationDetail?.data?.referenceId) as string | undefined;
+
+    if (targetTxId && activities) {
+      const targetLower = targetTxId.toLowerCase();
+      direct = activities.find(
+        (a) =>
+          a.id === targetTxId ||
+          a.id.toLowerCase() === targetLower ||
+          a.providerOrderId === targetTxId ||
+          (a.txHash && a.txHash.toLowerCase() === targetLower)
+      );
+      if (direct) return direct;
+    }
+
+    // 3. Smart Fallback Match: Find matching transaction in activities table by amount, type & timestamp
+    if (notificationDetail && activities && activities.length > 0) {
+      const notifData = notificationDetail.data || {};
+      const notifAmount = Number(notifData.amount || 0);
+      const notifType = notificationDetail.type; // 'bridge', 'withdrawal', 'deposit', 'transfer'
+      const notifTime = new Date(notificationDetail.created_at).getTime();
+
+      const dbMatch = activities.find((a) => {
+        const typeMatch =
+          (notifType === 'bridge' && a.type === 'bridge') ||
+          (notifType === 'withdrawal' && a.type === 'withdrawal') ||
+          (notifType === 'deposit' && a.type === 'deposit') ||
+          (notifType === 'transfer' && (a.type === 'sent' || a.type === 'received'));
+
+        if (!typeMatch) return false;
+
+        // Compare amounts if present in notification data
+        if (notifAmount > 0 && Math.abs(a.amount - notifAmount) > 0.01) {
+          return false;
+        }
+
+        // Compare source chain if available
+        if (notifData.src && a.sourceChain && a.sourceChain.toLowerCase() !== (notifData.src as string).toLowerCase()) {
+          return false;
+        }
+
+        // Match within 15 minutes of creation timestamp
+        const aTime = new Date(a.timestamp).getTime();
+        return Math.abs(aTime - notifTime) < 15 * 60 * 1000;
+      });
+
+      if (dbMatch) return dbMatch;
+    }
+
+    // 4. Fallback for non-transaction notifications: format details & status cleanly matching real activity format
+    if (notificationDetail) {
+      const d = notificationDetail.data || {};
+      const typeStr = notificationDetail.type as string;
+      const isSecurity = typeStr === 'security';
+      const type: ActivityType =
+        isSecurity ? 'security' :
+        typeStr === 'withdrawal' ? 'withdrawal' :
+        typeStr === 'deposit' ? 'deposit' :
+        typeStr === 'bridge' ? 'bridge' :
+        typeStr === 'transfer' ? 'sent' : 'received';
+
+      const amount = Number(d.amount || 0);
+      const fiatAmount = d.fiatAmount ? Number(d.fiatAmount) : undefined;
+      const fiatCurrency = (d.fiatCurrency || 'NGN') as string;
+
+      let details = notificationDetail.body;
+      if (type === 'bridge' && (d.src || d.sourceChain)) {
+        const srcChain = (d.src || d.sourceChain) as string;
+        const srcName = CHAIN_META[srcChain.toLowerCase()]?.name ?? (srcChain.charAt(0).toUpperCase() + srcChain.slice(1).toLowerCase());
+        details = `From: ${srcName}`;
+      } else if (type === 'withdrawal' && d.bankMasked) {
+        details = `To: ${d.bankMasked}`;
+      } else if (type === 'sent' || type === 'received') {
+        details = d.sender ? `From: ${d.sender}` : d.recipient ? `To: ${d.recipient}` : details;
+      }
+
+      return {
+        id: (d.transactionId || d.referenceId || d.id || notificationDetail.id) as string,
+        type,
+        amount,
+        status: 'complete',
+        timestamp: notificationDetail.created_at,
+        details,
+        note: notificationDetail.title,
+        asset: 'USDC',
+        txHash: (d.txHash || d.burnTxHash) as string | undefined,
+        mintTxHash: d.mintTxHash as string | undefined,
+        fiatAmount,
+        fiatCurrency,
+        sourceChain: (d.src || d.sourceChain) as string | undefined,
+        destChain: (d.dest || d.destChain) as string | undefined,
+        providerOrderId: (d.providerOrderId || d.orderId) as string | undefined,
+      };
+    }
+
+    return null;
+  }, [activities, id, notificationDetail]);
 
   const [isClaiming, setIsClaiming] = useState(false);
+  const [claimSuccess, setClaimSuccess] = useState(false);
   const [estimatedFiatRate, setEstimatedFiatRate] = useState<number | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -147,37 +315,200 @@ export default function ActivityDetailPage({
         return;
       }
       const sourceChain = activity.sourceChain?.toLowerCase();
-      const domain = sourceChain === 'solana' ? 5 : sourceChain === 'stellar' ? 27 : null;
+      const destChain = activity.destChain?.toLowerCase() as SupportedChain;
+
+      let domain: number | null = null;
+      if (sourceChain === 'solana') domain = 5;
+      else if (sourceChain === 'stellar') domain = 27;
+      else if (sourceChain && sourceChain in CCTP_DOMAINS) {
+        domain = CCTP_DOMAINS[sourceChain as keyof typeof CCTP_DOMAINS];
+      }
       if (domain === null) {
-        toast.error('Manual claim is only supported for Stellar and Solana bridges.');
+        toast.error('Invalid bridge source chain.');
+        setIsClaiming(false);
         return;
       }
-      toast.info('Fetching CCTP attestation from Circle…');
+
+      // ── Fast path: already minted ────────────────────────────────────────
+      if (activity.mintTxHash) {
+        toast.info('This bridge was already completed. Refreshing status...');
+        await fetch('/api/bridge/complete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ burnTxHash: activity.txHash, mintTxHash: activity.mintTxHash }),
+        }).catch(() => {});
+        setClaimSuccess(true);
+        queryClient.invalidateQueries({ queryKey: ['history'] });
+        refetch();
+        return;
+      }
+
+      // ── Fetch attestation (DB-cached by status route) ────────────────────
+      toast.info('Checking bridge status...');
       const res = await fetch(
-        `https://iris-api.circle.com/v2/messages/${domain}?transactionHash=${activity.txHash}`,
+        `/api/bridge/status?txHash=${activity.txHash}&sourceChain=${sourceChain}`,
       );
-      if (!res.ok) throw new Error(`Circle API error: ${res.statusText}`);
+      if (!res.ok) throw new Error(`Status API error: ${res.statusText}`);
       const data = await res.json();
-      const message = data.messages?.[0];
-      if (!message || message.status !== 'complete') {
-        toast.error('Attestation still pending. Try again in 1–2 minutes.');
+
+      if (!data || data.status === 'not_found') {
+        toast.error('Bridge transaction not found on Circle. Please check the transaction hash.');
+        setIsClaiming(false);
         return;
       }
-      toast.info('Requesting signature to claim on Base…');
-      const mintTxHash = await executeReceiveMessage(
-        embeddedWallet,
-        message.message,
-        message.attestation,
-      );
+      if (data.status === 'pending' || data.status === 'pending_confirmations') {
+        const chainDisplay = sourceChain
+          ? sourceChain.charAt(0).toUpperCase() + sourceChain.slice(1)
+          : 'source chain';
+        const isPendingConf = data.status === 'pending_confirmations';
+        const wait = isPendingConf ? '1–2 minutes' : '2–5 minutes';
+        const detail = isPendingConf
+          ? 'Block finality almost reached — nearly there.'
+          : 'Waiting for block confirmations on the source chain.';
+        toast.error(`${chainDisplay} bridge is still being verified. ${detail} Try again in ${wait}.`, { duration: 8000 });
+        setIsClaiming(false);
+        return;
+      }
+      if (data.status !== 'complete') {
+        toast.error('Bridge is still processing. Please try again shortly.');
+        setIsClaiming(false);
+        return;
+      }
+
+      let mintTxHash = data.mintTxHash || null;
+
+      const isEvmDest = destChain && destChain in CCTP_DOMAINS;
+      if (isEvmDest) {
+        if (!mintTxHash) {
+          if (!data.messageBytes || !data.attestation) {
+            throw new Error('Attestation data incomplete. Please try again in 30 seconds.');
+          }
+          // Check if Circle's relayer already minted before trying manually
+          toast.info('Finalising bridge on destination chain...');
+          await new Promise(r => setTimeout(r, 3000));
+          const recheckRes = await fetch(
+            `/api/bridge/status?txHash=${activity.txHash}&sourceChain=${sourceChain}`,
+          );
+          const recheckData = await recheckRes.json().catch(() => ({}));
+          if (recheckData.mintTxHash) {
+            mintTxHash = recheckData.mintTxHash;
+          } else {
+            // Relayer hasn't minted — submit receiveMessage ourselves
+            mintTxHash = await executeReceiveMessage(
+              embeddedWallet,
+              data.messageBytes,
+              data.attestation,
+              destChain
+            );
+          }
+        }
+      } else if ((destChain as string) === 'stellar') {
+        if (!mintTxHash) {
+          toast.info('Claiming USDC on Stellar (gas paid by sponsor)...');
+          const claimRes = await fetch('/api/stellar/claim', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ txHash: activity.txHash, sourceChain }),
+          });
+          if (!claimRes.ok) {
+            const claimErr = await claimRes.json();
+            throw new Error(claimErr.error || 'Failed to claim on Stellar');
+          }
+          mintTxHash = (await claimRes.json()).txHash;
+        }
+      } else if ((destChain as string) === 'solana') {
+        if (!mintTxHash) {
+          toast.info('Claiming USDC on Solana...');
+          const solAccount = user?.linkedAccounts.find(
+            (a) =>
+              a.type === 'wallet' &&
+              (a as { walletClientType?: string }).walletClientType === 'privy' &&
+              (a as { chainType?: string }).chainType === 'solana',
+          );
+          const solAddress =
+            solAccount && 'address' in solAccount
+              ? (solAccount as { address: string }).address
+              : undefined;
+          const solWallet = solAddress ? solanaWallets.find((w) => w.address === solAddress) : null;
+          if (!solWallet || !solAddress) throw new Error('Solana wallet not found.');
+
+          const walletPubkey = new PublicKey(solAddress);
+          const solConn = new Connection(SOLANA_RPC, 'confirmed');
+          const { transaction } = await buildReceiveMessageOnSolanaTx(solConn, walletPubkey, data.messageBytes!, data.attestation!);
+          const txBase64 = transaction.serialize({ requireAllSignatures: false, verifySignatures: false }).toString('base64');
+          const sponsorRes = await fetch('/api/bridge/solana-sponsor', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transaction: txBase64 }),
+          });
+          if (!sponsorRes.ok) {
+            const errData = await sponsorRes.json().catch(() => ({}));
+            throw new Error(errData.error || 'Failed to sponsor Solana claim transaction');
+          }
+          const { sponsoredTransaction } = await sponsorRes.json();
+          const sponsoredTx = Transaction.from(Buffer.from(sponsoredTransaction, 'base64'));
+          toast.info('Approve the popup to claim USDC on Solana.');
+          const { signedTransaction: signedBytes } = await signTransaction({ transaction: sponsoredTx.serialize({ requireAllSignatures: false }), wallet: solWallet });
+          const signature = await solConn.sendRawTransaction(signedBytes, { skipPreflight: false, preflightCommitment: 'confirmed' });
+          const lb = await solConn.getLatestBlockhash();
+          await solConn.confirmTransaction({ signature, blockhash: lb.blockhash, lastValidBlockHeight: lb.lastValidBlockHeight }, 'confirmed');
+          mintTxHash = signature;
+        }
+      }
+
       await fetch('/api/bridge/complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ burnTxHash: activity.txHash, mintTxHash }),
-      });
-      toast.success('USDC claimed on Base!');
-      window.location.reload();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to claim USDC.');
+      }).catch(() => {});
+
+      toast.success('Bridge complete! USDC has arrived on the destination chain.');
+      setClaimSuccess(true);
+      // Wait briefly then invalidate so the Mint Tx link replaces the pill
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['history'] });
+        queryClient.invalidateQueries({ queryKey: ['balance'] });
+        refetch();
+      }, 1500);
+    } catch (err: unknown) {
+      const rawErrMsg = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
+      const alreadyProcessed =
+        rawErrMsg.includes('nonce already used') ||
+        rawErrMsg.includes('message already received') ||
+        rawErrMsg.includes('message already processed');
+
+      if (alreadyProcessed) {
+        // Circle's relayer already minted — re-poll Iris to get the forwardTxHash
+        toast.info('Your USDC has already been delivered. Saving mint hash...');
+        try {
+          const retryRes = await fetch(
+            `/api/bridge/status?txHash=${activity.txHash}&sourceChain=${activity.sourceChain?.toLowerCase()}`,
+          );
+          const retryData = await retryRes.json().catch(() => ({}));
+          const relayedHash = retryData.mintTxHash || null;
+          await fetch('/api/bridge/complete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ burnTxHash: activity.txHash, mintTxHash: relayedHash }),
+          }).catch(() => {});
+        } catch {
+          await fetch('/api/bridge/complete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ burnTxHash: activity.txHash }),
+          }).catch(() => {});
+        }
+        setClaimSuccess(true);
+        queryClient.invalidateQueries({ queryKey: ['history'] });
+        queryClient.invalidateQueries({ queryKey: ['balance'] });
+        refetch();
+      } else {
+        const rawMsg = err instanceof Error ? err.message : String(err);
+        console.error('[Manual Claim Page] Raw error:', rawMsg);
+        // Strip hex blobs for display but always show something useful
+        const displayMsg = rawMsg.replace(/0x[0-9a-fA-F]{20,}/g, '[hex]').slice(0, 200);
+        toast.error(displayMsg || 'Claim failed. Please try again.');
+      }
     } finally {
       setIsClaiming(false);
     }
@@ -206,7 +537,7 @@ export default function ActivityDetailPage({
     );
   }
 
-  const meta = TYPE_META[activity.type];
+  const meta = TYPE_META[activity.type as ActivityType] || { label: 'Activity', color: '#00e87a', Icon: RefreshCw };
   const isSuccess = SUCCESS_STATUSES.includes(activity.status.toLowerCase());
   const color = isSuccess ? '#00e87a' : meta.color;
   const isOutgoing = activity.type === 'sent' || activity.type === 'withdrawal';
@@ -215,7 +546,7 @@ export default function ActivityDetailPage({
   const sourceMeta = activity.sourceChain
     ? CHAIN_META[activity.sourceChain.toLowerCase()]
     : null;
-  const burnExplorer = activity.txHash
+  const burnExplorer = activity.txHash && !isPlaceholder(activity.txHash)
     ? (sourceMeta ? sourceMeta.explorerTx(activity.txHash) : `${BASE_EXPLORER}${activity.txHash}`)
     : null;
 
@@ -237,8 +568,21 @@ export default function ActivityDetailPage({
       label: 'Date',
       value: format(new Date(activity.timestamp), 'MMMM dd, yyyy @ HH:mm'),
     },
-    { icon: isOutgoing ? ArrowUpRight : ArrowDownLeft, label: isOutgoing ? 'To' : 'From', value: activity.details },
   ];
+
+  if (activity.type === 'security') {
+    detailRows.push({
+      icon: ShieldAlert,
+      label: 'Details',
+      value: activity.details,
+    });
+  } else {
+    detailRows.push({
+      icon: isOutgoing ? ArrowUpRight : ArrowDownLeft,
+      label: isOutgoing ? 'To' : 'From',
+      value: activity.details,
+    });
+  }
   const chainLabel = (chain: string) =>
     (CHAIN_META[chain.toLowerCase()]?.name ?? chain).toUpperCase();
 
@@ -247,13 +591,6 @@ export default function ActivityDetailPage({
       icon: Network,
       label: 'Route',
       value: `${chainLabel(activity.sourceChain)} → ${chainLabel(activity.destChain ?? 'base')}`,
-    });
-  } else if (activity.type === 'withdrawal' && activity.consolidated) {
-    // Funds were spread across networks, auto-bridged onto the settlement chain, then off-ramped.
-    detailRows.push({
-      icon: Network,
-      label: 'Route',
-      value: `YOUR NETWORKS → ${chainLabel(activity.sourceChain ?? 'base')}`,
     });
   } else if (activity.sourceChain) {
     detailRows.push({
@@ -271,9 +608,10 @@ export default function ActivityDetailPage({
   }
 
   // ── Advanced details: provider refs, full hashes, rate, timestamps ───────────
-  const mintExplorer = activity.mintTxHash
+  const hasValidMint = !!activity.mintTxHash && !isPlaceholder(activity.mintTxHash);
+  const mintExplorer = hasValidMint
     ? (activity.destChain ? CHAIN_META[activity.destChain.toLowerCase()] : null)?.explorerTx(
-        activity.mintTxHash,
+        activity.mintTxHash!,
       ) ?? `${BASE_EXPLORER}${activity.mintTxHash}`
     : null;
 
@@ -310,8 +648,8 @@ export default function ActivityDetailPage({
       href: burnExplorer ?? undefined,
     });
   }
-  if (activity.mintTxHash) {
-    advancedRows.push({ label: 'Mint tx', value: activity.mintTxHash, display: shorten(activity.mintTxHash), copyable: true, href: mintExplorer ?? undefined });
+  if (hasValidMint) {
+    advancedRows.push({ label: 'Mint tx', value: activity.mintTxHash!, display: shorten(activity.mintTxHash!), copyable: true, href: mintExplorer ?? undefined });
   }
   advancedRows.push({
     label: 'Created',
@@ -336,7 +674,7 @@ export default function ActivityDetailPage({
         </Link>
         <div>
           <h1 className="font-display text-2xl font-bold tracking-tight text-brand-secondary">
-            Transaction
+            {activity.type === 'security' ? 'Security Alert' : 'Transaction'}
           </h1>
           <code className="text-[10px] font-bold uppercase tracking-widest text-brand-secondary/25">
             REF: {activity.id.slice(0, 18)}
@@ -362,11 +700,17 @@ export default function ActivityDetailPage({
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
             {meta.label}
           </p>
-          <h2 className="font-display text-5xl font-bold tracking-tighter text-brand-secondary">
-            {isOutgoing ? '−' : '+'}
-            {activity.amount.toLocaleString()}{' '}
-            <span className="text-xl opacity-30 font-bold uppercase">{activity.asset}</span>
-          </h2>
+          {activity.type === 'security' ? (
+            <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-brand-secondary max-w-lg mx-auto">
+              {activity.note || 'Account Security Update'}
+            </h2>
+          ) : (
+            <h2 className="font-display text-5xl font-bold tracking-tighter text-brand-secondary">
+              {isOutgoing ? '−' : '+'}
+              {activity.amount.toLocaleString()}{' '}
+              <span className="text-xl opacity-30 font-bold uppercase">{activity.asset}</span>
+            </h2>
+          )}
           <div className="flex justify-center pt-1">
             <span
               className="px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-widest"
@@ -390,7 +734,7 @@ export default function ActivityDetailPage({
         ))}
       </div>
 
-      {activity.note && (
+      {activity.note && activity.type !== 'security' && (
         <div className="p-4 rounded-2xl bg-accent/5 border border-accent/10">
           <p className="text-[10px] font-bold uppercase tracking-widest mb-1 flex items-center gap-2 text-accent">
             <MessageSquare className="w-3 h-3" /> Memo
@@ -402,7 +746,7 @@ export default function ActivityDetailPage({
       )}
 
       {/* On-chain transactions */}
-      {(activity.txHash || activity.mintTxHash) && (
+      {(burnExplorer || (activity.type === 'bridge' && (hasValidMint || activity.status !== 'complete'))) && (
         <div className="space-y-2">
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/25 px-1">
             On-chain
@@ -420,21 +764,23 @@ export default function ActivityDetailPage({
               </a>
             )}
             {activity.type === 'bridge' &&
-              (activity.mintTxHash ? (
+              (hasValidMint ? (
                 <a
-                  href={
-                    (activity.destChain
-                      ? CHAIN_META[activity.destChain.toLowerCase()]
-                      : null
-                    )?.explorerTx(activity.mintTxHash) ??
-                    `${BASE_EXPLORER}${activity.mintTxHash}`
-                  }
+                  href={mintExplorer || '#'}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest bg-white/6 text-brand-secondary border border-white/10 hover:bg-white/10 transition-all"
                 >
                   <ExternalLink className="w-3.5 h-3.5" /> Mint transaction
                 </a>
+              ) : activity.status === 'complete' ? null : claimSuccess ? (
+                <div className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  <Check className="w-3.5 h-3.5" /> Claimed Successfully
+                </div>
+              ) : Date.now() - new Date(activity.timestamp).getTime() < 10 * 60 * 1000 ? (
+                <div className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  <Check className="w-3.5 h-3.5" /> Completed
+                </div>
               ) : (
                 <button
                   onClick={handleClaim}
@@ -449,12 +795,14 @@ export default function ActivityDetailPage({
       )}
 
       {/* Receipt */}
-      <div className="space-y-2">
-        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/25 px-1">
-          Receipt
-        </p>
-        <ReceiptActions data={receiptData} />
-      </div>
+      {activity.type !== 'security' && (
+        <div className="space-y-2">
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/25 px-1">
+            Receipt
+          </p>
+          <ReceiptActions data={receiptData} />
+        </div>
+      )}
 
       {/* Advanced details */}
       {advancedRows.length > 0 && (

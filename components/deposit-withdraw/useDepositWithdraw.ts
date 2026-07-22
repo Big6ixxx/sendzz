@@ -37,6 +37,7 @@ import {
   executeCircleGaslessBatchTransfer,
 } from "@/lib/web3/circle-actions";
 import { consolidateFundsToChain } from "@/lib/web3/bridge-actions";
+import { bridgeStellarToBase } from "@/lib/web3/stellar-bridge";
 import {
   planWithdrawalRoute,
   AUTO_SOURCE,
@@ -73,6 +74,9 @@ export function useDepositWithdraw(
   onClose?: () => void,
   chainBalances?: ChainBalances,
   solanaSource?: SolanaSource,
+  stellarAddress?: string,
+  stellarWalletId?: string,
+  stellarBalance = 0,
 ) {
   const queryClient = useQueryClient();
   const { data: currencies } = useCurrencies();
@@ -238,6 +242,108 @@ export function useDepositWithdraw(
     }
   }, [type, fiatCurrency, userEmail]);
 
+  // Dynamic bank code resolution for saved contacts across different providers
+  const handleSelectContact = useCallback(
+    (contact: {
+      bankCode: string;
+      bankName: string;
+      accountNumber: string;
+      accountName: string;
+    }) => {
+      const normalizeBankName = (s: string): string => {
+        const normalized = (s || "")
+          .toLowerCase()
+          .replace(/\b(bank|plc|ltd|limited|nigeria|microfinance|mfb|company)\b/g, "")
+          .replace(/[^a-z0-9]/g, "");
+
+        // Map common abbreviations and aliases to a single canonical term
+        if (
+          normalized === "gtb" ||
+          normalized === "gt" ||
+          normalized === "gtbank" ||
+          normalized === "guarantytrust" ||
+          normalized === "guarantytrustbank"
+        ) {
+          return "gtb";
+        }
+        if (normalized === "uba" || normalized === "unitedbankforafrica") {
+          return "uba";
+        }
+        if (normalized === "fcmb" || normalized === "firstcitymonument") {
+          return "fcmb";
+        }
+        if (normalized === "first" || normalized === "firstbank" || normalized === "fbn") {
+          return "firstbank";
+        }
+        if (normalized === "stanbic" || normalized === "stanbicibtc" || normalized === "ibtc") {
+          return "stanbic";
+        }
+        if (normalized === "access" || normalized === "accessbank") {
+          return "access";
+        }
+        if (normalized === "zenith" || normalized === "zenithbank") {
+          return "zenith";
+        }
+        if (normalized === "sterling" || normalized === "sterlingbank") {
+          return "sterling";
+        }
+        if (normalized === "wema" || normalized === "wemabank") {
+          return "wema";
+        }
+        if (normalized === "union" || normalized === "unionbank") {
+          return "union";
+        }
+        if (normalized === "keystone" || normalized === "keystonebank") {
+          return "keystone";
+        }
+        if (normalized === "polaris" || normalized === "polarisbank") {
+          return "polaris";
+        }
+        if (normalized === "fidelity" || normalized === "fidelitybank") {
+          return "fidelity";
+        }
+        if (normalized === "ecobank") {
+          return "ecobank";
+        }
+
+        return normalized;
+      };
+
+      const resolveBankCodeFromInstitutions = (
+        insts: RampInstitution[],
+        bankName: string,
+        fallbackCode: string,
+      ): { code: string; name: string } => {
+        const target = normalizeBankName(bankName);
+        if (!target) return { code: fallbackCode, name: bankName };
+
+        const exact = insts.find((b) => normalizeBankName(b.name) === target);
+        if (exact) return { code: exact.code, name: exact.name };
+
+        const partial = insts.find((b) => {
+          const n = normalizeBankName(b.name);
+          return n.length > 2 && (n.includes(target) || target.includes(n));
+        });
+        if (partial) return { code: partial.code, name: partial.name };
+
+        return { code: fallbackCode, name: bankName };
+      };
+
+      const resolved = resolveBankCodeFromInstitutions(
+        institutions,
+        contact.bankName,
+        contact.bankCode,
+      );
+      setBankDetails({
+        bankCode: resolved.code,
+        bankName: resolved.name,
+        accountNumber: contact.accountNumber,
+        accountName: contact.accountName,
+      });
+    },
+    [institutions],
+  );
+
   // Bank Auto-Verification
   const handleVerifyBank = useCallback(async (details: BankDetails) => {
     const key = `${details.bankCode}-${details.accountNumber}`;
@@ -262,7 +368,7 @@ export function useDepositWithdraw(
       setBankDetails((prev) => ({ ...prev, accountName: name }));
       toast.success("Bank account verified");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Verification failed");
+      toast.error(parseFriendlyError(err));
       setBankDetails((prev) => ({ ...prev, accountName: "" }));
     } finally {
       setVerifyingBank(false);
@@ -327,9 +433,7 @@ export function useDepositWithdraw(
       setOrder(res);
       setStep(2);
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "An unknown error occurred",
-      );
+      toast.error(parseFriendlyError(err));
     } finally {
       setLoading(false);
     }
@@ -369,7 +473,7 @@ export function useDepositWithdraw(
     });
 
     const combinedAvailable =
-      route.totalAvailable + (solanaSource?.balance ?? 0);
+      route.totalAvailable + (solanaSource?.balance ?? 0) + (stellarBalance ?? 0);
 
     // Settling directly on Solana is a distinct path: funds must already be on Solana (no
     // bridging TO Solana), and the payout is a Solana SPL transfer — not an EVM route.
@@ -384,8 +488,11 @@ export function useDepositWithdraw(
     }
     if (sourcePref.mode === "consolidate") {
       const selSum = sourcePref.from.reduce(
-        (s, c) =>
-          s + (c === "solana" ? solanaSource?.balance ?? 0 : routeBalances[c] ?? 0),
+        (s, c) => {
+          if (c === "solana") return s + (solanaSource?.balance ?? 0);
+          if (c === "stellar") return s + (stellarBalance ?? 0);
+          return s + (routeBalances[c] ?? 0);
+        },
         0,
       );
       if (selSum + 1e-9 < totalUsdcRequired) {
@@ -443,9 +550,7 @@ export function useDepositWithdraw(
       setQuote(res);
       setStep(2);
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "An unknown error occurred",
-      );
+      toast.error(parseFriendlyError(err));
     } finally {
       setLoading(false);
     }
@@ -591,16 +696,37 @@ export function useDepositWithdraw(
         const includeSolana = consolidateFrom
           ? consolidateFrom.includes("solana")
           : true;
-        toast.loading(`Gathering your funds onto ${targetName}…`, { id: "consolidate" });
+        const includeStellar = consolidateFrom
+          ? consolidateFrom.includes("stellar")
+          : true;
+        const stellarSource = (stellarAddress && stellarWalletId && stellarBalance > 0)
+          ? {
+              walletId: stellarWalletId,
+              address: stellarAddress,
+              balance: stellarBalance,
+              bridgeToBase: async (amount: string, recipient: string, onStatus?: (status: string) => void) => {
+                await bridgeStellarToBase({
+                  walletId: stellarWalletId,
+                  senderAddress: stellarAddress,
+                  amount,
+                  recipientEvm: recipient,
+                  evmWallet: embeddedProvider,
+                  onStatus,
+                });
+              }
+            }
+          : undefined;
+        toast.loading(`Securing bridge transaction on ${targetName}…`, { id: "consolidate" });
         await consolidateFundsToChain(embeddedProvider, {
           targetChain,
           requiredAmount: required,
           balances: sourceBalances,
           recipient: userAddress,
           solana: includeSolana ? solanaSource : undefined,
+          stellar: includeStellar ? stellarSource : undefined,
           onStatus: (s) => toast.loading(s, { id: "consolidate" }),
         });
-        toast.success(`Funds ready on ${targetName}.`, { id: "consolidate" });
+        toast.success(`Funds secured & ready on ${targetName}.`, { id: "consolidate", duration: 5000 });
       }
 
       // Submit via the pinned-provider flow using the CANONICAL bank identity (name, not
@@ -626,9 +752,7 @@ export function useDepositWithdraw(
       setStep(3);
     } catch (err) {
       toast.dismiss("consolidate");
-      toast.error(
-        err instanceof Error ? err.message : "An unknown error occurred",
-      );
+      toast.error(parseFriendlyError(err));
     } finally {
       setLoading(false);
     }
@@ -852,6 +976,7 @@ export function useDepositWithdraw(
     setSourcePref,
     chainBalances: chainBalances ?? {},
     solanaBalance: solanaSource?.balance ?? 0,
+    stellarBalance: stellarBalance ?? 0,
     rampNetworks,
     offRampProvider,
     feePercent,
@@ -861,6 +986,7 @@ export function useDepositWithdraw(
     depositNetworks: RAMP_NETWORKS,
     userEmail,
     userAddress,
+    handleSelectContact,
     refreshBankContacts,
     handleDepositInitiate,
     handleWithdrawQuote,
@@ -893,7 +1019,7 @@ export function useDepositWithdraw(
           setTimeout(() => onClose?.(), 1000);
         }
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Failed to save bank");
+        toast.error(parseFriendlyError(err));
       }
     },
     reset: () => {

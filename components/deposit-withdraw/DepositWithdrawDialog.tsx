@@ -27,9 +27,13 @@ interface DepositWithdrawDialogProps {
   userId: string;
   userAddress: string;
   solanaAddress?: string;
+  stellarAddress?: string;
+  stellarWalletId?: string;
+  stellarTrustlineReady?: boolean;
   balance: string;
   chainBalances?: ChainBalances;
   solanaSource?: SolanaSource;
+  stellarBalance?: number;
   userEmail: string;
   embeddedProvider?: ConnectedWallet;
 }
@@ -41,9 +45,13 @@ export function DepositWithdrawDialog({
   userId,
   userAddress,
   solanaAddress,
+  stellarAddress,
+  stellarWalletId,
+  stellarTrustlineReady,
   balance,
   chainBalances,
   solanaSource,
+  stellarBalance = 0,
   userEmail,
   embeddedProvider,
 }: DepositWithdrawDialogProps) {
@@ -59,6 +67,9 @@ export function DepositWithdrawDialog({
     onClose,
     chainBalances,
     solanaSource,
+    stellarAddress,
+    stellarWalletId,
+    stellarBalance,
   );
 
   const withdrawHook = useDepositWithdraw(
@@ -71,6 +82,9 @@ export function DepositWithdrawDialog({
     onClose,
     chainBalances,
     solanaSource,
+    stellarAddress,
+    stellarWalletId,
+    stellarBalance,
   );
 
   const handleClose = () => {
@@ -181,6 +195,10 @@ export function DepositWithdrawDialog({
                     <ReceiveCryptoFlow
                       evmAddress={userAddress}
                       solanaAddress={solanaAddress}
+                      stellarAddress={stellarAddress}
+                      stellarTrustlineReady={stellarTrustlineReady}
+                      userId={userId}
+                      userEmail={userEmail}
                     />
                   )
                 ) : (

@@ -14,13 +14,15 @@ import {
   SelectValue,
 } from './ui/select';
 import { ActivityRow } from './ActivityRow';
+import { parseAppError } from '@/lib/errors/appErrors';
 
 export type ActivityType =
   | 'sent'
   | 'received'
   | 'deposit'
   | 'withdrawal'
-  | 'bridge';
+  | 'bridge'
+  | 'security';
 export type SortType = 'date' | 'amount';
 
 export interface Activity {
@@ -63,6 +65,7 @@ const ACTIVITY_LABELS: Record<ActivityType, string> = {
   deposit: 'Deposit',
   withdrawal: 'Withdrawal',
   bridge: 'Bridge Transfer',
+  security: 'Security Alert',
 };
 
 const PAGE_SIZE = 10;
@@ -102,15 +105,15 @@ export function HistoryModule({
       });
       const data = await res.json();
       if (!res.ok) {
-        toast.error(data.error || 'Could not accept payment');
+        toast.error(parseAppError(data.error || 'Could not accept payment'));
       } else {
         toast.success('Payment accepted! Funds added to your balance');
         queryClient.invalidateQueries({ queryKey: ['history', userEmail] });
         queryClient.invalidateQueries({ queryKey: ['balance'] });
         queryClient.invalidateQueries({ queryKey: ['pending-incoming', userEmail] });
       }
-    } catch {
-      toast.error('Something went wrong. Please try again.');
+    } catch (err) {
+      toast.error(parseAppError(err));
     } finally {
       setAcceptingId(null);
     }
@@ -126,15 +129,15 @@ export function HistoryModule({
       });
       const data = await res.json();
       if (!res.ok) {
-        toast.error(data.error || 'Could not reclaim transfer');
+        toast.error(parseAppError(data.error || 'Could not reclaim transfer'));
       } else {
         toast.success('Funds returned to your balance');
         // Invalidate both history and balance queries
         queryClient.invalidateQueries({ queryKey: ['history', userEmail] });
         queryClient.invalidateQueries({ queryKey: ['balance'] });
       }
-    } catch {
-      toast.error('Something went wrong. Please try again.');
+    } catch (err) {
+      toast.error(parseAppError(err));
     } finally {
       setReclaimingId(null);
     }

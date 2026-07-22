@@ -1,6 +1,7 @@
 import { Database, Json } from '@/types/database';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
+import { triggerWithdrawalNotifications } from '@/lib/supabase/transactions';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -174,6 +175,18 @@ export async function POST(req: Request) {
 
     } else {
       // WITHDRAWAL
+      // Guard against duplicate webhook runs or race conditions with polling
+      const { data: currentW } = await supabaseAdmin
+        .from('withdrawals')
+        .select('status')
+        .eq('provider_order_id', orderId)
+        .maybeSingle();
+
+      if (currentW && currentW.status !== 'processing') {
+        console.log(`[Paycrest Webhook] [${requestId}] Withdrawal ${orderId} already processed (status=${currentW.status})`);
+        return new Response('Already processed', { status: 200 });
+      }
+
       if (status && ['settled', 'completed', 'validated', 'deposited'].includes(status)) {
         const { error } = await supabaseAdmin.rpc('finalize_withdrawal_success', {
           p_paycrest_order_id: orderId,
@@ -184,6 +197,7 @@ export async function POST(req: Request) {
           return new Response('Internal error', { status: 500 });
         }
         console.log(`[Paycrest Webhook] [${requestId}] Withdrawal ${orderId} finalized`);
+        await triggerWithdrawalNotifications(orderId, 'completed');
         handled = true;
 
       } else if (status && ['failed', 'refunded', 'expired', 'refunding'].includes(status)) {
@@ -207,6 +221,8 @@ export async function POST(req: Request) {
           if (updateErr) {
             console.error(`[Paycrest Webhook] [${requestId}] Failed to set withdrawal status to reversed:`, updateErr.message);
           }
+        } else {
+          await triggerWithdrawalNotifications(orderId, 'failed');
         }
         console.warn(`[Paycrest Webhook] [${requestId}] Withdrawal ${orderId} finalized as ${finalStatus} — reason=${reason}`);
         handled = true;

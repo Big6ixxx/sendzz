@@ -90,12 +90,63 @@ async function withFallback<T>(
   return op(fallback);
 }
 
-/** Normalise a bank name for cross-provider matching (drop "bank/plc/ltd", punctuation). */
 function normalizeBankName(s: string): string {
-  return (s || "")
+  const normalized = (s || "")
     .toLowerCase()
     .replace(/\b(bank|plc|ltd|limited|nigeria|microfinance|mfb|company)\b/g, "")
     .replace(/[^a-z0-9]/g, "");
+
+  // Map common abbreviations and aliases to a single canonical term
+  if (
+    normalized === "gtb" ||
+    normalized === "gt" ||
+    normalized === "gtbank" ||
+    normalized === "guarantytrust" ||
+    normalized === "guarantytrustbank"
+  ) {
+    return "gtb";
+  }
+  if (normalized === "uba" || normalized === "unitedbankforafrica") {
+    return "uba";
+  }
+  if (normalized === "fcmb" || normalized === "firstcitymonument") {
+    return "fcmb";
+  }
+  if (normalized === "first" || normalized === "firstbank" || normalized === "fbn") {
+    return "firstbank";
+  }
+  if (normalized === "stanbic" || normalized === "stanbicibtc" || normalized === "ibtc") {
+    return "stanbic";
+  }
+  if (normalized === "access" || normalized === "accessbank") {
+    return "access";
+  }
+  if (normalized === "zenith" || normalized === "zenithbank") {
+    return "zenith";
+  }
+  if (normalized === "sterling" || normalized === "sterlingbank") {
+    return "sterling";
+  }
+  if (normalized === "wema" || normalized === "wemabank") {
+    return "wema";
+  }
+  if (normalized === "union" || normalized === "unionbank") {
+    return "union";
+  }
+  if (normalized === "keystone" || normalized === "keystonebank") {
+    return "keystone";
+  }
+  if (normalized === "polaris" || normalized === "polarisbank") {
+    return "polaris";
+  }
+  if (normalized === "fidelity" || normalized === "fidelitybank") {
+    return "fidelity";
+  }
+  if (normalized === "ecobank") {
+    return "ecobank";
+  }
+
+  return normalized;
 }
 
 /** Best-effort match a canonical bank name to a provider's institution → its bank_code. */

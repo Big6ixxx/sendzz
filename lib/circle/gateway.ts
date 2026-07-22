@@ -67,7 +67,6 @@ export const SMART_BRIDGE_CHAINS: SupportedChain[] = [
   'avalanche',
   'ethereum',
   'optimism',
-  'polygon',
 ];
 
 /**
@@ -120,10 +119,15 @@ export async function fetchCctpFees(
 export async function calculateMaxFee(
   sourceChain: SupportedChain,
   amountUSDC: string,
-  destChain: SupportedChain = 'base',
+  destChain: SupportedChain | 'stellar' | 'solana' = 'base',
+  minFinalityThreshold: number = 1000,
 ): Promise<bigint> {
   const sourceDomain = CCTP_DOMAINS[sourceChain];
-  const destDomain = CCTP_DOMAINS[destChain];
+  const destDomain = destChain === 'stellar'
+    ? 27
+    : destChain === 'solana'
+      ? 5
+      : CCTP_DOMAINS[destChain as SupportedChain];
 
   // Convert USDC to subunits (6 decimals)
   const [whole, decimal = ''] = amountUSDC.split('.');
@@ -132,15 +136,20 @@ export async function calculateMaxFee(
 
   const fees = await fetchCctpFees(sourceDomain, destDomain);
 
-  // Use Fast Transfer fee (finalityThreshold === 1000) if available
-  const fastFee = fees.find((f) => f.finalityThreshold === 1000) ?? fees[0];
-  const minimumFeeBps = fastFee.minimumFee;
+  // Always use Fast Transfer (finalityThreshold === 1000) — this is the
+  // fastest path and what production uses. Standard Transfer (2000) takes
+  // 13+ minutes and should never be used for user-facing bridges.
+  const fastFee = fees.find((f) => f.finalityThreshold === minFinalityThreshold)
+    ?? fees.find((f) => f.finalityThreshold === 1000)
+    ?? fees[0];
 
-  // Calculate protocol fee
+  const minimumFeeBps = fastFee.minimumFee; // basis points, e.g. 0.000130
+
+  // Calculate protocol fee as percentage of transfer amount
   const protocolFee =
     (transferAmount * BigInt(Math.round(minimumFeeBps * 100))) / 1_000_000n;
 
-  // Add 20% buffer
+  // Add 20% buffer to absorb fluctuations
   const maxFee = (protocolFee * 120n) / 100n;
   return maxFee;
 }
@@ -171,7 +180,7 @@ export function getCCTPDepositInstructions(
 
 // ─── Attestation Polling ────────────────────────────────────────────────────
 
-export type AttestationStatus = 'pending' | 'complete';
+export type AttestationStatus = 'pending' | 'complete' | 'pending_confirmations' | 'not_found';
 
 export interface AttestationResponse {
   status: AttestationStatus;
@@ -198,7 +207,7 @@ export async function fetchAttestation(
       `${IRIS_API_BASE}/messages/${domain}?transactionHash=${txHash}`,
     );
 
-    if (res.status === 404) return { status: 'pending' };
+    if (res.status === 404) return { status: 'not_found' };
     if (!res.ok) throw new Error(`Iris API error: ${res.statusText}`);
 
     const data = (await res.json()) as {
@@ -211,12 +220,16 @@ export async function fetchAttestation(
     };
     const message = data.messages?.[0];
 
-    if (!message) return { status: 'pending' };
+    if (!message) return { status: 'not_found' };
 
     return {
-      status: message.status === 'complete' ? 'complete' : 'pending',
-      attestation: message.attestation,
-      messageBytes: message.message,
+      status: message.status as AttestationStatus,
+      attestation: message.attestation
+        ? (message.attestation.startsWith('0x') ? message.attestation : `0x${message.attestation}`)
+        : undefined,
+      messageBytes: message.message
+        ? (message.message.startsWith('0x') ? message.message : `0x${message.message}`)
+        : undefined,
       mintTxHash: message.forwardTxHash,
     };
   } catch (err) {
