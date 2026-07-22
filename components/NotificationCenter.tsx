@@ -1,7 +1,8 @@
 'use client';
 
-import { Bell, Check, History, Mail, Repeat, ShieldAlert, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
+import { Bell, Check, Mail, Repeat, ShieldAlert, ArrowDownCircle, ArrowUpCircle, ChevronRight } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 
 interface NotificationItem {
@@ -27,6 +28,7 @@ function urlBase64ToUint8Array(base64String: string) {
 }
 
 export function NotificationCenter({ userEmail }: { userEmail: string }) {
+  const router = useRouter();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -156,6 +158,24 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
     }
   };
 
+  const handleNotificationClick = (notif: NotificationItem) => {
+    handleMarkItemRead(notif.id);
+    setIsOpen(false);
+
+    // Route to specific transaction detail
+    const txId = (notif.data?.transactionId || notif.data?.id || notif.data?.txId) as string | undefined;
+    if (txId) {
+      router.push(`/dashboard/activity/${txId}`);
+    } else if (typeof notif.data?.url === 'string' && notif.data.url.startsWith('/dashboard/activity/')) {
+      router.push(notif.data.url);
+    } else if (typeof notif.data?.url === 'string' && notif.data.url !== '/dashboard/history' && notif.data.url !== '/dashboard') {
+      router.push(notif.data.url);
+    } else {
+      // Fallback for older notifications to open transaction details directly
+      router.push(`/dashboard/activity/${notif.data?.id || notif.id}`);
+    }
+  };
+
   const getIcon = (type: NotificationItem['type']) => {
     switch (type) {
       case 'transfer':
@@ -183,6 +203,9 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
     return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   };
 
+  // Display at most 5 items in the pop-up
+  const popupNotifications = notifications.slice(0, 5);
+
   return (
     <div className="relative" ref={dropdownRef}>
       {/* Bell Trigger */}
@@ -200,7 +223,7 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
 
       {/* Dropdown Card */}
       {isOpen && (
-        <div className="absolute right-0 mt-3 w-80 max-h-96 overflow-y-auto z-50 flex flex-col p-4 space-y-3 rounded-2xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.6)] bg-[#07070a]/95 backdrop-blur-2xl">
+        <div className="absolute right-0 mt-3 w-80 max-h-96 z-50 flex flex-col p-4 space-y-3 rounded-2xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.6)] bg-[#07070a]/95 backdrop-blur-2xl">
           <div className="flex items-center justify-between border-b border-white/5 pb-2 shrink-0">
             <span className="text-xs font-bold text-white uppercase tracking-wider">
               Notifications
@@ -215,22 +238,22 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
             )}
           </div>
 
-          {/* Notifications List */}
+          {/* Notifications List (Max 5 items) */}
           <div className="flex-1 overflow-y-auto space-y-2 max-h-64 pr-1">
-            {notifications.length === 0 ? (
+            {popupNotifications.length === 0 ? (
               <div className="py-8 text-center text-white/20 text-xs flex flex-col items-center gap-2">
                 <Bell className="w-6 h-6 stroke-1" />
                 No notifications yet
               </div>
             ) : (
-              notifications.map((notif) => (
+              popupNotifications.map((notif) => (
                 <div
                   key={notif.id}
-                  onClick={() => handleMarkItemRead(notif.id)}
+                  onClick={() => handleNotificationClick(notif)}
                   className={`p-3 rounded-xl border text-left cursor-pointer transition-all flex gap-3 ${
                     notif.read
-                      ? 'bg-transparent border-white/3 text-white/50'
-                      : 'bg-white/5 border-white/10 text-white hover:border-white/20'
+                      ? 'bg-transparent border-white/3 text-white/50 hover:bg-white/2'
+                      : 'bg-white/5 border-white/10 text-white hover:border-white/20 hover:bg-white/8'
                   }`}
                 >
                   <div className="mt-0.5 shrink-0">
@@ -258,6 +281,21 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
               ))
             )}
           </div>
+
+          {/* Footer View All Notifications Link (Only shown when notifications exist) */}
+          {popupNotifications.length > 0 && (
+            <div className="border-t border-white/5 pt-2 text-center shrink-0">
+              <button
+                onClick={() => {
+                  setIsOpen(false);
+                  router.push('/dashboard/notifications');
+                }}
+                className="text-xs font-bold text-accent hover:text-accent/80 flex items-center justify-center gap-1.5 w-full py-1.5 rounded-lg hover:bg-white/5 transition-all"
+              >
+                View All Notifications <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

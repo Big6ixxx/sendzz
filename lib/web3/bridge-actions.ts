@@ -1,6 +1,9 @@
 import {
   parseUnits,
-  encodeFunctionData
+  encodeFunctionData,
+  createPublicClient,
+  http,
+  keccak256
 } from 'viem';
 import { type BundlerClient } from 'viem/account-abstraction';
 import { type ConnectedWallet } from '@privy-io/react-auth';
@@ -11,13 +14,14 @@ import {
   CCTP_DOMAINS,
   GAS_POLICY_IDS,
   CHAIN_NAMES,
+  CHAIN_IDS,
   type SupportedChain,
   type AttestationResponse,
   calculateMaxFee
 } from '../circle/gateway';
 import { solanaAddressToBytes32 } from '../circle/solana-gateway';
 
-import { getCircleClient } from './circle-client';
+import { getCircleClient, getStandardRpcUrl } from './circle-client';
 import { EVM_CHAINS, type ChainBalances, type SolanaSource, type SourceChainKey } from './routing';
 import { modularWalletActions } from '@circle-fin/modular-wallets-core';
 import { toast } from 'sonner';
@@ -156,16 +160,21 @@ export async function executeSmartBridge(
 
     const policyId = GAS_POLICY_IDS[sourceChain];
 
-    const modularClient = bundlerClient.extend(modularWalletActions);
-    const gasPrices = await modularClient.getUserOperationGasPrice().catch(() => null);
-    const gasLevel = gasPrices?.medium ?? gasPrices?.high ?? null;
+    const standardRpcClient = createPublicClient({
+      chain: VIEM_CHAINS[sourceChain],
+      transport: http(getStandardRpcUrl(sourceChain)),
+    });
+    const feeData = await standardRpcClient.estimateFeesPerGas().catch(() => null);
+    const defaultPriorityFee = sourceChain === 'polygon' ? 30_000_000_000n : 1_000_000n;
+    const defaultMaxFee = sourceChain === 'polygon' ? 35_000_000_000n : undefined;
 
-    const maxPriorityFeePerGas = gasLevel?.maxPriorityFeePerGas
-      ? BigInt(gasLevel.maxPriorityFeePerGas)
-      : 1_000_000n;
-    const maxFeePerGas = gasLevel?.maxFeePerGas
-      ? BigInt(gasLevel.maxFeePerGas)
-      : undefined;
+    const maxPriorityFeePerGas = feeData?.maxPriorityFeePerGas 
+      ? feeData.maxPriorityFeePerGas 
+      : defaultPriorityFee;
+
+    const maxFeePerGas = feeData?.maxFeePerGas 
+      ? feeData.maxFeePerGas 
+      : defaultMaxFee;
 
     toast.info('Approving USDC transfer...');
     const approveOpHash = await bundlerClient.sendUserOperation({
@@ -190,9 +199,8 @@ export async function executeSmartBridge(
     // 3. Execute Deposit for Burn
     toast.info('Initiating bridge transfer...');
     const amountVal = parseFloat(amountUSDC);
-    // Use Standard Transfer (2000) for small transactions (<= 2 USDC) to keep it free,
-    // otherwise use Fast Transfer (1000) for larger amounts.
-    const minFinalityThreshold = amountVal <= 2.0 ? 2000 : 1000;
+    // Always use Fast Transfer (1000) — Standard Transfer (2000) takes 13+ minutes.
+    const minFinalityThreshold = 1000;
     const maxFee = await calculateMaxFee(sourceChain, amountUSDC, destChain, minFinalityThreshold);
 
     const callData = destChain === 'stellar'
@@ -288,6 +296,13 @@ const MESSAGE_TRANSMITTER_ABI = [
     ],
     outputs: [{ name: '', type: 'bool' }],
   },
+  {
+    name: 'processedMessages',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'messageHash', type: 'bytes32' }],
+    outputs: [{ name: '', type: 'bool' }],
+  },
 ] as const;
 
 /**
@@ -297,57 +312,70 @@ const MESSAGE_TRANSMITTER_ABI = [
  * bridges to chains other than Base). The MessageTransmitterV2 contract shares one
  * CREATE2 address across all EVM chains, so only the bundler chain changes.
  */
+const pendingClaims = new Set<string>();
+
 export async function executeReceiveMessage(
   embeddedWallet: ConnectedWallet,
   messageHex: string,
   attestationHex: string,
   destChain: SupportedChain = 'base',
 ): Promise<string> {
-  const MESSAGE_TRANSMITTER =
-    process.env.NEXT_PUBLIC_SIMULATION_MODE === 'true'
-      ? '0x81D40F2169b009c9103C280963d76e4B4d4c464B'
-      : '0x81D40F21F12A8F0E3252Bccb954D722d4c464B64';
+  const normMessage = messageHex.toLowerCase();
+  if (pendingClaims.has(normMessage)) {
+    console.warn('[executeReceiveMessage] Claim already in progress for this message.');
+    return '0x0000000000000000000000000000000000000000000000000000000000000000';
+  }
+  pendingClaims.add(normMessage);
 
-  const provider = await embeddedWallet.getEthereumProvider();
+  let MESSAGE_TRANSMITTER = '0x81D40F21F12A8F0E3252Bccb954D722d4c464B64';
+  let messageHash: `0x${string}` = '0x0000000000000000000000000000000000000000000000000000000000000000';
+  let standardRpcClient: any = null;
 
-
-  // Fallback for Ethereum mainnet L1 since gas sponsorship/bundlers are not supported/feasible there.
-  // This submits the transaction directly from the user's Privy EOA wallet and triggers the Privy wallet confirmation.
-  if (destChain === 'ethereum') {
-    // 1. Attempt to switch the network via Privy ConnectedWallet API
-    await embeddedWallet.switchChain(1).catch((err) => {
-      console.warn("[executeReceiveMessage] Privy switchChain failed, fallback to provider request...", err);
-    });
-
-    // 2. Allow network switch state to propagate in the Privy iframe
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-
-    // 3. Re-acquire the EIP1193 provider to fetch the updated chain configuration
-    let ethereumProvider = await embeddedWallet.getEthereumProvider();
-
-    // 4. Verify chain ID and force switch via direct EIP1193 RPC request if not matched
-    const currentChainHex = await ethereumProvider.request({ method: 'eth_chainId' }).catch(() => null);
-    if (currentChainHex !== '0x1') {
-      console.log(`[executeReceiveMessage] Provider chain is ${currentChainHex}, forcing switch to 0x1...`);
-      try {
-        await ethereumProvider.request({
-          method: 'wallet_switchEthereumChain',
-          params: [{ chainId: '0x1' }],
-        });
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        ethereumProvider = await embeddedWallet.getEthereumProvider();
-      } catch (switchErr) {
-        console.error("[executeReceiveMessage] Forced chain switch failed:", switchErr);
-      }
+  try {
+    if (process.env.NEXT_PUBLIC_SIMULATION_MODE === 'true') {
+      MESSAGE_TRANSMITTER = '0x81D40F2169b009c9103C280963d76e4B4d4c464B';
     }
 
+    const chainId = CHAIN_IDS[destChain];
+  const chainHex = `0x${chainId.toString(16)}`;
+
+  // 1. Attempt to switch the network via Privy ConnectedWallet API
+  await embeddedWallet.switchChain(chainId).catch((err) => {
+    console.warn("[executeReceiveMessage] Privy switchChain failed, fallback to provider request...", err);
+  });
+
+  // 2. Allow network switch state to propagate in the Privy iframe
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+
+  // 3. Re-acquire the EIP1193 provider to fetch the updated chain configuration
+  let ethereumProvider = await embeddedWallet.getEthereumProvider();
+
+  // 4. Verify chain ID and force switch via direct EIP1193 RPC request if not matched
+  const currentChainHex = await ethereumProvider.request({ method: 'eth_chainId' }).catch(() => null);
+  if (currentChainHex !== chainHex) {
+    console.log(`[executeReceiveMessage] Provider chain is ${currentChainHex}, forcing switch to ${chainHex}...`);
+    try {
+      await ethereumProvider.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: chainHex }],
+      });
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      ethereumProvider = await embeddedWallet.getEthereumProvider();
+    } catch (switchErr) {
+      console.error("[executeReceiveMessage] Forced chain switch failed:", switchErr);
+    }
+  }
+
+  // Fallback for Ethereum mainnet L1 and Avalanche since gas sponsorship/bundlers are not supported/feasible there.
+  // This submits the transaction directly from the user's Privy EOA wallet and triggers the Privy wallet confirmation.
+  if (destChain === 'ethereum' || destChain === 'avalanche') {
     const { createWalletClient, custom } = await import('viem');
     const [eoaAddress] = await ethereumProvider.request({
       method: 'eth_requestAccounts',
     }) as `0x${string}`[];
 
     const walletClient = createWalletClient({
-      chain: VIEM_CHAINS.ethereum,
+      chain: VIEM_CHAINS[destChain],
       transport: custom(ethereumProvider),
     });
 
@@ -355,45 +383,140 @@ export async function executeReceiveMessage(
       address: MESSAGE_TRANSMITTER as `0x${string}`,
       abi: MESSAGE_TRANSMITTER_ABI,
       functionName: 'receiveMessage',
-      args: [messageHex as `0x${string}`, attestationHex as `0x${string}`],
+      args: [
+        (messageHex.startsWith('0x') ? messageHex : `0x${messageHex}`) as `0x${string}`,
+        (attestationHex.startsWith('0x') ? attestationHex : `0x${attestationHex}`) as `0x${string}`,
+      ],
       account: eoaAddress,
     });
     return hash;
   }
 
-  const { bundlerClient, account } = await getCircleClient(provider, destChain);
+  // getCircleClient calls eth_requestAccounts internally — Privy providers can return []
+  // on the first call if the wallet is still initialising. Retry once after a short delay.
+  let circleResult: Awaited<ReturnType<typeof getCircleClient>>;
+  try {
+    circleResult = await getCircleClient(ethereumProvider, destChain);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('no accounts')) {
+      console.warn('[executeReceiveMessage] Privy wallet not ready, retrying in 2s…');
+      await new Promise((r) => setTimeout(r, 2000));
+      const freshProvider = await embeddedWallet.getEthereumProvider();
+      circleResult = await getCircleClient(freshProvider, destChain);
+    } else {
+      throw err;
+    }
+  }
+  const { bundlerClient, account } = circleResult;
 
+  // Normalize hex strings — Circle Iris API may return them without 0x prefix
+  const normalizedMessage = (messageHex.startsWith('0x') ? messageHex : `0x${messageHex}`) as `0x${string}`;
+  const normalizedAttestation = (attestationHex.startsWith('0x') ? attestationHex : `0x${attestationHex}`) as `0x${string}`;
+
+  messageHash = keccak256(normalizedMessage);
+
+  // Use gas policy if one exists for the dest chain, otherwise rely on
+  // Circle's default paymaster (no context needed — works on Base).
   const policyId = GAS_POLICY_IDS[destChain];
-  const modularClient = bundlerClient.extend(modularWalletActions);
-  const gasPrices = await modularClient.getUserOperationGasPrice().catch(() => null);
-  const gasLevel = gasPrices?.medium ?? gasPrices?.high ?? null;
 
-  const maxPriorityFeePerGas = gasLevel?.maxPriorityFeePerGas
-    ? BigInt(gasLevel.maxPriorityFeePerGas)
-    : 1_000_000n;
-  const maxFeePerGas = gasLevel?.maxFeePerGas
-    ? BigInt(gasLevel.maxFeePerGas)
-    : undefined;
-
-  const userOpHash = await bundlerClient.sendUserOperation({
-    account,
-    calls: [
-      {
-        to: MESSAGE_TRANSMITTER as `0x${string}`,
-        data: encodeFunctionData({
-          abi: MESSAGE_TRANSMITTER_ABI,
-          functionName: 'receiveMessage',
-          args: [messageHex as `0x${string}`, attestationHex as `0x${string}`],
-        }),
-      },
-    ],
-    maxFeePerGas,
-    maxPriorityFeePerGas,
-    paymaster: true,
-    paymasterContext: policyId ? { policyId } : undefined,
+  standardRpcClient = createPublicClient({
+    chain: VIEM_CHAINS[destChain],
+    transport: http(getStandardRpcUrl(destChain)),
   });
 
-  return resolveUserOpToTxHash(bundlerClient, userOpHash);
+  const isProcessed = await standardRpcClient.readContract({
+    address: MESSAGE_TRANSMITTER as `0x${string}`,
+    abi: MESSAGE_TRANSMITTER_ABI,
+    functionName: 'processedMessages',
+    args: [messageHash],
+  }).catch(() => false);
+
+  if (isProcessed) {
+    console.log('[executeReceiveMessage] Message already processed on-chain.');
+    const mintTx = await findMintTxHashFromLogs(standardRpcClient, MESSAGE_TRANSMITTER, messageHash);
+    if (mintTx) return mintTx;
+    return '0x0000000000000000000000000000000000000000000000000000000000000000'; // fallback mock hash
+  }
+  const feeData = await standardRpcClient.estimateFeesPerGas().catch(() => null);
+  const defaultPriorityFee = destChain === 'polygon' ? 30_000_000_000n : 1_000_000n;
+  const defaultMaxFee = destChain === 'polygon' ? 35_000_000_000n : undefined;
+
+  const maxPriorityFeePerGas = feeData?.maxPriorityFeePerGas 
+    ? feeData.maxPriorityFeePerGas 
+    : defaultPriorityFee;
+
+  const maxFeePerGas = feeData?.maxFeePerGas 
+    ? feeData.maxFeePerGas 
+    : defaultMaxFee;
+
+    const userOpHash = await bundlerClient.sendUserOperation({
+      account,
+      calls: [
+        {
+          to: MESSAGE_TRANSMITTER as `0x${string}`,
+          data: encodeFunctionData({
+            abi: MESSAGE_TRANSMITTER_ABI,
+            functionName: 'receiveMessage',
+            args: [normalizedMessage, normalizedAttestation],
+          }),
+        },
+      ],
+      maxFeePerGas,
+      maxPriorityFeePerGas,
+      paymaster: true,
+      ...(policyId ? { paymasterContext: { policyId } } : {}),
+    });
+
+    // Poll both standard RPC client (processedMessages) and bundler client (with timeout) for instant, hang-free resolution
+    const deadline = Date.now() + 120_000;
+    while (Date.now() < deadline) {
+      const receipt = await withTimeout(
+        bundlerClient.getUserOperationReceipt({ hash: userOpHash }),
+        2000
+      ).catch(() => null);
+
+      if (receipt?.receipt?.transactionHash) {
+        return receipt.receipt.transactionHash;
+      }
+
+      const isProcessedNow = await standardRpcClient.readContract({
+        address: MESSAGE_TRANSMITTER as `0x${string}`,
+        abi: MESSAGE_TRANSMITTER_ABI,
+        functionName: 'processedMessages',
+        args: [messageHash],
+      }).catch(() => false);
+
+      if (isProcessedNow) {
+        console.log('[executeReceiveMessage] Message processed on-chain during polling.');
+        const mintTx = await findMintTxHashFromLogs(standardRpcClient, MESSAGE_TRANSMITTER, messageHash);
+        if (mintTx) return mintTx;
+        return '0x0000000000000000000000000000000000000000000000000000000000000000';
+      }
+
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+    throw new Error('Claim transaction resolution timed out.');
+  } catch (error) {
+    if (standardRpcClient) {
+      const isProcessedNow = await standardRpcClient.readContract({
+        address: MESSAGE_TRANSMITTER as `0x${string}`,
+        abi: MESSAGE_TRANSMITTER_ABI,
+        functionName: 'processedMessages',
+        args: [messageHash],
+      }).catch(() => false);
+
+      if (isProcessedNow) {
+        console.log('[executeReceiveMessage] UserOperation reverted because message is already processed. Recovering mint hash...');
+        const mintTx = await findMintTxHashFromLogs(standardRpcClient, MESSAGE_TRANSMITTER, messageHash);
+        if (mintTx) return mintTx;
+        return '0x0000000000000000000000000000000000000000000000000000000000000000';
+      }
+    }
+    throw error;
+  } finally {
+    pendingClaims.delete(normMessage);
+  }
 }
 
 /**
@@ -458,15 +581,40 @@ export async function bridgeAndDeliver(
     throw new Error('Bridge attestation timed out');
   }
 
+  const MESSAGE_TRANSMITTER =
+    process.env.NEXT_PUBLIC_SIMULATION_MODE === 'true'
+      ? '0x81D40F2169b009c9103C280963d76e4B4d4c464B'
+      : '0x81D40F21F12A8F0E3252Bccb954D722d4c464B64';
+
   let mintTxHash: string | undefined = attestationData.mintTxHash;
   if (!mintTxHash && attestationData.attestation && attestationData.messageBytes) {
-    onStatus?.(`Delivering on ${destChain}…`);
-    mintTxHash = await executeReceiveMessage(
-      embeddedWallet,
-      attestationData.messageBytes,
-      attestationData.attestation,
-      destChain,
-    );
+    const messageHash = keccak256(attestationData.messageBytes as `0x${string}`);
+    const standardRpcClient = createPublicClient({
+      chain: VIEM_CHAINS[destChain],
+      transport: http(getStandardRpcUrl(destChain)),
+    });
+    const isProcessed = await standardRpcClient.readContract({
+      address: MESSAGE_TRANSMITTER as `0x${string}`,
+      abi: MESSAGE_TRANSMITTER_ABI,
+      functionName: 'processedMessages',
+      args: [messageHash],
+    }).catch(() => false);
+
+    if (isProcessed) {
+      console.log('[bridgeAndDeliver] Message already processed on-chain. Skipping manual claim popup.');
+      mintTxHash = await findMintTxHashFromLogs(standardRpcClient, MESSAGE_TRANSMITTER, messageHash);
+      if (!mintTxHash) {
+        mintTxHash = '0x0000000000000000000000000000000000000000000000000000000000000000';
+      }
+    } else {
+      onStatus?.(`Delivering on ${destChain}…`);
+      mintTxHash = await executeReceiveMessage(
+        embeddedWallet,
+        attestationData.messageBytes,
+        attestationData.attestation,
+        destChain,
+      );
+    }
   }
 
   return { burnTxHash, mintTxHash };
@@ -558,4 +706,45 @@ export async function consolidateFundsToChain(
     }
     remaining -= take;
   }
+}
+
+const MESSAGE_RECEIVED_EVENT = {
+  name: 'MessageReceived',
+  type: 'event',
+  inputs: [
+    { name: 'foreignSender', type: 'address', indexed: true },
+    { name: 'sourceDomain', type: 'uint32', indexed: true },
+    { name: 'nonce', type: 'uint64', indexed: true },
+    { name: 'messageHash', type: 'bytes32', indexed: false },
+  ],
+} as const;
+
+async function findMintTxHashFromLogs(
+  publicClient: any,
+  messageTransmitterAddress: string,
+  messageHash: `0x${string}`
+): Promise<string | undefined> {
+  try {
+    const currentBlock = await publicClient.getBlockNumber();
+    const fromBlock = currentBlock - 5000n > 0n ? currentBlock - 5000n : 0n;
+
+    const logs = await publicClient.getLogs({
+      address: messageTransmitterAddress as `0x${string}`,
+      event: MESSAGE_RECEIVED_EVENT,
+      fromBlock,
+    });
+    const match = logs.find((log: any) => log.args?.messageHash === messageHash);
+    return match?.transactionHash;
+  } catch (err) {
+    console.warn('[findMintTxHashFromLogs] failed:', err);
+  }
+  return undefined;
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeoutId: any;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error('timeout')), timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
 }

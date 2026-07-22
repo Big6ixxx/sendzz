@@ -27,7 +27,7 @@ export interface NotificationPayload {
 /**
  * Helper to fetch a user's UUID using their email address.
  */
-async function getUserByEmail(email: string): Promise<string> {
+async function getUserByEmail(email: string): Promise<string | null> {
   const { data, error } = await db
     .from('users')
     .select('id')
@@ -35,7 +35,7 @@ async function getUserByEmail(email: string): Promise<string> {
     .maybeSingle();
 
   if (error || !data) {
-    throw new Error(`User not found for email: ${email}`);
+    return null;
   }
   return data.id;
 }
@@ -46,6 +46,7 @@ async function getUserByEmail(email: string): Promise<string> {
 export async function savePushSubscription(email: string, subscription: webpush.PushSubscription): Promise<void> {
   try {
     const userId = await getUserByEmail(email);
+    if (!userId) return;
     
     // Check if subscription already exists for this user to avoid duplicates
     const { data: existing } = await db
@@ -78,6 +79,7 @@ export async function savePushSubscription(email: string, subscription: webpush.
 export async function getNotifications(email: string, limit = 20): Promise<NotificationPayload[]> {
   try {
     const userId = await getUserByEmail(email);
+    if (!userId) return [];
     const { data, error } = await db
       .from('notifications')
       .select('*')

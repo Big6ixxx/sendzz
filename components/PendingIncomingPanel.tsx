@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDownLeft, CheckCircle2, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
+import { parseAppError } from '@/lib/errors/appErrors';
 
 interface PendingTransfer {
   id: string;
@@ -56,15 +57,15 @@ export function PendingIncomingPanel({
       });
       const data = await res.json();
       if (!res.ok) {
-        toast.error(data.error || 'Could not accept payment');
+        toast.error(parseAppError(data.error || 'Could not accept payment'));
       } else {
         toast.success('Payment accepted! Funds added to your balance');
         queryClient.invalidateQueries({ queryKey: ['pending-incoming', userEmail] });
         queryClient.invalidateQueries({ queryKey: ['history', userEmail] });
         queryClient.invalidateQueries({ queryKey: ['balance'] });
       }
-    } catch {
-      toast.error('Something went wrong. Please try again.');
+    } catch (err) {
+      toast.error(parseAppError(err));
     } finally {
       setAcceptingId(null);
     }

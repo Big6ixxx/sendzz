@@ -27,7 +27,7 @@ import {
 } from '@solana/spl-token';
 import crypto from 'crypto';
 import bs58 from 'bs58';
-import { type AttestationResponse, CCTP_DOMAINS, type SupportedChain } from './gateway';
+import { type AttestationResponse, type AttestationStatus, CCTP_DOMAINS, type SupportedChain } from './gateway';
 
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -317,19 +317,23 @@ export async function fetchSolanaAttestation(
     const res = await fetch(
       `${IRIS_API_BASE}/messages/${SOLANA_CCTP_DOMAIN}?transactionHash=${txSignature}`,
     );
-    if (res.status === 404) return { status: 'pending' };
+    if (res.status === 404) return { status: 'not_found' };
     if (!res.ok) throw new Error(`Iris API error: ${res.statusText}`);
 
     const data = (await res.json()) as {
       messages?: { status: string; attestation?: string; message?: string; forwardTxHash?: string }[];
     };
     const message = data.messages?.[0];
-    if (!message) return { status: 'pending' };
+    if (!message) return { status: 'not_found' };
 
     return {
-      status: message.status === 'complete' ? 'complete' : 'pending',
-      attestation: message.attestation,
-      messageBytes: message.message,
+      status: message.status as AttestationStatus,
+      attestation: message.attestation
+        ? (message.attestation.startsWith('0x') ? message.attestation : `0x${message.attestation}`)
+        : undefined,
+      messageBytes: message.message
+        ? (message.message.startsWith('0x') ? message.message : `0x${message.message}`)
+        : undefined,
       mintTxHash: message.forwardTxHash,
     };
   } catch (err) {

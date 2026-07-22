@@ -9,6 +9,8 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { useExchangeRate } from "@/lib/hooks/useExchangeRate";
 
+import { parseAppError, isUserCancelled } from "@/lib/errors/appErrors";
+
 export type Step =
   | "recipients"
   | "amount"
@@ -133,8 +135,9 @@ export function useBatchSend(
         toast.success("All transfers completed successfully! 🎉");
       }
     } catch (err) {
-      console.error("Batch send error:", err);
-      toast.error("An error occurred during sending.");
+      if (!isUserCancelled(err)) {
+        toast.error(parseAppError(err));
+      }
       setStep("confirm");
     }
   };

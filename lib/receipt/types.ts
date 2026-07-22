@@ -1,6 +1,6 @@
 export interface ReceiptData {
   id: string;
-  type: 'sent' | 'received' | 'deposit' | 'withdrawal' | 'bridge';
+  type: 'sent' | 'received' | 'deposit' | 'withdrawal' | 'bridge' | 'security';
   status: string;
   timestamp: string;
   amountUsdc: number;

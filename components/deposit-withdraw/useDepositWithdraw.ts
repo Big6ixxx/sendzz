@@ -368,7 +368,7 @@ export function useDepositWithdraw(
       setBankDetails((prev) => ({ ...prev, accountName: name }));
       toast.success("Bank account verified");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Verification failed");
+      toast.error(parseFriendlyError(err));
       setBankDetails((prev) => ({ ...prev, accountName: "" }));
     } finally {
       setVerifyingBank(false);
@@ -433,9 +433,7 @@ export function useDepositWithdraw(
       setOrder(res);
       setStep(2);
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "An unknown error occurred",
-      );
+      toast.error(parseFriendlyError(err));
     } finally {
       setLoading(false);
     }
@@ -552,9 +550,7 @@ export function useDepositWithdraw(
       setQuote(res);
       setStep(2);
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "An unknown error occurred",
-      );
+      toast.error(parseFriendlyError(err));
     } finally {
       setLoading(false);
     }
@@ -720,7 +716,7 @@ export function useDepositWithdraw(
               }
             }
           : undefined;
-        toast.loading(`Gathering your funds onto ${targetName}…`, { id: "consolidate" });
+        toast.loading(`Securing bridge transaction on ${targetName}…`, { id: "consolidate" });
         await consolidateFundsToChain(embeddedProvider, {
           targetChain,
           requiredAmount: required,
@@ -730,7 +726,7 @@ export function useDepositWithdraw(
           stellar: includeStellar ? stellarSource : undefined,
           onStatus: (s) => toast.loading(s, { id: "consolidate" }),
         });
-        toast.success(`Funds ready on ${targetName}.`, { id: "consolidate" });
+        toast.success(`Funds secured & ready on ${targetName}.`, { id: "consolidate", duration: 5000 });
       }
 
       // Submit via the pinned-provider flow using the CANONICAL bank identity (name, not
@@ -756,9 +752,7 @@ export function useDepositWithdraw(
       setStep(3);
     } catch (err) {
       toast.dismiss("consolidate");
-      toast.error(
-        err instanceof Error ? err.message : "An unknown error occurred",
-      );
+      toast.error(parseFriendlyError(err));
     } finally {
       setLoading(false);
     }
@@ -1025,7 +1019,7 @@ export function useDepositWithdraw(
           setTimeout(() => onClose?.(), 1000);
         }
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Failed to save bank");
+        toast.error(parseFriendlyError(err));
       }
     },
     reset: () => {

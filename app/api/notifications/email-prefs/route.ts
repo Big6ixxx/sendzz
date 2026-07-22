@@ -1,16 +1,17 @@
 import { NextResponse } from 'next/server';
-import { getEmailNotifPrefs, saveEmailNotifPrefs } from '@/lib/supabase/emailPrefs';
+import { getEmailNotifPrefs, saveEmailNotifPrefs, DEFAULT_PREFS } from '@/lib/supabase/emailPrefs';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const email = searchParams.get('email');
-  if (!email) return NextResponse.json({ error: 'email required' }, { status: 400 });
+  if (!email) return NextResponse.json({ prefs: DEFAULT_PREFS });
 
   try {
     const prefs = await getEmailNotifPrefs(email);
     return NextResponse.json({ prefs });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error('[API email-prefs GET] Error:', err);
+    return NextResponse.json({ prefs: DEFAULT_PREFS });
   }
 }
 
@@ -22,6 +23,7 @@ export async function POST(request: Request) {
     await saveEmailNotifPrefs(email, prefs);
     return NextResponse.json({ success: true });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error('[API email-prefs POST] Error:', err);
+    return NextResponse.json({ success: false, error: err.message }, { status: 200 });
   }
 }

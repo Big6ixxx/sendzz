@@ -37,7 +37,33 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    // Check DB first — if we already have a completed record with mint_tx_hash,
+    // return it immediately without hitting Circle Iris again.
+    const { supabaseAdmin } = await import('@/lib/supabase/adminClient');
+    const { data: dbTx } = await supabaseAdmin
+      .from('bridge_transactions')
+      .select('attestation_status, mint_tx_hash')
+      .eq('burn_tx_hash', txHash)
+      .maybeSingle();
+
+    // Check DB first — if already complete WITH a mint tx hash, return immediately (no need to hit Circle)
+    if (dbTx?.attestation_status === 'complete' && dbTx?.mint_tx_hash) {
+      return NextResponse.json({ status: 'complete', mintTxHash: dbTx.mint_tx_hash });
+    }
+    // Otherwise always hit Circle Iris to get fresh attestation data
+    // (needed for manual claims where mint_tx_hash is still null)
+
     const result = await getAttestation(sourceChain, txHash);
+
+    // If Circle's relayer already minted (forwardTxHash present), persist via
+    // updateBridgeStatus so notifications fire correctly — same as Stellar path.
+    // Only do this when relayer provided the mint hash; for EVM→EVM manual-claim
+    // bridges, leave the DB alone so the monitoring loop can save it after the user signs.
+    if (result.status === 'complete' && result.mintTxHash && dbTx && dbTx.attestation_status !== 'complete') {
+      const { updateBridgeStatus } = await import('@/lib/supabase/transactions');
+      updateBridgeStatus(txHash, 'complete', result.mintTxHash).catch(() => {});
+    }
+
     console.log(`[Bridge Status API] Attestation query result for ${txHash}:`, {
       status: result.status,
       hasAttestation: !!result.attestation,

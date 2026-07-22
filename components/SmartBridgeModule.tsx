@@ -47,6 +47,7 @@ import {
 } from "lucide-react";
 import { useRef, useState, useEffect, useMemo } from "react";
 import { toast } from "sonner";
+import { parseAppError, isUserCancelled, classifyAppError } from "@/lib/errors/appErrors";
 
 if (typeof window !== "undefined") {
   window.Buffer = window.Buffer || Buffer;
@@ -311,10 +312,8 @@ export function SmartBridgeModule({
       toast.success("Bridge submitted! Monitoring progress...");
       refetch();
     } catch (err) {
-      console.error("[SmartBridge] EVM bridge failed:", err);
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!/cancelled|rejected/i.test(msg)) {
-        toast.error("Bridge failed. Please try again.");
+      if (!isUserCancelled(err)) {
+        toast.error(parseAppError(err));
       }
     } finally {
       setBridgingChain(null);
@@ -369,10 +368,8 @@ export function SmartBridgeModule({
       toast.success("Solana bridge submitted! Monitoring for Circle attestation...");
       refetch();
     } catch (err) {
-      console.error("[SmartBridge] Solana bridge failed:", err);
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!/cancelled|rejected/i.test(msg)) {
-        toast.error("Solana bridge failed. Check your balance and try again.");
+      if (!isUserCancelled(err)) {
+        toast.error(parseAppError(err));
       }
     } finally {
       setBridgingChain(null);
@@ -415,10 +412,8 @@ export function SmartBridgeModule({
       toast.success("Stellar bridge submitted! Monitoring for Circle attestation...");
       refetch();
     } catch (err) {
-      console.error("[SmartBridge] Stellar bridge failed:", err);
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!/cancelled|rejected/i.test(msg)) {
-        toast.error(`Stellar bridge failed: ${msg}`);
+      if (!isUserCancelled(err)) {
+        toast.error(parseAppError(err));
       }
     } finally {
       setBridgingChain(null);
@@ -776,9 +771,13 @@ function PendingClaimCard({ claim, embeddedEvmWallet, onSuccess }: PendingClaimC
 
       onSuccess();
     } catch (err: unknown) {
-      console.error('[Pending Claim] Error:', err);
-      const msg = err instanceof Error ? err.message : String(err);
-      toast.error(msg || 'Failed to claim USDC.');
+      const classified = classifyAppError(err);
+      if (classified.isAlreadyProcessed) {
+        toast.success('Your USDC has already been delivered. Refreshing balance...');
+        onSuccess();
+      } else {
+        toast.error(classified.message);
+      }
     } finally {
       setIsClaiming(false);
     }

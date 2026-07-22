@@ -9,6 +9,7 @@ import {
   Clock,
   Landmark,
   RefreshCw,
+  ShieldAlert,
   Undo2,
   Wallet,
 } from 'lucide-react';
@@ -37,6 +38,7 @@ const ACTIVITY_LABELS: Record<ActivityType, string> = {
   deposit: 'Deposit',
   withdrawal: 'Withdrawal',
   bridge: 'Bridge Transfer',
+  security: 'Security Alert',
 };
 
 function getActivityIcon(type: ActivityType) {
@@ -46,6 +48,7 @@ function getActivityIcon(type: ActivityType) {
     case 'deposit':    return <Wallet className="w-6 h-6" />;
     case 'withdrawal': return <Landmark className="w-6 h-6" />;
     case 'bridge':     return <RefreshCw className="w-6 h-6" />;
+    case 'security':   return <ShieldAlert className="w-6 h-6 text-amber-400" />;
   }
 }
 

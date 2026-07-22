@@ -13,6 +13,32 @@ import {
 import { VIEM_CHAINS } from './multichain';
 import { SupportedChain } from '../circle/gateway';
 
+export const ALCHEMY_SUBDOMAIN: Record<string, string> = {
+  ethereum: 'eth-mainnet',
+  arbitrum: 'arb-mainnet',
+  avalanche: 'avax-mainnet',
+  optimism: 'opt-mainnet',
+  polygon: 'polygon-mainnet',
+  base: 'base-mainnet',
+};
+
+export function getStandardRpcUrl(chainName: string): string {
+  const subdomain = ALCHEMY_SUBDOMAIN[chainName.toLowerCase()];
+  const apiKey = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY;
+  if (subdomain && apiKey) {
+    return `https://${subdomain}.g.alchemy.com/v2/${apiKey}`;
+  }
+  const fallbacks: Record<string, string> = {
+    polygon: 'https://polygon-rpc.com',
+    arbitrum: 'https://arb1.arbitrum.io/rpc',
+    optimism: 'https://mainnet.optimism.io',
+    avalanche: 'https://api.avax.network/ext/bc/C/rpc',
+    base: 'https://mainnet.base.org',
+    ethereum: 'https://cloudflare-eth.com',
+  };
+  return fallbacks[chainName.toLowerCase()] || 'https://mainnet.base.org';
+}
+
 const getCircleRpcUrl = (chainName: string = 'base') => `${CIRCLE_CLIENT_URL}/${chainName}`;
 
 // Build a viem custom account from Privy's provider
@@ -72,10 +98,10 @@ export async function getCircleClient(provider: EIP1193Provider, targetChain: st
     transport: modularTransport,
   });
 
-  // Get the EOA address from Privy
-  const [address]: [Address] = await provider.request({
-    method: 'eth_requestAccounts',
-  });
+  // Get the EOA address from Privy — safely handle empty array returns
+  const accounts: Address[] = await provider.request({ method: 'eth_requestAccounts' });
+  const address = accounts?.[0];
+  if (!address) throw new Error('Privy wallet not ready: eth_requestAccounts returned no accounts. Please try again.');
 
   // Use our custom Privy-compatible local account instead of walletClientToLocalAccount
   const localAccount = privyToLocalAccount(provider, address);
@@ -92,7 +118,7 @@ export async function getCircleClient(provider: EIP1193Provider, targetChain: st
     account,
   });
 
-  return { bundlerClient, account, localAccount };
+  return { bundlerClient, account, localAccount, publicClient };
 }
 
 export async function getCircleAddress(provider: EIP1193Provider, targetChain: string = 'base') {
@@ -102,14 +128,12 @@ export async function getCircleAddress(provider: EIP1193Provider, targetChain: s
 
   const publicClient = createPublicClient({
     chain: chainObj,
-    transport: http(
-      `https://base-mainnet.g.alchemy.com/v2/${process.env.NEXT_PUBLIC_ALCHEMY_API_KEY}`,
-    ),
+    transport: http(getStandardRpcUrl(targetChain)),
   });
 
-  const [address]: [Address] = await provider.request({
-    method: 'eth_requestAccounts',
-  });
+  const accounts2: Address[] = await provider.request({ method: 'eth_requestAccounts' });
+  const address = accounts2?.[0];
+  if (!address) throw new Error('Privy wallet not ready: eth_requestAccounts returned no accounts.');
 
   const localAccount = privyToLocalAccount(provider, address);
 
@@ -128,9 +152,7 @@ export async function getCircleAddress(provider: EIP1193Provider, targetChain: s
 export async function computeCircleSmartAddress(eoaAddress: string) {
   const publicClient = createPublicClient({
     chain: defaultChain,
-    transport: http(
-      `https://base-mainnet.g.alchemy.com/v2/${process.env.NEXT_PUBLIC_ALCHEMY_API_KEY}`,
-    ),
+    transport: http(getStandardRpcUrl('base')),
   });
 
   // Mock owner that satisfies the owner interface purely for address derivation

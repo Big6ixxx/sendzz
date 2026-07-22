@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 /**
  * Solana → Base bridge helpers (Circle CCTP V2).
@@ -10,22 +10,26 @@
  * is the awaitable end-to-end used by auto-consolidation.
  */
 
-import { Buffer } from 'buffer';
-import { Connection, PublicKey, Transaction } from '@solana/web3.js';
+import { Buffer } from "buffer";
+import { Connection, PublicKey, Transaction } from "@solana/web3.js";
 import {
   buildDepositForBurnTx,
   SOLANA_CCTP_DOMAIN,
   BASE_CCTP_DOMAIN,
   SOLANA_USDC_MINT,
-} from '@/lib/circle/solana-gateway';
+} from "@/lib/circle/solana-gateway";
 import {
   createTransferCheckedInstruction,
   getAssociatedTokenAddressSync,
   createAssociatedTokenAccountInstruction,
-} from '@solana/spl-token';
-import { fetchCctpFees, CCTP_DOMAINS, type SupportedChain } from '@/lib/circle/gateway';
-import { executeReceiveMessage } from './bridge-actions';
-import type { ConnectedWallet } from '@privy-io/react-auth';
+} from "@solana/spl-token";
+import {
+  fetchCctpFees,
+  CCTP_DOMAINS,
+  type SupportedChain,
+} from "@/lib/circle/gateway";
+import { executeReceiveMessage } from "./bridge-actions";
+import type { ConnectedWallet } from "@privy-io/react-auth";
 
 /**
  * Build a Solana depositForBurn transaction targeting `recipientEvm` on Base, fund its
@@ -39,17 +43,24 @@ export async function prepareSolanaBurnTx(params: {
   recipientEvm: string;
   destChain?: SupportedChain;
 }): Promise<{ sponsoredTx: Transaction }> {
-  const { connection, walletAddress, amount, recipientEvm, destChain = 'base' } = params;
+  const {
+    connection,
+    walletAddress,
+    amount,
+    recipientEvm,
+    destChain = "base",
+  } = params;
 
   // CCTP fee (non-fatal — fall back to 0).
   let feeSubunits = 0n;
   try {
-    const [whole, frac = ''] = amount.split('.');
-    const amtSubunits = BigInt(whole + (frac + '000000').slice(0, 6));
+    const [whole, frac = ""] = amount.split(".");
+    const amtSubunits = BigInt(whole + (frac + "000000").slice(0, 6));
     const destDomain = CCTP_DOMAINS[destChain];
     const fees = await fetchCctpFees(SOLANA_CCTP_DOMAIN, destDomain);
     const fast = fees.find((f) => f.finalityThreshold === 1000) ?? fees[0];
-    const fee = (amtSubunits * BigInt(Math.round(fast.minimumFee * 100))) / 1_000_000n;
+    const fee =
+      (amtSubunits * BigInt(Math.round(fast.minimumFee * 100))) / 1_000_000n;
     feeSubunits = (fee * 120n) / 100n; // 20% buffer
   } catch {
     /* use 0 fee */
@@ -66,11 +77,11 @@ export async function prepareSolanaBurnTx(params: {
 
   const txBase64 = transaction
     .serialize({ requireAllSignatures: false, verifySignatures: false })
-    .toString('base64');
+    .toString("base64");
 
-  const res = await fetch('/api/bridge/solana-sponsor', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  const res = await fetch("/api/bridge/solana-sponsor", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ transaction: txBase64 }),
   });
   if (!res.ok) {
@@ -81,7 +92,9 @@ export async function prepareSolanaBurnTx(params: {
     sponsoredTransaction: string;
   };
 
-  const sponsoredTx = Transaction.from(Buffer.from(sponsoredTransaction, 'base64'));
+  const sponsoredTx = Transaction.from(
+    Buffer.from(sponsoredTransaction, "base64"),
+  );
   // Circle replaced the fee-payer; re-apply our event-account signature.
   sponsoredTx.partialSign(messageSentEventData);
   return { sponsoredTx };
@@ -115,7 +128,7 @@ export async function bridgeSolanaToBase(params: {
     onStatus,
   } = params;
 
-  onStatus?.('Preparing Solana transfer…');
+  onStatus?.("Preparing Solana transfer…");
   const { sponsoredTx } = await prepareSolanaBurnTx({
     connection,
     walletAddress,
@@ -123,35 +136,52 @@ export async function bridgeSolanaToBase(params: {
     recipientEvm,
   });
 
-  onStatus?.('Confirming on Solana…');
+  onStatus?.("Confirming on Solana…");
   const burnTxHash = await signAndBroadcast(sponsoredTx);
 
-  onStatus?.('Waiting for network confirmation…');
-  const deadline = Date.now() + (params.timeoutMs ?? 20 * 60_000);
+  onStatus?.("Burn confirmed on-chain! Delivering on Base…");
+  const deadline = Date.now() + (params.timeoutMs ?? 20_000); // 20-second max client wait
   while (Date.now() < deadline) {
     try {
       const res = await fetch(
         `/api/bridge/status?txHash=${burnTxHash}&sourceChain=solana`,
       );
-      const data = await res.json();
-      if (data.status === 'complete') {
-        let mintTxHash: string | undefined = data.mintTxHash;
-        if (!mintTxHash && data.attestation && data.messageBytes) {
-          onStatus?.('Delivering on Base…');
-          mintTxHash = await executeReceiveMessage(
-            evmWallet,
-            data.messageBytes,
-            data.attestation,
-            'base',
-          );
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === "complete") {
+          let mintTxHash: string | undefined = data.mintTxHash;
+          if (!mintTxHash && data.attestation && data.messageBytes) {
+            onStatus?.("Delivering on Base…");
+            mintTxHash = await executeReceiveMessage(
+              evmWallet,
+              data.messageBytes,
+              data.attestation,
+              "base",
+            ).catch((err) => {
+              console.warn("[bridgeSolanaToBase] client mint notice:", err);
+              return undefined;
+            });
+          }
+          return { burnTxHash, mintTxHash };
         }
-        return { burnTxHash, mintTxHash };
       }
     } catch (err) {
-      console.warn('[bridgeSolanaToBase] status poll error:', err);
+      console.warn("[bridgeSolanaToBase] status poll error:", err);
     }
-    await new Promise((r) => setTimeout(r, 5_000));
+    await new Promise((r) => setTimeout(r, 3_000));
   }
+
+  // Handoff to background completion if client polling deadline reached
+  onStatus?.("Bridge processing on-chain. Finalizing delivery in background…");
+  fetch("/api/bridge/complete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      burnTxHash,
+      sourceChain: "solana",
+      destChain: "base",
+    }),
+  }).catch(() => {});
 
   return { burnTxHash };
 }
@@ -170,8 +200,14 @@ export async function buildSolanaUsdcTransferTx(params: {
   const senderPubKey = new PublicKey(senderAddress);
   const recipientPubKey = new PublicKey(recipientAddress);
 
-  const senderAta = getAssociatedTokenAddressSync(SOLANA_USDC_MINT, senderPubKey);
-  const recipientAta = getAssociatedTokenAddressSync(SOLANA_USDC_MINT, recipientPubKey);
+  const senderAta = getAssociatedTokenAddressSync(
+    SOLANA_USDC_MINT,
+    senderPubKey,
+  );
+  const recipientAta = getAssociatedTokenAddressSync(
+    SOLANA_USDC_MINT,
+    recipientPubKey,
+  );
 
   const tx = new Transaction();
 
@@ -182,8 +218,8 @@ export async function buildSolanaUsdcTransferTx(params: {
         senderPubKey,
         recipientAta,
         recipientPubKey,
-        SOLANA_USDC_MINT
-      )
+        SOLANA_USDC_MINT,
+      ),
     );
   }
 
@@ -195,11 +231,11 @@ export async function buildSolanaUsdcTransferTx(params: {
       recipientAta,
       senderPubKey,
       amountSubunits,
-      6
-    )
+      6,
+    ),
   );
 
-  const { blockhash } = await connection.getLatestBlockhash('confirmed');
+  const { blockhash } = await connection.getLatestBlockhash("confirmed");
   tx.recentBlockhash = blockhash;
   tx.feePayer = senderPubKey;
 

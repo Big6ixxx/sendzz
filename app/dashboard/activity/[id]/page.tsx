@@ -1,6 +1,8 @@
 'use client';
 
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useState, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
+import { DashboardPageHeader } from '@/components/layout/DashboardPageHeader';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import {
   useSignTransaction,
@@ -18,6 +20,7 @@ import {
   ArrowDownLeft,
   ArrowLeft,
   ArrowUpRight,
+  Bell,
   Check,
   ChevronDown,
   Clock,
@@ -28,10 +31,12 @@ import {
   MessageSquare,
   Network,
   RefreshCw,
+  ShieldAlert,
   Wallet,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useActivities } from '@/hooks/useActivities';
+import { useQueryClient } from '@tanstack/react-query';
 import { CHAIN_META } from '@/components/deposit-withdraw/deposit-shared';
 import { ReceiptActions } from '@/components/receipt/ReceiptActions';
 import { activityToReceiptData } from '@/lib/receipt/utils';
@@ -39,6 +44,7 @@ import { getOffRampRate } from '@/lib/actions/ramp';
 import { executeReceiveMessage } from '@/lib/web3/bridge-actions';
 import type { ActivityType } from '@/components/HistoryModule';
 import { CCTP_DOMAINS, type SupportedChain } from '@/lib/circle/gateway';
+import { classifyAppError } from '@/lib/errors/appErrors';
 
 const BASE_EXPLORER = 'https://basescan.org/tx/';
 
@@ -109,6 +115,7 @@ const TYPE_META: Record<
   deposit: { label: 'Deposit', color: '#3b82f6', Icon: Wallet },
   withdrawal: { label: 'Withdrawal', color: '#fb923c', Icon: Landmark },
   bridge: { label: 'Bridge Transfer', color: '#60a5fa', Icon: RefreshCw },
+  security: { label: 'Security Alert', color: '#f59e0b', Icon: ShieldAlert },
 };
 
 const SUCCESS_STATUSES = ['settled', 'completed', 'confirmed', 'success', 'complete'];
@@ -118,6 +125,7 @@ export default function ActivityDetailPage({
 }: {
   params: Promise<{ id: string }> | { id: string };
 }) {
+  const router = useRouter();
   const isPromise =
     params && typeof (params as Promise<{ id: string }>).then === 'function';
   const { id } = isPromise ? use(params as Promise<{ id: string }>) : (params as { id: string });
@@ -127,11 +135,155 @@ export default function ActivityDetailPage({
   const { wallets: solanaWallets } = useSolanaWallets();
   const { signTransaction } = useSignTransaction();
   const userEmail = user?.email?.address || '';
+  const queryClient = useQueryClient();
 
-  const { data: activities, isLoading } = useActivities(userEmail, user?.id || '');
-  const activity = activities?.find((a) => a.id === id) ?? null;
+  const { data: activities, isLoading, refetch } = useActivities(userEmail, user?.id || '');
+
+  const [notificationDetail, setNotificationDetail] = useState<{
+    id: string;
+    title: string;
+    body: string;
+    type: string;
+    created_at: string;
+    data?: Record<string, unknown> | null;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!userEmail || !id) return;
+    let active = true;
+    fetch(`/api/notifications?email=${encodeURIComponent(userEmail)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!active) return;
+        const notifs = (data.notifications || []) as any[];
+        const found = notifs.find((n) => n.id === id);
+        if (found) {
+          setNotificationDetail(found);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [userEmail, id]);
+
+  const activity = useMemo(() => {
+    if (!id) return null;
+    const lower = id.toLowerCase();
+
+    // 1. Try to find direct match in user activities by id, orderId, or txHash
+    let direct = activities?.find(
+      (a) =>
+        a.id === id ||
+        a.id.toLowerCase() === lower ||
+        a.providerOrderId === id ||
+        (a.txHash && a.txHash.toLowerCase() === lower)
+    );
+    if (direct) return direct;
+
+    // 2. If notificationDetail has a target transactionId, search activities with that
+    const targetTxId = (notificationDetail?.data?.transactionId ||
+      notificationDetail?.data?.id ||
+      notificationDetail?.data?.txId ||
+      notificationDetail?.data?.referenceId) as string | undefined;
+
+    if (targetTxId && activities) {
+      const targetLower = targetTxId.toLowerCase();
+      direct = activities.find(
+        (a) =>
+          a.id === targetTxId ||
+          a.id.toLowerCase() === targetLower ||
+          a.providerOrderId === targetTxId ||
+          (a.txHash && a.txHash.toLowerCase() === targetLower)
+      );
+      if (direct) return direct;
+    }
+
+    // 3. Smart Fallback Match: Find matching transaction in activities table by amount, type & timestamp
+    if (notificationDetail && activities && activities.length > 0) {
+      const notifData = notificationDetail.data || {};
+      const notifAmount = Number(notifData.amount || 0);
+      const notifType = notificationDetail.type; // 'bridge', 'withdrawal', 'deposit', 'transfer'
+      const notifTime = new Date(notificationDetail.created_at).getTime();
+
+      const dbMatch = activities.find((a) => {
+        const typeMatch =
+          (notifType === 'bridge' && a.type === 'bridge') ||
+          (notifType === 'withdrawal' && a.type === 'withdrawal') ||
+          (notifType === 'deposit' && a.type === 'deposit') ||
+          (notifType === 'transfer' && (a.type === 'sent' || a.type === 'received'));
+
+        if (!typeMatch) return false;
+
+        // Compare amounts if present in notification data
+        if (notifAmount > 0 && Math.abs(a.amount - notifAmount) > 0.01) {
+          return false;
+        }
+
+        // Compare source chain if available
+        if (notifData.src && a.sourceChain && a.sourceChain.toLowerCase() !== (notifData.src as string).toLowerCase()) {
+          return false;
+        }
+
+        // Match within 15 minutes of creation timestamp
+        const aTime = new Date(a.timestamp).getTime();
+        return Math.abs(aTime - notifTime) < 15 * 60 * 1000;
+      });
+
+      if (dbMatch) return dbMatch;
+    }
+
+    // 4. Fallback for non-transaction notifications: format details & status cleanly matching real activity format
+    if (notificationDetail) {
+      const d = notificationDetail.data || {};
+      const typeStr = notificationDetail.type as string;
+      const isSecurity = typeStr === 'security';
+      const type: ActivityType =
+        isSecurity ? 'security' :
+        typeStr === 'withdrawal' ? 'withdrawal' :
+        typeStr === 'deposit' ? 'deposit' :
+        typeStr === 'bridge' ? 'bridge' :
+        typeStr === 'transfer' ? 'sent' : 'received';
+
+      const amount = Number(d.amount || 0);
+      const fiatAmount = d.fiatAmount ? Number(d.fiatAmount) : undefined;
+      const fiatCurrency = (d.fiatCurrency || 'NGN') as string;
+
+      let details = notificationDetail.body;
+      if (type === 'bridge' && (d.src || d.sourceChain)) {
+        const srcChain = (d.src || d.sourceChain) as string;
+        const srcName = CHAIN_META[srcChain.toLowerCase()]?.name ?? (srcChain.charAt(0).toUpperCase() + srcChain.slice(1).toLowerCase());
+        details = `From: ${srcName}`;
+      } else if (type === 'withdrawal' && d.bankMasked) {
+        details = `To: ${d.bankMasked}`;
+      } else if (type === 'sent' || type === 'received') {
+        details = d.sender ? `From: ${d.sender}` : d.recipient ? `To: ${d.recipient}` : details;
+      }
+
+      return {
+        id: (d.transactionId || d.referenceId || d.id || notificationDetail.id) as string,
+        type,
+        amount,
+        status: 'complete',
+        timestamp: notificationDetail.created_at,
+        details,
+        note: notificationDetail.title,
+        asset: 'USDC',
+        txHash: (d.txHash || d.burnTxHash) as string | undefined,
+        mintTxHash: d.mintTxHash as string | undefined,
+        fiatAmount,
+        fiatCurrency,
+        sourceChain: (d.src || d.sourceChain) as string | undefined,
+        destChain: (d.dest || d.destChain) as string | undefined,
+        providerOrderId: (d.providerOrderId || d.orderId) as string | undefined,
+      };
+    }
+
+    return null;
+  }, [activities, id, notificationDetail]);
 
   const [isClaiming, setIsClaiming] = useState(false);
+  const [claimSuccess, setClaimSuccess] = useState(false);
   const [estimatedFiatRate, setEstimatedFiatRate] = useState<number | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -168,55 +320,87 @@ export default function ActivityDetailPage({
       else if (sourceChain && sourceChain in CCTP_DOMAINS) {
         domain = CCTP_DOMAINS[sourceChain as keyof typeof CCTP_DOMAINS];
       }
-
       if (domain === null) {
         toast.error('Invalid bridge source chain.');
         setIsClaiming(false);
         return;
       }
-      console.log('[Manual Claim Page] Triggering claim with params:', {
-        sourceChain,
-        destChain,
-        txHash: activity.txHash,
-        domain,
-      });
 
-      toast.info('Fetching CCTP attestation from Circle…');
+      // ── Fast path: already minted ────────────────────────────────────────
+      if (activity.mintTxHash) {
+        toast.info('This bridge was already completed. Refreshing status...');
+        await fetch('/api/bridge/complete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ burnTxHash: activity.txHash, mintTxHash: activity.mintTxHash }),
+        }).catch(() => {});
+        setClaimSuccess(true);
+        queryClient.invalidateQueries({ queryKey: ['history'] });
+        refetch();
+        return;
+      }
+
+      // ── Fetch attestation (DB-cached by status route) ────────────────────
+      toast.info('Checking bridge status...');
       const res = await fetch(
         `/api/bridge/status?txHash=${activity.txHash}&sourceChain=${sourceChain}`,
       );
-      if (!res.ok) throw new Error(`Circle API error: ${res.statusText}`);
+      if (!res.ok) throw new Error(`Status API error: ${res.statusText}`);
       const data = await res.json();
-      console.log('[Manual Claim Page] Attestation status API response:', data);
 
-      if (!data || data.status !== 'complete') {
-        console.warn('[Manual Claim Page] Attestation is still pending. Circle CCTP requires block confirmations (approx 1-2 mins on EVM chains, longer on mainnets).');
-        toast.error('Attestation still pending. Try again in 1–2 minutes.');
+      if (!data || data.status === 'not_found') {
+        toast.error('Bridge transaction not found on Circle. Please check the transaction hash.');
         setIsClaiming(false);
         return;
       }
-      
+      if (data.status === 'pending' || data.status === 'pending_confirmations') {
+        const chainDisplay = sourceChain
+          ? sourceChain.charAt(0).toUpperCase() + sourceChain.slice(1)
+          : 'source chain';
+        const isPendingConf = data.status === 'pending_confirmations';
+        const wait = isPendingConf ? '1–2 minutes' : '2–5 minutes';
+        const detail = isPendingConf
+          ? 'Block finality almost reached — nearly there.'
+          : 'Waiting for block confirmations on the source chain.';
+        toast.error(`${chainDisplay} bridge is still being verified. ${detail} Try again in ${wait}.`, { duration: 8000 });
+        setIsClaiming(false);
+        return;
+      }
+      if (data.status !== 'complete') {
+        toast.error('Bridge is still processing. Please try again shortly.');
+        setIsClaiming(false);
+        return;
+      }
+
       let mintTxHash = data.mintTxHash || null;
-      console.log('[Manual Claim Page] Extracted mintTxHash:', mintTxHash);
 
       const isEvmDest = destChain && destChain in CCTP_DOMAINS;
       if (isEvmDest) {
         if (!mintTxHash) {
-          console.log('[Manual Claim Page] EVM destination - initiating client-side signature via executeReceiveMessage...');
-          toast.info(`Requesting signature to claim USDC on ${activity.destChain || 'destination'}…`);
-          mintTxHash = await executeReceiveMessage(
-            embeddedWallet,
-            data.messageBytes!,
-            data.attestation!,
-            destChain
+          if (!data.messageBytes || !data.attestation) {
+            throw new Error('Attestation data incomplete. Please try again in 30 seconds.');
+          }
+          // Check if Circle's relayer already minted before trying manually
+          toast.info('Finalising bridge on destination chain...');
+          await new Promise(r => setTimeout(r, 3000));
+          const recheckRes = await fetch(
+            `/api/bridge/status?txHash=${activity.txHash}&sourceChain=${sourceChain}`,
           );
-          console.log('[Manual Claim Page] executeReceiveMessage completed. Mint tx hash:', mintTxHash);
-        } else {
-          console.log('[Manual Claim Page] EVM destination already minted or relayed: ', mintTxHash);
+          const recheckData = await recheckRes.json().catch(() => ({}));
+          if (recheckData.mintTxHash) {
+            mintTxHash = recheckData.mintTxHash;
+          } else {
+            // Relayer hasn't minted — submit receiveMessage ourselves
+            mintTxHash = await executeReceiveMessage(
+              embeddedWallet,
+              data.messageBytes,
+              data.attestation,
+              destChain
+            );
+          }
         }
       } else if ((destChain as string) === 'stellar') {
         if (!mintTxHash) {
-          console.log('[Manual Claim Page] Stellar destination - initiating server-side claim...');
           toast.info('Claiming USDC on Stellar (gas paid by sponsor)...');
           const claimRes = await fetch('/api/stellar/claim', {
             method: 'POST',
@@ -227,17 +411,11 @@ export default function ActivityDetailPage({
             const claimErr = await claimRes.json();
             throw new Error(claimErr.error || 'Failed to claim on Stellar');
           }
-          const claimData = await claimRes.json();
-          mintTxHash = claimData.txHash;
-          console.log('[Manual Claim Page] Stellar claim completed. Mint tx hash:', mintTxHash);
-        } else {
-          console.log('[Manual Claim Page] Stellar destination already minted: ', mintTxHash);
+          mintTxHash = (await claimRes.json()).txHash;
         }
       } else if ((destChain as string) === 'solana') {
         if (!mintTxHash) {
-          console.log('[Manual Claim Page] Solana destination - initiating client-side receiveMessage...');
           toast.info('Claiming USDC on Solana...');
-          
           const solAccount = user?.linkedAccounts.find(
             (a) =>
               a.type === 'wallet' &&
@@ -248,26 +426,13 @@ export default function ActivityDetailPage({
             solAccount && 'address' in solAccount
               ? (solAccount as { address: string }).address
               : undefined;
-          
           const solWallet = solAddress ? solanaWallets.find((w) => w.address === solAddress) : null;
-          if (!solWallet || !solAddress) {
-            throw new Error('Solana wallet not found. Please link a Solana wallet first.');
-          }
+          if (!solWallet || !solAddress) throw new Error('Solana wallet not found.');
 
           const walletPubkey = new PublicKey(solAddress);
           const solConn = new Connection(SOLANA_RPC, 'confirmed');
-
-          const { transaction } = await buildReceiveMessageOnSolanaTx(
-            solConn,
-            walletPubkey,
-            data.messageBytes!,
-            data.attestation!,
-          );
-
-          // 1. Sponsor transaction
-          const txBase64 = transaction
-            .serialize({ requireAllSignatures: false, verifySignatures: false })
-            .toString('base64');
+          const { transaction } = await buildReceiveMessageOnSolanaTx(solConn, walletPubkey, data.messageBytes!, data.attestation!);
+          const txBase64 = transaction.serialize({ requireAllSignatures: false, verifySignatures: false }).toString('base64');
           const sponsorRes = await fetch('/api/bridge/solana-sponsor', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -279,47 +444,68 @@ export default function ActivityDetailPage({
           }
           const { sponsoredTransaction } = await sponsorRes.json();
           const sponsoredTx = Transaction.from(Buffer.from(sponsoredTransaction, 'base64'));
-
-          toast.info('Please approve the popup to claim USDC on Solana.');
-          // 2. Sign transaction
-          const { signedTransaction: signedBytes } = await signTransaction({
-            transaction: sponsoredTx.serialize({ requireAllSignatures: false }),
-            wallet: solWallet,
-          });
-
-          // 3. Broadcast transaction
-          const signature = await solConn.sendRawTransaction(signedBytes, {
-            skipPreflight: false,
-            preflightCommitment: 'confirmed',
-          });
-
+          toast.info('Approve the popup to claim USDC on Solana.');
+          const { signedTransaction: signedBytes } = await signTransaction({ transaction: sponsoredTx.serialize({ requireAllSignatures: false }), wallet: solWallet });
+          const signature = await solConn.sendRawTransaction(signedBytes, { skipPreflight: false, preflightCommitment: 'confirmed' });
           const lb = await solConn.getLatestBlockhash();
-          await solConn.confirmTransaction(
-            { signature, blockhash: lb.blockhash, lastValidBlockHeight: lb.lastValidBlockHeight },
-            'confirmed',
-          );
+          await solConn.confirmTransaction({ signature, blockhash: lb.blockhash, lastValidBlockHeight: lb.lastValidBlockHeight }, 'confirmed');
           mintTxHash = signature;
-          console.log('[Manual Claim Page] Solana claim completed. Mint tx hash:', mintTxHash);
-        } else {
-          console.log('[Manual Claim Page] Solana destination already minted: ', mintTxHash);
         }
-      } else {
-        console.log('[Manual Claim Page] Non-EVM/Non-Stellar/Non-Solana destination attestation is complete. Marking as complete since Circle relayer will process the mint.');
       }
 
-      console.log('[Manual Claim Page] Calling /api/bridge/complete to update status in DB...', {
-        burnTxHash: activity.txHash,
-        mintTxHash,
-      });
       await fetch('/api/bridge/complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ burnTxHash: activity.txHash, mintTxHash }),
-      });
-      toast.success('USDC claimed successfully!');
-      window.location.reload();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to claim USDC.');
+      }).catch(() => {});
+
+      toast.success('Bridge complete! USDC has arrived on the destination chain.');
+      setClaimSuccess(true);
+      // Wait briefly then invalidate so the Mint Tx link replaces the pill
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['history'] });
+        queryClient.invalidateQueries({ queryKey: ['balance'] });
+        refetch();
+      }, 1500);
+    } catch (err: unknown) {
+      const rawErrMsg = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
+      const alreadyProcessed =
+        rawErrMsg.includes('nonce already used') ||
+        rawErrMsg.includes('message already received') ||
+        rawErrMsg.includes('message already processed');
+
+      if (alreadyProcessed) {
+        // Circle's relayer already minted — re-poll Iris to get the forwardTxHash
+        toast.info('Your USDC has already been delivered. Saving mint hash...');
+        try {
+          const retryRes = await fetch(
+            `/api/bridge/status?txHash=${activity.txHash}&sourceChain=${activity.sourceChain?.toLowerCase()}`,
+          );
+          const retryData = await retryRes.json().catch(() => ({}));
+          const relayedHash = retryData.mintTxHash || null;
+          await fetch('/api/bridge/complete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ burnTxHash: activity.txHash, mintTxHash: relayedHash }),
+          }).catch(() => {});
+        } catch {
+          await fetch('/api/bridge/complete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ burnTxHash: activity.txHash }),
+          }).catch(() => {});
+        }
+        setClaimSuccess(true);
+        queryClient.invalidateQueries({ queryKey: ['history'] });
+        queryClient.invalidateQueries({ queryKey: ['balance'] });
+        refetch();
+      } else {
+        const rawMsg = err instanceof Error ? err.message : String(err);
+        console.error('[Manual Claim Page] Raw error:', rawMsg);
+        // Strip hex blobs for display but always show something useful
+        const displayMsg = rawMsg.replace(/0x[0-9a-fA-F]{20,}/g, '[hex]').slice(0, 200);
+        toast.error(displayMsg || 'Claim failed. Please try again.');
+      }
     } finally {
       setIsClaiming(false);
     }
@@ -348,7 +534,7 @@ export default function ActivityDetailPage({
     );
   }
 
-  const meta = TYPE_META[activity.type];
+  const meta = TYPE_META[activity.type as ActivityType] || { label: 'Activity', color: '#00e87a', Icon: RefreshCw };
   const isSuccess = SUCCESS_STATUSES.includes(activity.status.toLowerCase());
   const color = isSuccess ? '#00e87a' : meta.color;
   const isOutgoing = activity.type === 'sent' || activity.type === 'withdrawal';
@@ -379,8 +565,21 @@ export default function ActivityDetailPage({
       label: 'Date',
       value: format(new Date(activity.timestamp), 'MMMM dd, yyyy @ HH:mm'),
     },
-    { icon: isOutgoing ? ArrowUpRight : ArrowDownLeft, label: isOutgoing ? 'To' : 'From', value: activity.details },
   ];
+
+  if (activity.type === 'security') {
+    detailRows.push({
+      icon: ShieldAlert,
+      label: 'Details',
+      value: activity.details,
+    });
+  } else {
+    detailRows.push({
+      icon: isOutgoing ? ArrowUpRight : ArrowDownLeft,
+      label: isOutgoing ? 'To' : 'From',
+      value: activity.details,
+    });
+  }
   const chainLabel = (chain: string) =>
     (CHAIN_META[chain.toLowerCase()]?.name ?? chain).toUpperCase();
 
@@ -478,7 +677,7 @@ export default function ActivityDetailPage({
         </Link>
         <div>
           <h1 className="font-display text-2xl font-bold tracking-tight text-brand-secondary">
-            Transaction
+            {activity.type === 'security' ? 'Security Alert' : 'Transaction'}
           </h1>
           <code className="text-[10px] font-bold uppercase tracking-widest text-brand-secondary/25">
             REF: {activity.id.slice(0, 18)}
@@ -504,11 +703,17 @@ export default function ActivityDetailPage({
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
             {meta.label}
           </p>
-          <h2 className="font-display text-5xl font-bold tracking-tighter text-brand-secondary">
-            {isOutgoing ? '−' : '+'}
-            {activity.amount.toLocaleString()}{' '}
-            <span className="text-xl opacity-30 font-bold uppercase">{activity.asset}</span>
-          </h2>
+          {activity.type === 'security' ? (
+            <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-brand-secondary max-w-lg mx-auto">
+              {activity.note || 'Account Security Update'}
+            </h2>
+          ) : (
+            <h2 className="font-display text-5xl font-bold tracking-tighter text-brand-secondary">
+              {isOutgoing ? '−' : '+'}
+              {activity.amount.toLocaleString()}{' '}
+              <span className="text-xl opacity-30 font-bold uppercase">{activity.asset}</span>
+            </h2>
+          )}
           <div className="flex justify-center pt-1">
             <span
               className="px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-widest"
@@ -532,7 +737,7 @@ export default function ActivityDetailPage({
         ))}
       </div>
 
-      {activity.note && (
+      {activity.note && activity.type !== 'security' && (
         <div className="p-4 rounded-2xl bg-accent/5 border border-accent/10">
           <p className="text-[10px] font-bold uppercase tracking-widest mb-1 flex items-center gap-2 text-accent">
             <MessageSquare className="w-3 h-3" /> Memo
@@ -577,6 +782,14 @@ export default function ActivityDetailPage({
                 >
                   <ExternalLink className="w-3.5 h-3.5" /> Mint transaction
                 </a>
+              ) : claimSuccess ? (
+                <div className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  <Check className="w-3.5 h-3.5" /> Claimed Successfully
+                </div>
+              ) : activity.status === 'complete' && Date.now() - new Date(activity.timestamp).getTime() < 10 * 60 * 1000 ? (
+                <div className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  <Check className="w-3.5 h-3.5" /> Completed
+                </div>
               ) : (
                 <button
                   onClick={handleClaim}
@@ -591,12 +804,14 @@ export default function ActivityDetailPage({
       )}
 
       {/* Receipt */}
-      <div className="space-y-2">
-        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/25 px-1">
-          Receipt
-        </p>
-        <ReceiptActions data={receiptData} />
-      </div>
+      {activity.type !== 'security' && (
+        <div className="space-y-2">
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/25 px-1">
+            Receipt
+          </p>
+          <ReceiptActions data={receiptData} />
+        </div>
+      )}
 
       {/* Advanced details */}
       {advancedRows.length > 0 && (

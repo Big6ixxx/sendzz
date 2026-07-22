@@ -26,7 +26,7 @@ import {
   xdr,
 } from '@stellar/stellar-sdk';
 import { rpc as SorobanRpc } from '@stellar/stellar-sdk';
-import { type AttestationResponse } from './gateway';
+import { type AttestationResponse, type AttestationStatus } from './gateway';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -266,19 +266,23 @@ export async function fetchStellarAttestation(
     const res = await fetch(
       `${IRIS_API_BASE}/messages/${STELLAR_CCTP_DOMAIN}?transactionHash=${txHash}`,
     );
-    if (res.status === 404) return { status: 'pending' };
+    if (res.status === 404) return { status: 'not_found' };
     if (!res.ok) throw new Error(`Iris API error: ${res.statusText}`);
 
     const data = (await res.json()) as {
       messages?: { status: string; attestation?: string; message?: string; forwardTxHash?: string }[];
     };
     const message = data.messages?.[0];
-    if (!message) return { status: 'pending' };
+    if (!message) return { status: 'not_found' };
 
     return {
-      status: message.status === 'complete' ? 'complete' : 'pending',
-      attestation: message.attestation,
-      messageBytes: message.message,
+      status: message.status as AttestationStatus,
+      attestation: message.attestation
+        ? (message.attestation.startsWith('0x') ? message.attestation : `0x${message.attestation}`)
+        : undefined,
+      messageBytes: message.message
+        ? (message.message.startsWith('0x') ? message.message : `0x${message.message}`)
+        : undefined,
       mintTxHash: message.forwardTxHash,
     };
   } catch (err) {
@@ -303,14 +307,25 @@ export async function calculateStellarMaxFee(
     ? CCTP_DOMAINS[destChain as keyof typeof CCTP_DOMAINS]
     : BASE_CCTP_DOMAIN;
   const fees = await fetchCctpFees(STELLAR_CCTP_DOMAIN, destinationDomain);
-  const matchingFee = fees.find((f) => f.finalityThreshold === minFinalityThreshold) ?? fees[0];
-  const minimumFeeUSDC = matchingFee.minimumFee; // e.g. 1.3 or 0
 
-  // Convert flat fee to 7-decimal subunits (Stellar native precision)
-  const minimumFeeSubunits = BigInt(Math.round(minimumFeeUSDC * 10_000_000));
+  // Always use Fast Transfer (1000) — same as EVM bridges
+  const fastFee = fees.find((f) => f.finalityThreshold === minFinalityThreshold)
+    ?? fees.find((f) => f.finalityThreshold === 1000)
+    ?? fees[0];
 
-  // Add 20% safety buffer
-  const maxFee = (minimumFeeSubunits * 120n) / 100n;
+  const minimumFeeBps = fastFee.minimumFee; // basis points
+
+  // Convert amount to 7-decimal Stellar subunits for fee calculation
+  const [whole, frac = ''] = amountUsdc.split('.');
+  const frac7 = (frac + '0000000').slice(0, 7);
+  const transferAmount = BigInt(whole + frac7);
+
+  // Calculate fee as percentage of transfer amount, in 7-decimal Stellar subunits
+  const protocolFee =
+    (transferAmount * BigInt(Math.round(minimumFeeBps * 100))) / 1_000_000n;
+
+  // Add 20% buffer
+  const maxFee = (protocolFee * 120n) / 100n;
   return maxFee;
 }
 

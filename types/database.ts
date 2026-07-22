@@ -515,8 +515,9 @@ export interface Database {
           dest_chain: string;
           amount: number;
           burn_tx_hash: string;
-          attestation_status: "pending" | "complete" | "failed";
+          attestation_status: "pending" | "complete" | "failed" | "pending_confirmations";
           mint_tx_hash: string | null;
+          notifications_sent: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -527,8 +528,9 @@ export interface Database {
           dest_chain: string;
           amount: number;
           burn_tx_hash: string;
-          attestation_status?: "pending" | "complete" | "failed";
+          attestation_status?: "pending" | "complete" | "failed" | "pending_confirmations";
           mint_tx_hash?: string | null;
+          notifications_sent?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -539,8 +541,9 @@ export interface Database {
           dest_chain?: string;
           amount?: number;
           burn_tx_hash?: string;
-          attestation_status?: "pending" | "complete" | "failed";
+          attestation_status?: "pending" | "complete" | "failed" | "pending_confirmations";
           mint_tx_hash?: string | null;
+          notifications_sent?: boolean;
           created_at?: string;
           updated_at?: string;
         };

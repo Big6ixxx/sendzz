@@ -12,6 +12,7 @@ import {
 import { toast } from "sonner";
 import { Shield, Smartphone, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { parseAppError } from "@/lib/errors/appErrors";
 
 interface TOTPSetupWizardProps {
   open: boolean;
@@ -49,7 +50,7 @@ export function TOTPSetupWizard({
       setQrUri(data.qrUri);
       setStep("qr");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to start setup");
+      toast.error(parseAppError(err));
     } finally {
       setLoading(false);
     }

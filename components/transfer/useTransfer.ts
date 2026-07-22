@@ -18,50 +18,19 @@ import { type FiatCurrencyCode } from "@/lib/currency-config";
 import { ReceiptData } from "@/lib/receipt/types";
 import { toast } from "sonner";
 
+import { parseAppError, isUserCancelled } from '@/lib/errors/appErrors';
+
 // Custom 2FA limit will be fetched from user preferences
-/** Convert raw viem / Circle / network errors into short user-readable strings. */
+/**
+ * Convert raw errors into short user-readable strings.
+ * Delegates to the centralized app error classifier in lib/errors/appErrors.ts.
+ */
 export function parseFriendlyError(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err);
-
-  // Circle / viem UserOperation errors contain multi-KB hex calldata — catch first
-  if (
-    raw.includes("executing user operation") ||
-    raw.includes("UserOperation")
-  ) {
-    // Must be checked before the generic "JSON is not a valid request object" branch —
-    // Circle wraps this specific error inside that same outer message.
-    if (
-      raw.includes("Cannot find target wallet") ||
-      raw.includes("wallet doesn't exist")
-    )
-      return "Wallet not registered with transfer service. Please try again — your wallet is being set up.";
-    if (raw.includes("JSON is not a valid request object"))
-      return "Transfer service is temporarily unavailable. Please try again shortly.";
-    if (raw.includes("AA21") || raw.includes("didn't pay prefund"))
-      return "Insufficient funds to cover the network fee.";
-    if (
-      raw.includes("precheck failed") ||
-      raw.includes("sender balance and deposit together")
-    )
-      return "Transfer failed. Please try again.";
-    if (raw.includes("AA25") || raw.includes("invalid account nonce"))
-      return "Transaction conflict — please wait a moment and retry.";
-    if (/rejected|denied/i.test(raw)) return "Transaction rejected by network.";
-    return "Transfer failed. Please try again.";
-  }
-
-  if (/user rejected|user denied|cancelled/i.test(raw))
-    return "Transaction cancelled.";
-  if (/insufficient funds|insufficient balance/i.test(raw))
-    return "Insufficient balance to complete this transfer.";
-  if (/network|fetch|ECONNREFUSED|timeout/i.test(raw))
-    return "Network error. Please check your connection and try again.";
-  if (raw.includes("Circle Client Key not configured"))
-    return "Transfer service is not configured. Please contact support.";
-
-  // Only surface the raw message if it's short enough to be readable
-  return raw.length <= 120 ? raw : "Transfer failed. Please try again.";
+  return parseAppError(err);
 }
+
+/** Re-export for convenience in transfer hooks */
+export { isUserCancelled };
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);

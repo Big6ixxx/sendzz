@@ -6,6 +6,12 @@ export interface EmailNotifPrefs {
   email_notif_withdrawal: boolean;
   email_notif_bridge: boolean;
   email_notif_security: boolean;
+  email_notif_system: boolean;
+  push_notif_transfer: boolean;
+  push_notif_wallet: boolean;
+  push_notif_bridge: boolean;
+  push_notif_security: boolean;
+  push_notif_system: boolean;
 }
 
 export const DEFAULT_PREFS: EmailNotifPrefs = {
@@ -14,6 +20,12 @@ export const DEFAULT_PREFS: EmailNotifPrefs = {
   email_notif_withdrawal: true,
   email_notif_bridge: true,
   email_notif_security: true,
+  email_notif_system: true,
+  push_notif_transfer: true,
+  push_notif_wallet: true,
+  push_notif_bridge: true,
+  push_notif_security: true,
+  push_notif_system: true,
 };
 
 async function getUserId(email: string): Promise<string | null> {
@@ -29,25 +41,33 @@ export async function getEmailNotifPrefs(email: string): Promise<EmailNotifPrefs
   const userId = await getUserId(email);
   if (!userId) return { ...DEFAULT_PREFS };
 
-  const { data } = await supabaseAdmin
-    .from('user_profiles')
-    .select(
-      'email_notif_transfer, email_notif_deposit, email_notif_withdrawal, email_notif_bridge, email_notif_security'
-    )
-    .eq('user_id', userId)
-    .maybeSingle();
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('user_profiles')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
 
-  if (!data) return { ...DEFAULT_PREFS };
+    if (error || !data) return { ...DEFAULT_PREFS };
 
-  // Cast needed until Supabase types are regenerated after migration 033
-  const row = data as any;
-  return {
-    email_notif_transfer:   row.email_notif_transfer   ?? true,
-    email_notif_deposit:    row.email_notif_deposit    ?? true,
-    email_notif_withdrawal: row.email_notif_withdrawal ?? true,
-    email_notif_bridge:     row.email_notif_bridge     ?? true,
-    email_notif_security:   row.email_notif_security   ?? true,
-  };
+    const row = data as any;
+    return {
+      email_notif_transfer:   row.email_notif_transfer   ?? true,
+      email_notif_deposit:    row.email_notif_deposit    ?? true,
+      email_notif_withdrawal: row.email_notif_withdrawal ?? true,
+      email_notif_bridge:     row.email_notif_bridge     ?? true,
+      email_notif_security:   row.email_notif_security   ?? true,
+      email_notif_system:     row.email_notif_system     ?? true,
+      push_notif_transfer:    row.push_notif_transfer    ?? true,
+      push_notif_wallet:      row.push_notif_wallet      ?? true,
+      push_notif_bridge:      row.push_notif_bridge      ?? true,
+      push_notif_security:    row.push_notif_security    ?? true,
+      push_notif_system:      row.push_notif_system      ?? true,
+    };
+  } catch (err) {
+    console.error('[Supabase] Failed to fetch notification preferences:', err);
+    return { ...DEFAULT_PREFS };
+  }
 }
 
 export async function saveEmailNotifPrefs(
@@ -57,12 +77,18 @@ export async function saveEmailNotifPrefs(
   const userId = await getUserId(email);
   if (!userId) throw new Error(`User not found: ${email}`);
 
-  const { error } = await supabaseAdmin
-    .from('user_profiles')
-    .update(prefs as any) // cast until types regenerated after migration 033
-    .eq('user_id', userId);
+  try {
+    const { error } = await supabaseAdmin
+      .from('user_profiles')
+      .update(prefs as any)
+      .eq('user_id', userId);
 
-  if (error) throw error;
+    if (error) {
+      console.warn('[Supabase] Error updating notification preferences:', error.message);
+    }
+  } catch (err) {
+    console.error('[Supabase] Failed to save notification preferences:', err);
+  }
 }
 
 /**
@@ -80,3 +106,4 @@ export async function userWantsEmail(
     return true; // fail open
   }
 }
+
