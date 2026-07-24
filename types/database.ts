@@ -641,6 +641,36 @@ export interface Database {
         };
         Relationships: [];
       };
+      webauthn_challenges: {
+        Row: {
+          id: string;
+          challenge: string;
+          email: string;
+          type: "registration" | "authentication";
+          used: boolean;
+          expires_at: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          challenge: string;
+          email: string;
+          type: "registration" | "authentication";
+          used?: boolean;
+          expires_at?: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          challenge?: string;
+          email?: string;
+          type?: "registration" | "authentication";
+          used?: boolean;
+          expires_at?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       // Anonymized, PII-free union of all transaction tables (migration 031).

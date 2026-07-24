@@ -12,8 +12,8 @@ interface StoredCredential {
   transports: ("ble" | "hybrid" | "internal" | "nfc" | "usb")[];
 }
 
-// In-memory challenge storage (in production, use Redis or similar)
-const challengeStore = new Map<string, { challenge: string; email: string }>();
+// Challenge TTL: 5 minutes
+const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 
 export async function POST(req: Request) {
   try {
@@ -54,12 +54,28 @@ export async function POST(req: Request) {
         existingCredentials,
       );
 
-      // Store challenge for verification
+      // Persist challenge in Supabase so it survives across serverless instances
       const challengeId = crypto.randomUUID();
-      challengeStore.set(challengeId, {
-        challenge: options.challenge,
-        email,
-      });
+      const expiresAt = new Date(Date.now() + CHALLENGE_TTL_MS).toISOString();
+
+      const { error: insertError } = await supabaseAdmin
+        .from("webauthn_challenges")
+        .insert({
+          id: challengeId,
+          challenge: options.challenge,
+          email,
+          type: "registration",
+          used: false,
+          expires_at: expiresAt,
+        });
+
+      if (insertError) {
+        console.error("Failed to store passkey challenge:", insertError);
+        return NextResponse.json(
+          { error: "Failed to initiate registration. Please try again." },
+          { status: 500 },
+        );
+      }
 
       return NextResponse.json({
         options,
@@ -77,15 +93,42 @@ export async function POST(req: Request) {
         );
       }
 
-      const storedData = challengeStore.get(challengeId);
-      if (!storedData || storedData.email !== email) {
+      // Fetch challenge from Supabase
+      const { data: storedData, error: fetchError } = await supabaseAdmin
+        .from("webauthn_challenges")
+        .select("*")
+        .eq("id", challengeId)
+        .eq("email", email)
+        .eq("type", "registration")
+        .eq("used", false)
+        .single();
+
+      if (fetchError || !storedData) {
         return NextResponse.json(
           { error: "Session expired. Please try again." },
           { status: 400 },
         );
       }
 
-      // Verify registration
+      // Check expiry
+      if (new Date(storedData.expires_at) < new Date()) {
+        await supabaseAdmin
+          .from("webauthn_challenges")
+          .delete()
+          .eq("id", challengeId);
+        return NextResponse.json(
+          { error: "Session expired. Please try again." },
+          { status: 400 },
+        );
+      }
+
+      // Mark challenge as used immediately to prevent replay attacks
+      await supabaseAdmin
+        .from("webauthn_challenges")
+        .update({ used: true })
+        .eq("id", challengeId);
+
+      // Verify registration — pass the configured origin from env
       const verification = await verifyPasskeyRegistration(
         credential,
         storedData.challenge,
@@ -123,8 +166,11 @@ export async function POST(req: Request) {
         })
         .eq("email", email);
 
-      // Clean up challenge
-      challengeStore.delete(challengeId);
+      // Clean up the used challenge
+      await supabaseAdmin
+        .from("webauthn_challenges")
+        .delete()
+        .eq("id", challengeId);
 
       return NextResponse.json({ success: true });
     }
