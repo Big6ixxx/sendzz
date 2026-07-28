@@ -84,7 +84,6 @@ export function CryptoTransferForm({
   chainBalances,
   solanaBalance,
 }: CryptoTransferFormProps) {
-  const isStellar = selectedChain === 'stellar';
   const fundedSources =
     Object.values(chainBalances).filter((b) => (b ?? 0) > 0).length +
     (solanaBalance > 0 ? 1 : 0);

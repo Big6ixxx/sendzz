@@ -415,6 +415,18 @@ export function useDepositWithdraw(
       return;
     }
 
+    // Early KYC & Limit Pre-Check — block immediately at step 1
+    try {
+      const { checkKycLimitAction } = await import("@/lib/kyc/guard");
+      const guard = await checkKycLimitAction(estimatedUsdc, userEmail);
+      if (!guard.allowed) {
+        toast.error(guard.message);
+        return;
+      }
+    } catch (err) {
+      console.error("[Deposit] Early KYC check error:", err);
+    }
+
     setLoading(true);
     try {
       const res = await initiateOnRamp({
@@ -458,6 +470,18 @@ export function useDepositWithdraw(
     // Include the platform fee (provider-specific) in the balance check.
     const feeRate = feePercent / 100;
     const totalUsdcRequired = val * (1 + feeRate);
+
+    // Early KYC & Limit Pre-Check — block immediately at step 1 before bank details, 2FA, or signing
+    try {
+      const { checkKycLimitAction } = await import("@/lib/kyc/guard");
+      const guard = await checkKycLimitAction(totalUsdcRequired, userEmail);
+      if (!guard.allowed) {
+        toast.error(guard.message);
+        return;
+      }
+    } catch (err) {
+      console.error("[Withdraw] Early KYC check error:", err);
+    }
 
     // A Paycrest order settles on one network, so we must source the whole amount from
     // a single Paycrest-supported chain. Route to one that holds enough.
@@ -744,6 +768,7 @@ export function useDepositWithdraw(
         },
         userRefundAddress: userAddress,
         userEmail,
+        userId,
         fiatCurrency,
         network: withdrawChain,
         consolidated: mustConsolidate,

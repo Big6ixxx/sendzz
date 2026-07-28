@@ -69,7 +69,7 @@ export function TransferModule({
     handleTransfer,
     recipientCheck,
     twoFaModalOpen,
-    setTwoFaModalOpen,
+    setTwoFaModalOpen: _setTwoFaModalOpen,
     twoFaLoading,
     twoFaError,
     handleTwoFaSubmit,

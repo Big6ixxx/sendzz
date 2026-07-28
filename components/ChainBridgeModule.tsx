@@ -24,7 +24,6 @@ import {
 import { prepareSolanaBurnTx } from "@/lib/web3/solana-bridge";
 import { buildReceiveMessageOnSolanaTx } from "@/lib/circle/solana-gateway";
 import { PublicKey, Transaction } from "@solana/web3.js";
-import bs58 from "bs58";
 
 import { recordBridgeTransaction } from "@/lib/supabase/transactions";
 import { cn } from "@/lib/utils";
@@ -375,7 +374,7 @@ export function ChainBridgeModule({
       cancelled = true;
       clearInterval(interval);
     };
-  }, [monitor, phase, embeddedWallet, embeddedSolWallet, queryClient]);
+  }, [monitor, phase, embeddedWallet, embeddedSolWallet, queryClient, signTransaction]);
 
   const handleBridge = async () => {
     if (!canBridge || !source || !dest) return;
@@ -468,8 +467,8 @@ export function ChainBridgeModule({
 
       await recordBridgeTransaction({
         userEmail,
-        sourceChain: source as any,
-        destChain: dest as any,
+        sourceChain: source as SupportedChain,
+        destChain: dest as SupportedChain,
         amountUsdc: amountNum,
         burnTxHash,
       }).catch(console.error);

@@ -15,7 +15,6 @@ import { Connection, PublicKey, Transaction } from "@solana/web3.js";
 import {
   buildDepositForBurnTx,
   SOLANA_CCTP_DOMAIN,
-  BASE_CCTP_DOMAIN,
   SOLANA_USDC_MINT,
 } from "@/lib/circle/solana-gateway";
 import {

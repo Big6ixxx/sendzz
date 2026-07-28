@@ -195,6 +195,10 @@ export function transactionOTPTemplate(
     subjectText = `Confirm your withdrawal of ${details.amount} USDC`;
   }
 
+  void isEmail;
+  void ctaLabel;
+  void subjectText;
+
   const noteSection = details.note
     ? `<p style="font-size:13px; color:#888888; font-style:italic; margin: 0 0 20px 0;">"${details.note}"</p>`
     : '';

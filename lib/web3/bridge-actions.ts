@@ -3,7 +3,8 @@ import {
   encodeFunctionData,
   createPublicClient,
   http,
-  keccak256
+  keccak256,
+  type PublicClient
 } from 'viem';
 import { type BundlerClient } from 'viem/account-abstraction';
 import { type ConnectedWallet } from '@privy-io/react-auth';
@@ -197,7 +198,6 @@ export async function executeSmartBridge(
 
     // 3. Execute Deposit for Burn
     toast.info('Initiating bridge transfer...');
-    const amountVal = parseFloat(amountUSDC);
     // Always use Fast Transfer (1000) — Standard Transfer (2000) takes 13+ minutes.
     const minFinalityThreshold = 1000;
     const maxFee = await calculateMaxFee(sourceChain, amountUSDC, destChain, minFinalityThreshold);
@@ -328,7 +328,7 @@ export async function executeReceiveMessage(
 
   let MESSAGE_TRANSMITTER = '0x81D40F21F12A8F0E3252Bccb954D722d4c464B64';
   let messageHash: `0x${string}` = '0x0000000000000000000000000000000000000000000000000000000000000000';
-  let standardRpcClient: any = null;
+  let standardRpcClient: PublicClient | null = null;
 
   try {
     if (process.env.NEXT_PUBLIC_SIMULATION_MODE === 'true') {
@@ -719,7 +719,7 @@ const MESSAGE_RECEIVED_EVENT = {
 } as const;
 
 async function findMintTxHashFromLogs(
-  publicClient: any,
+  publicClient: PublicClient,
   messageTransmitterAddress: string,
   messageHash: `0x${string}`
 ): Promise<string | undefined> {
@@ -732,7 +732,7 @@ async function findMintTxHashFromLogs(
       event: MESSAGE_RECEIVED_EVENT,
       fromBlock,
     });
-    const match = logs.find((log: any) => log.args?.messageHash === messageHash);
+    const match = logs.find((log: { args?: { messageHash?: string }; transactionHash?: string }) => log.args?.messageHash === messageHash);
     return match?.transactionHash;
   } catch (err) {
     console.warn('[findMintTxHashFromLogs] failed:', err);
@@ -741,7 +741,7 @@ async function findMintTxHashFromLogs(
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  let timeoutId: any;
+  let timeoutId: ReturnType<typeof setTimeout>;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => reject(new Error('timeout')), timeoutMs);
   });

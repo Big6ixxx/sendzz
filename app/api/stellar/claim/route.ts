@@ -34,7 +34,14 @@ export async function POST(req: Request) {
     if (!irisRes.ok) {
       throw new Error(`Iris API query failed: ${irisRes.statusText}`);
     }
-    const irisData = await irisRes.json() as any;
+    interface IrisResponse {
+      messages?: Array<{
+        message: string;
+        attestation: string;
+        status: string;
+      }>;
+    }
+    const irisData = (await irisRes.json()) as IrisResponse;
     if (!irisData.messages || irisData.messages.length === 0) {
       throw new Error('No attestation found on Circle Iris API yet');
     }
@@ -96,7 +103,8 @@ export async function POST(req: Request) {
     const submitResult = await server.sendTransaction(preppedTx);
     
     if (submitResult.status === 'ERROR') {
-      throw new Error(`Soroban send failed: ${(submitResult as any).errorResultXdr || (submitResult as any).errorResult}`);
+      const errInfo = submitResult as unknown as { errorResultXdr?: string; errorResult?: string };
+      throw new Error(`Soroban send failed: ${errInfo.errorResultXdr || errInfo.errorResult || 'Unknown error'}`);
     }
     
     const stellarTxHash = submitResult.hash;

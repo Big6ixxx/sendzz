@@ -50,19 +50,19 @@ export async function getEmailNotifPrefs(email: string): Promise<EmailNotifPrefs
 
     if (error || !data) return { ...DEFAULT_PREFS };
 
-    const row = data as any;
+    const row = data as Record<string, unknown>;
     return {
-      email_notif_transfer:   row.email_notif_transfer   ?? true,
-      email_notif_deposit:    row.email_notif_deposit    ?? true,
-      email_notif_withdrawal: row.email_notif_withdrawal ?? true,
-      email_notif_bridge:     row.email_notif_bridge     ?? true,
-      email_notif_security:   row.email_notif_security   ?? true,
-      email_notif_system:     row.email_notif_system     ?? true,
-      push_notif_transfer:    row.push_notif_transfer    ?? true,
-      push_notif_wallet:      row.push_notif_wallet      ?? true,
-      push_notif_bridge:      row.push_notif_bridge      ?? true,
-      push_notif_security:    row.push_notif_security    ?? true,
-      push_notif_system:      row.push_notif_system      ?? true,
+      email_notif_transfer:   (row.email_notif_transfer as boolean | undefined)   ?? true,
+      email_notif_deposit:    (row.email_notif_deposit as boolean | undefined)    ?? true,
+      email_notif_withdrawal: (row.email_notif_withdrawal as boolean | undefined) ?? true,
+      email_notif_bridge:     (row.email_notif_bridge as boolean | undefined)     ?? true,
+      email_notif_security:   (row.email_notif_security as boolean | undefined)   ?? true,
+      email_notif_system:     (row.email_notif_system as boolean | undefined)     ?? true,
+      push_notif_transfer:    (row.push_notif_transfer as boolean | undefined)    ?? true,
+      push_notif_wallet:      (row.push_notif_wallet as boolean | undefined)      ?? true,
+      push_notif_bridge:      (row.push_notif_bridge as boolean | undefined)      ?? true,
+      push_notif_security:    (row.push_notif_security as boolean | undefined)    ?? true,
+      push_notif_system:      (row.push_notif_system as boolean | undefined)      ?? true,
     };
   } catch (err) {
     console.error('[Supabase] Failed to fetch notification preferences:', err);
@@ -80,7 +80,7 @@ export async function saveEmailNotifPrefs(
   try {
     const { error } = await supabaseAdmin
       .from('user_profiles')
-      .update(prefs as any)
+      .update(prefs as Record<string, unknown>)
       .eq('user_id', userId);
 
     if (error) {

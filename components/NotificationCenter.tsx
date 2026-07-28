@@ -27,34 +27,56 @@ function urlBase64ToUint8Array(base64String: string) {
   return outputArray;
 }
 
+// Top-level pure helper for formatting notification timestamp
+function formatNotificationTime(dateStr: string, nowTimestamp: number): string {
+  if (!nowTimestamp) {
+    return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+  const elapsed = nowTimestamp - new Date(dateStr).getTime();
+  const minutes = Math.floor(elapsed / 60000);
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 export function NotificationCenter({ userEmail }: { userEmail: string }) {
   const router = useRouter();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [isOpen, setIsOpen] = useState(false);
+  const [nowTimestamp, setNowTimestamp] = useState<number>(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-  const fetchNotifications = async () => {
-    if (!userEmail) return;
-    try {
-      const res = await fetch(`/api/notifications?email=${encodeURIComponent(userEmail)}`);
-      if (res.ok) {
-        const data = await res.json();
-        setNotifications(data.notifications || []);
-      }
-    } catch (err) {
-      console.error('Failed to fetch notifications:', err);
-    }
-  };
-
   // 1. Poll/Fetch notifications on load and setup push subscriptions
   useEffect(() => {
-    fetchNotifications();
+    if (!userEmail) return;
+    let isMounted = true;
 
-    // Poll every 15 seconds as fallback
-    const interval = setInterval(fetchNotifications, 15000);
-    return () => clearInterval(interval);
+    const loadNotifications = async () => {
+      try {
+        const res = await fetch(`/api/notifications?email=${encodeURIComponent(userEmail)}`);
+        if (res.ok && isMounted) {
+          const data = await res.json();
+          if (isMounted) {
+            setNotifications(data.notifications || []);
+            setNowTimestamp(Date.now());
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch notifications:', err);
+      }
+    };
+
+    void loadNotifications();
+
+    const interval = setInterval(loadNotifications, 15000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, [userEmail]);
 
   // 2. Setup Web Push Notifications
@@ -192,18 +214,6 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
         return <Bell className="w-4 h-4 text-white/50" />;
     }
   };
-
-  const formatTime = (dateStr: string) => {
-    const elapsed = Date.now() - new Date(dateStr).getTime();
-    const minutes = Math.floor(elapsed / 60000);
-    if (minutes < 1) return 'Just now';
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  };
-
-  // Display at most 5 items in the pop-up
   const popupNotifications = notifications.slice(0, 5);
 
   return (
@@ -271,7 +281,7 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
                       {notif.body}
                     </p>
                     <span className="text-[9px] text-white/20 mt-1 block">
-                      {formatTime(notif.created_at)}
+                      {formatNotificationTime(notif.created_at, nowTimestamp)}
                     </span>
                   </div>
                   {!notif.read && (

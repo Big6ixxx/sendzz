@@ -42,6 +42,13 @@ export type OtpPurpose = "login" | "withdrawal_verification";
 
 export type WebhookProvider = "paycrest" | "bitnob";
 
+export type KycStatus =
+  | "not_started"
+  | "pending"
+  | "in_review"
+  | "approved"
+  | "declined";
+
 export interface Database {
   public: {
     Tables: {
@@ -641,6 +648,93 @@ export interface Database {
         };
         Relationships: [];
       };
+      kyc_verifications: {
+        Row: {
+          id: string;
+          user_id: string;
+          didit_session_id: string | null;
+          vendor_data: string | null;
+          status: KycStatus;
+          last_webhook_payload: Json | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          didit_session_id?: string | null;
+          vendor_data?: string | null;
+          status?: KycStatus;
+          last_webhook_payload?: Json | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          didit_session_id?: string | null;
+          vendor_data?: string | null;
+          status?: KycStatus;
+          last_webhook_payload?: Json | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      notifications: {
+        Row: {
+          id: string;
+          user_id: string | null;
+          title: string;
+          body: string;
+          type: string;
+          read: boolean;
+          data: Json | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string | null;
+          title: string;
+          body: string;
+          type: string;
+          read?: boolean;
+          data?: Json | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string | null;
+          title?: string;
+          body?: string;
+          type?: string;
+          read?: boolean;
+          data?: Json | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      push_subscriptions: {
+        Row: {
+          id: string;
+          user_id: string;
+          subscription: Json;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          subscription: Json;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          subscription?: Json;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       // Anonymized, PII-free union of all transaction tables (migration 031).
@@ -719,6 +813,12 @@ export interface Database {
           p_recipient_id: string;
         };
         Returns: void;
+      };
+      get_kyc_status_and_totals: {
+        Args: {
+          p_user_id: string;
+        };
+        Returns: Json;
       };
     };
     Enums: {

@@ -5,16 +5,20 @@ import {
   ArrowRight,
   ArrowUpRight,
   CheckCircle2,
+  ChevronDown,
   Globe,
+  HelpCircle,
+  Key,
   Landmark,
   Send,
   Shield,
+  ShieldCheck,
   Zap,
 } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 
 /* ─── Mock UI Card Components ─── */
 
@@ -305,6 +309,92 @@ function CardTriptych() {
             'linear-gradient(to bottom, transparent, var(--background))',
         }}
       />
+    </div>
+  );
+}
+
+const FAQS = [
+  {
+    q: "Is Sendzz non-custodial? How does 'Your Email Is Your Key' work?",
+    a: "Yes, Sendzz is 100% non-custodial. Your email address is your master key. When you log in with your email, Privy generates an Ethereum L2 Smart Account (ERC-4337 on Base) using secure Multi-Party Computation (MPC) and WebAuthn Passkeys. Sendzz never stores or touches your private keys, cannot freeze your account, and cannot move your money without your explicit authorization.",
+    icon: Key,
+    highlight: "Your Email Is Your Key",
+  },
+  {
+    q: "What are the KYC identity verification limits?",
+    a: "You can start transacting immediately without verification! Unverified accounts have a limit of $500 total in rolling 24-hour transactions ($2,500 weekly, $10,000 monthly). Once your transaction volume reaches $500, a quick 2-minute identity verification powered by Didit will unlock higher limits while keeping Sendzz fully compliant with global financial standards.",
+    icon: ShieldCheck,
+    highlight: "$500 Daily Limit for Unverified Accounts",
+  },
+  {
+    q: "Are there any transaction or gas fees?",
+    a: "Sendzz P2P transfers are 100% free with zero gas fees. Network gas costs on Base and supported chains are fully sponsored by Sendzz using Account Abstraction paymasters and Circle Gas Station. For fiat withdrawals to your local bank account, a minimal 0.3% partner fee applies.",
+    icon: Zap,
+    highlight: "Zero Network Gas Fees",
+  },
+  {
+    q: "How do claim links work for recipients who don't have Sendzz yet?",
+    a: "You can send funds to ANY email address in the world. When you send money to a non-user, the funds are safely locked in an on-chain smart escrow contract. The recipient receives an email notification with a secure claim link. When they click the link and log in with their email, their non-custodial wallet is created instantly and funds are claimed automatically.",
+    icon: Send,
+    highlight: "Universal Email Escrow",
+  },
+  {
+    q: "How do fiat bank deposits and withdrawals work?",
+    a: "Sendzz seamlessly integrates with top fiat ramp providers. You can deposit local currency (like NGN) to receive USDC, or sell USDC to receive local fiat directly into your bank account within 2 minutes.",
+    icon: Landmark,
+    highlight: "Instant Local Payouts",
+  },
+];
+
+function HomeFaqItem({
+  faq,
+  defaultOpen = false,
+}: {
+  faq: (typeof FAQS)[number];
+  defaultOpen?: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  const Icon = faq.icon;
+
+  return (
+    <div className="card-glass p-0 overflow-hidden transition-all duration-200 border border-white/5 hover:border-white/10">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full p-6 text-left flex items-center justify-between gap-4 transition-colors hover:bg-white/[0.02]"
+      >
+        <div className="flex items-center gap-4">
+          <div
+            className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0"
+            style={{ background: 'rgba(0, 232, 122, 0.12)', color: '#00e87a' }}
+          >
+            <Icon className="w-5 h-5" />
+          </div>
+          <div>
+            <p className="text-base font-bold text-brand-secondary">{faq.q}</p>
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[#00e87a]">
+              {faq.highlight}
+            </span>
+          </div>
+        </div>
+        <div
+          className={`w-8 h-8 rounded-full flex items-center justify-center border border-white/10 shrink-0 transition-transform duration-300 ${
+            isOpen ? 'rotate-180 bg-white/10' : 'bg-white/5'
+          }`}
+        >
+          <ChevronDown className="w-4 h-4 text-brand-secondary/60" />
+        </div>
+      </button>
+
+      {isOpen && (
+        <div className="px-6 pb-6 pt-2 border-t border-white/5 bg-white/[0.01]">
+          <p
+            className="text-sm leading-relaxed"
+            style={{ color: 'rgba(248,248,246,0.65)' }}
+          >
+            {faq.a}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -657,6 +747,28 @@ export default function Landing() {
                 </div>
               ))}
             </div>
+          </div>
+        </section>
+
+        {/* ─── Frequently Asked Questions (FAQ) ─── */}
+        <section className="px-6 py-20 max-w-4xl mx-auto">
+          <div className="text-center mb-16 space-y-4">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-[#00e87a]/20 bg-[#00e87a]/10 text-[#00e87a] text-xs font-bold uppercase tracking-widest">
+              <HelpCircle className="w-4 h-4" />
+              Frequently Asked Questions
+            </div>
+            <h2 className="font-display text-[clamp(2rem,5vw,3rem)] font-bold text-brand-secondary tracking-tight">
+              Everything you need to know.
+            </h2>
+            <p className="text-sm max-w-xl mx-auto" style={{ color: 'rgba(248,248,246,0.45)' }}>
+              Non-custodial security, identity verification limits, and gas-free payments explained.
+            </p>
+          </div>
+
+          <div className="space-y-4">
+            {FAQS.map((faq, index) => (
+              <HomeFaqItem key={index} faq={faq} defaultOpen={index === 0} />
+            ))}
           </div>
         </section>
 

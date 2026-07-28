@@ -263,6 +263,24 @@ export function useCryptoTransfer({
     }
 
     setLoading(true);
+    setStatus("Checking transaction limits...");
+
+    const valUsdc = parseFloat(amount);
+    if (!isNaN(valUsdc) && valUsdc > 0) {
+      try {
+        const { checkKycLimitAction } = await import("@/lib/kyc/guard");
+        const guard = await checkKycLimitAction(valUsdc, senderEmail);
+        if (!guard.allowed) {
+          toast.error(guard.message);
+          setLoading(false);
+          setStatus("");
+          return;
+        }
+      } catch (err) {
+        console.error("[CryptoTransfer] Early KYC check error:", err);
+      }
+    }
+
     setStatus("Initiating transfer...");
 
     await executeTransferFlow();

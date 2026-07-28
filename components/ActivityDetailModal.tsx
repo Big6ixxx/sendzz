@@ -24,7 +24,6 @@ import {
 } from "@privy-io/react-auth/solana";
 import { Connection, PublicKey, Transaction } from "@solana/web3.js";
 import { buildReceiveMessageOnSolanaTx } from "@/lib/circle/solana-gateway";
-import bs58 from "bs58";
 import { executeReceiveMessage } from "@/lib/web3/bridge-actions";
 import { toast } from "sonner";
 import { CCTP_DOMAINS, type SupportedChain } from "@/lib/circle/gateway";

@@ -2,6 +2,37 @@
 
 import { supabaseAdmin } from './adminClient';
 
+export async function ensureUserInDatabase(email: string): Promise<string> {
+  const normalizedEmail = email.toLowerCase();
+  const { data: existing } = await supabaseAdmin
+    .from("users")
+    .select("id")
+    .eq("email", normalizedEmail)
+    .maybeSingle();
+
+  if (existing?.id) {
+    return existing.id;
+  }
+
+  const { data: inserted, error } = await supabaseAdmin
+    .from("users")
+    .insert({ email: normalizedEmail, smart_account_address: "" })
+    .select("id")
+    .single();
+
+  if (error || !inserted) {
+    const { data: retry } = await supabaseAdmin
+      .from("users")
+      .select("id")
+      .eq("email", normalizedEmail)
+      .single();
+    if (retry?.id) return retry.id;
+    throw new Error(`Failed to ensure user in DB: ${error?.message}`);
+  }
+
+  return inserted.id;
+}
+
 export async function getUserAddressByEmail(
   email: string,
 ): Promise<string | null> {
@@ -15,7 +46,6 @@ export async function getUserAddressByEmail(
   if (error || !data) return null;
   return data.smart_account_address;
 }
-
 export async function registerUserAddress(
   email: string,
   address: string,
@@ -53,7 +83,7 @@ export async function registerStellarAddress(
   stellarAddress: string,
   stellarWalletId: string,
   stellarSignerGranted?: boolean,
-  privyUserId?: string,
+  _privyUserId?: string,
 ): Promise<void> {
   const normalizedEmail = email.toLowerCase();
   const row: {
@@ -79,7 +109,7 @@ export async function registerStellarAddress(
 
 export async function getUserAddresses(
   email: string,
-  privyUserId?: string,
+  _privyUserId?: string,
 ): Promise<{
   smart_account_address: string | null;
   solana_address: string | null;

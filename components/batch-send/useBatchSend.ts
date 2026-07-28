@@ -72,6 +72,19 @@ export function useBatchSend(
       return;
     }
 
+    if (totalAmount > 0) {
+      try {
+        const { checkKycLimitAction } = await import("@/lib/kyc/guard");
+        const guard = await checkKycLimitAction(totalAmount, senderEmail);
+        if (!guard.allowed) {
+          toast.error(guard.message);
+          return;
+        }
+      } catch (err) {
+        console.error("[BatchSend] Early KYC check error:", err);
+      }
+    }
+
     // Check if 2FA is required
     if (totalAmount >= twoFaThreshold) {
       // Always open 2FA modal for amounts >= threshold

@@ -1,7 +1,7 @@
 'use client';
 
 import { DashboardPageHeader } from '@/components/layout/DashboardPageHeader';
-import { ArrowLeft, Mail, Smartphone, Wallet, Repeat, ShieldAlert, Sparkles, Send } from 'lucide-react';
+import { ArrowLeft, Mail, Smartphone, Wallet, Repeat, ShieldAlert, Send } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { usePrivy } from '@privy-io/react-auth';
 import { useEffect, useState } from 'react';

@@ -624,7 +624,7 @@ export async function updateBridgeStatus(
 
     const wasAlreadyComplete = existing.attestation_status === "complete";
 
-    const { error, count } = await supabaseAdmin
+    const { error } = await supabaseAdmin
       .from("bridge_transactions")
       .update({
         attestation_status: status as "complete" | "failed" | "pending",

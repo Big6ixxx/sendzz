@@ -14,9 +14,10 @@ export async function GET(request: Request) {
     const notifications = await getNotifications(email, limit);
 
     return NextResponse.json({ notifications });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Internal Server Error';
     console.error('[API Notifications] GET Error:', err);
-    return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -31,8 +32,9 @@ export async function POST(request: Request) {
 
     await markNotificationsAsRead(email, ids);
     return NextResponse.json({ success: true });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Internal Server Error';
     console.error('[API Notifications] POST Error:', err);
-    return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

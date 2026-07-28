@@ -23,7 +23,6 @@ import { usePrivy, useWallets } from "@privy-io/react-auth";
 import {
   ArrowDown,
   ArrowUp,
-  Copy,
   Info,
   Loader2,
   RefreshCw,
@@ -37,7 +36,6 @@ import {
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { type ChainBalances } from "@/lib/web3/routing";
-import { toast } from "sonner";
 import { useBalanceVisibility } from "@/components/providers/BalanceVisibilityProvider";
 import { AnimatedBalance } from "@/components/ui/AnimatedBalance";
 

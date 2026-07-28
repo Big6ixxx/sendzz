@@ -1,8 +1,6 @@
 'use client';
 
 import { use, useEffect, useState, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
-import { DashboardPageHeader } from '@/components/layout/DashboardPageHeader';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import {
   useSignTransaction,
@@ -10,7 +8,6 @@ import {
 } from '@privy-io/react-auth/solana';
 import { Connection, PublicKey, Transaction } from '@solana/web3.js';
 import { buildReceiveMessageOnSolanaTx } from '@/lib/circle/solana-gateway';
-import bs58 from 'bs58';
 import Link from 'next/link';
 
 const SOLANA_RPC =
@@ -20,7 +17,6 @@ import {
   ArrowDownLeft,
   ArrowLeft,
   ArrowUpRight,
-  Bell,
   Check,
   ChevronDown,
   Clock,
@@ -47,7 +43,6 @@ import type { ActivityType } from '@/components/HistoryModule';
 const isPlaceholder = (h: string | null | undefined) =>
   !h || h.trim() === '' || h.toLowerCase() === 'n/a' || h === '0x0000000000000000000000000000000000000000000000000000000000000000';
 import { CCTP_DOMAINS, type SupportedChain } from '@/lib/circle/gateway';
-import { classifyAppError } from '@/lib/errors/appErrors';
 
 const BASE_EXPLORER = 'https://basescan.org/tx/';
 
@@ -128,7 +123,6 @@ export default function ActivityDetailPage({
 }: {
   params: Promise<{ id: string }> | { id: string };
 }) {
-  const router = useRouter();
   const isPromise =
     params && typeof (params as Promise<{ id: string }>).then === 'function';
   const { id } = isPromise ? use(params as Promise<{ id: string }>) : (params as { id: string });
@@ -158,7 +152,15 @@ export default function ActivityDetailPage({
       .then((r) => r.json())
       .then((data) => {
         if (!active) return;
-        const notifs = (data.notifications || []) as any[];
+        interface NotificationItem {
+          id: string;
+          title: string;
+          body: string;
+          type: string;
+          created_at: string;
+          data?: Record<string, unknown> | null;
+        }
+        const notifs = (data.notifications || []) as NotificationItem[];
         const found = notifs.find((n) => n.id === id);
         if (found) {
           setNotificationDetail(found);
