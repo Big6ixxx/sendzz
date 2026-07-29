@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createPublicClient, http, fallback, type Chain } from 'viem';
+import { createPublicClient, type Chain } from 'viem';
+import { rpcTransport } from '@/lib/web3/rpc';
 import { mainnet, arbitrum, avalanche, optimism, polygon, base } from 'viem/chains';
 import { USDC_ADDRESSES, SOURCE_CHAINS, type SupportedChain } from '@/lib/circle/gateway';
 import { Connection, PublicKey } from '@solana/web3.js';
@@ -18,16 +19,6 @@ const BALANCE_ABI = [
 // Solana USDC mint (mainnet)
 const SOLANA_USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 
-// Reliable public RPC fallbacks — always available, no rate limits
-const PUBLIC_RPCS: Record<SupportedChain, string> = {
-  arbitrum:  'https://arb1.arbitrum.io/rpc',
-  avalanche: 'https://api.avax.network/ext/bc/C/rpc',
-  ethereum:  'https://cloudflare-eth.com',
-  optimism:  'https://mainnet.optimism.io',
-  polygon:   'https://polygon-rpc.com',
-  base:      'https://mainnet.base.org',
-};
-
 // On the server (API routes), NEXT_PUBLIC_ vars ARE available in process.env,
 // but we prefer the private SOLANA_RPC_URL if set. Fall back in order:
 // 1. SOLANA_RPC_URL (private, server-only)
@@ -38,30 +29,22 @@ const SOLANA_RPC =
   process.env.NEXT_PUBLIC_SOLANA_RPC_URL ??
   'https://api.mainnet-beta.solana.com';
 
-function makeClient(chain: Chain, alchemyUrl?: string, publicUrl?: string) {
-  const transports = [
-    ...(alchemyUrl ? [http(alchemyUrl, { timeout: 8000, retryCount: 1 })] : []),
-    ...(publicUrl  ? [http(publicUrl,  { timeout: 10000, retryCount: 2 })] : []),
-  ];
-  return createPublicClient({
-    chain,
-    // fallback() tries each transport in order, moving to the next on any error (incl. 429)
-    transport: transports.length > 1 ? fallback(transports) : transports[0],
-  });
+/**
+ * `key` is our chain identifier, not viem's display name — those differ ("Arbitrum One",
+ * "OP Mainnet"), and deriving one from the other silently selects the wrong endpoint.
+ */
+function makeClient(key: SupportedChain, chain: Chain) {
+  return createPublicClient({ chain, transport: rpcTransport(key) });
 }
 
 function getEvmClients(): Record<SupportedChain, ReturnType<typeof createPublicClient>> {
-  const key = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || '';
-  const alchemy = (subdomain: string) =>
-    key ? `https://${subdomain}.g.alchemy.com/v2/${key}` : undefined;
-
   return {
-    ethereum:  makeClient(mainnet,   process.env.ETHEREUM_RPC_URL  || alchemy('eth-mainnet'),     PUBLIC_RPCS.ethereum),
-    arbitrum:  makeClient(arbitrum,  process.env.ARBITRUM_RPC_URL  || alchemy('arb-mainnet'),     PUBLIC_RPCS.arbitrum),
-    avalanche: makeClient(avalanche, process.env.AVALANCHE_RPC_URL || alchemy('avax-mainnet'),    PUBLIC_RPCS.avalanche),
-    optimism:  makeClient(optimism,  process.env.OPTIMISM_RPC_URL  || alchemy('opt-mainnet'),     PUBLIC_RPCS.optimism),
-    polygon:   makeClient(polygon,   process.env.POLYGON_RPC_URL   || alchemy('polygon-mainnet'), PUBLIC_RPCS.polygon),
-    base:      makeClient(base,      process.env.NEXT_PUBLIC_RPC_URL,                             PUBLIC_RPCS.base),
+    ethereum: makeClient('ethereum', mainnet),
+    arbitrum: makeClient('arbitrum', arbitrum),
+    avalanche: makeClient('avalanche', avalanche),
+    optimism: makeClient('optimism', optimism),
+    polygon: makeClient('polygon', polygon),
+    base: makeClient('base', base),
   };
 }
 
@@ -159,9 +142,16 @@ export async function GET(req: NextRequest) {
           functionName: 'balanceOf',
           args: [address as `0x${string}`],
         }),
-        2500,
-        0n
+        6000,
+        null,
       );
+
+      // Distinguish "nothing here" from "couldn't read" — reporting an unreadable chain
+      // as 0 is how a funded chain silently vanishes from the portfolio.
+      if (balance === null) {
+        console.error(`[Balances] ${chain} read failed or timed out — omitting from portfolio.`);
+        return null;
+      }
 
       const formatted = (Number(balance) / 1_000_000).toString();
       return { chain, balance: formatted, hasBalance: Number(balance) > 0 };
@@ -210,14 +200,17 @@ export async function GET(req: NextRequest) {
     stellarPromise,
   ]);
 
+  // Chains we couldn't read are omitted rather than reported as zero.
+  const readableEvm = evmResults.filter((r) => r !== null);
+
   const results = includeAll
     ? [
-        ...evmResults,
+        ...readableEvm,
         ...(solanaResult ? [solanaResult] : []),
         ...(stellarResult ? [stellarResult] : []),
       ]
     : [
-        ...evmResults.filter((r) => r.hasBalance),
+        ...readableEvm.filter((r) => r.hasBalance),
         ...(solanaResult?.hasBalance ? [solanaResult] : []),
         ...(stellarResult?.hasBalance ? [stellarResult] : []),
       ];

@@ -7,12 +7,31 @@
  * app" — the link is the only way out.
  */
 
-import { CHAIN_EXPLORERS } from '@/lib/circle/gateway';
-
-const NON_EVM_EXPLORERS: Record<string, string> = {
+/**
+ * Transaction-explorer base URL per chain — the single source for the whole app.
+ *
+ * Deliberately depends on nothing, so any module (client, server action, email template,
+ * PDF receipt) can import it without pulling in chain config or React.
+ */
+export const EXPLORER_TX_BASE: Record<string, string> = {
+  ethereum: 'https://etherscan.io/tx',
+  avalanche: 'https://snowtrace.io/tx',
+  optimism: 'https://optimistic.etherscan.io/tx',
+  arbitrum: 'https://arbiscan.io/tx',
+  base: 'https://basescan.org/tx',
+  polygon: 'https://polygonscan.com/tx',
   solana: 'https://solscan.io/tx',
   stellar: 'https://stellar.expert/explorer/public/tx',
 };
+
+/**
+ * The chain the app settles on by default.
+ *
+ * Some records predate multi-chain support and don't persist a chain — those are Base.
+ * Use this explicitly rather than hardcoding a Base explorer URL, so the assumption is
+ * visible and there's one place to change it.
+ */
+export const HOME_CHAIN = 'base';
 
 /** Recorded when a transfer landed but its real hash couldn't be recovered. */
 export const PLACEHOLDER_TX_HASH =
@@ -39,12 +58,7 @@ export function explorerTxUrl(
 ): string | null {
   if (!chain || isPlaceholderHash(hash)) return null;
 
-  const key = chain.toLowerCase();
-  const base =
-    NON_EVM_EXPLORERS[key] ??
-    (CHAIN_EXPLORERS as Record<string, string>)[key] ??
-    null;
-
+  const base = EXPLORER_TX_BASE[chain.toLowerCase()];
   return base ? `${base}/${hash}` : null;
 }
 

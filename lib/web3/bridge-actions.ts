@@ -22,6 +22,7 @@ import {
 import { solanaAddressToBytes32 } from '../circle/solana-gateway';
 
 import { getCircleClient, getStandardRpcUrl } from './circle-client';
+import { rpcTransport } from './rpc';
 import { findMintTxHash, isMessageDelivered } from './cctp-delivery';
 import { EVM_CHAINS, type ChainBalances, type SolanaSource, type SourceChainKey } from './routing';
 import { toast } from 'sonner';
@@ -412,7 +413,7 @@ export async function executeReceiveMessage(
 
   standardRpcClient = createPublicClient({
     chain: VIEM_CHAINS[destChain],
-    transport: http(getStandardRpcUrl(destChain)),
+    transport: rpcTransport(destChain),
   });
 
   const isProcessed = await isMessageDelivered(
@@ -577,7 +578,7 @@ export async function bridgeAndDeliver(
   if (!mintTxHash && attestationData.attestation && attestationData.messageBytes) {
     const standardRpcClient = createPublicClient({
       chain: VIEM_CHAINS[destChain],
-      transport: http(getStandardRpcUrl(destChain)),
+      transport: rpcTransport(destChain),
     });
     const isProcessed = await isMessageDelivered(
       standardRpcClient,

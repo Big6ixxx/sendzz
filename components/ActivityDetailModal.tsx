@@ -28,6 +28,7 @@ import { executeReceiveMessage } from "@/lib/web3/bridge-actions";
 import { toast } from "sonner";
 import { CCTP_DOMAINS, type SupportedChain } from "@/lib/circle/gateway";
 import { classifyAppError } from "@/lib/errors/appErrors";
+import { explorerTxUrl, HOME_CHAIN } from "@/lib/explorers";
 
 const SOLANA_RPC =
   process.env.NEXT_PUBLIC_SOLANA_RPC_URL ??
@@ -48,19 +49,15 @@ const ACTIVITY_LABELS: Record<string, string> = {
   bridge: "Bridge Transfer",
 };
 
-const EXPLORER_BASE_URL = "https://basescan.org/tx/";
-
 const chainLabel = (chain: string) =>
   (CHAIN_META[chain.toLowerCase()]?.name ?? chain).toUpperCase();
 
 const isPlaceholder = (h: string | null | undefined) =>
   !h || h.trim() === '' || h.toLowerCase() === 'n/a' || h === '0x0000000000000000000000000000000000000000000000000000000000000000';
 
-const explorerFor = (chain: string | undefined, hash: string | null | undefined) => {
-  if (isPlaceholder(hash)) return undefined;
-  return (chain ? CHAIN_META[chain.toLowerCase()] : null)?.explorerTx(hash!) ??
-    `${EXPLORER_BASE_URL}${hash}`;
-};
+// Transfers don't persist their chain yet, so an unknown chain means the home chain.
+const explorerFor = (chain: string | undefined, hash: string | null | undefined) =>
+  explorerTxUrl(chain ?? HOME_CHAIN, hash) ?? undefined;
 
 interface ActivityDetailModalProps {
   activity: Activity | null;

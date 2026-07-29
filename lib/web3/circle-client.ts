@@ -12,31 +12,25 @@ import {
 } from './config';
 import { VIEM_CHAINS } from './multichain';
 import { SupportedChain } from '../circle/gateway';
+import { rpcUrls } from './rpc';
 
-export const ALCHEMY_SUBDOMAIN: Record<string, string> = {
-  ethereum: 'eth-mainnet',
-  arbitrum: 'arb-mainnet',
-  avalanche: 'avax-mainnet',
-  optimism: 'opt-mainnet',
-  polygon: 'polygon-mainnet',
-  base: 'base-mainnet',
-};
+export { ALCHEMY_SUBDOMAIN } from './rpc';
 
+/**
+ * Single preferred RPC URL for a chain.
+ *
+ * Prefer `rpcTransport()` where a viem client is being built — it falls back to a public
+ * endpoint when the primary is unreachable or the network isn't enabled on the Alchemy
+ * app, which this cannot do.
+ */
 export function getStandardRpcUrl(chainName: string): string {
-  const subdomain = ALCHEMY_SUBDOMAIN[chainName.toLowerCase()];
-  const apiKey = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY;
-  if (subdomain && apiKey) {
-    return `https://${subdomain}.g.alchemy.com/v2/${apiKey}`;
+  try {
+    return rpcUrls(chainName)[0];
+  } catch {
+    // Mirrors the `VIEM_CHAINS[...] ?? defaultChain` fallback its callers already use:
+    // an unknown chain resolves to Base here rather than throwing on the login path.
+    return rpcUrls('base')[0];
   }
-  const fallbacks: Record<string, string> = {
-    polygon: 'https://polygon-rpc.com',
-    arbitrum: 'https://arb1.arbitrum.io/rpc',
-    optimism: 'https://mainnet.optimism.io',
-    avalanche: 'https://api.avax.network/ext/bc/C/rpc',
-    base: 'https://mainnet.base.org',
-    ethereum: 'https://cloudflare-eth.com',
-  };
-  return fallbacks[chainName.toLowerCase()] || 'https://mainnet.base.org';
 }
 
 const getCircleRpcUrl = (chainName: string = 'base') => `${CIRCLE_CLIENT_URL}/${chainName}`;

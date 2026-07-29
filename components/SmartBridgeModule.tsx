@@ -17,7 +17,6 @@
 
 import { useCrossChainBalances, type ChainBalance, type ChainBalanceChain } from "@/hooks/useCrossChainBalances";
 import {
-  CHAIN_EXPLORERS,
   CHAIN_NAMES,
   SMART_BRIDGE_CHAINS,
   type SupportedChain,
@@ -49,6 +48,7 @@ import {
 import { useRef, useState, useEffect } from "react";
 import { toast } from "sonner";
 import { parseAppError, isUserCancelled } from "@/lib/errors/appErrors";
+import { explorerTxUrl } from "@/lib/explorers";
 
 if (typeof window !== "undefined") {
   window.Buffer = window.Buffer || Buffer;
@@ -68,16 +68,6 @@ const CHAIN_DISPLAY_NAMES: Record<string, string> = {
   stellar: "Stellar",
 };
 
-const CHAIN_EXPLORER_TX: Record<string, (hash: string) => string> = {
-  ...Object.fromEntries(
-    Object.entries(CHAIN_EXPLORERS).map(([chain, base]) => [
-      chain,
-      (hash: string) => `${base}/${hash}`,
-    ]),
-  ),
-  solana: (hash: string) => `https://solscan.io/tx/${hash}`,
-  stellar: (hash: string) => `https://stellar.expert/explorer/public/tx/${hash}`,
-};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -424,10 +414,9 @@ export function SmartBridgeModule({
     return void handleEvmBridge(bridge.chain as SupportedChain, bridge.balance);
   };
 
-  const monitoringExplorerUrl =
-    monitoringTx && CHAIN_EXPLORER_TX[monitoringTx.chain]
-      ? CHAIN_EXPLORER_TX[monitoringTx.chain](monitoringTx.hash)
-      : null;
+  const monitoringExplorerUrl = monitoringTx
+    ? explorerTxUrl(monitoringTx.chain, monitoringTx.hash)
+    : null;
 
   // ─── Render ──────────────────────────────────────────────────────────────
 
@@ -492,7 +481,7 @@ export function SmartBridgeModule({
                   )}
                   {mintTxHash ? (
                     <a
-                      href={`https://basescan.org/tx/${mintTxHash}`}
+                      href={explorerTxUrl("base", mintTxHash) ?? "#"}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="btn-secondary h-11 rounded-xl flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest"

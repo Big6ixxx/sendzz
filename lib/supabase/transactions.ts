@@ -43,11 +43,11 @@ async function recoverMintTxHash(
     );
     if (!attestation.messageBytes) return undefined;
 
-    const { createPublicClient, http } = await import("viem");
-    const { getStandardRpcUrl } = await import("@/lib/web3/circle-client");
+    const { createPublicClient } = await import("viem");
+    const { rpcTransport } = await import("@/lib/web3/rpc");
     const { findMintTxHash } = await import("@/lib/web3/cctp-delivery");
 
-    const client = createPublicClient({ transport: http(getStandardRpcUrl(dest)) });
+    const client = createPublicClient({ transport: rpcTransport(dest) });
     return await findMintTxHash(client, attestation.messageBytes);
   } catch (err) {
     console.error(
@@ -810,11 +810,11 @@ async function isBurnDelivered(
   if (!EVM_DEST_CHAINS.includes(dest)) return false;
 
   try {
-    const { createPublicClient, http } = await import("viem");
-    const { getStandardRpcUrl } = await import("@/lib/web3/circle-client");
+    const { createPublicClient } = await import("viem");
+    const { rpcTransport } = await import("@/lib/web3/rpc");
     const { isMessageDelivered } = await import("@/lib/web3/cctp-delivery");
 
-    const client = createPublicClient({ transport: http(getStandardRpcUrl(dest)) });
+    const client = createPublicClient({ transport: rpcTransport(dest) });
     return await isMessageDelivered(client, messageBytes);
   } catch (err) {
     console.error(

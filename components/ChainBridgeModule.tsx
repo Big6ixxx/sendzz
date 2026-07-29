@@ -12,11 +12,7 @@
 import { ChainLogo } from "@/components/deposit-withdraw/ChainLogo";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePortfolio } from "@/hooks/usePortfolio";
-import {
-  CHAIN_EXPLORERS,
-  CHAIN_NAMES,
-  type SupportedChain,
-} from "@/lib/circle/gateway";
+import { CHAIN_NAMES, type SupportedChain } from "@/lib/circle/gateway";
 import { EVM_CHAINS } from "@/lib/web3/routing";
 import { executeSmartBridge } from "@/lib/web3/bridge-actions";
 import { prepareSolanaBurnTx } from "@/lib/web3/solana-bridge";
@@ -25,6 +21,7 @@ import {
   type SolanaTxSigner,
 } from "@/lib/web3/bridge-claim";
 import { classifyAppError } from "@/lib/errors/appErrors";
+import { explorerTxUrl } from "@/lib/explorers";
 
 import { recordBridgeTransaction } from "@/lib/supabase/transactions";
 import { cn } from "@/lib/utils";
@@ -50,17 +47,6 @@ const CHAIN_DISPLAY_NAMES: Record<string, string> = {
   solana: "Solana",
 };
 
-const CHAIN_EXPLORER_TX: Record<string, (hash: string) => string> = {
-  ...Object.fromEntries(
-    Object.entries(CHAIN_EXPLORERS).map(([chain, base]) => [
-      chain,
-      (hash: string) => `${base}/${hash}`,
-    ]),
-  ),
-  stellar: (hash: string) =>
-    `https://stellar.expert/explorer/public/tx/${hash}`,
-  solana: (hash: string) => `https://solscan.io/tx/${hash}`,
-};
 
 interface ChainBridgeModuleProps {
   smartAddress: string;
@@ -630,9 +616,7 @@ export function ChainBridgeModule({
             {monitor && (
               <a
                 href={
-                  CHAIN_EXPLORER_TX[monitor.sourceChain]?.(
-                    monitor.burnTxHash,
-                  ) || "#"
+                  explorerTxUrl(monitor.sourceChain, monitor.burnTxHash) || "#"
                 }
                 target="_blank"
                 rel="noopener noreferrer"
@@ -643,7 +627,7 @@ export function ChainBridgeModule({
             )}
             {isDone && mintTxHash && monitor && (
               <a
-                href={CHAIN_EXPLORER_TX[monitor.destChain]?.(mintTxHash) || "#"}
+                href={explorerTxUrl(monitor.destChain, mintTxHash) || "#"}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex-1 btn-secondary h-11 rounded-xl flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest"

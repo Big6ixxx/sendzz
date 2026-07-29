@@ -75,13 +75,11 @@ export async function GET(req: NextRequest) {
       
       if (evmDestChains.includes(destChain.toLowerCase())) {
         try {
-          const { createPublicClient, http } = await import('viem');
-          const { getStandardRpcUrl } = await import('@/lib/web3/circle-client');
+          const { createPublicClient } = await import('viem');
+          const { rpcTransport } = await import('@/lib/web3/rpc');
           const { isMessageDelivered } = await import('@/lib/web3/cctp-delivery');
 
-          const client = createPublicClient({
-            transport: http(getStandardRpcUrl(destChain)),
-          });
+          const client = createPublicClient({ transport: rpcTransport(destChain) });
 
           const isProcessed = await isMessageDelivered(client, result.messageBytes);
 

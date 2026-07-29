@@ -163,6 +163,14 @@ async function fetchIncomingUsdc(
         ],
       }),
     });
+    if (res.status === 401 || res.status === 403) {
+      // The Transfers API has no public equivalent, so this chain simply can't be
+      // scanned until the network is enabled. Say which knob to turn.
+      throw new Error(
+        `Alchemy returned ${res.status} for ${chain}. Enable ${chain} on the Alchemy app ` +
+          `(dashboard.alchemy.com → your app → Networks) — deposits on this chain are not being recorded.`,
+      );
+    }
     if (!res.ok) throw new Error(`Alchemy ${chain} transfers ${res.status}`);
     const json = (await res.json()) as {
       result?: { transfers?: AlchemyTransfer[]; pageKey?: string };

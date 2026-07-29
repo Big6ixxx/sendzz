@@ -4,7 +4,7 @@
  * Modern, responsive email templates for Sendzz.
  * Using inline styles and robust table layouts for maximum compatibility.
  */
-import { explorerTxUrl, isPlaceholderHash, shortenHash } from '@/lib/explorers';
+import { explorerTxUrl, HOME_CHAIN, isPlaceholderHash, shortenHash } from '@/lib/explorers';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || '';
 
@@ -433,7 +433,7 @@ export function depositConfirmedTemplate(
         label: chain ? `Transaction · ${chain.toUpperCase()}` : 'Transaction Hash',
         value: shortenHash(txHash!),
         isMonospace: true,
-        href: explorerTxUrl(chain ?? 'base', txHash),
+        href: explorerTxUrl(chain ?? HOME_CHAIN, txHash),
       };
 
   return baseReceiptTemplate(amountUsdc, [
@@ -499,7 +499,7 @@ export function transferSentTemplate(
           label: chain ? `Transaction · ${chain.toUpperCase()}` : 'Transaction Hash',
           value: shortenHash(txHash!),
           isMonospace: true,
-          href: explorerTxUrl(chain ?? 'base', txHash),
+          href: explorerTxUrl(chain ?? HOME_CHAIN, txHash),
         },
     { label: 'Sent To', value: recipient }
   ];
