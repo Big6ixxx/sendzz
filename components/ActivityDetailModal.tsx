@@ -27,6 +27,7 @@ import { buildReceiveMessageOnSolanaTx } from "@/lib/circle/solana-gateway";
 import { executeReceiveMessage } from "@/lib/web3/bridge-actions";
 import { toast } from "sonner";
 import { CCTP_DOMAINS, type SupportedChain } from "@/lib/circle/gateway";
+import { classifyAppError } from "@/lib/errors/appErrors";
 
 const SOLANA_RPC =
   process.env.NEXT_PUBLIC_SOLANA_RPC_URL ??
@@ -216,10 +217,32 @@ export function ActivityDetailModal({
             "[Manual Claim] Stellar destination — server-side claim...",
           );
           toast.info("Claiming USDC on Stellar (gas paid by sponsor)...");
+
+          // Resolve the user's Stellar wallet so the claim can add the USDC trustline
+          // if it's missing — without it `mint_and_forward` reverts on the transfer leg.
+          let stellarWallet: { walletId?: string; address?: string } = {};
+          if (user?.id && user?.email?.address) {
+            stellarWallet = await fetch("/api/stellar/provision", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                privyUserId: user.id,
+                email: user.email.address,
+              }),
+            })
+              .then((r) => (r.ok ? r.json() : {}))
+              .catch(() => ({}));
+          }
+
           const claimRes = await fetch("/api/stellar/claim", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ txHash: activity.txHash, sourceChain }),
+            body: JSON.stringify({
+              txHash: activity.txHash,
+              sourceChain,
+              walletId: stellarWallet.walletId,
+              stellarAddress: stellarWallet.address,
+            }),
           });
           if (!claimRes.ok) {
             const claimErr = await claimRes.json();
@@ -338,19 +361,13 @@ export function ActivityDetailModal({
       toast.success("USDC claimed successfully!");
       setTimeout(() => window.location.reload(), 800);
     } catch (err: unknown) {
-      // Always log full technical error to console for debugging
-      console.error("[Manual Claim] Full error object:", err);
-      const rawMsg = err instanceof Error ? err.message : String(err);
-      const lowerMsg = rawMsg.toLowerCase();
-      console.error("[Manual Claim] Error message:", rawMsg);
+      // classifyAppError logs the full error and returns a message that is always safe
+      // to display — raw chain output must never reach the toast.
+      const classified = classifyAppError(err);
 
-      // "Nonce already used" — the MessageTransmitter has already processed this transfer.
-      // The USDC was minted on-chain. Check the smart account balance or refresh.
-      if (
-        lowerMsg.includes("nonce already used") ||
-        lowerMsg.includes("message already received") ||
-        lowerMsg.includes("message already processed")
-      ) {
+      // The MessageTransmitter has already processed this transfer: the USDC was minted
+      // on-chain, so reconcile our record rather than reporting a failure.
+      if (classified.isAlreadyProcessed) {
         // Circle's relayer already minted — re-poll to get the forwardTxHash
         toast.info("Your USDC has already been delivered. Saving mint hash...");
         try {
@@ -375,36 +392,10 @@ export function ActivityDetailModal({
           }).catch(() => {});
         }
         setTimeout(() => window.location.reload(), 800);
-      } else if (
-        lowerMsg.includes("user rejected") ||
-        lowerMsg.includes("user denied") ||
-        lowerMsg.includes("rejected the request")
-      ) {
+      } else if (classified.isSilent) {
         toast.info("Transaction cancelled. You can try again.");
-      } else if (
-        lowerMsg.includes("pending") ||
-        lowerMsg.includes("still finalizing") ||
-        lowerMsg.includes("not yet available")
-      ) {
-        toast.error(
-          "Circle is still processing this transfer. Please wait 1-2 minutes and try again.",
-        );
-      } else if (
-        lowerMsg.includes("no accounts") ||
-        lowerMsg.includes("wallet not ready")
-      ) {
-        toast.error(
-          "Your wallet is still loading. Please wait a moment and try again.",
-        );
       } else {
-        console.error("[Manual Claim Modal] Raw error:", rawMsg);
-        const displayMsg = rawMsg
-          .replace(/0x[0-9a-fA-F]{20,}/g, "[hex]")
-          .slice(0, 200);
-        toast.error(
-          displayMsg ||
-            "Claim could not be completed right now. Please try again.",
-        );
+        toast.error(classified.message);
       }
     } finally {
       setIsClaiming(false);

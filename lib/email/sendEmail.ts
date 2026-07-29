@@ -143,7 +143,8 @@ export async function sendDepositEmail(
   recipientEmail: string,
   amountUsdc: string,
   referenceId?: string,
-  txHash?: string
+  txHash?: string,
+  chain?: string
 ): Promise<void> {
   try {
     const wantsEmail = await userWantsEmail(recipientEmail, 'email_notif_deposit');
@@ -153,7 +154,7 @@ export async function sendDepositEmail(
     }
 
     const subject = `Deposit Confirmed — ${amountUsdc} USDC Credited 💰`;
-    const html = depositConfirmedTemplate(amountUsdc, referenceId, txHash);
+    const html = depositConfirmedTemplate(amountUsdc, referenceId, txHash, chain);
 
     const result = await sendEmail({ to: recipientEmail, subject, html });
     if (!result.success) {
@@ -230,7 +231,9 @@ export async function sendTransferSentEmail(
   amountUsdc: string,
   recipient: string,
   referenceId?: string,
-  note?: string
+  note?: string,
+  txHash?: string,
+  chain?: string
 ): Promise<void> {
   try {
     const wantsEmail = await userWantsEmail(senderEmail, 'email_notif_transfer');
@@ -240,7 +243,7 @@ export async function sendTransferSentEmail(
     }
 
     const subject = `Successful Transaction Out — Sent ${amountUsdc} USDC`;
-    const html = transferSentTemplate(amountUsdc, recipient, referenceId, note);
+    const html = transferSentTemplate(amountUsdc, recipient, referenceId, note, txHash, chain);
 
     const result = await sendEmail({ to: senderEmail, subject, html });
     if (!result.success) {

@@ -3,7 +3,6 @@ import {
   encodeFunctionData,
   createPublicClient,
   http,
-  keccak256,
   type PublicClient
 } from 'viem';
 import { type BundlerClient } from 'viem/account-abstraction';
@@ -23,6 +22,7 @@ import {
 import { solanaAddressToBytes32 } from '../circle/solana-gateway';
 
 import { getCircleClient, getStandardRpcUrl } from './circle-client';
+import { findMintTxHash, isMessageDelivered } from './cctp-delivery';
 import { EVM_CHAINS, type ChainBalances, type SolanaSource, type SourceChainKey } from './routing';
 import { toast } from 'sonner';
 
@@ -295,13 +295,6 @@ const MESSAGE_TRANSMITTER_ABI = [
     ],
     outputs: [{ name: '', type: 'bool' }],
   },
-  {
-    name: 'processedMessages',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'messageHash', type: 'bytes32' }],
-    outputs: [{ name: '', type: 'bool' }],
-  },
 ] as const;
 
 /**
@@ -327,7 +320,6 @@ export async function executeReceiveMessage(
   pendingClaims.add(normMessage);
 
   let MESSAGE_TRANSMITTER = '0x81D40F21F12A8F0E3252Bccb954D722d4c464B64';
-  let messageHash: `0x${string}` = '0x0000000000000000000000000000000000000000000000000000000000000000';
   let standardRpcClient: PublicClient | null = null;
 
   try {
@@ -413,7 +405,6 @@ export async function executeReceiveMessage(
   const normalizedMessage = (messageHex.startsWith('0x') ? messageHex : `0x${messageHex}`) as `0x${string}`;
   const normalizedAttestation = (attestationHex.startsWith('0x') ? attestationHex : `0x${attestationHex}`) as `0x${string}`;
 
-  messageHash = keccak256(normalizedMessage);
 
   // Use gas policy if one exists for the dest chain, otherwise rely on
   // Circle's default paymaster (no context needed — works on Base).
@@ -424,16 +415,15 @@ export async function executeReceiveMessage(
     transport: http(getStandardRpcUrl(destChain)),
   });
 
-  const isProcessed = await standardRpcClient.readContract({
-    address: MESSAGE_TRANSMITTER as `0x${string}`,
-    abi: MESSAGE_TRANSMITTER_ABI,
-    functionName: 'processedMessages',
-    args: [messageHash],
-  }).catch(() => false);
+  const isProcessed = await isMessageDelivered(
+    standardRpcClient,
+    normalizedMessage,
+    MESSAGE_TRANSMITTER,
+  );
 
   if (isProcessed) {
     console.log('[executeReceiveMessage] Message already processed on-chain.');
-    const mintTx = await findMintTxHashFromLogs(standardRpcClient, MESSAGE_TRANSMITTER, messageHash);
+    const mintTx = await findMintTxHash(standardRpcClient, normalizedMessage, MESSAGE_TRANSMITTER);
     if (mintTx) return mintTx;
     return 'N/A'; // fallback mock hash
   }
@@ -479,12 +469,11 @@ export async function executeReceiveMessage(
         return receipt.receipt.transactionHash;
       }
 
-      const isProcessedNow = await standardRpcClient.readContract({
-        address: MESSAGE_TRANSMITTER as `0x${string}`,
-        abi: MESSAGE_TRANSMITTER_ABI,
-        functionName: 'processedMessages',
-        args: [messageHash],
-      }).catch(() => false);
+      const isProcessedNow = await isMessageDelivered(
+        standardRpcClient,
+        normalizedMessage,
+        MESSAGE_TRANSMITTER,
+      );
 
       if (isProcessedNow) {
         console.log('[executeReceiveMessage] Message processed on-chain during polling. Returning userOpHash.');
@@ -498,16 +487,15 @@ export async function executeReceiveMessage(
     return userOpHash;
   } catch (error) {
     if (standardRpcClient) {
-      const isProcessedNow = await standardRpcClient.readContract({
-        address: MESSAGE_TRANSMITTER as `0x${string}`,
-        abi: MESSAGE_TRANSMITTER_ABI,
-        functionName: 'processedMessages',
-        args: [messageHash],
-      }).catch(() => false);
+      const isProcessedNow = await isMessageDelivered(
+        standardRpcClient,
+        messageHex,
+        MESSAGE_TRANSMITTER,
+      );
 
       if (isProcessedNow) {
         console.log('[executeReceiveMessage] UserOperation reverted because message is already processed. Recovering mint hash...');
-        const mintTx = await findMintTxHashFromLogs(standardRpcClient, MESSAGE_TRANSMITTER, messageHash);
+        const mintTx = await findMintTxHash(standardRpcClient, messageHex, MESSAGE_TRANSMITTER);
         if (mintTx) return mintTx;
         return 'N/A';
       }
@@ -587,21 +575,19 @@ export async function bridgeAndDeliver(
 
   let mintTxHash: string | undefined = attestationData.mintTxHash;
   if (!mintTxHash && attestationData.attestation && attestationData.messageBytes) {
-    const messageHash = keccak256(attestationData.messageBytes as `0x${string}`);
     const standardRpcClient = createPublicClient({
       chain: VIEM_CHAINS[destChain],
       transport: http(getStandardRpcUrl(destChain)),
     });
-    const isProcessed = await standardRpcClient.readContract({
-      address: MESSAGE_TRANSMITTER as `0x${string}`,
-      abi: MESSAGE_TRANSMITTER_ABI,
-      functionName: 'processedMessages',
-      args: [messageHash],
-    }).catch(() => false);
+    const isProcessed = await isMessageDelivered(
+      standardRpcClient,
+      attestationData.messageBytes,
+      MESSAGE_TRANSMITTER,
+    );
 
     if (isProcessed) {
       console.log('[bridgeAndDeliver] Message already processed on-chain. Skipping manual claim popup.');
-      mintTxHash = await findMintTxHashFromLogs(standardRpcClient, MESSAGE_TRANSMITTER, messageHash);
+      mintTxHash = await findMintTxHash(standardRpcClient, attestationData.messageBytes, MESSAGE_TRANSMITTER);
       if (!mintTxHash) {
         mintTxHash = 'N/A';
       }
@@ -705,39 +691,6 @@ export async function consolidateFundsToChain(
     }
     remaining -= take;
   }
-}
-
-const MESSAGE_RECEIVED_EVENT = {
-  name: 'MessageReceived',
-  type: 'event',
-  inputs: [
-    { name: 'foreignSender', type: 'address', indexed: true },
-    { name: 'sourceDomain', type: 'uint32', indexed: true },
-    { name: 'nonce', type: 'uint64', indexed: true },
-    { name: 'messageHash', type: 'bytes32', indexed: false },
-  ],
-} as const;
-
-async function findMintTxHashFromLogs(
-  publicClient: PublicClient,
-  messageTransmitterAddress: string,
-  messageHash: `0x${string}`
-): Promise<string | undefined> {
-  try {
-    const currentBlock = await publicClient.getBlockNumber();
-    const fromBlock = currentBlock - 5000n > 0n ? currentBlock - 5000n : 0n;
-
-    const logs = await publicClient.getLogs({
-      address: messageTransmitterAddress as `0x${string}`,
-      event: MESSAGE_RECEIVED_EVENT,
-      fromBlock,
-    });
-    const match = logs.find((log: { args?: { messageHash?: string }; transactionHash?: string }) => log.args?.messageHash === messageHash);
-    return match?.transactionHash;
-  } catch (err) {
-    console.warn('[findMintTxHashFromLogs] failed:', err);
-  }
-  return undefined;
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {

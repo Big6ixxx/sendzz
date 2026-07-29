@@ -11,15 +11,29 @@
  * cursor, so we never re-read the whole history. Work per scan is capped (paged) so the backfill
  * chunks across a few scans instead of blocking one history load.
  *
- * Dedupe is still done in code against hashes we already track — existing deposits, P2P receives
- * (`transfers`), and bridge mints (`bridge_transactions`) — so fiat-ramp settlements, P2P
- * transfers, and CCTP bridge mints are never double-counted (the cursor and dedupe overlap by a
- * block/signature on purpose, so nothing slips through the boundary).
+ * Dedupe is done in code against hashes we already track — existing deposits, P2P receives
+ * (`transfers`), and bridge mints (`bridge_transactions`) — so fiat-ramp settlements and P2P
+ * transfers are never double-counted (the cursor and dedupe overlap by a block/signature on
+ * purpose, so nothing slips through the boundary).
+ *
+ * Bridge deliveries need more than a hash match, because USDC arriving from another chain is
+ * the user's own money moving, not income, and must not appear twice in history. Matching
+ * `bridge_transactions.mint_tx_hash` alone misses them: the row may not be reconciled when the
+ * scan runs, the hash may still be the unresolved placeholder, or it may be a userOperation
+ * hash rather than the transaction hash the chain reports. So we test the arrival itself —
+ * a bridge *mints* (EVM `Transfer` from the zero address, Solana `mintTo` into the token
+ * account), and nobody else can mint USDC to a user. Minted in, not paid in: skip it.
  */
 import { supabaseAdmin } from '@/lib/supabase/adminClient';
 import type { Json } from '@/types/database';
 import { USDC_ADDRESSES, type SupportedChain } from '@/lib/circle/gateway';
-import { Connection, PublicKey } from '@solana/web3.js';
+import {
+  Connection,
+  PublicKey,
+  type ParsedInstruction,
+  type ParsedTransactionWithMeta,
+  type PartiallyDecodedInstruction,
+} from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 
 /** Alchemy Transfers API subdomain per chain. */
@@ -59,6 +73,9 @@ type DepositRow = {
 };
 
 // ─── Shared helpers ──────────────────────────────────────────────────────────
+
+/** Sender on a mint — see the note on minted-vs-transferred in the module header. */
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 /** Hashes we already account for, so we never double-count deposits/receives/bridge mints. */
 async function knownHashes(userId: string): Promise<Set<string>> {
@@ -179,6 +196,8 @@ async function scanEvmChain(
     const block = t.blockNum ? BigInt(t.blockNum) : 0n;
     if (block > maxBlock) maxBlock = block;
     if (!t.hash || !t.value || t.value <= 0) continue;
+    // Minted in, not paid in — a bridge delivery. Recorded as a bridge, not a deposit.
+    if (t.from?.toLowerCase() === ZERO_ADDRESS) continue;
     const hash = t.hash.toLowerCase();
     if (known.has(hash) || seen.has(hash)) continue;
     seen.add(hash);
@@ -201,6 +220,33 @@ async function scanEvmChain(
 }
 
 // ─── Solana ──────────────────────────────────────────────────────────────────
+
+/**
+ * Does this transaction mint USDC into `tokenAccount`?
+ *
+ * The Solana scan reads a net token-balance delta, which can't tell a mint from an
+ * incoming transfer on its own. CCTP delivers via `mintTo`, so look for one — including
+ * inner instructions, since the mint is a CPI from the token-messenger program.
+ */
+function mintsUsdcTo(
+  tx: ParsedTransactionWithMeta,
+  tokenAccount: string,
+): boolean {
+  const usdcMint = SOLANA_USDC_MINT.toBase58();
+
+  const isUsdcMintTo = (ix: ParsedInstruction | PartiallyDecodedInstruction): boolean => {
+    const parsed = (ix as ParsedInstruction).parsed;
+    if (!parsed || typeof parsed !== 'object') return false;
+    const { type, info } = parsed as { type?: string; info?: Record<string, unknown> };
+    if (type !== 'mintTo' && type !== 'mintToChecked') return false;
+    return info?.mint === usdcMint && info?.account === tokenAccount;
+  };
+
+  if (tx.transaction.message.instructions.some(isUsdcMintTo)) return true;
+  return (tx.meta?.innerInstructions ?? []).some((inner) =>
+    inner.instructions.some(isUsdcMintTo),
+  );
+}
 
 /** Scan incoming USDC SPL transfers to the user's USDC token account since the cursor signature. */
 async function scanSolana(
@@ -241,6 +287,8 @@ async function scanSolana(
       const after = post?.uiTokenAmount.uiAmount ?? 0;
       const delta = after - before;
       if (delta <= 0) continue; // not a receive (sent / unrelated)
+      // Minted in, not paid in — a bridge delivery. Recorded as a bridge, not a deposit.
+      if (mintsUsdcTo(tx, ataStr)) continue;
       rows.push({
         user_id: userId,
         tx_hash: hash,

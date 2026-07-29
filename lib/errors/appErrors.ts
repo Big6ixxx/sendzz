@@ -26,6 +26,7 @@ export interface AppError {
     | 'wallet_not_ready'
     | 'wallet_not_registered'
     | 'insufficient_funds'
+    | 'destination_not_ready'
     | 'network'
     | 'rate_limit'
     | 'service_unavailable'
@@ -39,6 +40,25 @@ export interface AppError {
 function raw(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+/**
+ * Last line of defence before an unrecognised message is shown verbatim.
+ *
+ * Anything that smells like machine output — hex blobs, addresses, XDR, event logs,
+ * stack traces, JSON, or just too much text — gets replaced by the generic message.
+ * Users should never see a Soroban diagnostic dump or a viem revert payload.
+ */
+function looksTechnical(message: string): boolean {
+  if (message.length > 120) return true;
+  if (/[\n\r{}[\]]/.test(message)) return true;
+  if (/0x[0-9a-f]{6,}/i.test(message)) return true;
+  // Base58/base32 chain identifiers: Stellar G.../C..., Solana pubkeys
+  if (/\b[A-Z2-7]{40,}\b/.test(message)) return true;
+  if (/\b[1-9A-HJ-NP-Za-km-z]{32,}\b/.test(message)) return true;
+  if (/\b(topics|xdr|scval|calldata|abi|rpc|panic|at\s+\w+\.\w+)\b/i.test(message)) return true;
+  if (/^(Error|TypeError|RangeError|SyntaxError):/.test(message)) return true;
+  return false;
 }
 
 export function classifyAppError(err: unknown): AppError {
@@ -88,6 +108,38 @@ export function classifyAppError(err: unknown): AppError {
     msg.includes('wallet not registered')
   ) {
     return { message: 'Your wallet is being set up for the first time. Please try again in a few seconds.', category: 'wallet_not_registered', isSilent: false, isAlreadyProcessed: false };
+  }
+
+  // ── Stellar: the server isn't authorised to sign for the user's wallet ────
+  if (
+    msg.includes('no valid authorization signatures') ||
+    msg.includes('authorization-signature') ||
+    msg.includes('needs to authorise this app')
+  ) {
+    return { message: 'Your Stellar wallet still needs to authorise this app. Reload the page and try again.', category: 'destination_not_ready', isSilent: false, isAlreadyProcessed: false };
+  }
+
+  // ── Stellar: recipient can't hold USDC yet (no trustline) ─────────────────
+  if (
+    msg.includes('trustline') ||
+    msg.includes('trust line') ||
+    msg.includes('op_no_trust') ||
+    msg.includes('not set up to receive')
+  ) {
+    return { message: "Your Stellar account isn't ready to receive USDC yet. We're finishing setup — please retry in a moment.", category: 'destination_not_ready', isSilent: false, isAlreadyProcessed: false };
+  }
+
+  // ── Stellar / Soroban host errors — always opaque, never user-facing ───────
+  if (
+    msg.includes('soroban') ||
+    msg.includes('hosterror') ||
+    msg.includes('error(contract') ||
+    msg.includes('diagnostic event') ||
+    msg.includes('escalating error') ||
+    msg.includes('tx_failed') ||
+    msg.includes('op_underfunded')
+  ) {
+    return { message: 'The claim could not be completed on Stellar right now. Your funds are safe — please try again shortly.', category: 'contract_revert', isSilent: false, isAlreadyProcessed: false };
   }
 
   if (
@@ -144,7 +196,7 @@ export function classifyAppError(err: unknown): AppError {
   }
 
   const rawMsg = raw(err);
-  if (rawMsg.length <= 120 && !rawMsg.includes('0x') && !rawMsg.startsWith('Error:')) {
+  if (!looksTechnical(rawMsg)) {
     return { message: rawMsg, category: 'unknown', isSilent: false, isAlreadyProcessed: false };
   }
 

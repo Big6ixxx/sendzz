@@ -61,13 +61,14 @@ export const SOURCE_CHAINS: SupportedChain[] = [
   'polygon',
 ];
 
-// All EVM chains the Smart Bridge will scan (all source chains)
-export const SMART_BRIDGE_CHAINS: SupportedChain[] = [
-  'arbitrum',
-  'avalanche',
-  'ethereum',
-  'optimism',
-];
+/**
+ * All EVM chains the Smart Bridge will scan.
+ *
+ * Derived from SOURCE_CHAINS rather than repeated: the two had drifted apart, and the
+ * copy here was missing Polygon. A chain the app is willing to bridge *to* but won't
+ * scan for balances is a one-way door — the funds arrive and the UI offers no way out.
+ */
+export const SMART_BRIDGE_CHAINS: SupportedChain[] = SOURCE_CHAINS;
 
 /**
  * Circle Gas Station policy IDs per chain — set in .env

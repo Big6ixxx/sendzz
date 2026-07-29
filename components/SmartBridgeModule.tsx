@@ -22,16 +22,16 @@ import {
   SMART_BRIDGE_CHAINS,
   type SupportedChain,
 } from "@/lib/circle/gateway";
-import { recordBridgeTransaction, updateBridgeStatus, getUserActivities } from "@/lib/supabase/transactions";
+import { recordBridgeTransaction, updateBridgeStatus } from "@/lib/supabase/transactions";
 import { executeSmartBridge } from "@/lib/web3/bridge-actions";
 import { prepareSolanaBurnTx } from "@/lib/web3/solana-bridge";
 import { cn } from "@/lib/utils";
-import { useWallets, usePrivy, type ConnectedWallet } from "@privy-io/react-auth";
+import { useWallets, usePrivy } from "@privy-io/react-auth";
 import {
   useSignTransaction,
   useWallets as useSolanaWallets,
 } from "@privy-io/react-auth/solana";
-import { useQueryClient, useQuery } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { Connection } from "@solana/web3.js";
 import { Buffer } from "buffer";
 import { motion, AnimatePresence } from "framer-motion";
@@ -44,10 +44,11 @@ import {
   CheckCircle2,
   AlertCircle,
   ExternalLink,
+  X,
 } from "lucide-react";
-import { useRef, useState, useEffect, useMemo } from "react";
+import { useRef, useState, useEffect } from "react";
 import { toast } from "sonner";
-import { parseAppError, isUserCancelled, classifyAppError } from "@/lib/errors/appErrors";
+import { parseAppError, isUserCancelled } from "@/lib/errors/appErrors";
 
 if (typeof window !== "undefined") {
   window.Buffer = window.Buffer || Buffer;
@@ -135,24 +136,15 @@ export function SmartBridgeModule({
   const [isComplete, setIsComplete] = useState(false);
   const [mintTxHash, setMintTxHash] = useState<string | null>(null);
 
-  // ─── Fetch Bridge History for Pending Claims ──────────────────────────────
-  const { data: bridgeHistory, refetch: refetchHistory } = useQuery({
-    queryKey: ['bridge-history', userEmail],
-    queryFn: async () => {
-      if (!userEmail) return [];
-      const res = await getUserActivities(userEmail);
-      return res.bridges || [];
-    },
-    enabled: !!userEmail,
-    refetchInterval: 10000,
-  });
+  const dismissComplete = () => {
+    setMonitoringTx(null);
+    setMintTxHash(null);
+    setIsComplete(false);
+    refetch();
+  };
 
-  const pendingClaims = useMemo(() => {
-    if (!bridgeHistory) return [];
-    return bridgeHistory.filter(
-      (b) => !b.mint_tx_hash && (b.source_chain === 'stellar' || b.source_chain === 'solana')
-    );
-  }, [bridgeHistory]);
+  // Burns awaiting a claim are surfaced by <PendingBridgeClaims /> on the bridge page —
+  // it covers every destination chain, not just consolidation back to Base.
 
   // ─── EVM attestation monitor ─────────────────────────────────────────────
 
@@ -441,29 +433,24 @@ export function SmartBridgeModule({
 
   return (
     <div className="space-y-8">
-      {/* Pending Claims Section */}
-      <AnimatePresence>
-        {pendingClaims.map((claim) => (
-          <PendingClaimCard
-            key={claim.id}
-            claim={claim}
-            embeddedEvmWallet={embeddedEvmWallet}
-            onSuccess={() => {
-              void refetchHistory();
-              void refetch();
-            }}
-          />
-        ))}
-      </AnimatePresence>
-
       <AnimatePresence mode="wait">
         {monitoringTx ? (
           /* ── Monitoring state ────────────────────────────────────── */
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="card-glass p-12 flex flex-col items-center justify-center text-center space-y-6"
+            className="card-glass p-12 flex flex-col items-center justify-center text-center space-y-6 relative"
           >
+            {/* Once it's done the card is just a receipt — let it be closed outright. */}
+            {isComplete && (
+              <button
+                onClick={dismissComplete}
+                aria-label="Dismiss"
+                className="absolute top-4 right-4 w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
             <div
               className={cn(
                 "w-20 h-20 rounded-3xl flex items-center justify-center transition-all duration-700",
@@ -534,12 +521,7 @@ export function SmartBridgeModule({
               )}
               {isComplete && (
                 <button
-                  onClick={() => {
-                    setMonitoringTx(null);
-                    setMintTxHash(null);
-                    setIsComplete(false);
-                    refetch();
-                  }}
+                  onClick={dismissComplete}
                   className="btn-accent h-11 rounded-xl text-[10px] font-bold uppercase tracking-widest"
                 >
                   Bridge More
@@ -704,132 +686,5 @@ export function SmartBridgeModule({
         </div>
       </div>
     </div>
-  );
-}
-
-interface PendingClaimCardProps {
-  claim: {
-    id: string;
-    burn_tx_hash: string;
-    source_chain: string;
-    amount: number;
-  };
-  embeddedEvmWallet: ConnectedWallet | null | undefined;
-  onSuccess: () => void;
-}
-
-function PendingClaimCard({ claim, embeddedEvmWallet, onSuccess }: PendingClaimCardProps) {
-  const [isClaiming, setIsClaiming] = useState(false);
-
-  const handleClaim = async () => {
-    if (!embeddedEvmWallet) {
-      toast.error("Embedded EVM wallet not found. Please log in.");
-      return;
-    }
-    setIsClaiming(true);
-    try {
-      const sourceChain = claim.source_chain.toLowerCase();
-      const domain = sourceChain === 'solana' ? 5 : sourceChain === 'stellar' ? 27 : null;
-      if (domain === null) {
-        toast.error('Unsupported bridge recovery chain.');
-        return;
-      }
-
-      toast.info('Fetching CCTP attestation from Circle...');
-      const res = await fetch(
-        `https://iris-api.circle.com/v2/messages/${domain}?transactionHash=${claim.burn_tx_hash}`
-      );
-      if (!res.ok) {
-        throw new Error(`Circle API error: ${res.statusText}`);
-      }
-      const data = await res.json();
-      const message = data.messages?.[0];
-      if (!message || message.status !== 'complete') {
-        toast.error('Circle attestation is still pending. Try again in 1-2 minutes.');
-        return;
-      }
-
-      toast.info('Requesting signature to claim USDC on Base...');
-      const { executeReceiveMessage } = await import("@/lib/web3/bridge-actions");
-      const mintTxHash = await executeReceiveMessage(
-        embeddedEvmWallet,
-        message.message,
-        message.attestation
-      );
-
-      toast.success('USDC claimed successfully on Base!');
-      
-      // Update database status
-      await fetch('/api/bridge/complete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          burnTxHash: claim.burn_tx_hash,
-          mintTxHash
-        })
-      });
-
-      onSuccess();
-    } catch (err: unknown) {
-      const classified = classifyAppError(err);
-      if (classified.isAlreadyProcessed) {
-        toast.success('Your USDC has already been delivered. Refreshing balance...');
-        onSuccess();
-      } else {
-        toast.error(classified.message);
-      }
-    } finally {
-      setIsClaiming(false);
-    }
-  }
-
-  const chainName = claim.source_chain.charAt(0).toUpperCase() + claim.source_chain.slice(1);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: -20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
-      className="card-glass p-6 border-amber-500/30 bg-gradient-to-r from-amber-500/5 to-yellow-500/5 shadow-[0_0_20px_rgba(245,158,11,0.1)] relative overflow-hidden"
-    >
-      <div className="absolute inset-0 bg-amber-500/2 blur-2xl animate-pulse" />
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 relative z-10">
-        <div className="flex items-start gap-4">
-          <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
-            <CircleDollarSign className="w-6 h-6" />
-          </div>
-          <div className="space-y-1 text-left">
-            <h4 className="text-sm font-bold text-white uppercase tracking-widest flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
-              Pending Bridge Claim
-            </h4>
-            <p className="text-lg font-bold text-white tracking-tight">
-              {claim.amount} USDC from {chainName}
-            </p>
-            <p className="text-xs text-white/40 font-medium">
-              Your transfer is ready to be claimed on Base. No gas required.
-            </p>
-          </div>
-        </div>
-
-        <button
-          onClick={handleClaim}
-          disabled={isClaiming}
-          className="h-12 px-6 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs uppercase tracking-widest transition-all shadow-[0_0_15px_rgba(245,158,11,0.3)] disabled:opacity-50 flex items-center gap-2 justify-center cursor-pointer"
-        >
-          {isClaiming ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Claiming...
-            </>
-          ) : (
-            <>
-              Claim {claim.amount} USDC
-              <ArrowRight className="w-4 h-4" />
-            </>
-          )}
-        </button>
-      </div>
-    </motion.div>
   );
 }

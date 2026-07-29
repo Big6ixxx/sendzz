@@ -13,9 +13,35 @@
  * Body: { privyUserId: string }
  */
 
-import { provisionStellarWallet, ensureTrustline } from '@/lib/stellar/privy-wallet';
+import {
+  provisionStellarWallet,
+  ensureStellarUsdcReceivable,
+  hasServerSigner,
+} from '@/lib/stellar/privy-wallet';
 import { getUserAddresses, registerStellarAddress } from '@/lib/supabase/users';
 import { NextResponse } from 'next/server';
+
+/**
+ * Wallets that are fully set up — signer granted, account activated, USDC trustline in
+ * place — and when that was last confirmed.
+ *
+ * Provisioning is called on nearly every Stellar-touching page load, and a settled
+ * wallet's answer does not change. Without this, each call spends a Privy round-trip
+ * plus a Horizon lookup to re-learn what it already knew. Per-instance and in-memory by
+ * design: losing it on a cold start just means one full re-check.
+ */
+const settledWallets = new Map<string, number>();
+const SETTLED_TTL_MS = 15 * 60 * 1000;
+
+function isSettled(address: string): boolean {
+  const until = settledWallets.get(address);
+  if (!until) return false;
+  if (Date.now() > until) {
+    settledWallets.delete(address);
+    return false;
+  }
+  return true;
+}
 
 export async function POST(req: Request) {
   try {
@@ -43,10 +69,19 @@ export async function POST(req: Request) {
     const dbAddresses = await getUserAddresses(email, privyUserId);
     let walletId = dbAddresses?.stellar_wallet_id;
     let address = dbAddresses?.stellar_address;
-    let signerGranted = dbAddresses?.stellar_signer_granted || false;
     let trustlineReady = false;
 
     if (walletId && address) {
+      // Fast path: nothing about a finished wallet changes, so don't re-derive it.
+      if (dbAddresses?.stellar_signer_granted && isSettled(address)) {
+        return NextResponse.json({
+          success: true,
+          walletId,
+          address,
+          trustlineReady: true,
+          signerGranted: true,
+        });
+      }
       console.log(`[Stellar/Provision] Found existing Stellar wallet in DB: ${address}`);
     } else {
       // 2. Provision new Stellar wallet via Privy TEE
@@ -55,31 +90,46 @@ export async function POST(req: Request) {
       walletId = wallet.walletId;
       address = wallet.address;
       trustlineReady = wallet.trustlineReady;
-      signerGranted = true; // Auto-grant signers on new wallet setup flow
-      
-      // Save it in DB
+    }
+
+    // 3. Is the server actually allowed to sign for this wallet?
+    //
+    // This must be read from Privy, never assumed. It was previously hardcoded to
+    // true on wallet creation, which made every downstream flow believe Stellar was
+    // ready while `rawSign` was in fact 401-ing — leaving accounts with no USDC
+    // trustline and CCTP bridges to Stellar burned but unclaimable.
+    // The grant is one-way in practice, so a recorded `true` is trustworthy; only pay
+    // for the Privy lookup while we're still waiting for the client to grant it.
+    const signerGranted =
+      dbAddresses?.stellar_signer_granted || (await hasServerSigner(walletId));
+
+    if (!dbAddresses?.stellar_wallet_id) {
+      await registerStellarAddress(email, address, walletId, signerGranted, privyUserId);
+    } else if (dbAddresses.stellar_signer_granted !== signerGranted) {
       await registerStellarAddress(email, address, walletId, signerGranted, privyUserId);
     }
 
-    // 3. Retry mechanism (up to 3 attempts with 2-second delay)
-    if (!trustlineReady) {
+    // 4. Finish setup — only possible once the server can sign.
+    if (!trustlineReady && signerGranted) {
       for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-          console.log(`[Stellar/Provision] Trustline check/add attempt ${attempt} for: ${address}`);
-          const ready = await ensureTrustline(walletId, address);
-          if (ready) {
-            trustlineReady = true;
-            trustlineError = null;
-            break;
-          }
-        } catch (err) {
-          trustlineError = (err as Error).message;
-          console.error(`[Stellar/Provision] Attempt ${attempt} failed:`, trustlineError);
+        console.log(`[Stellar/Provision] Trustline check/add attempt ${attempt} for: ${address}`);
+        const result = await ensureStellarUsdcReceivable(walletId, address);
+        if (result.ready) {
+          trustlineReady = true;
+          trustlineError = null;
+          break;
         }
-        if (!trustlineReady && attempt < 3) {
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-        }
+        trustlineError = result.detail;
+        console.error(`[Stellar/Provision] Attempt ${attempt} failed (${result.reason}):`, result.detail);
+        if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 2000));
       }
+      if (trustlineReady) settledWallets.set(address, Date.now() + SETTLED_TTL_MS);
+    } else if (trustlineReady) {
+      settledWallets.set(address, Date.now() + SETTLED_TTL_MS);
+    } else if (!signerGranted) {
+      console.warn(
+        `[Stellar/Provision] Server signer not granted for ${address} — the client must call addSigners() before Stellar can be used.`,
+      );
     }
 
     return NextResponse.json({

@@ -3,17 +3,14 @@
 import { DashboardPageHeader } from '@/components/layout/DashboardPageHeader';
 import { SmartBridgeModule } from '@/components/SmartBridgeModule';
 import { ChainBridgeModule } from '@/components/ChainBridgeModule';
+import { PendingBridgeClaims } from '@/components/bridge/PendingBridgeClaims';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { getCircleAddress } from '@/lib/web3/circle-client';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
+import { useStellarWallet } from '@/hooks/useStellarWallet';
 import { Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-
-interface StellarWalletState {
-  walletId: string;
-  address: string;
-}
 
 
 
@@ -21,7 +18,6 @@ export default function SmartBridgePage() {
   const { ready, authenticated, user } = usePrivy();
   const { wallets } = useWallets();
   const [smartAddress, setSmartAddress] = useState<string>('');
-  const [stellarWallet, setStellarWallet] = useState<StellarWalletState | null>(null);
   const [tab, setTab] = useState<'move' | 'consolidate'>('move');
 
   // Embedded Privy Solana wallet
@@ -47,32 +43,8 @@ export default function SmartBridgePage() {
     if (ready && authenticated && wallets.length > 0) initAccount();
   }, [ready, authenticated, wallets]);
 
-  // Load Stellar wallet from database/provision API
-  useEffect(() => {
-    async function initStellar() {
-      if (user?.id && user?.email?.address) {
-        try {
-          const res = await fetch('/api/stellar/provision', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ privyUserId: user.id, email: user.email.address }),
-          });
-          if (res.ok) {
-            const data = await res.json();
-            if (data.address && data.walletId) {
-              setTimeout(() => setStellarWallet({
-                walletId: data.walletId,
-                address: data.address,
-              }), 0);
-            }
-          }
-        } catch (err) {
-          console.error('[Bridge] Failed to load Stellar wallet:', err);
-        }
-      }
-    }
-    initStellar();
-  }, [user?.id, user?.email?.address]);
+  // Stellar wallet is resolved (and its server signer granted) once, then cached.
+  const { data: stellarWallet } = useStellarWallet();
 
   if (!ready || !authenticated || !user) {
     return (
@@ -88,6 +60,13 @@ export default function SmartBridgePage() {
         <DashboardPageHeader
           title="Bridge"
           subtitle="Move USDC between your networks, or consolidate idle funds to Base."
+        />
+
+        {/* Burned-but-unclaimed transfers — shown on both tabs so they can't be missed */}
+        <PendingBridgeClaims
+          userEmail={user.email?.address || ''}
+          solanaAddress={privySolanaAddress}
+          stellarWallet={stellarWallet}
         />
 
         {/* Tab switcher */}
