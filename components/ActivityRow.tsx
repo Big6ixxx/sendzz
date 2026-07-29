@@ -146,26 +146,26 @@ export function ActivityRow({
       onClick={() => onTxClick?.(a)}
       onKeyDown={(e) => e.key === 'Enter' && onTxClick?.(a)}
       className={cn(
-        'w-full p-4 sm:p-5 md:p-7 flex items-center gap-3 sm:gap-5 md:gap-6 transition-all text-left group relative',
+        'w-full p-4 @sm:p-5 @xl:p-7 flex items-center gap-3 @sm:gap-4 @xl:gap-6 transition-all text-left group relative',
         onTxClick && 'cursor-pointer hover:bg-white/3',
       )}
     >
       {/* Type icon */}
       <div
-        className="w-11 h-11 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center shrink-0 transition-all duration-500 group-hover:scale-110 group-hover:rotate-6"
+        className="w-11 h-11 @sm:w-12 @sm:h-12 @xl:w-14 @xl:h-14 rounded-2xl flex items-center justify-center shrink-0 transition-all duration-500 group-hover:scale-110 group-hover:rotate-6"
         style={{ background: iconBg, color: iconColor, border: `1px solid ${iconBorder}` }}
       >
         {getActivityIcon(a.type)}
       </div>
 
-      <div className="flex-1 min-w-0 space-y-2">
+      <div className="flex-1 min-w-0 space-y-1.5">
         {/* Top row: label + amount */}
-        <div className="flex justify-between items-start sm:items-center gap-2 sm:gap-4">
-          <p className="font-bold text-sm sm:text-base tracking-tight text-brand-secondary truncate pr-2">
+        <div className="flex justify-between items-baseline gap-3">
+          <p className="font-bold text-sm @xl:text-base tracking-tight text-brand-secondary truncate">
             {ACTIVITY_LABELS[a.type]}
           </p>
           <span
-            className="text-sm sm:text-base font-bold tabular-nums whitespace-nowrap shrink-0"
+            className="text-sm @xl:text-base font-bold tabular-nums whitespace-nowrap shrink-0"
             style={{ color: a.type === 'sent' || a.type === 'withdrawal' ? '#f8f8f6' : '#00e87a' }}
           >
             {a.type === 'sent' || a.type === 'withdrawal' ? '-' : '+'}
@@ -175,30 +175,26 @@ export function ActivityRow({
         </div>
 
         <div className="flex flex-col gap-1.5">
-          {/* Details + meta cluster. Details truncates; the cluster keeps its place and
-              wraps internally (capped width) so nothing overlaps on narrow widths. */}
-          <div className="flex items-start justify-between gap-2">
+          {/* Details and the meta chips share a line only when there's room for both.
+              Below that they stack, so the chips wrap as a tidy left-aligned group
+              instead of a ragged right-aligned column of one chip per line. */}
+          <div className="flex flex-col gap-1.5 @md:flex-row @md:items-center @md:justify-between @md:gap-3">
             {/* For bridges the route chip ("X → BASE") already states the source, so the
                 redundant "From: X" detail is dropped to avoid saying the same thing twice. */}
             {a.type !== 'bridge' && (
-              <p className="text-[10px] sm:text-[11px] font-bold uppercase truncate tracking-[0.15em] text-brand-secondary/30 min-w-0 flex-1 self-center">
+              <p className="text-[10px] @xl:text-[11px] font-bold uppercase truncate tracking-[0.15em] text-brand-secondary/30 min-w-0 @md:flex-1">
                 {formatDetails(a.details)}
               </p>
             )}
-            <div
-              className={cn(
-                'flex items-center gap-x-2 gap-y-1 flex-wrap justify-end shrink-0 ml-auto',
-                a.type === 'bridge' ? 'max-w-full' : 'max-w-[70%]',
-              )}
-            >
+            <div className="flex items-center gap-x-2 gap-y-1 flex-wrap @md:flex-nowrap @md:justify-end @md:shrink-0 @md:ml-auto">
               {networkLabel(a) && (
-                <span className="inline-flex items-center shrink-0 text-[9px] px-1.5 py-0.5 rounded-md font-bold uppercase tracking-widest bg-white/5 text-brand-secondary/35 border border-white/8 whitespace-nowrap">
+                <span className="inline-flex items-center max-w-full truncate text-[9px] px-1.5 py-0.5 rounded-md font-bold uppercase tracking-widest bg-white/5 text-brand-secondary/35 border border-white/8">
                   {networkLabel(a)}
                 </span>
               )}
               <span
                 className={cn(
-                  'text-[9px] px-2 py-0.5 rounded-md font-bold uppercase tracking-widest flex items-center gap-1.5',
+                  'text-[9px] px-2 py-0.5 rounded-md font-bold uppercase tracking-widest flex items-center gap-1.5 shrink-0 whitespace-nowrap',
                   isSettled
                     ? 'bg-accent/10 text-accent border border-accent/20'
                     : isPending
@@ -220,7 +216,7 @@ export function ActivityRow({
                     ? canReclaim ? 'Reclaim Available' : 'Awaiting Claim'
                     : a.status}
               </span>
-              <span className="text-[10px] font-bold uppercase text-brand-secondary/20 whitespace-nowrap">
+              <span className="text-[10px] font-bold uppercase text-brand-secondary/20 whitespace-nowrap shrink-0 ml-auto @md:ml-0">
                 {format(new Date(a.timestamp), 'MMM dd')}
               </span>
             </div>

@@ -322,7 +322,11 @@ export function HistoryModule({
 
       <div
         className={cn(
-          'overflow-hidden divide-y divide-white/4 transition-all duration-500',
+          // @container: rows size themselves to this list's width, not the viewport's.
+          // The dashboard renders this list in a narrow side column on a wide screen, so
+          // viewport breakpoints picked desktop padding and a 56px icon for a ~380px
+          // column and squeezed the content to nothing.
+          '@container overflow-hidden divide-y divide-white/4 transition-all duration-500',
           !hideHeader && 'card-glass p-0',
         )}
       >
