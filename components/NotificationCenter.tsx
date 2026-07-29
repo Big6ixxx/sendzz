@@ -2,6 +2,7 @@
 
 import { Bell, Check, Mail, Repeat, ShieldAlert, ArrowDownCircle, ArrowUpCircle, ChevronRight } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 
@@ -47,6 +48,14 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
   const [isOpen, setIsOpen] = useState(false);
   const [nowTimestamp, setNowTimestamp] = useState<number>(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [panelPos, setPanelPos] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    maxHeight: number;
+  } | null>(null);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
@@ -137,9 +146,10 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
   // Close dropdown on click outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
+      const target = event.target as Node;
+      const inTrigger = dropdownRef.current?.contains(target);
+      const inPanel = panelRef.current?.contains(target);
+      if (!inTrigger && !inPanel) setIsOpen(false);
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -216,10 +226,59 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
   };
   const popupNotifications = notifications.slice(0, 5);
 
+  /**
+   * Position the panel in viewport coordinates.
+   *
+   * It's rendered through a portal rather than as a child of the bell, because one of
+   * the two mount points is inside the sidebar's `overflow-y-auto`: an absolutely
+   * positioned panel there gets clipped and lengthens the sidebar's scroll area instead
+   * of floating above it. A portal escapes that, but then the panel no longer inherits
+   * the trigger's position, so it has to be measured.
+   *
+   * Recomputed on scroll (capture, so ancestor scrolling counts) and on resize, since
+   * fixed coordinates go stale the moment the trigger moves.
+   */
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const PANEL_WIDTH = 320; // w-80
+    const GAP = 12;
+
+    const place = () => {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      const width = Math.min(PANEL_WIDTH, window.innerWidth - GAP * 2);
+
+      // Prefer growing rightwards from the trigger; flip to right-aligned if that would
+      // run past the right edge. Clamp either way so it always lands on screen.
+      let left = rect.left;
+      if (left + width + GAP > window.innerWidth) left = rect.right - width;
+      left = Math.min(Math.max(GAP, left), window.innerWidth - width - GAP);
+
+      const top = rect.bottom + GAP;
+      setPanelPos({
+        top,
+        left,
+        width,
+        maxHeight: Math.max(200, window.innerHeight - top - GAP),
+      });
+    };
+
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [isOpen]);
+
   return (
     <div className="relative" ref={dropdownRef}>
       {/* Bell Trigger */}
       <button
+        ref={triggerRef}
         onClick={() => setIsOpen(!isOpen)}
         className="relative p-2.5 rounded-xl border border-white/5 bg-white/3 hover:bg-white/8 hover:border-white/10 transition-all text-white/60 hover:text-white"
       >
@@ -231,9 +290,19 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
         )}
       </button>
 
-      {/* Dropdown Card */}
-      {isOpen && (
-        <div className="absolute right-0 mt-3 w-80 max-h-96 z-50 flex flex-col p-4 space-y-3 rounded-2xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.6)] bg-[#07070a]/95 backdrop-blur-2xl">
+      {/* Dropdown Card — portalled to <body> so the sidebar's overflow can't clip it */}
+      {isOpen && panelPos && createPortal(
+        <div
+          ref={panelRef}
+          style={{
+            position: 'fixed',
+            top: panelPos.top,
+            left: panelPos.left,
+            width: panelPos.width,
+            maxHeight: Math.min(384, panelPos.maxHeight), // 384px = the old max-h-96
+          }}
+          className="z-50 flex flex-col p-4 space-y-3 rounded-2xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.6)] bg-[#07070a]/95 backdrop-blur-2xl"
+        >
           <div className="flex items-center justify-between border-b border-white/5 pb-2 shrink-0">
             <span className="text-xs font-bold text-white uppercase tracking-wider">
               Notifications
@@ -306,7 +375,8 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
               </button>
             </div>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
