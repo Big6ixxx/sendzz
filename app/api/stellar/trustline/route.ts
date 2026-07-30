@@ -1,15 +1,17 @@
 /**
  * POST /api/stellar/trustline
  *
- * Ensures the USDC trustline is set on a Stellar wallet.
- * Called automatically during provisioning. This endpoint exists as a
- * manual retry for the case where the account wasn't activated yet during
- * initial provision (needed XLM first).
+ * Makes a Stellar wallet able to receive USDC — activates the account if it isn't
+ * on-chain yet, tops up the trustline reserve, and adds the USDC trustline.
+ *
+ * Called during provisioning, and as a pre-flight before any bridge whose
+ * destination is Stellar (a missing trustline makes the CCTP claim revert *after*
+ * the source-chain burn has already happened).
  *
  * Body: { walletId, address }
  */
 
-import { ensureTrustline } from '@/lib/stellar/privy-wallet';
+import { ensureStellarUsdcReceivable } from '@/lib/stellar/privy-wallet';
 import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
@@ -25,15 +27,18 @@ export async function POST(req: Request) {
 
     console.log(`[Stellar/Trustline] Ensuring trustline for ${address.slice(0, 6)}...`);
 
-    const ready = await ensureTrustline(walletId, address);
+    const result = await ensureStellarUsdcReceivable(walletId, address);
 
-    if (!ready) {
+    if (!result.ready) {
+      // Raw detail stays in the server logs — the client only gets a safe message.
+      console.error(`[Stellar/Trustline] Not ready (${result.reason}):`, result.detail);
       return NextResponse.json(
         {
           success: false,
           trustlineReady: false,
+          code: result.reason,
           message:
-            'Account is not yet activated on Stellar. Send at least 1 XLM to activate it, then try again.',
+            "We couldn't finish setting up your Stellar account to receive USDC. Please try again in a moment.",
         },
         { status: 202 }, // 202 Accepted — not an error, just not ready yet
       );
@@ -43,7 +48,7 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error('[Stellar/Trustline] Error:', error);
     return NextResponse.json(
-      { error: (error as Error).message || 'Failed to add trustline' },
+      { error: 'Could not set up your Stellar account right now. Please try again.' },
       { status: 500 },
     );
   }

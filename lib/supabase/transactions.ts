@@ -5,6 +5,8 @@ import { supabaseAdmin } from "./adminClient";
 import { fetchAttestation, type SupportedChain } from "@/lib/circle/gateway";
 import { fetchSolanaAttestation } from "@/lib/circle/solana-gateway";
 import { fetchStellarAttestation } from "@/lib/circle/stellar-gateway";
+import type { PendingBridgeClaim } from "@/types/bridge";
+import { PLACEHOLDER_TX_HASH, isPlaceholderHash } from "@/lib/explorers";
 
 type ExtendedChain = SupportedChain | "solana" | "stellar";
 
@@ -19,6 +21,42 @@ async function getAttestation(sourceChain: ExtendedChain, txHash: string) {
 }
 
 type TransferRow = Database["public"]["Tables"]["transfers"]["Row"];
+
+/**
+ * Last-resort lookup of the transaction that minted a bridge on its destination chain.
+ *
+ * Best-effort by design: it runs on the notification path, so a slow or unhelpful RPC
+ * must never stop the email going out. EVM destinations only.
+ */
+async function recoverMintTxHash(
+  sourceChain: string,
+  destChain: string,
+  burnTxHash: string,
+): Promise<string | undefined> {
+  const dest = destChain.toLowerCase();
+  if (!EVM_DEST_CHAINS.includes(dest)) return undefined;
+
+  try {
+    const attestation = await getAttestation(
+      sourceChain as ExtendedChain,
+      burnTxHash,
+    );
+    if (!attestation.messageBytes) return undefined;
+
+    const { createPublicClient } = await import("viem");
+    const { rpcTransport } = await import("@/lib/web3/rpc");
+    const { findMintTxHash } = await import("@/lib/web3/cctp-delivery");
+
+    const client = createPublicClient({ transport: rpcTransport(dest) });
+    return await findMintTxHash(client, attestation.messageBytes);
+  } catch (err) {
+    console.error(
+      "[recoverMintTxHash] Lookup failed:",
+      (err as Error).message,
+    );
+    return undefined;
+  }
+}
 
 // --- TRANSFERS ---
 
@@ -113,6 +151,8 @@ export async function recordTransfer(params: {
           params.recipientEmail,
           transferId,
           params.note,
+          params.txHash,
+          params.chain,
         );
       } catch (emailErr) {
         console.error(
@@ -236,12 +276,13 @@ export async function updateDepositStatus(
         id: string;
         amount_usdc: number;
         tx_hash?: string | null;
+        network?: string | null;
         users: { email: string } | null;
       }
 
       const { data: depData } = (await supabaseAdmin
         .from("deposits")
-        .select("id, amount_usdc, tx_hash, users (email)")
+        .select("id, amount_usdc, tx_hash, network, users (email)")
         .eq("provider_order_id", paycrestTxId)
         .maybeSingle()) as unknown as { data: DepositWithUser | null };
 
@@ -249,7 +290,10 @@ export async function updateDepositStatus(
         const email = depData.users.email;
         const amount = depData.amount_usdc;
         const referenceId = depData.id;
-        const txHash = depData.tx_hash || paycrestTxId;
+        // Keep the on-chain hash distinct from the provider order ID — only the former
+        // can be linked to an explorer.
+        const txHash = depData.tx_hash || undefined;
+        const depositChain = depData.network || undefined;
 
         const { createNotification } = await import("./notifications");
         await createNotification(
@@ -270,6 +314,7 @@ export async function updateDepositStatus(
             (amount || 0).toString(),
             referenceId,
             txHash,
+            depositChain,
           );
         } catch (emailErr) {
           console.error(
@@ -624,7 +669,7 @@ export async function updateBridgeStatus(
 
     const wasAlreadyComplete = existing.attestation_status === "complete";
 
-    const { error, count } = await supabaseAdmin
+    const { error } = await supabaseAdmin
       .from("bridge_transactions")
       .update({
         attestation_status: status as "complete" | "failed" | "pending",
@@ -667,7 +712,21 @@ export async function updateBridgeStatus(
         const dest = txData.dest_chain;
         const referenceId = txData.id;
         const sourceHash = txData.burn_tx_hash || burnTxHash;
-        const destinationHash = mintTxHash || undefined;
+
+        // A receipt is the one place the mint hash really matters, so make a final
+        // attempt to recover it before falling back to the placeholder — and persist
+        // whatever we find so the activity page links it too.
+        let destinationHash = mintTxHash || undefined;
+        if (isPlaceholderHash(destinationHash)) {
+          const recovered = await recoverMintTxHash(src, dest, sourceHash);
+          if (recovered) {
+            destinationHash = recovered;
+            await supabaseAdmin
+              .from("bridge_transactions")
+              .update({ mint_tx_hash: recovered })
+              .eq("burn_tx_hash", burnTxHash);
+          }
+        }
 
         const { createNotification } = await import("./notifications");
         await createNotification(
@@ -705,6 +764,150 @@ export async function updateBridgeStatus(
     }
   } catch (err) {
     console.error("[Supabase] Failed to update bridge status:", err);
+  }
+}
+
+/**
+ * Burns that were never minted on their destination chain.
+ *
+ * `getUserActivities` also refreshes bridge state, but it scans deposits and pulls
+ * five tables — far too heavy to poll. This is the narrow read the Pending Claims
+ * panel polls: unminted burns plus the attestation each one needs to be claimed.
+ *
+ * A row is only surfaced once Circle has attested the burn, the mint is still missing,
+ * and the live bridge flow has had its chance — otherwise every normal bridge would
+ * flash an "unclaimed" banner during the gap between attestation and mint.
+ */
+
+/**
+ * How long the in-page bridge monitor owns a burn before this takes over. Matches the
+ * monitor's give-up point in ChainBridgeModule, so exactly one of them is ever acting
+ * on a given transfer.
+ */
+const CLAIM_HANDOFF_MS = 10 * 60 * 1000;
+
+const EVM_DEST_CHAINS = [
+  "base",
+  "arbitrum",
+  "optimism",
+  "polygon",
+  "avalanche",
+  "ethereum",
+];
+
+/**
+ * Has the destination chain already consumed this message's nonce?
+ *
+ * Only answerable for EVM destinations today; Solana and Stellar fall back to the
+ * record written when their claim succeeded. Returns false when unknown, so an
+ * unreachable RPC never hides a transfer the user still needs to claim.
+ */
+async function isBurnDelivered(
+  destChain: string,
+  messageBytes: string,
+): Promise<boolean> {
+  const dest = destChain.toLowerCase();
+  if (!EVM_DEST_CHAINS.includes(dest)) return false;
+
+  try {
+    const { createPublicClient } = await import("viem");
+    const { rpcTransport } = await import("@/lib/web3/rpc");
+    const { isMessageDelivered } = await import("@/lib/web3/cctp-delivery");
+
+    const client = createPublicClient({ transport: rpcTransport(dest) });
+    return await isMessageDelivered(client, messageBytes);
+  } catch (err) {
+    console.error(
+      `[getPendingBridgeClaims] Delivery check failed on ${dest}:`,
+      (err as Error).message,
+    );
+    return false;
+  }
+}
+export async function getPendingBridgeClaims(
+  userEmail: string,
+): Promise<PendingBridgeClaim[]> {
+  try {
+    const normalizedEmail = userEmail.toLowerCase();
+    const { data: userRecord } = await supabaseAdmin
+      .from("users")
+      .select("id")
+      .eq("email", normalizedEmail)
+      .single();
+
+    if (!userRecord?.id) return [];
+
+    const { data: rows } = await supabaseAdmin
+      .from("bridge_transactions")
+      .select("id, source_chain, dest_chain, amount, burn_tx_hash, mint_tx_hash, created_at")
+      .eq("user_id", userRecord.id)
+      .is("mint_tx_hash", null)
+      .lt("created_at", new Date(Date.now() - CLAIM_HANDOFF_MS).toISOString())
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    if (!rows || rows.length === 0) return [];
+
+    const claims = await Promise.all(
+      rows.map(async (row): Promise<PendingBridgeClaim | null> => {
+        try {
+          const result = await getAttestation(
+            row.source_chain as ExtendedChain,
+            row.burn_tx_hash,
+          );
+
+          // Circle's relayer already delivered it — reconcile and drop from the list.
+          if (result.status === "complete" && result.mintTxHash) {
+            await updateBridgeStatus(row.burn_tx_hash, "complete", result.mintTxHash);
+            return null;
+          }
+
+          // Circle only reports a mint hash for transfers its own relayer delivered, so
+          // a claim the user made themselves leaves Iris looking identical to one that
+          // never happened. Ask the destination chain directly before insisting the
+          // funds are unclaimed — otherwise the banner outlives the transfer.
+          if (result.status === "complete" && result.messageBytes) {
+            const delivered = await isBurnDelivered(row.dest_chain, result.messageBytes);
+            if (delivered) {
+              await updateBridgeStatus(row.burn_tx_hash, "complete", PLACEHOLDER_TX_HASH);
+              return null;
+            }
+          }
+
+          return {
+            id: row.id,
+            burnTxHash: row.burn_tx_hash,
+            sourceChain: row.source_chain,
+            destChain: row.dest_chain,
+            amount: row.amount,
+            createdAt: row.created_at,
+            ready: result.status === "complete",
+            messageBytes: result.messageBytes ?? undefined,
+            attestation: result.attestation ?? undefined,
+          };
+        } catch (err) {
+          console.error(
+            `[getPendingBridgeClaims] Attestation lookup failed for ${row.burn_tx_hash}:`,
+            err,
+          );
+          // Still show it — the user can retry; the claim itself re-fetches.
+          return {
+            id: row.id,
+            burnTxHash: row.burn_tx_hash,
+            sourceChain: row.source_chain,
+            destChain: row.dest_chain,
+            amount: row.amount,
+            createdAt: row.created_at,
+            ready: false,
+          };
+        }
+      }),
+    );
+
+    return claims.filter((c): c is PendingBridgeClaim => c !== null);
+  } catch (err) {
+    console.error("[Supabase] Failed to load pending bridge claims:", err);
+    return [];
   }
 }
 

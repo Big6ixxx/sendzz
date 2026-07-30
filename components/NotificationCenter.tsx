@@ -2,6 +2,7 @@
 
 import { Bell, Check, Mail, Repeat, ShieldAlert, ArrowDownCircle, ArrowUpCircle, ChevronRight } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 
@@ -27,34 +28,64 @@ function urlBase64ToUint8Array(base64String: string) {
   return outputArray;
 }
 
+// Top-level pure helper for formatting notification timestamp
+function formatNotificationTime(dateStr: string, nowTimestamp: number): string {
+  if (!nowTimestamp) {
+    return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+  const elapsed = nowTimestamp - new Date(dateStr).getTime();
+  const minutes = Math.floor(elapsed / 60000);
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 export function NotificationCenter({ userEmail }: { userEmail: string }) {
   const router = useRouter();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [isOpen, setIsOpen] = useState(false);
+  const [nowTimestamp, setNowTimestamp] = useState<number>(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [panelPos, setPanelPos] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    maxHeight: number;
+  } | null>(null);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-  const fetchNotifications = async () => {
-    if (!userEmail) return;
-    try {
-      const res = await fetch(`/api/notifications?email=${encodeURIComponent(userEmail)}`);
-      if (res.ok) {
-        const data = await res.json();
-        setNotifications(data.notifications || []);
-      }
-    } catch (err) {
-      console.error('Failed to fetch notifications:', err);
-    }
-  };
-
   // 1. Poll/Fetch notifications on load and setup push subscriptions
   useEffect(() => {
-    fetchNotifications();
+    if (!userEmail) return;
+    let isMounted = true;
 
-    // Poll every 15 seconds as fallback
-    const interval = setInterval(fetchNotifications, 15000);
-    return () => clearInterval(interval);
+    const loadNotifications = async () => {
+      try {
+        const res = await fetch(`/api/notifications?email=${encodeURIComponent(userEmail)}`);
+        if (res.ok && isMounted) {
+          const data = await res.json();
+          if (isMounted) {
+            setNotifications(data.notifications || []);
+            setNowTimestamp(Date.now());
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch notifications:', err);
+      }
+    };
+
+    void loadNotifications();
+
+    const interval = setInterval(loadNotifications, 15000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, [userEmail]);
 
   // 2. Setup Web Push Notifications
@@ -115,9 +146,10 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
   // Close dropdown on click outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
+      const target = event.target as Node;
+      const inTrigger = dropdownRef.current?.contains(target);
+      const inPanel = panelRef.current?.contains(target);
+      if (!inTrigger && !inPanel) setIsOpen(false);
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -192,24 +224,61 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
         return <Bell className="w-4 h-4 text-white/50" />;
     }
   };
-
-  const formatTime = (dateStr: string) => {
-    const elapsed = Date.now() - new Date(dateStr).getTime();
-    const minutes = Math.floor(elapsed / 60000);
-    if (minutes < 1) return 'Just now';
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  };
-
-  // Display at most 5 items in the pop-up
   const popupNotifications = notifications.slice(0, 5);
+
+  /**
+   * Position the panel in viewport coordinates.
+   *
+   * It's rendered through a portal rather than as a child of the bell, because one of
+   * the two mount points is inside the sidebar's `overflow-y-auto`: an absolutely
+   * positioned panel there gets clipped and lengthens the sidebar's scroll area instead
+   * of floating above it. A portal escapes that, but then the panel no longer inherits
+   * the trigger's position, so it has to be measured.
+   *
+   * Recomputed on scroll (capture, so ancestor scrolling counts) and on resize, since
+   * fixed coordinates go stale the moment the trigger moves.
+   */
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const PANEL_WIDTH = 320; // w-80
+    const GAP = 12;
+
+    const place = () => {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      const width = Math.min(PANEL_WIDTH, window.innerWidth - GAP * 2);
+
+      // Prefer growing rightwards from the trigger; flip to right-aligned if that would
+      // run past the right edge. Clamp either way so it always lands on screen.
+      let left = rect.left;
+      if (left + width + GAP > window.innerWidth) left = rect.right - width;
+      left = Math.min(Math.max(GAP, left), window.innerWidth - width - GAP);
+
+      const top = rect.bottom + GAP;
+      setPanelPos({
+        top,
+        left,
+        width,
+        maxHeight: Math.max(200, window.innerHeight - top - GAP),
+      });
+    };
+
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [isOpen]);
 
   return (
     <div className="relative" ref={dropdownRef}>
       {/* Bell Trigger */}
       <button
+        ref={triggerRef}
         onClick={() => setIsOpen(!isOpen)}
         className="relative p-2.5 rounded-xl border border-white/5 bg-white/3 hover:bg-white/8 hover:border-white/10 transition-all text-white/60 hover:text-white"
       >
@@ -221,9 +290,19 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
         )}
       </button>
 
-      {/* Dropdown Card */}
-      {isOpen && (
-        <div className="absolute right-0 mt-3 w-80 max-h-96 z-50 flex flex-col p-4 space-y-3 rounded-2xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.6)] bg-[#07070a]/95 backdrop-blur-2xl">
+      {/* Dropdown Card — portalled to <body> so the sidebar's overflow can't clip it */}
+      {isOpen && panelPos && createPortal(
+        <div
+          ref={panelRef}
+          style={{
+            position: 'fixed',
+            top: panelPos.top,
+            left: panelPos.left,
+            width: panelPos.width,
+            maxHeight: Math.min(384, panelPos.maxHeight), // 384px = the old max-h-96
+          }}
+          className="z-50 flex flex-col p-4 space-y-3 rounded-2xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.6)] bg-[#07070a]/95 backdrop-blur-2xl"
+        >
           <div className="flex items-center justify-between border-b border-white/5 pb-2 shrink-0">
             <span className="text-xs font-bold text-white uppercase tracking-wider">
               Notifications
@@ -271,7 +350,7 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
                       {notif.body}
                     </p>
                     <span className="text-[9px] text-white/20 mt-1 block">
-                      {formatTime(notif.created_at)}
+                      {formatNotificationTime(notif.created_at, nowTimestamp)}
                     </span>
                   </div>
                   {!notif.read && (
@@ -296,7 +375,8 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
               </button>
             </div>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

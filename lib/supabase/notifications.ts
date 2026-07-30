@@ -1,7 +1,8 @@
 import { supabaseAdmin } from './adminClient';
+import type { Json } from '@/types/database';
 import webpush from 'web-push';
 
-const db = supabaseAdmin as any;
+const db = supabaseAdmin;
 
 // Initialize web-push with VAPID credentials
 if (process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
@@ -61,7 +62,7 @@ export async function savePushSubscription(email: string, subscription: webpush.
         .from('push_subscriptions')
         .insert({
           user_id: userId,
-          subscription: subscription as any // Supabase JSONB type takes the parsed object directly
+          subscription: subscription as unknown as Json,
         });
 
       if (error) throw error;
@@ -101,6 +102,7 @@ export async function getNotifications(email: string, limit = 20): Promise<Notif
 export async function markNotificationsAsRead(email: string, ids?: string[]): Promise<void> {
   try {
     const userId = await getUserByEmail(email);
+    if (!userId) return;
     let query = db
       .from('notifications')
       .update({ read: true })
@@ -132,7 +134,8 @@ export async function createNotification(
 ): Promise<void> {
   try {
     const userId = await getUserByEmail(email);
-    
+    if (!userId) return;
+
     // 1. Insert into supabase DB for in-app history
     const { data: inserted, error } = await db
       .from('notifications')
@@ -141,12 +144,12 @@ export async function createNotification(
         title,
         body,
         type,
-        data: data || null
+        data: (data || null) as Json | null,
       })
       .select()
       .single();
 
-    if (error) throw error;
+    if (error || !inserted) throw error;
     console.log(`[Notifications] In-app notification created for ${email}: "${title}"`);
 
     // 2. Fetch all registered push subscriptions for this user
@@ -172,9 +175,10 @@ export async function createNotification(
 
     console.log(`[Notifications] Sending push notifications to ${subscriptions.length} devices for ${email}...`);
     
-    const pushPromises = subscriptions.map(async (subRow: { subscription: webpush.PushSubscription }) => {
+    const pushPromises = subscriptions.map(async (subRow: { subscription: unknown }) => {
       try {
-        await webpush.sendNotification(subRow.subscription, pushPayload);
+        const pushSub = subRow.subscription as unknown as webpush.PushSubscription;
+        await webpush.sendNotification(pushSub, pushPayload);
       } catch (pushErr) {
         const error = pushErr as { statusCode?: number; message?: string };
         console.warn('[Notifications] Failed to send push notification to device:', error.message);
@@ -185,7 +189,7 @@ export async function createNotification(
             .from('push_subscriptions')
             .delete()
             .eq('user_id', userId)
-            .eq('subscription', JSON.stringify(subRow.subscription));
+            .eq('subscription', JSON.stringify(subRow.subscription) as NonNullable<Json>);
         }
       }
     });

@@ -20,10 +20,11 @@ import { useSolanaBridge } from "@/hooks/useSolanaBridge";
 import { ChainLogo } from "@/components/deposit-withdraw/ChainLogo";
 import { CHAIN_NAMES } from "@/lib/circle/gateway";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { useStellarWallet } from "@/hooks/useStellarWallet";
+import { PendingBridgeClaims } from "@/components/bridge/PendingBridgeClaims";
 import {
   ArrowDown,
   ArrowUp,
-  Copy,
   Info,
   Loader2,
   RefreshCw,
@@ -37,7 +38,6 @@ import {
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { type ChainBalances } from "@/lib/web3/routing";
-import { toast } from "sonner";
 import { useBalanceVisibility } from "@/components/providers/BalanceVisibilityProvider";
 import { AnimatedBalance } from "@/components/ui/AnimatedBalance";
 
@@ -56,9 +56,11 @@ export default function Dashboard() {
       : null;
 
   const [smartAddress, setSmartAddress] = useState<string>("");
-  const [stellarAddress, setStellarAddress] = useState<string>("");
-  const [stellarWalletId, setStellarWalletId] = useState<string>("");
-  const [stellarTrustlineReady, setStellarTrustlineReady] = useState<boolean>(false);
+  // Shared, cached provisioning — see hooks/useStellarWallet.
+  const { data: stellarWallet } = useStellarWallet();
+  const stellarAddress = stellarWallet?.address ?? "";
+  const stellarWalletId = stellarWallet?.walletId ?? "";
+  const stellarTrustlineReady = !!stellarWallet?.trustlineReady;
   const [rampModalOpen, setRampModalOpen] = useState(false);
   const [batchSendDialogOpen, setBatchSendDialogOpen] = useState(false);
   const [rampType, setRampType] = useState<"deposit" | "withdraw">("deposit");
@@ -136,22 +138,6 @@ export default function Dashboard() {
             address,
             embeddedSolWallet?.address,
           ).catch(console.error);
-
-          // Automatically provision or retrieve the user's Stellar wallet from the DB/API
-          fetch("/api/stellar/provision", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ privyUserId: user.id, email: user.email.address }),
-          })
-            .then((res) => res.json())
-            .then((data) => {
-              if (data.address) {
-                setStellarAddress(data.address);
-                setStellarWalletId(data.walletId || "");
-                setStellarTrustlineReady(!!data.trustlineReady);
-              }
-            })
-            .catch((err) => console.error("[Dashboard] Stellar provision error:", err));
         }
       } catch (err) {
         console.error("[Dashboard] INIT ACCOUNT FATAL ERROR:", err);
@@ -221,6 +207,18 @@ export default function Dashboard() {
   return (
     <TooltipProvider>
       <div className="max-w-5xl mx-auto space-y-8">
+        {/* Burns still awaiting a claim — surfaced here too, since the dashboard is
+            where a user looks when funds appear to be missing. */}
+        <PendingBridgeClaims
+          userEmail={user?.email?.address || ""}
+          solanaAddress={embeddedSolWallet?.address}
+          stellarWallet={
+            stellarWalletId && stellarAddress
+              ? { walletId: stellarWalletId, address: stellarAddress }
+              : null
+          }
+        />
+
         {/* Balance Header */}
         <section>
           <div className="card-glass p-8 md:p-10 rounded-3xl">

@@ -11,13 +11,12 @@ import {
   Repeat,
   Send,
   Settings,
-  Star,
   User,
   X,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 const NAV_ITEMS = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -34,6 +33,7 @@ interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
   onLogout: () => void;
+  notificationSlot?: React.ReactNode;
 }
 
 export function Sidebar({
@@ -42,18 +42,14 @@ export function Sidebar({
   isOpen,
   onClose,
   onLogout,
+  notificationSlot,
 }: SidebarProps) {
-  const [isCollapsed, setIsCollapsed] = useState(false);
-
-  // Initialize from localStorage on mount
-  useEffect(() => {
+  const [isCollapsed, setIsCollapsed] = useState(() => {
     if (typeof window !== "undefined") {
-      const stored = localStorage.getItem("sidebar-collapsed");
-      if (stored === "true") {
-        setIsCollapsed(true);
-      }
+      return localStorage.getItem("sidebar-collapsed") === "true";
     }
-  }, []);
+    return false;
+  });
 
   const toggleCollapse = () => {
     setIsCollapsed((prev) => {
@@ -124,6 +120,13 @@ export function Sidebar({
                 </div>
               )}
             </Link>
+
+            {/* Desktop: notification bell — lives inside sidebar to avoid overlapping page content */}
+            {notificationSlot && (
+              <div className={cn("hidden lg:flex items-center", isCollapsed ? "justify-center" : "")}>
+                {notificationSlot}
+              </div>
+            )}
 
             {/* Desktop Collapse Toggle */}
             <button

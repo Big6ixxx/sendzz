@@ -56,7 +56,7 @@ export function TOTPSetupWizard({
     }
   };
 
-  const handleVerify = async () => {
+  const handleVerify = useCallback(async () => {
     if (!verificationCode || verificationCode.length !== 6) {
       setError("Please enter a 6-digit code");
       return;
@@ -79,7 +79,7 @@ export function TOTPSetupWizard({
     } finally {
       setLoading(false);
     }
-  };
+  }, [verificationCode, email]);
 
   const handleComplete = useCallback(() => {
     onComplete();
@@ -106,7 +106,7 @@ export function TOTPSetupWizard({
     ) {
       handleVerify();
     }
-  }, [verificationCode, step, loading, error]);
+  }, [verificationCode, step, loading, error, handleVerify]);
 
   useEffect(() => {
     if (step === "success") {

@@ -2,6 +2,7 @@
 
 import { Sidebar } from "@/components/layout/Sidebar";
 import { NotificationCenter } from "@/components/NotificationCenter";
+import { KycBanner } from "@/components/kyc/KycBanner";
 import { usePrivy } from "@privy-io/react-auth";
 import { Menu } from "lucide-react";
 import Image from "next/image";
@@ -44,7 +45,7 @@ export default function DashboardLayout({
         {/* Ambient background blobs */}
         <div className="fixed inset-0 pointer-events-none overflow-hidden" aria-hidden>
           <div
-            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full opacity-20 blur-[120px]"
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-150 h-150 rounded-full opacity-20 blur-[120px]"
             style={{
               background: 'radial-gradient(circle, #00e87a 0%, transparent 70%)',
             }}
@@ -110,13 +111,13 @@ export default function DashboardLayout({
         aria-hidden
       >
         <div
-          className="absolute top-[-10%] left-[20%] w-[500px] h-[500px] rounded-full opacity-[0.06] blur-[100px]"
+          className="absolute top-[-10%] left-[20%] w-125 h-125 rounded-full opacity-[0.06] blur-[100px]"
           style={{
             background: "radial-gradient(circle, #00e87a, transparent 70%)",
           }}
         />
         <div
-          className="absolute bottom-[5%] right-[10%] w-[400px] h-[400px] rounded-full opacity-[0.04] blur-[80px]"
+          className="absolute bottom-[5%] right-[10%] w-100 h-100 rounded-full opacity-[0.04] blur-[80px]"
           style={{
             background: "radial-gradient(circle, #3b82f6, transparent 70%)",
           }}
@@ -129,38 +130,37 @@ export default function DashboardLayout({
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
         onLogout={() => logout()}
+        notificationSlot={
+          <NotificationCenter userEmail={user?.email?.address || ""} />
+        }
       />
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        {/* Unified Dashboard Header containing Notification Center */}
+        {/* Mobile/Tablet header — hidden on desktop */}
         <header
-          className="flex items-center justify-between lg:justify-end py-4 px-4 md:px-6 lg:px-8 sticky top-0 z-30 shrink-0"
+          className="lg:hidden flex items-center justify-between py-4 px-4 md:px-6 sticky top-0 z-30 shrink-0"
           style={{
             background: "rgba(7, 7, 10, 0.4)",
             backdropFilter: "blur(24px) saturate(180%)",
             borderBottom: "1px solid rgba(255,255,255,0.05)",
           }}
         >
-          {/* Logo only visible on mobile/tablet */}
-          <div className="lg:hidden">
-            <Link href="/">
-              <Image
-                src="/logo.svg"
-                alt="Sendzz"
-                width={100}
-                height={30}
-                priority
-              />
-            </Link>
-          </div>
-          
+          <Link href="/">
+            <Image
+              src="/logo.svg"
+              alt="Sendzz"
+              width={100}
+              height={30}
+              priority
+            />
+          </Link>
+
           <div className="flex items-center gap-4">
             <NotificationCenter userEmail={user?.email?.address || ""} />
-            
             <button
               onClick={() => setIsSidebarOpen(true)}
-              className="lg:hidden p-2 rounded-xl transition-colors"
+              className="p-2 rounded-xl transition-colors"
               style={{ color: "rgba(248,248,246,0.5)" }}
             >
               <Menu className="w-5 h-5" />
@@ -168,8 +168,11 @@ export default function DashboardLayout({
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
-          {children}
+        <div className="flex-1 overflow-y-auto">
+          <KycBanner userEmail={user?.email?.address || ""} />
+          <div className="p-4 md:p-6 lg:p-8">
+            {children}
+          </div>
         </div>
       </main>
     </div>

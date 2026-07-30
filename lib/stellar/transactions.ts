@@ -12,22 +12,16 @@
 import {
   Account,
   Asset,
-  Keypair,
+  Memo,
   Networks,
   Operation,
   TransactionBuilder,
-  xdr,
 } from '@stellar/stellar-sdk';
-import { rpc as SorobanRpc } from '@stellar/stellar-sdk';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const STELLAR_HORIZON_URL =
   process.env.NEXT_PUBLIC_STELLAR_HORIZON_URL ?? 'https://horizon.stellar.org';
-
-const STELLAR_RPC_URL =
-  process.env.NEXT_PUBLIC_STELLAR_RPC_URL ??
-  'https://soroban-rpc.mainnet.stellar.gateway.fm';
 
 const STELLAR_NETWORK_PASSPHRASE =
   process.env.NEXT_PUBLIC_STELLAR_NETWORK_PASSPHRASE ?? Networks.PUBLIC;
@@ -149,7 +143,7 @@ export async function buildUsdcPaymentTx(
   );
 
   if (memo) {
-    builder.addMemo({ type: 'text', value: memo } as any);
+    builder.addMemo(Memo.text(memo));
   }
 
   const tx = builder.setTimeout(300).build();

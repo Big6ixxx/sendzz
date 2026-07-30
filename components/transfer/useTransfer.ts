@@ -194,6 +194,24 @@ export function useTransfer({
     if (!amount || !recipientEmail || !embeddedProvider) return;
 
     setLoading(true);
+    setStatus("Checking transaction limits...");
+
+    const valUsdc = parseFloat(amountUsdc);
+    if (!isNaN(valUsdc) && valUsdc > 0) {
+      try {
+        const { checkKycLimitAction } = await import("@/lib/kyc/guard");
+        const guard = await checkKycLimitAction(valUsdc, senderEmail);
+        if (!guard.allowed) {
+          toast.error(guard.message);
+          setLoading(false);
+          setStatus("");
+          return;
+        }
+      } catch (err) {
+        console.error("[Transfer] Early KYC check error:", err);
+      }
+    }
+
     setStatus("Checking transaction history...");
 
     try {

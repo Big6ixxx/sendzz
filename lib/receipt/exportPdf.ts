@@ -1,6 +1,7 @@
 'use client';
 
 import { AdminTransaction } from '@/types/admin';
+import { EXPLORER_TX_BASE } from '@/lib/explorers';
 import { format } from 'date-fns';
 import { PAGE_BG, FONT_STYLES } from './template';
 import { getTxHash, getChainInfo } from './txHelpers';
@@ -21,30 +22,23 @@ const ROWS_PER_PAGE = 22;
 // ─── Block explorers ──────────────────────────────────────────────────────────
 // Keyed by chain name (lowercase). Transfers have no chain so fall back to base.
 
-const EXPLORERS: Record<string, string> = {
-  ethereum:  'https://etherscan.io/tx',
-  avalanche: 'https://snowtrace.io/tx',
-  optimism:  'https://optimistic.etherscan.io/tx',
-  arbitrum:  'https://arbiscan.io/tx',
-  base:      'https://basescan.org/tx',
-  polygon:   'https://polygonscan.com/tx',
-};
+// Explorer bases come from lib/explorers — see EXPLORER_TX_BASE.
 
 function explorerUrl(tx: AdminTransaction, hash: string): string {
   if (hash === '—' || !hash) return '';
   // Bridge: burn hash lives on source_chain, mint hash on base (dest)
   if (tx.tx_type === 'bridge') {
     const chain = (tx.source_chain || 'base').toLowerCase();
-    return `${EXPLORERS[chain] ?? EXPLORERS.base}/${hash}`;
+    return `${EXPLORER_TX_BASE[chain] ?? EXPLORER_TX_BASE.base}/${hash}`;
   }
   // Transfers, deposits, withdrawals all settle on Base
-  return `${EXPLORERS.base}/${hash}`;
+  return `${EXPLORER_TX_BASE.base}/${hash}`;
 }
 
 function mintExplorerUrl(hash: string): string {
   if (!hash) return '';
   // Mint always happens on Base (destination)
-  return `${EXPLORERS.base}/${hash}`;
+  return `${EXPLORER_TX_BASE.base}/${hash}`;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

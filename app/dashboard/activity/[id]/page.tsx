@@ -1,8 +1,6 @@
 'use client';
 
 import { use, useEffect, useState, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
-import { DashboardPageHeader } from '@/components/layout/DashboardPageHeader';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import {
   useSignTransaction,
@@ -10,7 +8,6 @@ import {
 } from '@privy-io/react-auth/solana';
 import { Connection, PublicKey, Transaction } from '@solana/web3.js';
 import { buildReceiveMessageOnSolanaTx } from '@/lib/circle/solana-gateway';
-import bs58 from 'bs58';
 import Link from 'next/link';
 
 const SOLANA_RPC =
@@ -20,7 +17,6 @@ import {
   ArrowDownLeft,
   ArrowLeft,
   ArrowUpRight,
-  Bell,
   Check,
   ChevronDown,
   Clock,
@@ -38,6 +34,7 @@ import { toast } from 'sonner';
 import { useActivities } from '@/hooks/useActivities';
 import { useQueryClient } from '@tanstack/react-query';
 import { CHAIN_META } from '@/components/deposit-withdraw/deposit-shared';
+import { explorerTxUrl, HOME_CHAIN } from '@/lib/explorers';
 import { ReceiptActions } from '@/components/receipt/ReceiptActions';
 import { activityToReceiptData } from '@/lib/receipt/utils';
 import { getOffRampRate } from '@/lib/actions/ramp';
@@ -47,9 +44,7 @@ import type { ActivityType } from '@/components/HistoryModule';
 const isPlaceholder = (h: string | null | undefined) =>
   !h || h.trim() === '' || h.toLowerCase() === 'n/a' || h === '0x0000000000000000000000000000000000000000000000000000000000000000';
 import { CCTP_DOMAINS, type SupportedChain } from '@/lib/circle/gateway';
-import { classifyAppError } from '@/lib/errors/appErrors';
 
-const BASE_EXPLORER = 'https://basescan.org/tx/';
 
 /** Middle-truncate long values (hashes / ids) for display; the full value is still copied. */
 function shorten(v: string, head = 10, tail = 8): string {
@@ -128,7 +123,6 @@ export default function ActivityDetailPage({
 }: {
   params: Promise<{ id: string }> | { id: string };
 }) {
-  const router = useRouter();
   const isPromise =
     params && typeof (params as Promise<{ id: string }>).then === 'function';
   const { id } = isPromise ? use(params as Promise<{ id: string }>) : (params as { id: string });
@@ -158,7 +152,15 @@ export default function ActivityDetailPage({
       .then((r) => r.json())
       .then((data) => {
         if (!active) return;
-        const notifs = (data.notifications || []) as any[];
+        interface NotificationItem {
+          id: string;
+          title: string;
+          body: string;
+          type: string;
+          created_at: string;
+          data?: Record<string, unknown> | null;
+        }
+        const notifs = (data.notifications || []) as NotificationItem[];
         const found = notifs.find((n) => n.id === id);
         if (found) {
           setNotificationDetail(found);
@@ -543,12 +545,11 @@ export default function ActivityDetailPage({
   const isOutgoing = activity.type === 'sent' || activity.type === 'withdrawal';
 
   // Network(s): accurate for bridges; transfers don't persist their chain yet.
-  const sourceMeta = activity.sourceChain
-    ? CHAIN_META[activity.sourceChain.toLowerCase()]
-    : null;
-  const burnExplorer = activity.txHash && !isPlaceholder(activity.txHash)
-    ? (sourceMeta ? sourceMeta.explorerTx(activity.txHash) : `${BASE_EXPLORER}${activity.txHash}`)
-    : null;
+  // Transfers don't persist their chain yet, so an unknown chain means the home chain.
+  const burnExplorer = explorerTxUrl(
+    activity.sourceChain ?? HOME_CHAIN,
+    activity.txHash,
+  );
 
   const receiptData = (() => {
     const base = activityToReceiptData(activity);
@@ -609,11 +610,10 @@ export default function ActivityDetailPage({
 
   // ── Advanced details: provider refs, full hashes, rate, timestamps ───────────
   const hasValidMint = !!activity.mintTxHash && !isPlaceholder(activity.mintTxHash);
-  const mintExplorer = hasValidMint
-    ? (activity.destChain ? CHAIN_META[activity.destChain.toLowerCase()] : null)?.explorerTx(
-        activity.mintTxHash!,
-      ) ?? `${BASE_EXPLORER}${activity.mintTxHash}`
-    : null;
+  const mintExplorer = explorerTxUrl(
+    activity.destChain ?? HOME_CHAIN,
+    activity.mintTxHash,
+  );
 
   type AdvRow = { label: string; value: string; display?: string; copyable?: boolean; href?: string };
   const advancedRows: AdvRow[] = [];

@@ -64,8 +64,14 @@ export async function executeCircleGaslessBatchTransfer(
   transfers: { recipientAddress: string; amountUSDC: string }[],
   targetChain: SupportedChain = 'base'
 ) {
-  const selectedChain = VIEM_CHAINS[targetChain] || baseChain;
-  const usdcContractAddress = USDC_ADDRESSES[targetChain] || USDC_ADDRESS;
+  const selectedChain = VIEM_CHAINS[targetChain];
+  const usdcContractAddress = USDC_ADDRESSES[targetChain];
+
+  // Falling back to Base's chain and token address for an unrecognised chain would send
+  // real USDC using the wrong contract — refuse instead of guessing.
+  if (!selectedChain || !usdcContractAddress) {
+    throw new Error(`Unsupported chain for transfer: ${targetChain}`);
+  }
   
   // Circle's bundler + paymaster endpoint — handles gas sponsorship via our policy
   const SEND_RPC_URL = `${CIRCLE_SEND_URL}/${getChainSlug(targetChain)}`;

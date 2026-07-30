@@ -2,6 +2,7 @@
 
 import { Ramp } from "@/lib/ramp";
 import { applyFee, getProviderFee, resolveFeeTreasury } from "@/lib/ramp/fees";
+import { kycGuard } from "@/lib/kyc/guard";
 import type {
   RampCurrency,
   RampNetwork,
@@ -53,6 +54,29 @@ export async function initiateOnRamp({
   network?: RampNetwork;
 }): Promise<RampOrderResponse> {
   try {
+    // KYC limit guard for on-ramps.
+    // Convert fiat amount → USD equivalent using the live buy rate before
+    // checking limits. USDC is pegged 1:1 to USD, so amountUsdc ≈ amountUsd.
+    // If the rate fetch fails we still enforce the guard using a conservative
+    // fallback of 1 (treats fiat amount as USD — safe to over-enforce briefly).
+    let amountUsd: number;
+    try {
+      const rates = await Ramp.getRates(amountFiat, fiatCurrency);
+      const buyRate = rates.data.buy?.rate;
+      amountUsd = buyRate && buyRate > 0 ? amountFiat / buyRate : amountFiat;
+    } catch {
+      console.warn(`[KYC onRamp] Could not fetch ${fiatCurrency} rate — using raw fiat amount as conservative USD estimate`);
+      amountUsd = amountFiat;
+    }
+
+    const guard = await kycGuard(userId, amountUsd);
+    if (!guard.allowed) {
+      throw Object.assign(
+        new Error(guard.message),
+        { reason: guard.reason, bindingPeriod: guard.bindingPeriod },
+      );
+    }
+
     const order = await Ramp.createOnRampOrder({
       amountFiat,
       userId,
@@ -226,10 +250,20 @@ export async function executeOffRamp(params: {
   bank: { accountNumber: string; accountName: string; bankName: string };
   userRefundAddress: string;
   userEmail: string;
+  /** Authenticated user's Supabase ID — required for KYC/limit enforcement. */
+  userId: string;
   fiatCurrency: RampCurrency;
   network: RampNetwork;
   consolidated?: boolean;
 }): Promise<{ order: RampOrderResponse; provider: RampProviderName }> {
+  // ── KYC & Limit Guard ───────────────────────────────────────────────────
+  const guard = await kycGuard(params.userId, params.amountUsdc);
+  if (!guard.allowed) {
+    throw Object.assign(
+      new Error(guard.message),
+      { reason: guard.reason, bindingPeriod: guard.bindingPeriod },
+    );
+  }
   // Constrain to providers that can settle on the chosen network
   const providersToTry = await Ramp.offRampProviderOrder(params.fiatCurrency, params.network);
   let lastError: unknown =

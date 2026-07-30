@@ -10,21 +10,18 @@
  */
 
 import { ChainLogo } from "@/components/deposit-withdraw/ChainLogo";
+import { Skeleton } from "@/components/ui/skeleton";
 import { usePortfolio } from "@/hooks/usePortfolio";
-import {
-  CHAIN_EXPLORERS,
-  CHAIN_NAMES,
-  type SupportedChain,
-} from "@/lib/circle/gateway";
+import { CHAIN_NAMES, type SupportedChain } from "@/lib/circle/gateway";
 import { EVM_CHAINS } from "@/lib/web3/routing";
-import {
-  executeSmartBridge,
-  executeReceiveMessage,
-} from "@/lib/web3/bridge-actions";
+import { executeSmartBridge } from "@/lib/web3/bridge-actions";
 import { prepareSolanaBurnTx } from "@/lib/web3/solana-bridge";
-import { buildReceiveMessageOnSolanaTx } from "@/lib/circle/solana-gateway";
-import { PublicKey, Transaction } from "@solana/web3.js";
-import bs58 from "bs58";
+import {
+  claimBridgeOnDestination,
+  type SolanaTxSigner,
+} from "@/lib/web3/bridge-claim";
+import { classifyAppError } from "@/lib/errors/appErrors";
+import { explorerTxUrl } from "@/lib/explorers";
 
 import { recordBridgeTransaction } from "@/lib/supabase/transactions";
 import { cn } from "@/lib/utils";
@@ -36,7 +33,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { Connection } from "@solana/web3.js";
 
-import { ArrowDown, CheckCircle2, ExternalLink, Loader2 } from "lucide-react";
+import { ArrowDown, CheckCircle2, ExternalLink, Loader2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -50,17 +47,6 @@ const CHAIN_DISPLAY_NAMES: Record<string, string> = {
   solana: "Solana",
 };
 
-const CHAIN_EXPLORER_TX: Record<string, (hash: string) => string> = {
-  ...Object.fromEntries(
-    Object.entries(CHAIN_EXPLORERS).map(([chain, base]) => [
-      chain,
-      (hash: string) => `${base}/${hash}`,
-    ]),
-  ),
-  stellar: (hash: string) =>
-    `https://stellar.expert/explorer/public/tx/${hash}`,
-  solana: (hash: string) => `https://solscan.io/tx/${hash}`,
-};
 
 interface ChainBridgeModuleProps {
   smartAddress: string;
@@ -97,11 +83,21 @@ export function ChainBridgeModule({
       ? solanaWallets.find((w) => w.address === solanaAddress)
       : null) ?? null;
 
-  const { data: portfolio, refetch } = usePortfolio(
-    smartAddress,
-    solanaAddress,
-    stellarWallet?.address,
-  );
+  const {
+    data: portfolio,
+    isError: portfolioFailed,
+    refetch,
+  } = usePortfolio(smartAddress, solanaAddress, stellarWallet?.address);
+
+  /**
+   * True until we actually know what the user holds.
+   *
+   * `isLoading` isn't enough: the query is disabled until the smart account address
+   * resolves, so an empty-handed render happens before any fetch begins — which is
+   * what made the page claim "no USDC" while balances were still on their way.
+   * On error we fall through to the empty state rather than pulsing forever.
+   */
+  const balancesPending = !portfolio && !portfolioFailed;
 
   const balanceOf = (chain: SupportedChain | "stellar" | "solana") =>
     parseFloat(
@@ -120,6 +116,8 @@ export function ChainBridgeModule({
   const [mintTxHash, setMintTxHash] = useState<string | null>(null);
   const [bridgeStep, setBridgeStep] = useState<BridgeStep>("burn_sig");
   const mintingRef = useRef(false);
+  /** Keeps the retry loop from firing the same error toast every five seconds. */
+  const claimErrorNotifiedRef = useRef(false);
 
   const sourceBalance = source ? balanceOf(source) : 0;
   const amountNum = parseFloat(amount) || 0;
@@ -140,8 +138,19 @@ export function ChainBridgeModule({
 
     const interval = setInterval(async () => {
       attempts++;
-      if (attempts > 180) {
+      // 120 × 5s = 10 min, the point at which PendingBridgeClaims takes over.
+      if (attempts > 120) {
         clearInterval(interval);
+        // Give up on watching, not on the transfer — the burn and its attestation stay
+        // valid forever, so hand it to the Pending Claims panel instead of spinning.
+        if (!cancelled) {
+          toast.info(
+            "This is taking longer than usual. Your USDC is safe — finish the transfer any time from Pending Claims.",
+          );
+          setPhase("form");
+          setMonitor(null);
+          queryClient.invalidateQueries({ queryKey: ["pending-bridge-claims"] });
+        }
         return;
       }
       try {
@@ -159,6 +168,7 @@ export function ChainBridgeModule({
           queryClient.invalidateQueries({ queryKey: ["portfolio"] });
           queryClient.invalidateQueries({ queryKey: ["cross-chain-balances"] });
           queryClient.invalidateQueries({ queryKey: ["history"] });
+          queryClient.invalidateQueries({ queryKey: ["pending-bridge-claims"] });
           toast.success(
             `Bridge complete! USDC is now on ${CHAIN_DISPLAY_NAMES[monitor.destChain]}.`,
           );
@@ -174,103 +184,48 @@ export function ChainBridgeModule({
             let mintHash: string | undefined = undefined;
             try {
               if (data.attestation && data.messageBytes) {
+                setBridgeStep("mint_sig");
+
                 if (monitor.destChain === "solana") {
-                  if (!embeddedSolWallet)
-                    throw new Error("Solana wallet not found for minting");
-                  setBridgeStep("mint_sig");
                   toast.info(
                     "Attestation ready! Approve the popup to receive USDC on Solana.",
                   );
-                  const walletPubkey = new PublicKey(embeddedSolWallet.address);
-                  const { transaction } = await buildReceiveMessageOnSolanaTx(
-                    solConn.current,
-                    walletPubkey,
-                    data.messageBytes,
-                    data.attestation,
-                  );
-                  const txBase64 = transaction
-                    .serialize({
-                      requireAllSignatures: false,
-                      verifySignatures: false,
-                    })
-                    .toString("base64");
-                  const sponsorRes = await fetch("/api/bridge/solana-sponsor", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ transaction: txBase64 }),
-                  });
-                  if (!sponsorRes.ok) {
-                    const errData = await sponsorRes.json().catch(() => ({}));
-                    throw new Error(
-                      errData.error || "Failed to sponsor Solana claim transaction",
-                    );
-                  }
-                  const { sponsoredTransaction } = await sponsorRes.json();
-                  const sponsoredTx = Transaction.from(
-                    Buffer.from(sponsoredTransaction, "base64"),
-                  );
-                  const { signedTransaction: signedBytes } = await signTransaction({
-                    transaction: sponsoredTx.serialize({
-                      requireAllSignatures: false,
-                    }),
-                    wallet: embeddedSolWallet,
-                  });
-                  const signature = await solConn.current.sendRawTransaction(
-                    signedBytes,
-                    {
-                      skipPreflight: false,
-                      preflightCommitment: "confirmed",
-                    },
-                  );
-                  const lb = await solConn.current.getLatestBlockhash();
-                  await solConn.current.confirmTransaction(
-                    {
-                      signature,
-                      blockhash: lb.blockhash,
-                      lastValidBlockHeight: lb.lastValidBlockHeight,
-                    },
-                    "confirmed",
-                  );
-                  mintHash = signature;
                 } else if (monitor.destChain === "stellar") {
-                  setBridgeStep("mint_sig");
                   toast.info("Minting USDC on Stellar...");
-                  const claimRes = await fetch("/api/stellar/claim", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      txHash: monitor.burnTxHash,
-                      sourceChain: monitor.sourceChain,
-                    }),
-                  });
-                  if (!claimRes.ok) {
-                    const claimErr = await claimRes.json();
-                    throw new Error(claimErr.error || "Failed to claim on Stellar");
-                  }
-                  mintHash = (await claimRes.json()).txHash;
-                } else if (embeddedWallet) {
-                  setBridgeStep("mint_sig");
+                } else {
                   toast.info("Finalising bridge on destination chain...");
+                  // Circle's relayer often mints on EVM before we get here — check first
+                  // so we don't ask for a signature on a message that's already spent.
                   await new Promise((r) => setTimeout(r, 3000));
-                  const recheckRes = await fetch(
+                  const recheckData = await fetch(
                     `/api/bridge/status?txHash=${monitor.burnTxHash}&sourceChain=${monitor.sourceChain}`,
-                  );
-                  const recheckData = await recheckRes.json();
-                  if (recheckData.mintTxHash) {
-                    mintHash = recheckData.mintTxHash;
-                  } else {
-                    console.log(
-                      "[ChainBridge] Submitting receiveMessage for",
-                      monitor.destChain,
-                    );
-                    mintHash = await executeReceiveMessage(
-                      embeddedWallet,
-                      data.messageBytes,
-                      data.attestation,
-                      monitor.destChain as SupportedChain,
-                    );
-                    console.log("[ChainBridge] receiveMessage tx:", mintHash);
-                  }
+                  )
+                    .then((r) => r.json())
+                    .catch(() => ({}));
+                  if (recheckData.mintTxHash) mintHash = recheckData.mintTxHash;
+                }
+
+                if (!mintHash) {
+                  const signSolanaTx: SolanaTxSigner = async (tx) => {
+                    const { signedTransaction } = await signTransaction({
+                      transaction: tx.serialize({ requireAllSignatures: false }),
+                      wallet: embeddedSolWallet!,
+                    });
+                    return signedTransaction as Uint8Array;
+                  };
+
+                  mintHash = await claimBridgeOnDestination({
+                    destChain: monitor.destChain,
+                    sourceChain: monitor.sourceChain,
+                    burnTxHash: monitor.burnTxHash,
+                    messageBytes: data.messageBytes,
+                    attestation: data.attestation,
+                    connection: solConn.current,
+                    embeddedWallet,
+                    solanaWallet: embeddedSolWallet,
+                    signSolanaTx,
+                    stellarWallet,
+                  });
                 }
               }
 
@@ -292,18 +247,13 @@ export function ChainBridgeModule({
               queryClient.invalidateQueries({ queryKey: ["portfolio"] });
               queryClient.invalidateQueries({ queryKey: ["cross-chain-balances"] });
               queryClient.invalidateQueries({ queryKey: ["history"] });
+              queryClient.invalidateQueries({ queryKey: ["pending-bridge-claims"] });
               toast.success(
                 `Bridge complete! USDC is now on ${CHAIN_DISPLAY_NAMES[monitor.destChain]}.`,
               );
             } catch (err) {
-              console.error("[ChainBridge] monitor error:", err);
-              const errMsg = err instanceof Error ? err.message : String(err);
-              const lowerErr = errMsg.toLowerCase();
-              if (
-                lowerErr.includes("nonce already used") ||
-                lowerErr.includes("message already received") ||
-                lowerErr.includes("message already processed")
-              ) {
+              const classified = classifyAppError(err);
+              if (classified.isAlreadyProcessed) {
                 clearInterval(interval);
                 try {
                   const retryRes = await fetch(
@@ -340,6 +290,7 @@ export function ChainBridgeModule({
                 queryClient.invalidateQueries({ queryKey: ["portfolio"] });
                 queryClient.invalidateQueries({ queryKey: ["cross-chain-balances"] });
                 queryClient.invalidateQueries({ queryKey: ["history"] });
+                queryClient.invalidateQueries({ queryKey: ["pending-bridge-claims"] });
               } else {
                 // If it is just a standard timeout or network hang, do a quick status re-check first
                 const recheck = await fetch(
@@ -354,11 +305,16 @@ export function ChainBridgeModule({
                   queryClient.invalidateQueries({ queryKey: ["portfolio"] });
                   queryClient.invalidateQueries({ queryKey: ["cross-chain-balances"] });
                   queryClient.invalidateQueries({ queryKey: ["history"] });
+                  queryClient.invalidateQueries({ queryKey: ["pending-bridge-claims"] });
                   return;
                 }
 
-                if (!/cancelled|rejected|denied|timeout/i.test(errMsg)) {
-                  toast.error(`Bridge claim failed: ${errMsg}`);
+                // The burn is already on-chain and the attestation never expires, so
+                // the claim is always safe to retry — the interval keeps trying. Warn
+                // the user once instead of once per five-second tick.
+                if (!classified.isSilent && !claimErrorNotifiedRef.current) {
+                  claimErrorNotifiedRef.current = true;
+                  toast.error(classified.message);
                 }
                 mintingRef.current = false;
                 setBridgeStep("attestation");
@@ -375,7 +331,15 @@ export function ChainBridgeModule({
       cancelled = true;
       clearInterval(interval);
     };
-  }, [monitor, phase, embeddedWallet, embeddedSolWallet, queryClient]);
+  }, [
+    monitor,
+    phase,
+    embeddedWallet,
+    embeddedSolWallet,
+    stellarWallet,
+    queryClient,
+    signTransaction,
+  ]);
 
   const handleBridge = async () => {
     if (!canBridge || !source || !dest) return;
@@ -383,8 +347,36 @@ export function ChainBridgeModule({
 
     setBridgeStep("burn_sig");
     mintingRef.current = false;
+    claimErrorNotifiedRef.current = false;
     setMintTxHash(null);
     try {
+      // A Stellar account can't hold USDC without a trustline, and the CCTP forwarder
+      // mints *and transfers* in one call — so a missing trustline doesn't fail the
+      // bridge, it fails the claim, after the burn is already irreversible. Set it up
+      // before we burn anything.
+      if (dest === "stellar") {
+        if (!stellarWallet?.walletId || !stellarWallet?.address) {
+          throw new Error(
+            "Your Stellar wallet is still being set up. Please try again in a moment.",
+          );
+        }
+        const readyRes = await fetch("/api/stellar/trustline", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            walletId: stellarWallet.walletId,
+            address: stellarWallet.address,
+          }),
+        });
+        const readyData = await readyRes.json().catch(() => ({}));
+        if (!readyRes.ok || !readyData.trustlineReady) {
+          throw new Error(
+            readyData.message ||
+              "Your Stellar account isn't ready to receive USDC yet. Please try again in a moment.",
+          );
+        }
+      }
+
       let burnTxHash: string;
       if (source === "stellar") {
         if (!stellarWallet?.walletId || !stellarWallet?.address) {
@@ -468,8 +460,8 @@ export function ChainBridgeModule({
 
       await recordBridgeTransaction({
         userEmail,
-        sourceChain: source as any,
-        destChain: dest as any,
+        sourceChain: source as SupportedChain,
+        destChain: dest as SupportedChain,
         amountUsdc: amountNum,
         burnTxHash,
       }).catch(console.error);
@@ -479,13 +471,8 @@ export function ChainBridgeModule({
       setBridgeStep("attestation");
       refetch();
     } catch (err) {
-      console.error("[ChainBridge] bridge failed:", err);
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!/cancelled|rejected|denied/i.test(msg)) {
-        toast.error(
-          msg.length <= 120 ? msg : "Bridge failed. Please try again.",
-        );
-      }
+      const classified = classifyAppError(err);
+      if (!classified.isSilent) toast.error(classified.message);
       setPhase("form");
     }
   };
@@ -499,6 +486,7 @@ export function ChainBridgeModule({
     setDest(null);
     setBridgeStep("burn_sig");
     mintingRef.current = false;
+    claimErrorNotifiedRef.current = false;
     refetch();
   };
 
@@ -516,7 +504,17 @@ export function ChainBridgeModule({
     const step2Done = bridgeStep === "complete";
 
     return (
-      <div className="card-glass p-12 flex flex-col items-center justify-center text-center space-y-6">
+      <div className="card-glass p-12 flex flex-col items-center justify-center text-center space-y-6 relative">
+        {/* Once it's done the card is just a receipt — let it be closed outright. */}
+        {isDone && (
+          <button
+            onClick={resetForm}
+            aria-label="Dismiss"
+            className="absolute top-4 right-4 w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white hover:bg-white/10 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
         {/* Icon */}
         <div
           className={cn(
@@ -618,9 +616,7 @@ export function ChainBridgeModule({
             {monitor && (
               <a
                 href={
-                  CHAIN_EXPLORER_TX[monitor.sourceChain]?.(
-                    monitor.burnTxHash,
-                  ) || "#"
+                  explorerTxUrl(monitor.sourceChain, monitor.burnTxHash) || "#"
                 }
                 target="_blank"
                 rel="noopener noreferrer"
@@ -631,7 +627,7 @@ export function ChainBridgeModule({
             )}
             {isDone && mintTxHash && monitor && (
               <a
-                href={CHAIN_EXPLORER_TX[monitor.destChain]?.(mintTxHash) || "#"}
+                href={explorerTxUrl(monitor.destChain, mintTxHash) || "#"}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex-1 btn-secondary h-11 rounded-xl flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest"
@@ -665,7 +661,9 @@ export function ChainBridgeModule({
     ...(stellarWallet?.address ? ["stellar" as const] : []),
     ...(solanaAddress ? ["solana" as const] : []),
   ];
-  const fundedSources = allSources.filter((c) => balanceOf(c) > 0 && c !== "polygon");
+  // Sources and destinations come from the same list on purpose. Excluding a chain here
+  // while still offering it below would let funds bridge in with no way to bridge out.
+  const fundedSources = allSources.filter((c) => balanceOf(c) > 0);
   const destinationChains =
     source === "solana"
       ? allSources.filter((c) => c !== source && c !== "stellar")
@@ -685,7 +683,22 @@ export function ChainBridgeModule({
         <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/30">
           From
         </p>
-        {fundedSources.length === 0 ? (
+        {balancesPending ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className="flex items-center gap-2.5 px-3 py-3 rounded-xl border border-white/8 bg-white/3"
+              >
+                <Skeleton className="w-[22px] h-[22px] rounded-full bg-white/8 shrink-0" />
+                <div className="min-w-0 space-y-1.5 flex-1">
+                  <Skeleton className="h-2.5 w-16 bg-white/8" />
+                  <Skeleton className="h-2 w-10 bg-white/5" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : fundedSources.length === 0 ? (
           <div className="rounded-2xl p-5 text-center text-sm text-white/40 bg-white/3 border border-white/6">
             No USDC found on any network yet. Deposit first.
           </div>

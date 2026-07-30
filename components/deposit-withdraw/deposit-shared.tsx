@@ -4,7 +4,10 @@
  * Per-chain display metadata for deposit / activity UIs. (The legacy bridge-deposit
  * flow that lived here was replaced by ReceiveCryptoFlow + the Bridge page; only the
  * chain metadata remains, consumed by the transaction detail page.)
+ *
+ * Explorer URLs come from `lib/explorers.ts`; only display metadata lives here.
  */
+import { explorerTxUrl } from '@/lib/explorers';
 
 export interface ChainMeta {
   name: string;
@@ -24,7 +27,7 @@ export const CHAIN_META: Record<string, ChainMeta> = {
     border: 'rgba(0,82,255,0.2)',
     description: 'Direct · No bridge',
     isDirect: true,
-    explorerTx: (h) => `https://basescan.org/tx/${h}`,
+    explorerTx: (h) => explorerTxUrl('base', h) ?? '',
   },
   base: {
     name: 'Base',
@@ -32,7 +35,7 @@ export const CHAIN_META: Record<string, ChainMeta> = {
     bg: 'rgba(0,82,255,0.08)',
     border: 'rgba(0,82,255,0.2)',
     description: 'Coinbase L2',
-    explorerTx: (h) => `https://basescan.org/tx/${h}`,
+    explorerTx: (h) => explorerTxUrl('base', h) ?? '',
   },
   arbitrum: {
     name: 'Arbitrum',
@@ -40,7 +43,7 @@ export const CHAIN_META: Record<string, ChainMeta> = {
     bg: 'rgba(40,160,240,0.08)',
     border: 'rgba(40,160,240,0.2)',
     description: 'Fast & low-fee',
-    explorerTx: (h) => `https://arbiscan.io/tx/${h}`,
+    explorerTx: (h) => explorerTxUrl('arbitrum', h) ?? '',
   },
   ethereum: {
     name: 'Ethereum',
@@ -48,7 +51,7 @@ export const CHAIN_META: Record<string, ChainMeta> = {
     bg: 'rgba(98,126,234,0.08)',
     border: 'rgba(98,126,234,0.2)',
     description: 'Most widely used',
-    explorerTx: (h) => `https://etherscan.io/tx/${h}`,
+    explorerTx: (h) => explorerTxUrl('ethereum', h) ?? '',
   },
   optimism: {
     name: 'Optimism',
@@ -56,7 +59,7 @@ export const CHAIN_META: Record<string, ChainMeta> = {
     bg: 'rgba(255,4,32,0.08)',
     border: 'rgba(255,4,32,0.2)',
     description: 'Superchain L2',
-    explorerTx: (h) => `https://optimistic.etherscan.io/tx/${h}`,
+    explorerTx: (h) => explorerTxUrl('optimism', h) ?? '',
   },
   polygon: {
     name: 'Polygon',
@@ -64,7 +67,7 @@ export const CHAIN_META: Record<string, ChainMeta> = {
     bg: 'rgba(130,71,229,0.08)',
     border: 'rgba(130,71,229,0.2)',
     description: 'Low-cost EVM',
-    explorerTx: (h) => `https://polygonscan.com/tx/${h}`,
+    explorerTx: (h) => explorerTxUrl('polygon', h) ?? '',
   },
   avalanche: {
     name: 'Avalanche',
@@ -72,7 +75,7 @@ export const CHAIN_META: Record<string, ChainMeta> = {
     bg: 'rgba(232,65,66,0.08)',
     border: 'rgba(232,65,66,0.2)',
     description: 'High-speed L1',
-    explorerTx: (h) => `https://snowtrace.io/tx/${h}`,
+    explorerTx: (h) => explorerTxUrl('avalanche', h) ?? '',
   },
   solana: {
     name: 'Solana',
@@ -80,7 +83,7 @@ export const CHAIN_META: Record<string, ChainMeta> = {
     bg: 'rgba(153,69,255,0.08)',
     border: 'rgba(153,69,255,0.2)',
     description: 'Ultra-fast L1',
-    explorerTx: (h) => `https://solscan.io/tx/${h}`,
+    explorerTx: (h) => explorerTxUrl('solana', h) ?? '',
   },
   stellar: {
     name: 'Stellar',
@@ -88,6 +91,6 @@ export const CHAIN_META: Record<string, ChainMeta> = {
     bg: 'rgba(8,181,229,0.08)',
     border: 'rgba(8,181,229,0.2)',
     description: 'Stellar network',
-    explorerTx: (h) => `https://stellar.expert/explorer/public/tx/${h}`,
+    explorerTx: (h) => explorerTxUrl('stellar', h) ?? '',
   },
 };

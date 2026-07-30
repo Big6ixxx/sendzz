@@ -168,7 +168,7 @@ export function ReceiveCryptoFlow({
         >
           <p className="font-bold text-base">⚠️ Stellar USDC Deposits Disabled</p>
           <p className="text-xs leading-relaxed text-red-300">
-            Your Stellar wallet's USDC trustline setup is currently pending on-chain. To protect your assets, deposits have been temporarily disabled.
+            Your Stellar wallet&apos;s USDC trustline setup is currently pending on-chain. To protect your assets, deposits have been temporarily disabled.
           </p>
           
           <button

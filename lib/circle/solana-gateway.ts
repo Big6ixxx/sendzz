@@ -26,7 +26,6 @@ import {
   createAssociatedTokenAccountInstruction,
 } from '@solana/spl-token';
 import crypto from 'crypto';
-import bs58 from 'bs58';
 import { type AttestationResponse, type AttestationStatus, CCTP_DOMAINS, type SupportedChain } from './gateway';
 
 
@@ -397,7 +396,6 @@ export async function buildReceiveMessageOnSolanaTx(
   const attBuf = Buffer.from(attestation.replace(/^0x/, ''), 'hex');
 
   const sourceDomain = decodeSourceDomainFromMessage(messageBytes);
-  const nonce = decodeNonceFromMessage(messageBytes);
 
   // Core MessageTransmitterV2 PDAs
   const messageTransmitterConfig = getMessageTransmitterConfig();

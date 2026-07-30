@@ -49,6 +49,8 @@ import { useRouter } from "next/navigation";
 import { TOTPSetupWizard } from "@/components/TOTPSetupWizard";
 import { PasskeySetupWizard } from "@/components/PasskeySetupWizard";
 import { Fingerprint } from "lucide-react";
+import { KycModal } from "@/components/kyc/KycModal";
+import { LimitsMeter } from "@/components/kyc/LimitsMeter";
 
 interface ToggleProps {
   checked: boolean;
@@ -142,6 +144,32 @@ export default function SettingsPage() {
     setBankContacts(contacts);
     setIsBankLoading(false);
   }, [userEmail]);
+
+  // ─── KYC State ────────────────────────────────────────────────────────────
+  const [kycModalOpen, setKycModalOpen] = useState(false);
+  const [kycData, setKycData] = useState<{
+    kyc: { status: string; updatedAt: string };
+    totals: { daily: number; weekly: number; monthly: number };
+    limits: { daily: number | null; weekly: number | null; monthly: number | null };
+    percentages: { daily: number; weekly: number; monthly: number };
+  } | null>(null);
+  const [isKycLoading, setIsKycLoading] = useState(true);
+
+  const fetchKycStatus = useCallback(async () => {
+    if (!userEmail) return;
+    setIsKycLoading(true);
+    try {
+      const res = await fetch(`/api/kyc/status?email=${encodeURIComponent(userEmail)}`);
+      if (res.ok) setKycData(await res.json());
+    } catch {
+      // non-critical
+    } finally {
+      setIsKycLoading(false);
+    }
+  }, [userEmail]);
+
+  useEffect(() => { fetchKycStatus(); }, [fetchKycStatus]);
+  // ─────────────────────────────────────────────────────────────────────────
 
   // Fetch email notification preferences once the user email is known
   useEffect(() => {
@@ -387,14 +415,30 @@ export default function SettingsPage() {
         setPushEnabled(false);
         toast.success("Push notifications disabled.");
       }
-    } catch (err) {
+    } catch {
       toast.error("Failed to update notification settings.");
     } finally {
       setIsTogglingPush(false);
     }
   };
 
-  const sections = [
+  void handleEmailPrefToggle;
+  void handleTogglePush;
+
+  interface SettingItem {
+    label: string;
+    value: string;
+    icon: React.ComponentType<{ className?: string }>;
+    onClick?: () => void;
+    action?: React.ReactNode;
+  }
+
+  interface SettingSection {
+    title: string;
+    items: SettingItem[];
+  }
+
+  const sections: SettingSection[] = [
     {
       title: "Account",
       items: [
@@ -434,8 +478,8 @@ export default function SettingsPage() {
       title: "Help & Support",
       items: [
         {
-          label: "Fee Schedule & Gas",
-          value: "Learn about platform fees and gas sponsorship",
+          label: "Help Center & FAQ",
+          value: "Fees, gas sponsorship, KYC limits, and common questions",
           icon: HelpCircle,
           onClick: () => router.push("/dashboard/settings/fees"),
         },
@@ -457,7 +501,7 @@ export default function SettingsPage() {
               {section.title}
             </h3>
             <div className="card-glass p-0 overflow-hidden divide-y divide-white/4">
-              {section.items.map((item: any) => (
+              {section.items.map((item) => (
                 <div
                   key={item.label}
                   className="p-6 flex items-center justify-between group cursor-pointer hover:bg-white/2 transition-colors"
@@ -486,6 +530,105 @@ export default function SettingsPage() {
             </div>
           </div>
         ))}
+
+        {/* ── Identity Verification Section ─────────────────────────────────── */}
+        <div className="space-y-4">
+          <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground px-1">
+            Identity Verification
+          </h3>
+          <div className="card-glass p-6 space-y-6">
+            {isKycLoading ? (
+              <div className="space-y-4 animate-pulse">
+                <div className="h-4 w-48 bg-white/10 rounded" />
+                <div className="h-2 w-full bg-white/10 rounded" />
+                <div className="h-2 w-full bg-white/10 rounded" />
+                <div className="h-2 w-full bg-white/10 rounded" />
+              </div>
+            ) : (
+              <>
+                {/* Status badge + CTA */}
+                <div className="flex items-center justify-between flex-wrap gap-4">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-10 h-10 rounded-xl flex items-center justify-center"
+                      style={{
+                        background:
+                          kycData?.kyc.status === "approved"
+                            ? "rgba(0,232,122,0.12)"
+                            : kycData?.kyc.status === "declined"
+                            ? "rgba(239,68,68,0.12)"
+                            : kycData?.kyc.status === "pending" || kycData?.kyc.status === "in_review"
+                            ? "rgba(59,130,246,0.12)"
+                            : "rgba(255,255,255,0.05)",
+                      }}
+                    >
+                      <Shield
+                        className="w-5 h-5"
+                        style={{
+                          color:
+                            kycData?.kyc.status === "approved"
+                              ? "#00e87a"
+                              : kycData?.kyc.status === "declined"
+                              ? "#ef4444"
+                              : kycData?.kyc.status === "pending" || kycData?.kyc.status === "in_review"
+                              ? "#60a5fa"
+                              : "rgba(248,248,246,0.3)",
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: "rgba(248,248,246,0.3)" }}>
+                        KYC Status
+                      </p>
+                      <p className="font-bold text-sm" style={{ color: "rgba(248,248,246,0.85)" }}>
+                        {kycData?.kyc.status === "approved"
+                          ? "✓ Verified"
+                          : kycData?.kyc.status === "declined"
+                          ? "✗ Not Approved"
+                          : kycData?.kyc.status === "pending"
+                          ? "⏳ In Progress"
+                          : kycData?.kyc.status === "in_review"
+                          ? "🔍 Under Review"
+                          : "Not Started"}
+                      </p>
+                    </div>
+                  </div>
+
+                  {kycData?.kyc.status !== "approved" && kycData?.kyc.status !== "in_review" && (
+                    <button
+                      id="settings-kyc-verify-btn"
+                      onClick={() => setKycModalOpen(true)}
+                      className="px-5 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+                      style={{
+                        background: "linear-gradient(135deg, rgba(0,232,122,0.15) 0%, rgba(0,196,104,0.08) 100%)",
+                        color: "#00e87a",
+                        border: "1px solid rgba(0,232,122,0.25)",
+                      }}
+                    >
+                      {kycData?.kyc.status === "declined" ? "Try Again" : "Verify Identity"}
+                    </button>
+                  )}
+                </div>
+
+                {/* Limits meter */}
+                {kycData && (
+                  <LimitsMeter
+                    totals={kycData.totals}
+                    limits={kycData.limits}
+                    percentages={kycData.percentages}
+                    isVerified={kycData.kyc.status === "approved"}
+                  />
+                )}
+
+                {kycData?.kyc.status !== "approved" && (
+                  <p className="text-xs" style={{ color: "rgba(248,248,246,0.3)" }}>
+                    Verify your identity to unlock higher transaction limits and ensure regulatory compliance.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        </div>
 
         {/* Security Section */}
         <div className="space-y-4">
@@ -1031,6 +1174,18 @@ export default function SettingsPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* KYC Verification Modal */}
+      <KycModal
+        isOpen={kycModalOpen}
+        onClose={() => {
+          setKycModalOpen(false);
+          // Re-fetch status after modal closes
+          setTimeout(fetchKycStatus, 1000);
+        }}
+        userEmail={userEmail}
+      />
     </div>
   );
 }
+

@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { usePrivy } from '@privy-io/react-auth';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { toast } from 'sonner';
 
 interface NotificationItem {
@@ -39,7 +39,7 @@ export default function DedicatedNotificationsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<FilterCategory>('all');
 
-  const fetchNotifications = async () => {
+  const fetchNotifications = useCallback(async () => {
     if (!userEmail) return;
     try {
       setLoading(true);
@@ -53,11 +53,11 @@ export default function DedicatedNotificationsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [userEmail]);
 
   useEffect(() => {
     fetchNotifications();
-  }, [userEmail]);
+  }, [fetchNotifications]);
 
   const handleMarkAllRead = async () => {
     if (!userEmail) return;

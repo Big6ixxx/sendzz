@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/adminClient";
+import type { Json } from "@/types/database";
 import {
   generatePasskeyAuthenticationOptions,
   verifyPasskeyAuthentication,
@@ -205,7 +206,7 @@ export async function POST(req: Request) {
       const { error: updateError } = await supabaseAdmin
         .from("user_profiles")
         .update({
-          webauthn_credentials: updatedCredentials as any,
+          webauthn_credentials: updatedCredentials as unknown as Json,
         })
         .eq("email", email);
 

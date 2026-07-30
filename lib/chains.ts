@@ -1,13 +1,14 @@
 /**
  * Centralized chain metadata + block-explorer URLs.
  *
- * Consolidates the per-chain explorer maps previously duplicated across
- * `components/deposit-withdraw/deposit-shared.tsx`, `lib/receipt/exportPdf.ts`, and
- * `lib/circle/gateway.ts`. Isomorphic (no client-only deps) so it can be used from server
- * actions and client components alike.
+ * Display metadata (name, brand colour) for the explore feed. Explorer URLs come from
+ * `lib/explorers.ts` — this file previously carried its own copy of that map, one of five
+ * that had to be kept in step by hand. Isomorphic (no client-only deps) so it can be used
+ * from server actions and client components alike.
  */
 
 import type { PublicFeedRow } from '@/types/public';
+import { explorerTxUrl } from '@/lib/explorers';
 
 export interface ChainMeta {
   /** Human-readable name, e.g. "Base". */
@@ -22,42 +23,42 @@ export const CHAIN_META: Record<string, ChainMeta> = {
   base: {
     name: 'Base',
     color: '#0052FF',
-    explorerTx: (h) => `https://basescan.org/tx/${h}`,
+    explorerTx: (h) => explorerTxUrl('base', h) ?? '',
   },
   arbitrum: {
     name: 'Arbitrum',
     color: '#28A0F0',
-    explorerTx: (h) => `https://arbiscan.io/tx/${h}`,
+    explorerTx: (h) => explorerTxUrl('arbitrum', h) ?? '',
   },
   ethereum: {
     name: 'Ethereum',
     color: '#627EEA',
-    explorerTx: (h) => `https://etherscan.io/tx/${h}`,
+    explorerTx: (h) => explorerTxUrl('ethereum', h) ?? '',
   },
   optimism: {
     name: 'Optimism',
     color: '#FF0420',
-    explorerTx: (h) => `https://optimistic.etherscan.io/tx/${h}`,
+    explorerTx: (h) => explorerTxUrl('optimism', h) ?? '',
   },
   polygon: {
     name: 'Polygon',
     color: '#8247E5',
-    explorerTx: (h) => `https://polygonscan.com/tx/${h}`,
+    explorerTx: (h) => explorerTxUrl('polygon', h) ?? '',
   },
   avalanche: {
     name: 'Avalanche',
     color: '#E84142',
-    explorerTx: (h) => `https://snowtrace.io/tx/${h}`,
+    explorerTx: (h) => explorerTxUrl('avalanche', h) ?? '',
   },
   solana: {
     name: 'Solana',
     color: '#9945FF',
-    explorerTx: (h) => `https://solscan.io/tx/${h}`,
+    explorerTx: (h) => explorerTxUrl('solana', h) ?? '',
   },
   stellar: {
     name: 'Stellar',
     color: '#08B5E5',
-    explorerTx: (h) => `https://stellar.expert/explorer/public/tx/${h}`,
+    explorerTx: (h) => explorerTxUrl('stellar', h) ?? '',
   },
 };
 

@@ -108,5 +108,5 @@ export async function verifyPasskeyAuthentication(
       // Disable counter-based replay protection
       verifyCounter: false,
     },
-  } as any);
+  } as unknown as Parameters<typeof verifyAuthenticationResponse>[0]);
 }

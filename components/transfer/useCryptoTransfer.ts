@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { ConnectedWallet, usePrivy, useSigners } from "@privy-io/react-auth";
 import {
@@ -20,6 +20,7 @@ import {
   type SourcePreference,
 } from "@/lib/web3/routing";
 import { isAddress } from "viem";
+import { useStellarWallet } from "@/hooks/useStellarWallet";
 
 export interface CrossChainSendInfo {
   sourceChain: SupportedChain;
@@ -85,30 +86,10 @@ export function useCryptoTransfer({
   const { addSigners } = useSigners();
   const privyUserId = user?.id;
 
-  // Load Stellar TEE wallet details
-  const { data: stellarWallet } = useQuery({
-    queryKey: ["stellar-wallet", privyUserId],
-    queryFn: async () => {
-      if (!privyUserId || !user?.email?.address) return null;
-      try {
-        const res = await fetch("/api/stellar/provision", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ privyUserId, email: user.email.address }),
-        });
-        if (!res.ok) return null;
-        const data = await res.json();
-        return {
-          walletId: data.walletId,
-          address: data.address,
-          trustlineReady: data.trustlineReady,
-          signerGranted: data.signerGranted || false,
-        };
-      } catch {
-        return null;
-      }
-    },
-    enabled: !!privyUserId && !!user?.email?.address && selectedChain === 'stellar',
+  // Load Stellar TEE wallet details — shared and cached with every other consumer, so
+  // selecting Stellar doesn't re-provision a wallet that is already set up.
+  const { data: stellarWallet } = useStellarWallet({
+    enabled: selectedChain === 'stellar',
   });
 
   const ensureStellarSetup = useCallback(async () => {
@@ -185,13 +166,20 @@ export function useCryptoTransfer({
     }
   }, [privyUserId, addSigners, queryClient, senderEmail]);
 
-  // Auto-setup Stellar when selected
+  // Auto-setup Stellar when selected. Guarded by a ref because `ensureStellarSetup`
+  // invalidates the wallet query on completion: without it a wallet that never reaches
+  // `trustlineReady` would re-enter setup on every refetch, forever.
+  const stellarSetupAttempted = useRef(false);
   useEffect(() => {
-    if (selectedChain === "stellar" && privyUserId) {
-      if (!stellarWallet || !stellarWallet.trustlineReady || !stellarWallet.signerGranted) {
-        ensureStellarSetup();
-      }
+    if (selectedChain !== "stellar" || !privyUserId) {
+      stellarSetupAttempted.current = false;
+      return;
     }
+    if (stellarWallet?.trustlineReady && stellarWallet?.signerGranted) return;
+    if (stellarSetupAttempted.current) return;
+
+    stellarSetupAttempted.current = true;
+    ensureStellarSetup();
   }, [selectedChain, privyUserId, ensureStellarSetup, stellarWallet]);
 
   // Fetch security preferences
@@ -263,6 +251,24 @@ export function useCryptoTransfer({
     }
 
     setLoading(true);
+    setStatus("Checking transaction limits...");
+
+    const valUsdc = parseFloat(amount);
+    if (!isNaN(valUsdc) && valUsdc > 0) {
+      try {
+        const { checkKycLimitAction } = await import("@/lib/kyc/guard");
+        const guard = await checkKycLimitAction(valUsdc, senderEmail);
+        if (!guard.allowed) {
+          toast.error(guard.message);
+          setLoading(false);
+          setStatus("");
+          return;
+        }
+      } catch (err) {
+        console.error("[CryptoTransfer] Early KYC check error:", err);
+      }
+    }
+
     setStatus("Initiating transfer...");
 
     await executeTransferFlow();

@@ -9,7 +9,7 @@ export async function GET(request: Request) {
   try {
     const prefs = await getEmailNotifPrefs(email);
     return NextResponse.json({ prefs });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[API email-prefs GET] Error:', err);
     return NextResponse.json({ prefs: DEFAULT_PREFS });
   }
@@ -22,8 +22,9 @@ export async function POST(request: Request) {
     if (!email || !prefs) return NextResponse.json({ error: 'email and prefs required' }, { status: 400 });
     await saveEmailNotifPrefs(email, prefs);
     return NextResponse.json({ success: true });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : 'Unknown error';
     console.error('[API email-prefs POST] Error:', err);
-    return NextResponse.json({ success: false, error: err.message }, { status: 200 });
+    return NextResponse.json({ success: false, error: errorMessage }, { status: 200 });
   }
 }

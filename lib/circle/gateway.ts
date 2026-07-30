@@ -1,3 +1,5 @@
+import { EXPLORER_TX_BASE } from '@/lib/explorers';
+
 export const CCTP_DOMAINS = {
   ethereum: 0,
   avalanche: 1,
@@ -41,14 +43,17 @@ export const CHAIN_IDS: Record<SupportedChain, number> = {
   polygon: 137,
 };
 
-/** Block explorer tx URL for each chain */
+/**
+ * EVM explorer bases, kept for existing callers. The full per-chain map (including Solana
+ * and Stellar) lives in `lib/explorers.ts` — add new chains there, not here.
+ */
 export const CHAIN_EXPLORERS: Record<SupportedChain, string> = {
-  ethereum: 'https://etherscan.io/tx',
-  avalanche: 'https://snowtrace.io/tx',
-  optimism: 'https://optimistic.etherscan.io/tx',
-  arbitrum: 'https://arbiscan.io/tx',
-  base: 'https://basescan.org/tx',
-  polygon: 'https://polygonscan.com/tx',
+  ethereum: EXPLORER_TX_BASE.ethereum,
+  avalanche: EXPLORER_TX_BASE.avalanche,
+  optimism: EXPLORER_TX_BASE.optimism,
+  arbitrum: EXPLORER_TX_BASE.arbitrum,
+  base: EXPLORER_TX_BASE.base,
+  polygon: EXPLORER_TX_BASE.polygon,
 };
 
 // Source chains the user can bridge FROM (Base is the destination)
@@ -61,13 +66,14 @@ export const SOURCE_CHAINS: SupportedChain[] = [
   'polygon',
 ];
 
-// All EVM chains the Smart Bridge will scan (all source chains)
-export const SMART_BRIDGE_CHAINS: SupportedChain[] = [
-  'arbitrum',
-  'avalanche',
-  'ethereum',
-  'optimism',
-];
+/**
+ * All EVM chains the Smart Bridge will scan.
+ *
+ * Derived from SOURCE_CHAINS rather than repeated: the two had drifted apart, and the
+ * copy here was missing Polygon. A chain the app is willing to bridge *to* but won't
+ * scan for balances is a one-way door — the funds arrive and the UI offers no way out.
+ */
+export const SMART_BRIDGE_CHAINS: SupportedChain[] = SOURCE_CHAINS;
 
 /**
  * Circle Gas Station policy IDs per chain — set in .env

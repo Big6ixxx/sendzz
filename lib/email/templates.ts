@@ -4,6 +4,8 @@
  * Modern, responsive email templates for Sendzz.
  * Using inline styles and robust table layouts for maximum compatibility.
  */
+import { explorerTxUrl, HOME_CHAIN, isPlaceholderHash, shortenHash } from '@/lib/explorers';
+
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || '';
 
 /**
@@ -195,6 +197,10 @@ export function transactionOTPTemplate(
     subjectText = `Confirm your withdrawal of ${details.amount} USDC`;
   }
 
+  void isEmail;
+  void ctaLabel;
+  void subjectText;
+
   const noteSection = details.note
     ? `<p style="font-size:13px; color:#888888; font-style:italic; margin: 0 0 20px 0;">"${details.note}"</p>`
     : '';
@@ -324,22 +330,37 @@ export function transferReceivedTemplate(
  * Shared receipt card template for CONFIRMED ledger actions.
  * Plugs into baseTemplate wrapper.
  */
+interface ReceiptRow {
+  label: string;
+  value: string;
+  isMonospace?: boolean;
+  /** Renders the value as a link — used for on-chain hashes so they reach an explorer. */
+  href?: string | null;
+}
+
 function baseReceiptTemplate(
   amountUsdc: string,
-  rows: { label: string; value: string; isMonospace?: boolean; }[]
+  rows: ReceiptRow[]
 ): string {
   const cleanAmount = parseFloat(amountUsdc);
   const formattedAmount = isNaN(cleanAmount) ? amountUsdc : cleanAmount.toFixed(2);
   const dateStr = new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) + ' ' + new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
   
-  const tableRows = rows.map(row => `
+  const tableRows = rows.map(row => {
+    // Underlined + brand-coloured so it reads as tappable in clients that strip CSS.
+    const value = row.href
+      ? `<a href="${row.href}" target="_blank" rel="noopener noreferrer" style="color: #006633 !important; text-decoration: underline;">${row.value}</a>`
+      : row.value;
+
+    return `
     <tr>
       <td style="padding: 14px 0; font-size: 11px; font-weight: 700; color: #707070; text-transform: uppercase; border-bottom: 1px dashed #E2E8E0;">${row.label}</td>
       <td style="padding: 14px 0; text-align: right; font-size: 13px; font-weight: 700; color: #111111; border-bottom: 1px dashed #E2E8E0; ${row.isMonospace ? "font-family: 'Courier New', Courier, monospace;" : ""}">
-        ${row.value}
+        ${value}
       </td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
 
   return baseTemplate(`
     <div>
@@ -399,13 +420,25 @@ export function withdrawalCompletedTemplate(
 export function depositConfirmedTemplate(
   amountUsdc: string,
   referenceId?: string,
-  txHash?: string
+  txHash?: string,
+  chain?: string
 ): string {
   const ref = referenceId || Math.random().toString(36).substring(2, 10).toUpperCase();
-  const tx = txHash ? `${txHash.substring(0, 6)}...${txHash.substring(txHash.length - 4)}` : `#${ref.substring(0, 8)}`;
+
+  // Only an on-chain hash gets an explorer link. Provider order IDs used to be shown
+  // in the same slot, which would have produced links that 404.
+  const txRow: ReceiptRow = isPlaceholderHash(txHash)
+    ? { label: 'Transaction Receipt', value: `#${ref.substring(0, 8)}`, isMonospace: true }
+    : {
+        label: chain ? `Transaction · ${chain.toUpperCase()}` : 'Transaction Hash',
+        value: shortenHash(txHash!),
+        isMonospace: true,
+        href: explorerTxUrl(chain ?? HOME_CHAIN, txHash),
+      };
+
   return baseReceiptTemplate(amountUsdc, [
     { label: 'Reference ID', value: ref, isMonospace: true },
-    { label: 'Transaction Receipt', value: tx, isMonospace: true },
+    txRow,
     { label: 'Type', value: 'DEPOSIT' }
   ]);
 }
@@ -419,25 +452,29 @@ export function bridgeCompletedTemplate(
   burnTxHash?: string
 ): string {
   const ref = referenceId || Math.random().toString(36).substring(2, 10).toUpperCase();
-  const formatHash = (h: string | undefined, fallback: string) => {
-    if (!h) return fallback;
-    const clean = h.trim();
-    if (clean.toLowerCase() === 'n/a' || clean === '0x0000000000000000000000000000000000000000000000000000000000000000') {
-      return 'N/A';
+
+  /**
+   * A hash we couldn't recover still represents money that arrived, so say so rather
+   * than printing "N/A" against a completed transfer — it reads like a failure.
+   */
+  const hashRow = (label: string, chain: string, hash: string | undefined): ReceiptRow => {
+    if (isPlaceholderHash(hash)) {
+      return { label, value: 'Confirmed on-chain' };
     }
-    if (clean.length < 10) return clean;
-    return `${clean.substring(0, 6)}...${clean.substring(clean.length - 4)}`;
+    return {
+      label,
+      value: shortenHash(hash!),
+      isMonospace: true,
+      href: explorerTxUrl(chain, hash),
+    };
   };
 
-  const burn = formatHash(burnTxHash, 'N/A');
-  const mint = formatHash(mintTxHash, 'Processing');
-
+  // The chains live in the row labels: the hashes are what someone actually needs, and
+  // each one already says which network it belongs to.
   return baseReceiptTemplate(amountUsdc, [
     { label: 'Reference ID', value: ref, isMonospace: true },
-    { label: 'Source Chain', value: sourceChain.toUpperCase() },
-    { label: 'Destination Chain', value: destChain.toUpperCase() },
-    { label: 'Source Tx Hash', value: burn, isMonospace: true },
-    { label: 'Dest Tx Hash', value: mint, isMonospace: true }
+    hashRow(`Burn Tx · ${sourceChain.toUpperCase()}`, sourceChain, burnTxHash),
+    hashRow(`Mint Tx · ${destChain.toUpperCase()}`, destChain, mintTxHash),
   ]);
 }
 
@@ -448,14 +485,22 @@ export function transferSentTemplate(
   amountUsdc: string,
   recipient: string,
   referenceId?: string,
-  note?: string
+  note?: string,
+  txHash?: string,
+  chain?: string
 ): string {
   const ref = referenceId || Math.random().toString(36).substring(2, 10).toUpperCase();
-  const tx = `#${ref.substring(0, 8)}`;
-  
-  const rows = [
+
+  const rows: ReceiptRow[] = [
     { label: 'Reference ID', value: ref, isMonospace: true },
-    { label: 'Transaction Receipt', value: tx, isMonospace: true },
+    isPlaceholderHash(txHash)
+      ? { label: 'Transaction Receipt', value: `#${ref.substring(0, 8)}`, isMonospace: true }
+      : {
+          label: chain ? `Transaction · ${chain.toUpperCase()}` : 'Transaction Hash',
+          value: shortenHash(txHash!),
+          isMonospace: true,
+          href: explorerTxUrl(chain ?? HOME_CHAIN, txHash),
+        },
     { label: 'Sent To', value: recipient }
   ];
   

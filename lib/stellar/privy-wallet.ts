@@ -83,6 +83,35 @@ function getAuthorizationContext() {
   return { authorization_private_keys: [authKey] };
 }
 
+/**
+ * Whether the server's key quorum has been granted signing rights on a wallet.
+ *
+ * Stellar wallets are created user-owned (`owner: { user_id }`), so the app secret and
+ * authorization key alone cannot sign for them — Privy rejects `rawSign` with a 401
+ * ("No valid authorization signatures were provided") until the user grants the
+ * server's key quorum as an additional signer from the client via `addSigners()`.
+ *
+ * Ownership cannot be reassigned server-side: changing it requires an authorization
+ * signature from the *current* owner, which is the user. The client-side grant is the
+ * only path, so this must be checked rather than assumed.
+ */
+export async function hasServerSigner(walletId: string): Promise<boolean> {
+  const quorumId = process.env.PRIVY_KEY_QUORUM_ID;
+  if (!quorumId) {
+    console.error('[StellarPrivy] PRIVY_KEY_QUORUM_ID is not set — cannot verify server signer.');
+    return false;
+  }
+
+  try {
+    const wallet = await privy.wallets().get(walletId);
+    const signers = (wallet.additional_signers ?? []) as Array<{ signer_id?: string }>;
+    return signers.some((s) => s.signer_id === quorumId);
+  } catch (err) {
+    console.error(`[StellarPrivy] Could not read wallet ${walletId}:`, (err as Error).message);
+    return false;
+  }
+}
+
 function getSponsorKeypair(): Keypair {
   const secret = process.env.STELLAR_SPONSOR_SECRET_KEY;
   if (!secret) {
@@ -112,7 +141,7 @@ async function accountExistsOnChain(address: string): Promise<boolean> {
   return res.ok;
 }
 
-async function checkTrustlineStatus(
+export async function checkTrustlineStatus(
   address: string,
 ): Promise<'ready' | 'missing' | 'not_activated'> {
   try {
@@ -371,6 +400,130 @@ export async function ensureTrustline(
 }
 
 /**
+ * Sponsor tops up an already-activated account with XLM.
+ * Used when the account exists but lacks the reserve for a new trustline subentry.
+ */
+async function sponsorTopUp(userAddress: string, amountXlm: string): Promise<void> {
+  const sponsorKeypair = getSponsorKeypair();
+  const sponsorAccount = await loadHorizonAccount(sponsorKeypair.publicKey());
+
+  const tx = new TransactionBuilder(sponsorAccount, {
+    fee: '1000',
+    networkPassphrase: STELLAR_NETWORK_PASSPHRASE,
+  })
+    .addOperation(Operation.payment({ destination: userAddress, asset: Asset.native(), amount: amountXlm }))
+    .setTimeout(300)
+    .build();
+
+  tx.sign(sponsorKeypair);
+  const result = await submitStellarTransaction(tx.toEnvelope().toXDR('base64'));
+  console.log(`[StellarPrivy] ✓ Topped up ${tag(userAddress)} with ${amountXlm} XLM. tx=${result.hash}`);
+}
+
+/** Minimum XLM an activated account needs to afford one more trustline subentry. */
+const TRUSTLINE_RESERVE_XLM = 0.5;
+
+async function getNativeBalance(address: string): Promise<number> {
+  const res = await fetch(`${STELLAR_HORIZON_URL}/accounts/${address}`);
+  if (!res.ok) return 0;
+  const data = (await res.json()) as {
+    balances?: { asset_type?: string; balance?: string }[];
+    subentry_count?: number;
+  };
+  return parseFloat(data.balances?.find((b) => b.asset_type === 'native')?.balance ?? '0');
+}
+
+export type StellarReceivability =
+  | { ready: true }
+  | {
+      ready: false;
+      reason: 'not_activated' | 'trustline_failed' | 'signer_not_granted';
+      detail: string;
+    };
+
+/**
+ * Make a Stellar account able to *receive* USDC — end to end.
+ *
+ * Unlike {@link ensureTrustline}, this self-heals every precondition:
+ *   1. Account not on-chain yet  → sponsor createAccount
+ *   2. Account short on XLM      → sponsor tops up the trustline reserve
+ *   3. Trustline missing         → user signs changeTrust, sponsor fee-bumps
+ *
+ * Call this BEFORE burning USDC to a Stellar destination, and again before claiming.
+ * Without a USDC trustline the CCTP forwarder's `mint_and_forward` reverts with
+ * Error(Contract, #13) "trustline entry is missing for account" and the funds sit
+ * burned-but-unminted until the trustline is added.
+ */
+export async function ensureStellarUsdcReceivable(
+  walletId: string,
+  address: string,
+): Promise<StellarReceivability> {
+  let status = await checkTrustlineStatus(address);
+  console.log(`[StellarPrivy] Receivability check for ${tag(address)}: ${status}`);
+
+  if (status === 'ready') return { ready: true };
+
+  // Adding the trustline needs the user's key, which Privy will only use once the
+  // server's key quorum is an additional signer. Check before we try, so the failure
+  // is a clear "not granted yet" instead of an opaque 401 from the TEE.
+  if (!(await hasServerSigner(walletId))) {
+    return {
+      ready: false,
+      reason: 'signer_not_granted',
+      detail: `Server signer is not granted on wallet ${walletId} — the client must call addSigners().`,
+    };
+  }
+
+  // ── 1. Activate the account if it isn't on-chain yet ──────────────────────
+  if (status === 'not_activated') {
+    try {
+      await sponsorActivateWallet(address);
+      status = await checkTrustlineStatus(address);
+    } catch (err) {
+      const msg = (err as Error).message;
+      if (msg.includes('op_already_exists') || msg.includes('ACCOUNT_EXISTS') || msg.includes('tx_bad_seq')) {
+        status = await checkTrustlineStatus(address);
+      } else {
+        console.error(`[StellarPrivy] ✗ Activation failed for ${tag(address)}:`, msg);
+        return { ready: false, reason: 'not_activated', detail: msg };
+      }
+    }
+    if (status === 'ready') return { ready: true };
+    if (status === 'not_activated') {
+      return {
+        ready: false,
+        reason: 'not_activated',
+        detail: `Account ${tag(address)} is still not visible on Horizon after activation.`,
+      };
+    }
+  }
+
+  // ── 2. Top up the reserve if the account can't afford the subentry ────────
+  try {
+    const xlm = await getNativeBalance(address);
+    if (xlm < 1 + TRUSTLINE_RESERVE_XLM + 0.05) {
+      console.log(`[StellarPrivy] ${tag(address)} has ${xlm} XLM — topping up for trustline reserve.`);
+      await sponsorTopUp(address, ACTIVATION_XLM);
+    }
+  } catch (err) {
+    // Non-fatal: the changeTrust below will surface the real problem if it matters.
+    console.error(`[StellarPrivy] Top-up check failed for ${tag(address)}:`, (err as Error).message);
+  }
+
+  // ── 3. Add the USDC trustline ─────────────────────────────────────────────
+  try {
+    const ready = await ensureTrustline(walletId, address);
+    return ready
+      ? { ready: true }
+      : { ready: false, reason: 'not_activated', detail: 'Account not activated on Stellar.' };
+  } catch (err) {
+    const detail = (err as Error).message;
+    console.error(`[StellarPrivy] ✗ Trustline setup failed for ${tag(address)}:`, detail);
+    return { ready: false, reason: 'trustline_failed', detail };
+  }
+}
+
+/**
  * Provision a Stellar wallet — the only function you need to call.
  * Handles everything automatically: wallet creation, activation, trustline.
  * Users just get their address and can send/receive USDC immediately.
@@ -463,11 +616,13 @@ export async function provisionStellarWallet(
   }
 
   // ── Step 3: Ensure USDC trustline ─────────────────────────────────────────
-  let trustlineReady = false;
-  try {
-    trustlineReady = await ensureTrustline(walletId, address);
-  } catch (err) {
-    console.error(`[StellarPrivy] ✗ ensureTrustline failed for ${tag(address)}:`, (err as Error).message);
+  const receivable = await ensureStellarUsdcReceivable(walletId, address);
+  const trustlineReady = receivable.ready;
+  if (!trustlineReady) {
+    console.error(
+      `[StellarPrivy] ✗ Receivability setup failed for ${tag(address)} (${receivable.reason}):`,
+      receivable.detail,
+    );
   }
 
   if (trustlineReady) {

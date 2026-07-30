@@ -12,6 +12,7 @@ import { CHAIN_NAMES } from "@/lib/circle/gateway";
 import { getCircleAddress } from "@/lib/web3/circle-client";
 import { type ChainBalances } from "@/lib/web3/routing";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { useStellarWallet } from '@/hooks/useStellarWallet';
 import { ArrowRight, Loader2, ShieldCheck, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -25,7 +26,8 @@ export default function TransfersPage() {
   const [twoFaThreshold, setTwoFaThreshold] = useState(500);
   const [totpEnabled, setTotpEnabled] = useState(false);
   const [passkeyEnabled, setPasskeyEnabled] = useState(false);
-  const [stellarAddress, setStellarAddress] = useState<string>("");
+  const { data: stellarWallet } = useStellarWallet();
+  const stellarAddress = stellarWallet?.address ?? "";
 
   // Embedded Solana wallet address (for the portfolio total).
   const solAccount = user?.linkedAccounts.find(
@@ -41,29 +43,6 @@ export default function TransfersPage() {
 
   const { data: portfolio } = usePortfolio(smartAddress, solanaAddress, stellarAddress || undefined);
 
-  // Automatically provision or retrieve the user's Stellar wallet from the DB/API
-  useEffect(() => {
-    async function initStellar() {
-      if (user?.id && user?.email?.address) {
-        try {
-          const res = await fetch('/api/stellar/provision', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ privyUserId: user.id, email: user.email.address }),
-          });
-          if (res.ok) {
-            const data = await res.json();
-            if (data.address) {
-              setStellarAddress(data.address);
-            }
-          }
-        } catch (err) {
-          console.error('[Transfer] Failed to load Stellar wallet:', err);
-        }
-      }
-    }
-    initStellar();
-  }, [user?.id, user?.email?.address]);
 
   // EVM per-chain balances + total — what's spendable via routing.
   const evmChainBalances: ChainBalances = useMemo(() => {
