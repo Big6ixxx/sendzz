@@ -241,7 +241,7 @@ export default function SettingsPage() {
 
   const handleOpenAddBankModal = async () => {
     if (institutions.length === 0) {
-      const res = await getInstitutions("NGN").catch(() => ({ data: [] }));
+      const res = await getInstitutions().catch(() => ({ data: [] }));
       setInstitutions(res.data);
     }
     setAddBankModalOpen(true);

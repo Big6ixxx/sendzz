@@ -368,12 +368,21 @@ export async function verifyBankAccount(
   console.log(
     `[Action] verifyBankAccount: ${institution} / ${accountNumber} / ${currency ?? "NGN"} / ${provider ?? "auto"}`,
   );
+  if (provider) {
+    try {
+      const result = await Ramp.verifyAccountFor(provider, institution, accountNumber, currency);
+      if (result && result.data && (typeof result.data === "string" || result.data?.accountName)) {
+        console.log(`[Action] verifyBankAccount result (${provider}):`, result);
+        return result;
+      }
+    } catch (err) {
+      console.warn(`[Action] verifyBankAccount ${provider} failed, trying router fallback:`, err);
+    }
+  }
   try {
-    const result = provider
-      ? await Ramp.verifyAccountFor(provider, institution, accountNumber, currency)
-      : await Ramp.verifyAccount(institution, accountNumber, currency);
-    console.log(`[Action] verifyBankAccount result:`, result);
-    return result;
+    const fallbackResult = await Ramp.verifyAccount(institution, accountNumber, currency);
+    console.log(`[Action] verifyBankAccount result (fallback):`, fallbackResult);
+    return fallbackResult;
   } catch (error) {
     console.error(`[Action] verifyBankAccount failed:`, error);
     throw error;
@@ -409,9 +418,18 @@ export async function getInstitutions(
   currency: string = "NGN",
   provider?: RampProviderName,
 ) {
-  return provider
-    ? await Ramp.institutionsFor(provider, currency)
-    : await Ramp.getInstitutions(currency);
+  if (provider) {
+    try {
+      const res = await Ramp.institutionsFor(provider, currency);
+      if (res.data && res.data.length > 0) return res;
+    } catch (err) {
+      console.warn(
+        `[Action] getInstitutions: ${provider} failed for ${currency}, attempting fallback`,
+        err,
+      );
+    }
+  }
+  return await Ramp.getInstitutions(currency);
 }
 
 export async function getCurrencies() {
