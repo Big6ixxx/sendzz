@@ -254,8 +254,30 @@ export const Ramp = {
     );
   },
 
-  getInstitutions(currency: RampCurrency): Promise<{ data: RampInstitution[] }> {
-    return withFallback("institutions", (p) => p.getInstitutions(currency));
+  async getInstitutions(currency: RampCurrency): Promise<{ data: RampInstitution[] }> {
+    const combined: RampInstitution[] = [];
+    const seen = new Set<string>();
+
+    for (const p of allProviders()) {
+      if (!p.capabilities.institutions) continue;
+      try {
+        const res = await p.getInstitutions(currency);
+        if (res.data && res.data.length > 0) {
+          for (const inst of res.data) {
+            const key = (inst.name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+            if (!key || seen.has(key)) continue;
+            seen.add(key);
+            combined.push(inst);
+          }
+        }
+      } catch (err) {
+        console.warn(
+          `[Ramp] ${p.name} failed to getInstitutions for ${currency}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+    return { data: combined };
   },
 
   getCurrencies(): Promise<{ data: RampCurrencyDetail[] }> {

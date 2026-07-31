@@ -1,7 +1,7 @@
 "use client";
 
 import { CurrencySelector } from "@/components/CurrencySelector";
-import { getCurrencySymbol } from "@/lib/currency-config";
+import { getCurrencySymbol, getCurrencyFlag } from "@/lib/currency-config";
 import {
   CheckCircle2,
   ChevronRight,
@@ -18,6 +18,7 @@ import { CHAIN_NAMES, type SupportedChain } from "@/lib/circle/gateway";
 import { useDepositWithdraw } from "./useDepositWithdraw";
 import { ReceiptActions } from "@/components/receipt/ReceiptActions";
 import { ReceiptData } from "@/lib/receipt/types";
+import { cn } from "@/lib/utils";
 import { useState } from "react";
 
 interface WithdrawFormProps {
@@ -315,6 +316,57 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
         </div>
 
         <div className="space-y-4">
+          {/* Destination Country / Currency Selector List */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em]">
+                Select Destination Country
+              </label>
+              <span className="text-[10px] font-bold text-accent uppercase tracking-wider flex items-center gap-1.5">
+                {hook.institutionsLoading ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin text-accent" />
+                    Fetching banks…
+                  </>
+                ) : hook.institutions.length > 0 ? (
+                  `${hook.institutions.length} banks available`
+                ) : null}
+              </span>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {[
+                { code: "NGN", flag: "🇳🇬" },
+                { code: "KES", flag: "🇰🇪" },
+                { code: "GHS", flag: "🇬🇭" },
+                { code: "UGX", flag: "🇺🇬" },
+                { code: "TZS", flag: "🇹🇿" },
+                { code: "BRL", flag: "🇧🇷" },
+                { code: "MWK", flag: "🇲🇼" },
+              ].map((c) => {
+                const isSelected = hook.fiatCurrency === c.code;
+                return (
+                  <button
+                    key={c.code}
+                    type="button"
+                    onClick={() => hook.setFiatCurrency(c.code)}
+                    className={cn(
+                      "flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider border transition-all duration-200 group select-none",
+                      isSelected
+                        ? "bg-accent/15 border-accent text-foreground shadow-md shadow-accent/10"
+                        : "bg-white/[0.04] border-white/10 text-muted-foreground hover:bg-white/[0.08] hover:border-white/20 hover:text-foreground"
+                    )}
+                  >
+                    <span className="text-base leading-none transition-transform group-hover:scale-110">
+                      {c.flag}
+                    </span>
+                    <span>{c.code}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <BankSelector
             label="Bank"
             institutions={hook.institutions}
@@ -337,9 +389,16 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
               })
             }
             accountName={hook.bankDetails.accountName}
+            onAccountNameChange={(name) =>
+              hook.setBankDetails({
+                ...hook.bankDetails,
+                accountName: name,
+              })
+            }
             isVerifying={hook.verifyingBank}
             contacts={hook.bankContacts}
             userEmail={hook.userEmail}
+            fiatCurrency={hook.fiatCurrency}
             onContactsChanged={hook.refreshBankContacts}
           />
         </div>

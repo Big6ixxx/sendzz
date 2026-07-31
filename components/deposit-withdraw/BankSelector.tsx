@@ -18,11 +18,13 @@ interface BankSelectorProps {
   accountNumber: string;
   onAccountNumberChange: (value: string) => void;
   accountName: string;
+  onAccountNameChange?: (value: string) => void;
   isVerifying: boolean;
   label: string;
   disabled?: boolean;
   contacts?: BankContactRow[];
   userEmail?: string;
+  fiatCurrency?: string;
   onContactsChanged?: () => void;
 }
 
@@ -34,11 +36,13 @@ export function BankSelector({
   accountNumber,
   onAccountNumberChange,
   accountName,
+  onAccountNameChange,
   isVerifying,
   label,
   disabled,
   contacts = [],
   userEmail = '',
+  fiatCurrency,
   onContactsChanged,
 }: BankSelectorProps) {
   const [open, setOpen] = React.useState(false);
@@ -70,7 +74,7 @@ export function BankSelector({
         <div className="relative">
           <input
             type="text"
-            maxLength={10}
+            maxLength={16}
             disabled={disabled}
             placeholder="0123456789"
             className="input-elegant tracking-widest font-mono"
@@ -145,15 +149,29 @@ export function BankSelector({
         userEmail={userEmail}
         defaultAccountNumber={accountNumber}
         institutions={institutions}
+        fiatCurrency={fiatCurrency}
         onSuccess={onContactsChanged}
       />
 
       {accountName && (
-        <div className="p-4 bg-muted/50 rounded-xl border border-border animate-in fade-in slide-in-from-top-2 duration-300">
-          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
-            Confirmed Account Holder
-          </p>
-          <p className="font-semibold uppercase truncate">{accountName}</p>
+        <div className="p-4 bg-muted/50 rounded-xl border border-border animate-in fade-in slide-in-from-top-2 duration-300 space-y-1">
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+              Confirmed Account Holder
+            </p>
+            <span className="text-[10px] font-bold text-green-500 uppercase tracking-wider flex items-center gap-1">
+              <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+              Verified
+            </span>
+          </div>
+          <input
+            type="text"
+            placeholder="ENTER ACCOUNT HOLDER NAME"
+            value={accountName}
+            onChange={(e) => onAccountNameChange?.(e.target.value)}
+            disabled={disabled}
+            className="w-full bg-transparent font-semibold uppercase focus:outline-none text-foreground text-sm tracking-wide placeholder:text-muted-foreground/60"
+          />
         </div>
       )}
     </div>

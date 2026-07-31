@@ -357,14 +357,30 @@ export class BitnobProvider implements RampProvider {
         `No serviceable country for ${currency}`,
       );
     }
-    const banks = await getBitnobClient().getBanks(country);
-    return {
-      data: banks.map((b) => {
-        const name = b.name ?? b.bank_name ?? "";
-        const code = b.code ?? b.bank_code ?? "";
-        return { name, code, institutionCode: code, currency };
-      }),
-    };
+    try {
+      const banks = await getBitnobClient().getBanks(country);
+      if (!banks || banks.length === 0) {
+        throw new RampUnsupportedError(
+          "bitnob",
+          "institutions",
+          `No institutions returned by Bitnob for ${country} (${currency})`,
+        );
+      }
+      return {
+        data: banks.map((b) => {
+          const name = b.name ?? b.bank_name ?? "";
+          const code = b.code ?? b.bank_code ?? "";
+          return { name, code, institutionCode: code, currency };
+        }),
+      };
+    } catch (err) {
+      if (err instanceof RampUnsupportedError) throw err;
+      throw new RampUnsupportedError(
+        "bitnob",
+        "institutions",
+        `Failed to fetch Bitnob banks for ${currency}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   async getCurrencies(): Promise<{ data: RampCurrencyDetail[] }> {

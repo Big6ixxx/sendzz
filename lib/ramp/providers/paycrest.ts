@@ -79,13 +79,8 @@ export class PaycrestProvider implements RampProvider {
   };
 
   async supportsCurrency(currency: RampCurrency): Promise<boolean> {
-    try {
-      const { data } = await this.getCurrencies();
-      return data.some((c) => c.code === currency);
-    } catch {
-      // If we can't list currencies, assume Paycrest can try (it's the safety net).
-      return true;
-    }
+    if (!currency) return false;
+    return true;
   }
 
   async createOnRampOrder(params: CreateOnRampParams): Promise<RampOrderResponse> {
