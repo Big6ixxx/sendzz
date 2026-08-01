@@ -21,6 +21,10 @@ const CURRENCY_SYMBOL_CACHE: Record<string, string> = {
   GHS: 'GH₵',
   UGX: 'USh',
   TZS: 'TSh',
+  XOF: 'CFA',
+  XAF: 'FCFA',
+  RWF: 'FRw',
+  GMD: 'D',
   MWK: 'MK',
   BRL: 'R$',
 };
@@ -42,6 +46,10 @@ export function getCurrencyFlag(code: string): string {
     GHS: '🇬🇭',
     UGX: '🇺🇬',
     TZS: '🇹🇿',
+    XOF: '🇨🇮',
+    XAF: '🇨🇲',
+    RWF: '🇷🇼',
+    GMD: '🇬🇲',
     MWK: '🇲🇼',
     BRL: '🇧🇷',
   };

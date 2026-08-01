@@ -341,8 +341,11 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
                 { code: "GHS", flag: "🇬🇭" },
                 { code: "UGX", flag: "🇺🇬" },
                 { code: "TZS", flag: "🇹🇿" },
+                { code: "XOF", flag: "🇨🇮" },
+                { code: "XAF", flag: "🇨🇲" },
+                { code: "RWF", flag: "🇷🇼" },
+                { code: "GMD", flag: "🇬🇲" },
                 { code: "BRL", flag: "🇧🇷" },
-                { code: "MWK", flag: "🇲🇼" },
               ].map((c) => {
                 const isSelected = hook.fiatCurrency === c.code;
                 return (

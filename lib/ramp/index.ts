@@ -187,7 +187,11 @@ export const Ramp = {
   ): Promise<RampProviderName[]> {
     const wanted = network?.toLowerCase();
     const out: RampProviderName[] = [];
-    for (const p of allProviders()) {
+
+    // Bitnob is primary provider; Paycrest is secondary fallback provider
+    const sorted = [...allProviders()].sort((a, b) => (a.name === "bitnob" ? -1 : 1));
+
+    for (const p of sorted) {
       if (!p.capabilities.offRamp) continue;
       const supportsCurrency = await p.supportsCurrency(currency).catch(() => true);
       if (!supportsCurrency) continue;
