@@ -19,6 +19,7 @@ interface AddBankContactModalProps {
   userEmail: string;
   defaultAccountNumber: string;
   institutions: RampInstitution[];
+  fiatCurrency?: string;
   onSuccess?: () => void;
 }
 
@@ -28,6 +29,7 @@ export function AddBankContactModal({
   userEmail,
   defaultAccountNumber,
   institutions,
+  fiatCurrency = 'NGN',
   onSuccess,
 }: AddBankContactModalProps) {
   const [newAccountNumber, setNewAccountNumber] = React.useState(defaultAccountNumber);
@@ -141,7 +143,7 @@ export function AddBankContactModal({
 
                           if (newAccountNumber.length === 10) {
                             setIsVerifyingNew(true);
-                            verifyBankAccount(inst.institutionCode || inst.code, newAccountNumber)
+                            verifyBankAccount(inst.institutionCode || inst.code, newAccountNumber, fiatCurrency)
                               .then((res) => {
                                 const name = typeof res.data === 'string' ? res.data : res.data?.accountName;
                                 setNewAccountName(name || '');
@@ -172,17 +174,20 @@ export function AddBankContactModal({
               <input
                 type="text"
                 required
-                maxLength={10}
+                maxLength={16}
                 value={newAccountNumber}
                 onChange={(e) => {
                   const val = e.target.value.replace(/\D/g, '');
                   setNewAccountNumber(val);
-                  if (val.length === 10 && newBank) {
+                  if (val.length >= 8 && newBank) {
                     setIsVerifyingNew(true);
-                    verifyBankAccount(newBank.code, val)
+                    verifyBankAccount(newBank.code, val, fiatCurrency)
                       .then((res) => {
-                        const name = typeof res.data === 'string' ? res.data : res.data?.accountName;
-                        setNewAccountName(name || '');
+                        const rawName = typeof res.data === 'string' ? res.data : res.data?.accountName;
+                        const name = (!rawName || rawName.trim().toUpperCase() === 'OK')
+                          ? `${newBank.name} (${val})`
+                          : rawName;
+                        setNewAccountName(name);
                       })
                       .catch(() => setNewAccountName(''))
                       .finally(() => setIsVerifyingNew(false));

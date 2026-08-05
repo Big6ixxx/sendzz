@@ -121,6 +121,7 @@ export function useDepositWithdraw(
 
   // Institutions & Rates
   const [institutions, setInstitutions] = useState<RampInstitution[]>([]);
+  const [institutionsLoading, setInstitutionsLoading] = useState(false);
   const [rate, setRate] = useState<number | null>(null);
   const [rateLoading, setRateLoading] = useState(false);
 
@@ -132,7 +133,6 @@ export function useDepositWithdraw(
     bankName: "",
   });
   const [verifyingBank, setVerifyingBank] = useState(false);
-  const lastAttemptedRef = useRef<string>("");
 
   // Order & Execution
   const [order, setOrder] = useState<RampOrderResponse | null>(null);
@@ -173,26 +173,29 @@ export function useDepositWithdraw(
   // Fetch institutions & rates when fiatCurrency changes
   useEffect(() => {
     const init = async () => {
+      setInstitutionsLoading(true);
       try {
-        // Pin the provider for this flow so the bank list, verification, and the actual
-        // order all use the SAME provider (their bank codes differ). Withdraw uses the
-        // off-ramp provider; deposit uses the on-ramp provider (Paycrest — Bitnob has no
-        // fiat on-ramp wired yet), so its refund bank + verify match the Paycrest order.
         let provider: RampProviderName;
+        let instRes: { data: RampInstitution[] } = { data: [] };
+
         if (type === "withdraw") {
           const order = await getOffRampProviderOrder(fiatCurrency).catch(
             () => ["paycrest"] as RampProviderName[],
           );
-          provider = order[0];
+          provider = order[0] || "paycrest";
+          instRes = await getInstitutions(fiatCurrency).catch(() => ({ data: [] }));
         } else {
           provider = "paycrest";
+          instRes = await getInstitutions(fiatCurrency, provider).catch(() => ({ data: [] }));
         }
+
         setOffRampProvider(provider);
         getProviderFeePercent(provider).then(setFeePercent).catch(() => setFeePercent(0));
-        const res = await getInstitutions(fiatCurrency, provider);
-        setInstitutions(res.data);
+        setInstitutions(instRes.data);
       } catch (err) {
         console.error("Failed to fetch banks", err);
+      } finally {
+        setInstitutionsLoading(false);
       }
     };
     init();
@@ -204,7 +207,6 @@ export function useDepositWithdraw(
       accountName: "",
       bankName: "",
     });
-    lastAttemptedRef.current = "";
     setRate(null);
 
     setRateLoading(true);
@@ -218,6 +220,15 @@ export function useDepositWithdraw(
         .then(setRate)
         .catch(() => setRate(null))
         .finally(() => setRateLoading(false));
+
+      if (quoteUsdcAmount) {
+        const val = parseFloat(quoteUsdcAmount);
+        if (!isNaN(val) && val > 0) {
+          getOffRampQuote(val, fiatCurrency)
+            .then(setQuote)
+            .catch(() => {});
+        }
+      }
     }
 
     // Fetch bank contacts
@@ -346,16 +357,13 @@ export function useDepositWithdraw(
 
   // Bank Auto-Verification
   const handleVerifyBank = useCallback(async (details: BankDetails) => {
-    const key = `${details.bankCode}-${details.accountNumber}`;
     if (
-      details.accountNumber.length !== 10 ||
-      !details.bankCode ||
-      lastAttemptedRef.current === key
+      details.accountNumber.length < 8 ||
+      !details.bankCode
     )
       return;
 
     setVerifyingBank(true);
-    lastAttemptedRef.current = key;
     try {
       const res = await verifyBankAccount(
         details.bankCode,
@@ -363,8 +371,14 @@ export function useDepositWithdraw(
         fiatCurrency,
         offRampProvider,
       );
-      const name =
+      let name =
         typeof res.data === "string" ? res.data : res.data?.accountName;
+      if (!name) {
+        throw new Error("Could not verify account for these bank details.");
+      }
+      if (name.trim().toUpperCase() === "OK") {
+        name = "VERIFIED ACCOUNT";
+      }
       setBankDetails((prev) => ({ ...prev, accountName: name }));
       toast.success("Bank account verified");
     } catch (err) {
@@ -378,15 +392,16 @@ export function useDepositWithdraw(
   useEffect(() => {
     const timeout = setTimeout(() => {
       if (
-        bankDetails.accountNumber.length === 10 &&
+        bankDetails.accountNumber.length >= 8 &&
         bankDetails.bankCode &&
-        !bankDetails.accountName
+        !bankDetails.accountName &&
+        !verifyingBank
       ) {
         handleVerifyBank(bankDetails);
       }
     }, 500);
     return () => clearTimeout(timeout);
-  }, [bankDetails, handleVerifyBank]);
+  }, [bankDetails.accountNumber, bankDetails.bankCode, bankDetails.accountName, verifyingBank, handleVerifyBank]);
 
   // Flow Handlers
   const handleDepositInitiate = async () => {
@@ -980,6 +995,7 @@ export function useDepositWithdraw(
     fiatCurrency,
     setFiatCurrency,
     institutions,
+    institutionsLoading,
     rate,
     rateLoading,
     bankDetails,
