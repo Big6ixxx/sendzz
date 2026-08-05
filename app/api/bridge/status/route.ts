@@ -58,7 +58,34 @@ export async function GET(req: NextRequest) {
     // Otherwise always hit Circle Iris to get fresh attestation data
     // (needed for manual claims where mint_tx_hash is still null)
 
-    const result = await getAttestation(sourceChain, txHash);
+    let result = await getAttestation(sourceChain, txHash);
+
+    // If Circle Iris returns not_found, check if txHash is actually a userOpHash and resolve it on-chain
+    if (result.status === 'not_found' && txHash.startsWith('0x') && sourceChain !== 'solana' && sourceChain !== 'stellar') {
+      try {
+        const { VIEM_CHAINS } = await import('@/lib/web3/multichain');
+        const { createBundlerClient } = await import('viem/account-abstraction');
+        const { toModularTransport } = await import('@circle-fin/modular-wallets-core');
+        const { CIRCLE_CLIENT_KEY, CIRCLE_SEND_URL } = await import('@/lib/web3/config');
+
+        if (CIRCLE_CLIENT_KEY) {
+          const bundlerUrl = `${CIRCLE_SEND_URL}/${sourceChain}`;
+          const transport = toModularTransport(bundlerUrl, CIRCLE_CLIENT_KEY);
+          const bundler = createBundlerClient({ chain: VIEM_CHAINS[sourceChain as SupportedChain], transport });
+          const userOpReceipt = (await bundler.getUserOperationReceipt({ hash: txHash as `0x${string}` }).catch(() => null)) as any;
+          const resolvedHash = userOpReceipt?.receipt?.transactionHash || userOpReceipt?.transactionHash;
+          if (resolvedHash && typeof resolvedHash === 'string' && resolvedHash.startsWith('0x')) {
+            console.log(`[Bridge Status API] Resolved UserOpHash ${txHash} -> on-chain txHash: ${resolvedHash}`);
+            const reResult = await getAttestation(sourceChain, resolvedHash);
+            if (reResult.status !== 'not_found') {
+              result = reResult;
+            }
+          }
+        }
+      } catch (userOpErr) {
+        console.warn('[Bridge Status API] UserOp resolution attempt:', userOpErr);
+      }
+    }
 
     // Fallback: If DB is complete but Circle says pending/not_found, preserve completion status
     if (dbTx?.attestation_status === 'complete' && result.status !== 'complete') {
@@ -84,8 +111,12 @@ export async function GET(req: NextRequest) {
           const isProcessed = await isMessageDelivered(client, result.messageBytes);
 
           if (isProcessed) {
-            console.log(`[Bridge Status API] Message already processed on-chain on ${destChain} for ${txHash}. Skipping expensive log query.`);
-            result.mintTxHash = '0x0000000000000000000000000000000000000000000000000000000000000000';
+            console.log(`[Bridge Status API] Message processed on-chain on ${destChain} for ${txHash}. Recovering mint tx hash...`);
+            const { findMintTxHash } = await import('@/lib/web3/cctp-delivery');
+            const mintTx = await findMintTxHash(client, result.messageBytes);
+            if (mintTx) {
+              result.mintTxHash = mintTx;
+            }
           }
         } catch (chainErr) {
           console.error('[Bridge Status API] On-chain check failed:', chainErr);

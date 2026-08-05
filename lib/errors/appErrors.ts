@@ -62,8 +62,10 @@ function looksTechnical(message: string): boolean {
 }
 
 export function classifyAppError(err: unknown): AppError {
-  const msg = raw(err).toLowerCase();
-  console.error('[App Error]', err);
+  const rawMsg = raw(err);
+  const msg = rawMsg.toLowerCase();
+  console.error('[App Error Raw Message]:', rawMsg);
+  console.error('[App Error Object]:', err);
 
   if (
     msg.includes('user rejected') ||
@@ -74,6 +76,14 @@ export function classifyAppError(err: unknown): AppError {
     msg.includes('user cancelled')
   ) {
     return { message: 'Transaction cancelled.', category: 'user_cancelled', isSilent: true, isAlreadyProcessed: false };
+  }
+
+  if (
+    msg.includes('message expired') ||
+    msg.includes('must be re-signed') ||
+    msg.includes('signature expired')
+  ) {
+    return { message: 'Signature expired. Please click Claim again to complete your transfer.', category: 'contract_revert', isSilent: false, isAlreadyProcessed: false };
   }
 
   if (
@@ -195,12 +205,11 @@ export function classifyAppError(err: unknown): AppError {
     return { message: 'Action could not be completed right now. Please try again.', category: 'contract_revert', isSilent: false, isAlreadyProcessed: false };
   }
 
-  const rawMsg = raw(err);
   if (!looksTechnical(rawMsg)) {
     return { message: rawMsg, category: 'unknown', isSilent: false, isAlreadyProcessed: false };
   }
 
-  return { message: 'Something went wrong. Please try again or contact support if this persists.', category: 'unknown', isSilent: false, isAlreadyProcessed: false };
+  return { message: `Something went wrong: ${rawMsg.slice(0, 200)}`, category: 'unknown', isSilent: false, isAlreadyProcessed: false };
 }
 
 /** Shorthand: returns just the user-safe message string */

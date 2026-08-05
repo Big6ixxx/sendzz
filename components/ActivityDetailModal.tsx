@@ -18,21 +18,12 @@ import {
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useWallets, usePrivy } from "@privy-io/react-auth";
-import {
-  useSignTransaction,
-  useWallets as useSolanaWallets,
-} from "@privy-io/react-auth/solana";
-import { Connection, PublicKey, Transaction } from "@solana/web3.js";
-import { buildReceiveMessageOnSolanaTx } from "@/lib/circle/solana-gateway";
+import { useWallets as useSolanaWallets } from "@privy-io/react-auth/solana";
 import { executeReceiveMessage } from "@/lib/web3/bridge-actions";
 import { toast } from "sonner";
 import { CCTP_DOMAINS, type SupportedChain } from "@/lib/circle/gateway";
 import { classifyAppError } from "@/lib/errors/appErrors";
 import { explorerTxUrl, HOME_CHAIN } from "@/lib/explorers";
-
-const SOLANA_RPC =
-  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ??
-  "https://api.mainnet-beta.solana.com";
 
 import { Activity } from "./HistoryModule";
 import { ReceiptActions } from "./receipt/ReceiptActions";
@@ -84,7 +75,6 @@ export function ActivityDetailModal({
   const { wallets } = useWallets();
   const { user } = usePrivy();
   const { wallets: solanaWallets } = useSolanaWallets();
-  const { signTransaction } = useSignTransaction();
   const [isClaiming, setIsClaiming] = useState(false);
 
   const handleClaim = async () => {
@@ -282,59 +272,24 @@ export function ActivityDetailModal({
             );
           }
 
-          const walletPubkey = new PublicKey(solAddress);
-          const solConn = new Connection(SOLANA_RPC, "confirmed");
-
-          const { transaction } = await buildReceiveMessageOnSolanaTx(
-            solConn,
-            walletPubkey,
-            data.messageBytes!,
-            data.attestation!,
-          );
-
-          // 1. Sponsor transaction
-          const txBase64 = transaction
-            .serialize({ requireAllSignatures: false, verifySignatures: false })
-            .toString("base64");
-          const sponsorRes = await fetch("/api/bridge/solana-sponsor", {
+          // The sponsor builds, signs and submits — the user pays nothing and
+          // signs nothing. See /api/bridge/solana-claim.
+          const claimRes = await fetch("/api/bridge/solana-claim", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ transaction: txBase64 }),
+            body: JSON.stringify({
+              burnTxHash: activity.txHash,
+              sourceChain: activity.sourceChain,
+              solanaAddress: solAddress,
+              messageBytes: data.messageBytes,
+              attestation: data.attestation,
+            }),
           });
-          if (!sponsorRes.ok) {
-            const errData = await sponsorRes.json().catch(() => ({}));
-            throw new Error(
-              errData.error || "Failed to sponsor Solana claim transaction",
-            );
+          const claimData = await claimRes.json().catch(() => ({}));
+          if (!claimRes.ok) {
+            throw new Error(claimData.error || "Failed to claim on Solana");
           }
-          const { sponsoredTransaction } = await sponsorRes.json();
-          const sponsoredTx = Transaction.from(
-            Buffer.from(sponsoredTransaction, "base64"),
-          );
-
-          toast.info("Please approve the popup to claim USDC on Solana.");
-          // 2. Sign transaction
-          const { signedTransaction: signedBytes } = await signTransaction({
-            transaction: sponsoredTx.serialize({ requireAllSignatures: false }),
-            wallet: solWallet,
-          });
-
-          // 3. Broadcast transaction
-          const signature = await solConn.sendRawTransaction(signedBytes, {
-            skipPreflight: false,
-            preflightCommitment: "confirmed",
-          });
-
-          const lb = await solConn.getLatestBlockhash();
-          await solConn.confirmTransaction(
-            {
-              signature,
-              blockhash: lb.blockhash,
-              lastValidBlockHeight: lb.lastValidBlockHeight,
-            },
-            "confirmed",
-          );
-          mintTxHash = signature;
+          mintTxHash = claimData.txHash;
           console.log(
             "[Manual Claim] Solana claim complete. Mint tx hash:",
             mintTxHash,

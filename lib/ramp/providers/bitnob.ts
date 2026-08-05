@@ -52,7 +52,58 @@ const FALLBACK_CURRENCY_COUNTRY: Record<string, string> = {
   NGN: "NG",
   KES: "KE",
   GHS: "GH",
+  UGX: "UG",
+  XOF: "CI",
+  XAF: "CM",
+  RWF: "RW",
+  GMD: "GM",
 };
+
+/** Known mobile money operators for countries where bank lookup returns empty. */
+function getMobileMoneyOperators(country: string, currency: RampCurrency): RampInstitution[] {
+  const code = currency.toUpperCase();
+  switch (code) {
+    case "KES":
+      return [
+        { name: "M-PESA", code: "SAFAKEPC", institutionCode: "SAFAKEPC", currency: "KES" },
+        { name: "AIRTEL MONEY", code: "AIRTKEPC", institutionCode: "AIRTKEPC", currency: "KES" },
+      ];
+    case "GHS":
+      return [
+        { name: "MTN Mobile Money", code: "MTNGHPC", institutionCode: "MTNGHPC", currency: "GHS" },
+        { name: "Vodafone Cash", code: "VODAGHPC", institutionCode: "VODAGHPC", currency: "GHS" },
+        { name: "AirtelTigo Money", code: "ATGHPC", institutionCode: "ATGHPC", currency: "GHS" },
+      ];
+    case "UGX":
+      return [
+        { name: "MTN Mobile Money Uganda", code: "MTNUGPC", institutionCode: "MTNUGPC", currency: "UGX" },
+        { name: "Airtel Money Uganda", code: "AIRTUGPC", institutionCode: "AIRTUGPC", currency: "UGX" },
+      ];
+    case "XOF":
+      return [
+        { name: "Orange Money", code: "ORANGEXOF", institutionCode: "ORANGEXOF", currency: "XOF" },
+        { name: "MTN Mobile Money", code: "MTNXOF", institutionCode: "MTNXOF", currency: "XOF" },
+        { name: "Wave", code: "WAVEXOF", institutionCode: "WAVEXOF", currency: "XOF" },
+      ];
+    case "XAF":
+      return [
+        { name: "MTN Mobile Money Cameroon", code: "MTNXAF", institutionCode: "MTNXAF", currency: "XAF" },
+        { name: "Orange Money Cameroon", code: "ORANGEXAF", institutionCode: "ORANGEXAF", currency: "XAF" },
+      ];
+    case "RWF":
+      return [
+        { name: "MTN Mobile Money Rwanda", code: "MTNRWF", institutionCode: "MTNRWF", currency: "RWF" },
+        { name: "Airtel Money Rwanda", code: "AIRTRWF", institutionCode: "AIRTRWF", currency: "RWF" },
+      ];
+    case "GMD":
+      return [
+        { name: "QMoney", code: "QMONEYGMD", institutionCode: "QMONEYGMD", currency: "GMD" },
+        { name: "AfriMoney", code: "AFRIGMD", institutionCode: "AFRIGMD", currency: "GMD" },
+      ];
+    default:
+      return [];
+  }
+}
 
 /** EVM chains this app can move USDC on (smart-account capable). */
 const APP_EVM_CHAINS = new Set([
@@ -358,21 +409,25 @@ export class BitnobProvider implements RampProvider {
       );
     }
     try {
-      const banks = await getBitnobClient().getBanks(country);
-      if (!banks || banks.length === 0) {
-        throw new RampUnsupportedError(
-          "bitnob",
-          "institutions",
-          `No institutions returned by Bitnob for ${country} (${currency})`,
-        );
+      const banks = await getBitnobClient().getBanks(country).catch(() => []);
+      if (banks && banks.length > 0) {
+        return {
+          data: banks.map((b) => {
+            const name = b.name ?? b.bank_name ?? "";
+            const code = b.code ?? b.bank_code ?? "";
+            return { name, code, institutionCode: code, currency };
+          }),
+        };
       }
-      return {
-        data: banks.map((b) => {
-          const name = b.name ?? b.bank_name ?? "";
-          const code = b.code ?? b.bank_code ?? "";
-          return { name, code, institutionCode: code, currency };
-        }),
-      };
+      const operators = getMobileMoneyOperators(country, currency);
+      if (operators.length > 0) {
+        return { data: operators };
+      }
+      throw new RampUnsupportedError(
+        "bitnob",
+        "institutions",
+        `No institutions returned by Bitnob for ${country} (${currency})`,
+      );
     } catch (err) {
       if (err instanceof RampUnsupportedError) throw err;
       throw new RampUnsupportedError(

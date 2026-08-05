@@ -1,15 +1,17 @@
 import { EXPLORER_TX_BASE } from '@/lib/explorers';
 
-export const CCTP_DOMAINS = {
+export const CCTP_DOMAINS: Record<string, number> = {
   ethereum: 0,
   avalanche: 1,
   optimism: 2,
   arbitrum: 3,
+  solana: 5,
   base: 6,
   polygon: 7,
-} as const;
+  stellar: 27,
+};
 
-export type SupportedChain = keyof typeof CCTP_DOMAINS;
+export type SupportedChain = 'ethereum' | 'avalanche' | 'optimism' | 'arbitrum' | 'base' | 'polygon';
 
 // CCTP V2 TokenMessengerV2 — same address across all EVM chains (CREATE2 deployment)
 export const TOKEN_MESSENGER_V2 =
@@ -57,14 +59,46 @@ export const CHAIN_EXPLORERS: Record<SupportedChain, string> = {
 };
 
 // Source chains the user can bridge FROM (Base is the destination)
-// Circle sponsors gas with USDC on these chains
+// Circle sponsors gas with USDC on these chains.
+//
+// This list also drives balance scanning in /api/balances/cross-chain, so a chain
+// removed here stops being tracked app-wide: no balance, no portfolio line, no spend
+// routing. Ethereum L1 is commented out for now — see BRIDGE_DISABLED_CHAINS below.
 export const SOURCE_CHAINS: SupportedChain[] = [
   'arbitrum',
   'avalanche',
-  'ethereum',
+  // 'ethereum',
   'optimism',
   'polygon',
 ];
+
+/**
+ * EVM chains currently disabled for bridging.
+ *
+ * ethereum — Circle's modular bundler doesn't serve L1, so a CCTP claim there can't be
+ *   sponsored: it has to go from the user's Privy EOA with the user paying gas, which
+ *   can exceed the transfer itself. Rather than offer that, L1 is switched off.
+ *
+ * Ethereum is currently commented out of every user-facing list, not just this one.
+ * To bring it back, restore all of these together:
+ *   - SOURCE_CHAINS above           — balance scanning + smart-bridge sources
+ *   - EVM_CHAINS (lib/web3/routing) — spend routing + ChainBridge source/dest list
+ *   - SPEND_PRIORITY (same file)    — spend ordering
+ *   - RAMP_NETWORKS (same file)     — on-ramp deposit networks
+ *   - EVM_NETWORKS (ReceiveCryptoFlow)   — receive-crypto network picker
+ *   - AVAILABLE_CHAINS (CryptoTransferForm) — send network picker
+ *   - the EOA claim block in executeReceiveMessage (lib/web3/bridge-actions)
+ *   - this entry
+ *
+ * Chain *metadata* (CHAIN_META, deposit-shared, explorers) deliberately keeps its
+ * ethereum entries — historical L1 transactions still need a name, colour and
+ * explorer link to render.
+ */
+export const BRIDGE_DISABLED_CHAINS: SupportedChain[] = ['ethereum'];
+
+export function isBridgeable(chain: string): boolean {
+  return !(BRIDGE_DISABLED_CHAINS as string[]).includes(chain);
+}
 
 /**
  * All EVM chains the Smart Bridge will scan.
@@ -73,7 +107,7 @@ export const SOURCE_CHAINS: SupportedChain[] = [
  * copy here was missing Polygon. A chain the app is willing to bridge *to* but won't
  * scan for balances is a one-way door — the funds arrive and the UI offers no way out.
  */
-export const SMART_BRIDGE_CHAINS: SupportedChain[] = SOURCE_CHAINS;
+export const SMART_BRIDGE_CHAINS: SupportedChain[] = SOURCE_CHAINS.filter(isBridgeable);
 
 /**
  * Circle Gas Station policy IDs per chain — set in .env
@@ -204,11 +238,11 @@ export interface AttestationResponse {
  * @param txHash      The transaction hash of the burn
  */
 export async function fetchAttestation(
-  sourceChain: SupportedChain,
+  sourceChain: string,
   txHash: string,
 ): Promise<AttestationResponse> {
   try {
-    const domain = CCTP_DOMAINS[sourceChain];
+    const domain = CCTP_DOMAINS[sourceChain.toLowerCase()];
     const res = await fetch(
       `${IRIS_API_BASE}/messages/${domain}?transactionHash=${txHash}`,
     );

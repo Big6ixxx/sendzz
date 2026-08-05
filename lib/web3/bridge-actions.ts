@@ -19,13 +19,199 @@ import {
   type AttestationResponse,
   calculateMaxFee
 } from '../circle/gateway';
-import { solanaAddressToBytes32 } from '../circle/solana-gateway';
+import { solanaMintRecipientBytes32 } from '../circle/solana-gateway';
 
 import { getCircleClient, getStandardRpcUrl } from './circle-client';
 import { rpcTransport } from './rpc';
 import { findMintTxHash, isMessageDelivered } from './cctp-delivery';
 import { EVM_CHAINS, type ChainBalances, type SolanaSource, type SourceChainKey } from './routing';
 import { toast } from 'sonner';
+
+/**
+ * Gas price for a sponsored userOperation.
+ *
+ * Ask the bundler, don't guess. This used to price userOps from a public RPC's
+ * `estimateFeesPerGas`, which targets ordinary EOA transactions: it pads the base fee
+ * by 1.2x and passes the node's priority suggestion through untouched. On Base that
+ * produced maxFee 0.007 gwei / priority 0.001 gwei — the *median* priority fee, with
+ * 0.002 gwei of headroom. An EOA transaction priced there lands eventually; a
+ * userOperation doesn't, because a bundler has to batch it and only earns the margin.
+ * Ops were accepted into the mempool and then never mined, one 300s timeout at a time,
+ * and since each retry drew a fresh nonce key they piled up instead of replacing one
+ * another — no bridge ever got past `approve`.
+ *
+ * `getUserOperationGasPrice` is the bundler quoting its own price, which is what the
+ * send path in circle-actions already uses (and why sends worked while bridges did
+ * not). We take `high` rather than `medium`: a stalled bridge can strand a transfer
+ * whose burn already happened, so the few cents of headroom are worth it — and the
+ * paymaster pays, not the user.
+ *
+ * The padded RPC estimate stays as a fallback for when the bundler won't quote.
+ */
+/**
+ * Multiplier on the bundler's quoted ceiling.
+ *
+ * `maxFeePerGas` is a cap, not a payment — the op is charged the actual base fee plus
+ * the priority fee, and the rest is refunded. Raising the cap therefore costs nothing
+ * unless gas genuinely rises, while a cap set too close to spot turns an ordinary base
+ * fee tick between quote and inclusion into a stalled transfer. Polygon's base fee
+ * moved from ~458 to ~242 gwei inside a few minutes while this was being measured, so
+ * the headroom is not theoretical. The priority fee is *not* padded — that one is
+ * really paid, and the bundler's own `high` tier is the right number for it.
+ */
+const MAX_FEE_HEADROOM = 2n;
+
+/**
+ * `verificationGasLimit` has to land inside a window, and Circle guards both ends.
+ *
+ * Too low and the EntryPoint reverts with `AA26 over verificationGasLimit`. Too high and
+ * the bundler rejects the op outright: it requires `used / limit >= 0.4`, so the limit
+ * can be at most 2.5x what validation actually consumes. There is no "just set it
+ * generously" option — over-provisioning fails as hard as under-provisioning.
+ *
+ * The SDK's own default is a flat 100,000 for a deployed account (from the `deployed`
+ * field on `circle_getUserOperationGasPrice`), which it uses unless the caller passes a
+ * value. That assumes an ECDSA owner. These accounts are passkey-owned, so
+ * `validateUserOp` verifies a P256/WebAuthn signature — cheap where a chain exposes a
+ * P256 precompile, ~130k+ where it runs in Solidity. Base, Arbitrum and Optimism fit
+ * under 100k. Polygon measured ~132,900, so every claim there died on AA26 — after the
+ * burn, with the USDC already committed.
+ *
+ * Since the true cost is per-chain and unknowable up front, this adapts instead of
+ * guessing: start where the SDK would, then use whichever bound the bundler complains
+ * about to compute the next attempt. The efficiency error is the useful one — it reports
+ * the actual ratio, which yields the exact gas used and therefore the right limit.
+ */
+const SDK_DEFAULT_VERIFICATION_GAS = 100_000n;
+
+/**
+ * Known starting points, to skip a doomed first attempt. Measured 2026-08-04; if a chain
+ * starts costing a round trip, re-measure rather than nudging the number.
+ */
+const VERIFICATION_GAS_SEED: Record<string, bigint> = {
+  polygon: 265_000n, // validation measured at ~132,900 → 2x keeps efficiency at 0.5
+};
+
+/**
+ * Send a sponsored userOperation, correcting `verificationGasLimit` against whichever
+ * bound the bundler rejects. Bounded at four attempts; anything not about verification
+ * gas is rethrown untouched so real failures aren't retried into confusion.
+ */
+async function sendWithAdaptiveVerificationGas(
+  chain: string,
+  send: (verificationGasLimit: bigint | undefined) => Promise<`0x${string}`>,
+): Promise<`0x${string}`> {
+  let limit: bigint | undefined = VERIFICATION_GAS_SEED[chain.toLowerCase()];
+
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await send(limit);
+    } catch (err) {
+      if (attempt >= 3) throw err;
+
+      const msg = err instanceof Error ? err.message : String(err);
+      const applied: bigint = limit ?? SDK_DEFAULT_VERIFICATION_GAS;
+
+      // "efficiency too low ... Actual: 0.1329" — actual/limit, so this pins gas used.
+      const efficiency = msg.match(/efficiency too low[\s\S]*?Actual:\s*([0-9.]+)/i);
+      if (efficiency) {
+        const ratio = Number(efficiency[1]);
+        if (Number.isFinite(ratio) && ratio > 0) {
+          const used: bigint = BigInt(Math.ceil(Number(applied) * ratio));
+          limit = used * 2n; // efficiency 0.5 — clear of the 0.4 floor from both sides
+          console.warn(
+            `[SmartBridge] ${chain} verification gas limit too high; validation used ~${used}. Retrying at ${limit}.`,
+          );
+          continue;
+        }
+      }
+
+      if (/AA26|over verificationGasLimit/i.test(msg)) {
+        limit = applied * 3n;
+        console.warn(
+          `[SmartBridge] ${chain} verification gas limit too low at ${applied}. Retrying at ${limit}.`,
+        );
+        continue;
+      }
+
+      throw err;
+    }
+  }
+}
+
+const BASE_FEE_PAD = 4n;
+// Nodes return roughly the median (p50) priority fee. On Base that was 0.001 gwei while
+// p90 sat at 0.007, so a 10x pad clears the 90th percentile rather than landing between
+// percentiles and hoping.
+const PRIORITY_FEE_PAD = 10n;
+
+/**
+ * Absolute priority-fee floors for the fallback path, set against what Circle's bundler
+ * actually quotes on each chain (its `high` tier) with roughly 2x headroom.
+ *
+ * These exist because a chain's required priority fee is not proportional to its base
+ * fee or to what its public node reports. Avalanche is the case that proves it: base fee
+ * 0.19 gwei but the bundler wants 3.0 gwei of priority, so a formula scaled off either
+ * number lands ~4x under the bundler's floor. Arbitrum's public node reports a priority
+ * fee of exactly 0, which any multiplier leaves at 0.
+ *
+ * Measured 2026-08-04 — re-check if a chain starts stalling at the approve step.
+ */
+const DEFAULT_MIN_PRIORITY_FEE = 10_000_000n; // 0.01 gwei — covers base/arbitrum/optimism
+const MIN_PRIORITY_FEE: Record<string, bigint> = {
+  polygon: 250_000_000_000n, // bundler high ≈ 156 gwei
+  avalanche: 5_000_000_000n, // bundler high ≈ 3 gwei
+};
+
+const bigMax = (a: bigint, b: bigint) => (a > b ? a : b);
+
+export async function sponsoredUserOpFees(
+  bundlerClient: BundlerClient,
+  client: PublicClient,
+  chain: string,
+): Promise<{ maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }> {
+  const { modularWalletActions } = await import('@circle-fin/modular-wallets-core');
+  const quoted = await bundlerClient
+    .extend(modularWalletActions)
+    .getUserOperationGasPrice()
+    .catch(() => null);
+
+  const level = quoted?.high ?? quoted?.medium ?? null;
+  if (level?.maxFeePerGas && level?.maxPriorityFeePerGas) {
+    const fees = {
+      maxFeePerGas: BigInt(level.maxFeePerGas) * MAX_FEE_HEADROOM,
+      maxPriorityFeePerGas: BigInt(level.maxPriorityFeePerGas),
+    };
+    console.log(
+      `[SmartBridge] ${chain} userOp fees (bundler-quoted): ` +
+        `maxFee ${Number(fees.maxFeePerGas) / 1e9} gwei, priority ${Number(fees.maxPriorityFeePerGas) / 1e9} gwei`,
+    );
+    return fees;
+  }
+
+  const [feeData, block] = await Promise.all([
+    client.estimateFeesPerGas().catch(() => null),
+    client.getBlock({ blockTag: 'latest' }).catch(() => null),
+  ]);
+
+  const floor = MIN_PRIORITY_FEE[chain.toLowerCase()] ?? DEFAULT_MIN_PRIORITY_FEE;
+  const estimatedPriority = feeData?.maxPriorityFeePerGas ?? 1_000_000n;
+  const maxPriorityFeePerGas = bigMax(estimatedPriority * PRIORITY_FEE_PAD, floor);
+
+  const baseFee = block?.baseFeePerGas ?? 0n;
+  const maxFeePerGas = bigMax(
+    baseFee * BASE_FEE_PAD + maxPriorityFeePerGas,
+    // If the block had no base fee (non-1559 node), pad the estimate instead.
+    (feeData?.maxFeePerGas ?? 0n) * BASE_FEE_PAD,
+  );
+
+  console.log(
+    `[SmartBridge] ${chain} userOp fees (padded estimate — bundler did not quote): ` +
+      `maxFee ${Number(maxFeePerGas) / 1e9} gwei, priority ${Number(maxPriorityFeePerGas) / 1e9} gwei`,
+  );
+
+  return { maxFeePerGas, maxPriorityFeePerGas };
+}
 
 export async function resolveUserOpToTxHash(
   bundlerClient: BundlerClient,
@@ -152,8 +338,9 @@ export async function executeSmartBridge(
       
       hookData = `0x${Buffer.concat([magic, version, lenBuf, addrBytes]).toString('hex')}` as `0x${string}`;
     } else if (destChain === 'solana') {
-      // For Solana destination: mintRecipient is the recipient's Solana public key as bytes32
-      mintRecipient = solanaAddressToBytes32(recipientAddress);
+      // For Solana destination: mintRecipient is the recipient's USDC *token account*,
+      // not their wallet — Solana's TokenMessengerMinter loads it as one directly.
+      mintRecipient = solanaMintRecipientBytes32(recipientAddress);
     } else {
       mintRecipient = `0x${'0'.repeat(24)}${recipientAddress.slice(2).toLowerCase()}` as `0x${string}`;
     }
@@ -165,45 +352,18 @@ export async function executeSmartBridge(
       chain: VIEM_CHAINS[sourceChain],
       transport: http(getStandardRpcUrl(sourceChain)),
     });
-    const feeData = await standardRpcClient.estimateFeesPerGas().catch(() => null);
-    const defaultPriorityFee = sourceChain === 'polygon' ? 30_000_000_000n : 1_000_000n;
-    const defaultMaxFee = sourceChain === 'polygon' ? 35_000_000_000n : undefined;
+    const { maxFeePerGas, maxPriorityFeePerGas } = await sponsoredUserOpFees(
+      bundlerClient,
+      standardRpcClient,
+      sourceChain,
+    );
 
-    const maxPriorityFeePerGas = feeData?.maxPriorityFeePerGas 
-      ? feeData.maxPriorityFeePerGas 
-      : defaultPriorityFee;
-
-    const maxFeePerGas = feeData?.maxFeePerGas 
-      ? feeData.maxFeePerGas 
-      : defaultMaxFee;
-
-    toast.info('Approving USDC transfer...');
-    const approveOpHash = await bundlerClient.sendUserOperation({
-      account,
-      calls: [{
-        to: usdcAddress as `0x${string}`,
-        data: encodeFunctionData({
-          abi: ERC20_ABI,
-          functionName: 'approve',
-          args: [TOKEN_MESSENGER_V2 as `0x${string}`, amountRaw],
-        }),
-      }],
-      maxFeePerGas,
-      maxPriorityFeePerGas,
-      paymaster: true,
-      paymasterContext: policyId ? { policyId } : undefined,
-    });
-    // Use our polling helper — Circle's bundler transport ignores the timeout param
-    await resolveUserOpToTxHash(bundlerClient, approveOpHash);
-    toast.success('Approval confirmed');
-
-    // 3. Execute Deposit for Burn
-    toast.info('Initiating bridge transfer...');
+    // Calculate max fee and build callData for deposit for burn
     // Always use Fast Transfer (1000) — Standard Transfer (2000) takes 13+ minutes.
     const minFinalityThreshold = 1000;
     const maxFee = await calculateMaxFee(sourceChain, amountUSDC, destChain, minFinalityThreshold);
 
-    const callData = destChain === 'stellar'
+    const depositCallData = destChain === 'stellar'
       ? encodeFunctionData({
           abi: TOKEN_MESSENGER_ABI,
           functionName: 'depositForBurnWithHook',
@@ -232,17 +392,31 @@ export async function executeSmartBridge(
           ],
         });
 
-    const bridgeOpHash = await bundlerClient.sendUserOperation({
-      account,
-      calls: [{
-        to: TOKEN_MESSENGER_V2 as `0x${string}`,
-        data: callData,
-      }],
-      maxFeePerGas,
-      maxPriorityFeePerGas,
-      paymaster: true,
-      paymasterContext: policyId ? { policyId } : undefined,
-    });
+    toast.info('Initiating bridge transfer...');
+    const bridgeOpHash = await sendWithAdaptiveVerificationGas(sourceChain, (verificationGasLimit) =>
+      bundlerClient.sendUserOperation({
+        account,
+        calls: [
+          {
+            to: usdcAddress as `0x${string}`,
+            data: encodeFunctionData({
+              abi: ERC20_ABI,
+              functionName: 'approve',
+              args: [TOKEN_MESSENGER_V2 as `0x${string}`, amountRaw],
+            }),
+          },
+          {
+            to: TOKEN_MESSENGER_V2 as `0x${string}`,
+            data: depositCallData,
+          },
+        ],
+        maxFeePerGas,
+        maxPriorityFeePerGas,
+        verificationGasLimit,
+        paymaster: true,
+        paymasterContext: policyId ? { policyId } : undefined,
+      }),
+    );
 
     toast.info('Bridge transaction sent! Finalizing...');
 
@@ -358,30 +532,44 @@ export async function executeReceiveMessage(
     }
   }
 
-  // Fallback for Ethereum mainnet L1 and Avalanche since gas sponsorship/bundlers are not supported/feasible there.
-  // This submits the transaction directly from the user's Privy EOA wallet and triggers the Privy wallet confirmation.
-  if (destChain === 'ethereum' || destChain === 'avalanche') {
-    const { createWalletClient, custom } = await import('viem');
-    const [eoaAddress] = await ethereumProvider.request({
-      method: 'eth_requestAccounts',
-    }) as `0x${string}`[];
+  // Ethereum mainnet is the one destination we cannot sponsor: Circle's modular
+  // bundler answers "the specified blockchain is either not supported or deprecated"
+  // for it, on every slug. The only path that ever worked was claiming directly from
+  // the user's Privy EOA with the user paying L1 gas — which can cost more than the
+  // transfer itself, so it is disabled rather than offered.
+  //
+  // L1 is filtered out of the bridge UI on both sides (see BRIDGE_DISABLED_CHAINS), so
+  // this is only reachable by a burn made before that gate went in. Fail with the real
+  // reason instead of falling through to the bundler's opaque "not supported" error.
+  //
+  // To re-enable: restore the block below *and* drop 'ethereum' from
+  // BRIDGE_DISABLED_CHAINS in lib/circle/gateway.ts. Both are needed.
+  if (destChain === 'ethereum') {
+    throw new Error(
+      'Claiming to Ethereum is temporarily unavailable. Your funds are safe and the transfer stays claimable — please contact support.',
+    );
 
-    const walletClient = createWalletClient({
-      chain: VIEM_CHAINS[destChain],
-      transport: custom(ethereumProvider),
-    });
-
-    const hash = await walletClient.writeContract({
-      address: MESSAGE_TRANSMITTER as `0x${string}`,
-      abi: MESSAGE_TRANSMITTER_ABI,
-      functionName: 'receiveMessage',
-      args: [
-        (messageHex.startsWith('0x') ? messageHex : `0x${messageHex}`) as `0x${string}`,
-        (attestationHex.startsWith('0x') ? attestationHex : `0x${attestationHex}`) as `0x${string}`,
-      ],
-      account: eoaAddress,
-    });
-    return hash;
+    // const { createWalletClient, custom } = await import('viem');
+    // const [eoaAddress] = await ethereumProvider.request({
+    //   method: 'eth_requestAccounts',
+    // }) as `0x${string}`[];
+    //
+    // const walletClient = createWalletClient({
+    //   chain: VIEM_CHAINS[destChain],
+    //   transport: custom(ethereumProvider),
+    // });
+    //
+    // const hash = await walletClient.writeContract({
+    //   address: MESSAGE_TRANSMITTER as `0x${string}`,
+    //   abi: MESSAGE_TRANSMITTER_ABI,
+    //   functionName: 'receiveMessage',
+    //   args: [
+    //     (messageHex.startsWith('0x') ? messageHex : `0x${messageHex}`) as `0x${string}`,
+    //     (attestationHex.startsWith('0x') ? attestationHex : `0x${attestationHex}`) as `0x${string}`,
+    //   ],
+    //   account: eoaAddress,
+    // });
+    // return hash;
   }
 
   // getCircleClient calls eth_requestAccounts internally — Privy providers can return []
@@ -428,35 +616,34 @@ export async function executeReceiveMessage(
     if (mintTx) return mintTx;
     return 'N/A'; // fallback mock hash
   }
-  const feeData = await standardRpcClient.estimateFeesPerGas().catch(() => null);
-  const defaultPriorityFee = destChain === 'polygon' ? 30_000_000_000n : 1_000_000n;
-  const defaultMaxFee = destChain === 'polygon' ? 35_000_000_000n : undefined;
+  // Same underpricing that stalled the burn side would strand a claim — and a stalled
+  // claim is worse, because the USDC is already burned by then.
+  const { maxFeePerGas, maxPriorityFeePerGas } = await sponsoredUserOpFees(
+    bundlerClient,
+    standardRpcClient,
+    destChain,
+  );
 
-  const maxPriorityFeePerGas = feeData?.maxPriorityFeePerGas 
-    ? feeData.maxPriorityFeePerGas 
-    : defaultPriorityFee;
-
-  const maxFeePerGas = feeData?.maxFeePerGas 
-    ? feeData.maxFeePerGas 
-    : defaultMaxFee;
-
-    const userOpHash = await bundlerClient.sendUserOperation({
-      account,
-      calls: [
-        {
-          to: MESSAGE_TRANSMITTER as `0x${string}`,
-          data: encodeFunctionData({
-            abi: MESSAGE_TRANSMITTER_ABI,
-            functionName: 'receiveMessage',
-            args: [normalizedMessage, normalizedAttestation],
-          }),
-        },
-      ],
-      maxFeePerGas,
-      maxPriorityFeePerGas,
-      paymaster: true,
-      ...(policyId ? { paymasterContext: { policyId } } : {}),
-    });
+    const userOpHash = await sendWithAdaptiveVerificationGas(destChain, (verificationGasLimit) =>
+      bundlerClient.sendUserOperation({
+        account,
+        calls: [
+          {
+            to: MESSAGE_TRANSMITTER as `0x${string}`,
+            data: encodeFunctionData({
+              abi: MESSAGE_TRANSMITTER_ABI,
+              functionName: 'receiveMessage',
+              args: [normalizedMessage, normalizedAttestation],
+            }),
+          },
+        ],
+        maxFeePerGas,
+        maxPriorityFeePerGas,
+        verificationGasLimit,
+        paymaster: true,
+        ...(policyId ? { paymasterContext: { policyId } } : {}),
+      }),
+    );
 
     // Poll both standard RPC client (processedMessages) and bundler client (with timeout) for instant, hang-free resolution
     const deadline = Date.now() + 15_000; // Poll for max 15 seconds to avoid freezing the UI
@@ -477,15 +664,32 @@ export async function executeReceiveMessage(
       );
 
       if (isProcessedNow) {
-        console.log('[executeReceiveMessage] Message processed on-chain during polling. Returning userOpHash.');
-        return userOpHash;
+        // Delivered — but a userOpHash is not a transaction hash, and storing one puts a
+        // value in mint_tx_hash that no explorer will resolve. Find the real one.
+        const mintTx = await findMintTxHash(standardRpcClient, normalizedMessage, MESSAGE_TRANSMITTER);
+        if (mintTx) return mintTx;
       }
 
       await new Promise((r) => setTimeout(r, 2000));
     }
 
-    console.log('[executeReceiveMessage] Polling timed out. Returning userOpHash in-flight.');
-    return userOpHash;
+    // The fast poll is capped so the UI doesn't freeze, but giving up there is what left
+    // rows holding a userOpHash. Spend a little longer on the authoritative source (the
+    // bundler receipt), then fall back to the delivery log.
+    console.log('[executeReceiveMessage] Fast poll elapsed; resolving the real mint tx hash…');
+    const resolved = await resolveUserOpToTxHash(bundlerClient, userOpHash, 45_000).catch(
+      () => null,
+    );
+    if (resolved) return resolved;
+
+    const recovered = await findMintTxHash(standardRpcClient, normalizedMessage, MESSAGE_TRANSMITTER);
+    if (recovered) return recovered;
+
+    // Never return `userOpHash` here. 'N/A' means "delivered, hash unknown", which the
+    // callers already understand — the pending-claims reconciler will fill in the real
+    // hash on a later pass rather than the row being frozen with a bogus one.
+    console.warn('[executeReceiveMessage] Could not resolve a mint tx hash yet.');
+    return 'N/A';
   } catch (error) {
     if (standardRpcClient) {
       const isProcessedNow = await isMessageDelivered(

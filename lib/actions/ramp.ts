@@ -1,6 +1,7 @@
 "use server";
 
 import { Ramp } from "@/lib/ramp";
+import { isBridgeable } from "@/lib/circle/gateway";
 import { applyFee, getProviderFee, resolveFeeTreasury } from "@/lib/ramp/fees";
 import { kycGuard } from "@/lib/kyc/guard";
 import type {
@@ -439,12 +440,17 @@ export async function getCurrencies() {
 /**
  * Chains the active off-ramp provider can settle USDC on. Drives withdrawal routing
  * dynamically instead of a hardcoded network list.
+ *
+ * The provider's list states what *it* supports; the filter states what *we* enable.
+ * Ethereum L1 is off (see BRIDGE_DISABLED_CHAINS in lib/circle/gateway), and since we
+ * no longer track L1 balances it must not reach the withdrawal source picker either.
  */
 export async function getRampNetworks(): Promise<string[]> {
+  const FALLBACK = ["base", "polygon" /* , "ethereum" */];
   try {
-    const networks = await Ramp.getSettlementNetworks();
-    return networks.length > 0 ? networks : ["base", "polygon", "ethereum"];
+    const networks = (await Ramp.getSettlementNetworks()).filter(isBridgeable);
+    return networks.length > 0 ? networks : FALLBACK;
   } catch {
-    return ["base", "polygon", "ethereum"];
+    return FALLBACK;
   }
 }

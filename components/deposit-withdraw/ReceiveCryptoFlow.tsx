@@ -17,16 +17,21 @@ import { truncateAddress } from '@/lib/utils';
 import { ArrowRight, Copy, Loader2 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { ChainLogo } from './ChainLogo';
+import { useStellarSigner } from '@/hooks/useStellarSigner';
+import { useQueryClient } from '@tanstack/react-query';
 
 type Rail = 'evm' | 'solana' | 'stellar';
 
 // EVM networks the single smart-account address can receive on (shared CREATE2 address).
+// Ethereum L1 commented out — see BRIDGE_DISABLED_CHAINS in lib/circle/gateway. Deposits
+// there would be tracked nowhere and movable by nothing, so we don't advertise the
+// network even though the address itself can still technically receive on it.
 const EVM_NETWORKS: { key: string; name: string }[] = [
   { key: 'base', name: 'Base' },
-  { key: 'ethereum', name: 'Ethereum' },
+  // { key: 'ethereum', name: 'Ethereum' },
   { key: 'polygon', name: 'Polygon' },
   { key: 'arbitrum', name: 'Arbitrum' },
   { key: 'optimism', name: 'Optimism' },
@@ -53,15 +58,21 @@ export function ReceiveCryptoFlow({
   const [rail, setRail] = useState<Rail>('evm');
   const [localTrustlineReady, setLocalTrustlineReady] = useState<boolean | undefined>(undefined);
   const [isRetrying, setIsRetrying] = useState(false);
+  const { grantServerSigner } = useStellarSigner();
+  const queryClient = useQueryClient();
 
   const isTrustlineReady = localTrustlineReady !== undefined ? localTrustlineReady : stellarTrustlineReady;
 
   const address = rail === 'evm' ? evmAddress : rail === 'solana' ? solanaAddress ?? '' : stellarAddress ?? '';
 
-  const handleRetry = async () => {
-    if (!userId || !userEmail) return;
+  const handleRetry = useCallback(async () => {
+    if (!userId || !userEmail || !stellarAddress) return;
     setIsRetrying(true);
     try {
+      // Step 1: Ensure server signer permission is granted on client side
+      await grantServerSigner(stellarAddress);
+
+      // Step 2: Trigger server-side provisioner to activate account + add USDC trustline
       const res = await fetch('/api/stellar/provision', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -71,6 +82,7 @@ export function ReceiveCryptoFlow({
         const data = await res.json();
         if (data.trustlineReady) {
           setLocalTrustlineReady(true);
+          queryClient.invalidateQueries({ queryKey: ['stellar-wallet', userId] });
           toast.success("USDC trustline configured successfully!");
         } else {
           console.warn("Trustline setup is still pending on-chain.");
@@ -83,7 +95,14 @@ export function ReceiveCryptoFlow({
     } finally {
       setIsRetrying(false);
     }
-  };
+  }, [userId, userEmail, stellarAddress, grantServerSigner, queryClient]);
+
+  // Auto-heal: If user clicks Stellar tab and trustline is not ready, trigger setup immediately in background!
+  useEffect(() => {
+    if (rail === 'stellar' && !isTrustlineReady && userId && userEmail && stellarAddress && !isRetrying) {
+      handleRetry();
+    }
+  }, [rail, isTrustlineReady, userId, userEmail, stellarAddress, isRetrying, handleRetry]);
 
   const copy = () => {
     if (!address) return;

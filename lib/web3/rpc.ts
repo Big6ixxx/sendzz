@@ -36,7 +36,7 @@ export const PUBLIC_RPCS: Record<string, string[]> = {
   ],
   optimism: ['https://optimism-rpc.publicnode.com', 'https://mainnet.optimism.io'],
   polygon: ['https://polygon-bor-rpc.publicnode.com'],
-  base: ['https://base-rpc.publicnode.com', 'https://mainnet.base.org'],
+  base: ['https://mainnet.base.org', 'https://base.llamarpc.com', 'https://base-rpc.publicnode.com', 'https://1rpc.io/base'],
 };
 
 /**
@@ -65,8 +65,8 @@ export function rpcUrls(chain: string): string[] {
   const key = chain.toLowerCase();
   const urls = [
     overrideUrl(key),
-    alchemyUrl(key),
     ...(PUBLIC_RPCS[key] ?? []),
+    alchemyUrl(key),
   ].filter((u): u is string => !!u);
 
   if (urls.length === 0) {
