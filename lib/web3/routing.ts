@@ -16,20 +16,23 @@
 
 import { type SupportedChain } from '../circle/gateway';
 
-/** The EVM chains a Circle smart account can transact on (shared CREATE2 address). */
+/**
+ * The EVM chains a Circle smart account can transact on (shared CREATE2 address).
+ * Ethereum L1 is commented out — see BRIDGE_DISABLED_CHAINS in lib/circle/gateway.
+ */
 export const EVM_CHAINS: SupportedChain[] = [
   'base',
   'polygon',
   'arbitrum',
   'optimism',
   'avalanche',
-  'ethereum',
+  // 'ethereum',
 ];
 
 /**
- * Spend preference, cheapest/fastest first. Ethereum L1 is last (highest real cost
- * even when gas is sponsored, and slowest finality). The home chain is hoisted to the
- * front by the planner.
+ * Spend preference, cheapest/fastest first. The home chain is hoisted to the front by
+ * the planner. Ethereum L1 sat last here (highest real cost even when gas is sponsored,
+ * and slowest finality) before it was switched off.
  */
 const SPEND_PRIORITY: SupportedChain[] = [
   'base',
@@ -37,7 +40,7 @@ const SPEND_PRIORITY: SupportedChain[] = [
   'arbitrum',
   'optimism',
   'avalanche',
-  'ethereum',
+  // 'ethereum',
 ];
 
 export type ChainBalances = Partial<Record<SupportedChain, number>>;
@@ -83,8 +86,11 @@ export interface SolanaSource {
   }) => Promise<string>;
 }
 
-/** Chains the fiat on/off-ramp can settle USDC on (source + destination). */
-export const RAMP_NETWORKS: SupportedChain[] = ['base', 'polygon', 'ethereum'];
+/**
+ * Chains the fiat on/off-ramp can settle USDC on (source + destination).
+ * Ethereum L1 commented out — see BRIDGE_DISABLED_CHAINS in lib/circle/gateway.
+ */
+export const RAMP_NETWORKS: SupportedChain[] = ['base', 'polygon' /* , 'ethereum' */];
 
 export interface RouteLeg {
   chain: SupportedChain;

@@ -9,32 +9,22 @@
  *
  * Each destination family needs a different mechanism:
  *   EVM     — user signs `receiveMessage` on the MessageTransmitter (gasless via AA)
- *   Solana  — build `receiveMessage`, have the server sponsor the fee, user signs
+ *   Solana  — server builds, signs and submits `receiveMessage` (sponsor pays)
  *   Stellar — server calls `mint_and_forward` on the Soroban forwarder (sponsor pays)
  */
 
-import { Buffer } from 'buffer';
-import { Connection, PublicKey, Transaction } from '@solana/web3.js';
 import type { ConnectedWallet } from '@privy-io/react-auth';
-import { buildReceiveMessageOnSolanaTx } from '@/lib/circle/solana-gateway';
 import { executeReceiveMessage } from '@/lib/web3/bridge-actions';
 import type { SupportedChain } from '@/lib/circle/gateway';
-
-/** Signs a Solana transaction and returns the raw signed bytes. */
-export type SolanaTxSigner = (tx: Transaction) => Promise<Uint8Array>;
 
 export interface BridgeClaimParams {
   destChain: string;
   messageBytes: string;
   attestation: string;
-  /** Required for Solana destinations. */
-  connection?: Connection;
   /** Required for EVM destinations. */
   embeddedWallet?: ConnectedWallet | null;
-  /** Required for Solana destinations. */
+  /** Required for Solana destinations — only the address; the server signs. */
   solanaWallet?: { address: string } | null;
-  /** Required for Solana destinations. */
-  signSolanaTx?: SolanaTxSigner;
   /** Required for Stellar destinations. */
   stellarWallet?: { walletId: string; address: string } | null;
   /** Required for Stellar destinations — the server re-fetches the attestation itself. */
@@ -84,48 +74,37 @@ export async function claimBridgeOnDestination(
   throw new Error(`Claiming to ${params.destChain} is not supported.`);
 }
 
-async function claimOnSolana(params: BridgeClaimParams): Promise<string> {
-  const { connection, solanaWallet, signSolanaTx, messageBytes, attestation } = params;
-  if (!connection || !solanaWallet || !signSolanaTx) {
+/**
+ * Delivering the message needs no wallet signature — see `/api/bridge/solana-claim`
+ * — so the whole claim is one server call. That also means it survives the tab
+ * closing mid-claim, which the previous browser-side sponsor/sign/submit dance
+ * did not.
+ */
+async function claimOnSolana(params: BridgeClaimParams): Promise<string | undefined> {
+  const { solanaWallet, messageBytes, attestation, burnTxHash, sourceChain } = params;
+  if (!solanaWallet) {
     throw new Error('Solana wallet not ready. Please wait a moment and try again.');
   }
 
-  const { transaction } = await buildReceiveMessageOnSolanaTx(
-    connection,
-    new PublicKey(solanaWallet.address),
-    messageBytes,
-    attestation,
-  );
-
-  const txBase64 = transaction
-    .serialize({ requireAllSignatures: false, verifySignatures: false })
-    .toString('base64');
-
-  const sponsorRes = await fetch('/api/bridge/solana-sponsor', {
+  const res = await fetch('/api/bridge/solana-claim', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ transaction: txBase64 }),
+    body: JSON.stringify({
+      burnTxHash,
+      sourceChain,
+      solanaAddress: solanaWallet.address,
+      messageBytes,
+      attestation,
+    }),
   });
-  if (!sponsorRes.ok) {
-    const errData = await sponsorRes.json().catch(() => ({}));
-    throw new Error(errData.error || 'Failed to sponsor Solana claim transaction');
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || 'Failed to claim on Solana');
   }
-
-  const { sponsoredTransaction } = await sponsorRes.json();
-  const sponsoredTx = Transaction.from(Buffer.from(sponsoredTransaction, 'base64'));
-  const signedBytes = await signSolanaTx(sponsoredTx);
-
-  const signature = await connection.sendRawTransaction(signedBytes, {
-    skipPreflight: false,
-    preflightCommitment: 'confirmed',
-  });
-  const lb = await connection.getLatestBlockhash();
-  await connection.confirmTransaction(
-    { signature, blockhash: lb.blockhash, lastValidBlockHeight: lb.lastValidBlockHeight },
-    'confirmed',
-  );
-
-  return signature;
+  // Already delivered — the caller reconciles this the same way it does on EVM.
+  if (data.alreadyClaimed) return undefined;
+  return data.txHash;
 }
 
 async function claimOnStellar(params: BridgeClaimParams): Promise<string> {
@@ -157,9 +136,25 @@ async function claimOnEvm(
   params: BridgeClaimParams,
   dest: SupportedChain,
 ): Promise<string | undefined> {
-  const { embeddedWallet, messageBytes, attestation } = params;
+  const { embeddedWallet, burnTxHash, sourceChain } = params;
+  let { messageBytes, attestation } = params;
+
   if (!embeddedWallet) {
     throw new Error('Embedded wallet not found. Please wait a moment and try again.');
+  }
+
+  // If attestation is missing or stale, fetch a fresh attestation directly from Circle Iris API
+  if (!attestation || !messageBytes || attestation.length < 10) {
+    if (burnTxHash && sourceChain) {
+      console.log(`[claimOnEvm] Fetching fresh Circle attestation for ${sourceChain} burn ${burnTxHash}...`);
+      const { fetchAttestation } = await import('@/lib/circle/gateway');
+      const fresh = await fetchAttestation(sourceChain as SupportedChain, burnTxHash);
+      if (fresh.status !== 'complete' || !fresh.attestation || !fresh.messageBytes) {
+        throw new Error('Circle is still verifying this transfer. Please try again in 1–2 minutes.');
+      }
+      attestation = fresh.attestation;
+      messageBytes = fresh.messageBytes;
+    }
   }
 
   const hash = await executeReceiveMessage(embeddedWallet, messageBytes, attestation, dest);

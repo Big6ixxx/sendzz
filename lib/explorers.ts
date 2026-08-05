@@ -44,6 +44,7 @@ export function isPlaceholderHash(hash: string | null | undefined): boolean {
   return (
     clean === '' ||
     clean === 'n/a' ||
+    clean === 'confirmed_on_chain' ||
     clean === PLACEHOLDER_TX_HASH
   );
 }

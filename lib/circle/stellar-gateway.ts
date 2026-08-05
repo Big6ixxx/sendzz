@@ -27,6 +27,7 @@ import {
 } from '@stellar/stellar-sdk';
 import { rpc as SorobanRpc } from '@stellar/stellar-sdk';
 import { type AttestationResponse, type AttestationStatus } from './gateway';
+import { solanaMintRecipientBytes32 } from './solana-gateway';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -104,14 +105,21 @@ async function loadAccountFromRpc(
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Encode an EVM address as a 32-byte BytesN ScVal for CCTP.
- * EVM addresses are 20 bytes; CCTP uses 32-byte fields (left-padded with zeros).
+ * Encode a destination address as a 32-byte BytesN ScVal for CCTP.
+ *
+ * EVM addresses are 20 bytes, left-padded with zeros. Solana destinations encode the
+ * recipient's USDC *token account* rather than their wallet — see
+ * `solanaMintRecipientBytes32`.
  */
-function evmAddressToScValBytes32(evmAddress: string): xdr.ScVal {
-  const buf = Buffer.alloc(32, 0);
-  const addrHex = evmAddress.replace(/^0x/i, '');
-  Buffer.from(addrHex.padStart(40, '0'), 'hex').copy(buf, 12);
-  return xdr.ScVal.scvBytes(buf);
+function recipientToScValBytes32(address: string): xdr.ScVal {
+  if (address.startsWith('0x')) {
+    const buf = Buffer.alloc(32, 0);
+    const addrHex = address.replace(/^0x/i, '');
+    Buffer.from(addrHex.padStart(40, '0'), 'hex').copy(buf, 12);
+    return xdr.ScVal.scvBytes(buf);
+  }
+  const hex = solanaMintRecipientBytes32(address).replace(/^0x/i, '');
+  return xdr.ScVal.scvBytes(Buffer.from(hex, 'hex'));
 }
 
 /**
@@ -170,7 +178,7 @@ export async function buildStellarDepositForBurnTx(
 
   // mintRecipient: BytesN<32> — for Stellar → EVM, this is always the
   // user's EVM address left-padded to 32 bytes.
-  const mintRecipientScVal = evmAddressToScValBytes32(evmRecipient);
+  const mintRecipientScVal = recipientToScValBytes32(evmRecipient);
 
   console.log('[StellarGateway] buildStellarDepositForBurnTx: amount subunits =', amountSubunits.toString(), '| maxFee subunits =', maxFeeSubunits.toString());
   const server = new SorobanRpc.Server(STELLAR_RPC_URL);

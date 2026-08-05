@@ -2,16 +2,8 @@
 
 import { use, useEffect, useState, useMemo } from 'react';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
-import {
-  useSignTransaction,
-  useWallets as useSolanaWallets,
-} from '@privy-io/react-auth/solana';
-import { Connection, PublicKey, Transaction } from '@solana/web3.js';
-import { buildReceiveMessageOnSolanaTx } from '@/lib/circle/solana-gateway';
+import { useWallets as useSolanaWallets } from '@privy-io/react-auth/solana';
 import Link from 'next/link';
-
-const SOLANA_RPC =
-  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com';
 import { format } from 'date-fns';
 import {
   ArrowDownLeft,
@@ -130,7 +122,6 @@ export default function ActivityDetailPage({
   const { user } = usePrivy();
   const { wallets } = useWallets();
   const { wallets: solanaWallets } = useSolanaWallets();
-  const { signTransaction } = useSignTransaction();
   const userEmail = user?.email?.address || '';
   const queryClient = useQueryClient();
 
@@ -434,27 +425,22 @@ export default function ActivityDetailPage({
           const solWallet = solAddress ? solanaWallets.find((w) => w.address === solAddress) : null;
           if (!solWallet || !solAddress) throw new Error('Solana wallet not found.');
 
-          const walletPubkey = new PublicKey(solAddress);
-          const solConn = new Connection(SOLANA_RPC, 'confirmed');
-          const { transaction } = await buildReceiveMessageOnSolanaTx(solConn, walletPubkey, data.messageBytes!, data.attestation!);
-          const txBase64 = transaction.serialize({ requireAllSignatures: false, verifySignatures: false }).toString('base64');
-          const sponsorRes = await fetch('/api/bridge/solana-sponsor', {
+          // The sponsor builds, signs and submits — the user pays nothing and
+          // signs nothing. See /api/bridge/solana-claim.
+          const claimRes = await fetch('/api/bridge/solana-claim', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transaction: txBase64 }),
+            body: JSON.stringify({
+              burnTxHash: activity.txHash,
+              sourceChain,
+              solanaAddress: solAddress,
+              messageBytes: data.messageBytes,
+              attestation: data.attestation,
+            }),
           });
-          if (!sponsorRes.ok) {
-            const errData = await sponsorRes.json().catch(() => ({}));
-            throw new Error(errData.error || 'Failed to sponsor Solana claim transaction');
-          }
-          const { sponsoredTransaction } = await sponsorRes.json();
-          const sponsoredTx = Transaction.from(Buffer.from(sponsoredTransaction, 'base64'));
-          toast.info('Approve the popup to claim USDC on Solana.');
-          const { signedTransaction: signedBytes } = await signTransaction({ transaction: sponsoredTx.serialize({ requireAllSignatures: false }), wallet: solWallet });
-          const signature = await solConn.sendRawTransaction(signedBytes, { skipPreflight: false, preflightCommitment: 'confirmed' });
-          const lb = await solConn.getLatestBlockhash();
-          await solConn.confirmTransaction({ signature, blockhash: lb.blockhash, lastValidBlockHeight: lb.lastValidBlockHeight }, 'confirmed');
-          mintTxHash = signature;
+          const claimData = await claimRes.json().catch(() => ({}));
+          if (!claimRes.ok) throw new Error(claimData.error || 'Failed to claim on Solana');
+          mintTxHash = claimData.txHash;
         }
       }
 

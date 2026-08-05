@@ -12,26 +12,19 @@
  * listed here stays valid indefinitely and can be retried as many times as needed.
  */
 
-import { claimBridgeOnDestination, type SolanaTxSigner } from "@/lib/web3/bridge-claim";
+import { claimBridgeOnDestination } from "@/lib/web3/bridge-claim";
 import { classifyAppError } from "@/lib/errors/appErrors";
 import { getPendingBridgeClaims } from "@/lib/supabase/transactions";
 import { CHAIN_NAMES } from "@/lib/circle/gateway";
 import { cn } from "@/lib/utils";
 import type { PendingBridgeClaim } from "@/types/bridge";
-import { Connection } from "@solana/web3.js";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
-import {
-  useSignTransaction,
-  useWallets as useSolanaWallets,
-} from "@privy-io/react-auth/solana";
+import { useWallets as useSolanaWallets } from "@privy-io/react-auth/solana";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, CircleDollarSign, Clock, Loader2 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
-
-const SOLANA_RPC =
-  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com";
 
 const CHAIN_LABELS: Record<string, string> = {
   ...CHAIN_NAMES,
@@ -56,9 +49,7 @@ export function PendingBridgeClaims({
   const { user } = usePrivy();
   const { wallets } = useWallets();
   const { wallets: solanaWallets } = useSolanaWallets();
-  const { signTransaction } = useSignTransaction();
   const queryClient = useQueryClient();
-  const solConn = useRef(new Connection(SOLANA_RPC, "confirmed"));
 
   const [claimingId, setClaimingId] = useState<string | null>(null);
 
@@ -89,26 +80,18 @@ export function PendingBridgeClaims({
       // The server signer grant is owned by useStellarWallet and is already in place by
       // the time `stellarWallet` is populated — re-granting here would just make Privy
       // reject a duplicate. If it somehow isn't granted, the claim route says so.
-      const signSolanaTx: SolanaTxSigner = async (tx) => {
-        const { signedTransaction } = await signTransaction({
-          transaction: tx.serialize({ requireAllSignatures: false }),
-          wallet: embeddedSolWallet!,
-        });
-        return signedTransaction as Uint8Array;
-      };
-
       const mintTxHash = await claimBridgeOnDestination({
         destChain: claim.destChain,
         sourceChain: claim.sourceChain,
         burnTxHash: claim.burnTxHash,
         messageBytes: claim.messageBytes ?? "",
         attestation: claim.attestation ?? "",
-        connection: solConn.current,
         embeddedWallet,
         solanaWallet: embeddedSolWallet,
-        signSolanaTx,
         stellarWallet,
       });
+
+      console.log(`[PendingBridgeClaims] 🎉 Mint transaction hash for claim (${claim.burnTxHash}):`, mintTxHash);
 
       await fetch("/api/bridge/complete", {
         method: "POST",
@@ -125,6 +108,8 @@ export function PendingBridgeClaims({
         await fetch("/api/bridge/complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          // No hash to report — send none rather than a sentinel. The reconciler in
+          // getPendingBridgeClaims recovers the real one from the delivery log.
           body: JSON.stringify({ burnTxHash: claim.burnTxHash }),
         }).catch(console.error);
         toast.success("This transfer has already arrived. Refreshing your balance...");

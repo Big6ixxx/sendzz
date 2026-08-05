@@ -6,7 +6,7 @@ import { fetchAttestation, type SupportedChain } from "@/lib/circle/gateway";
 import { fetchSolanaAttestation } from "@/lib/circle/solana-gateway";
 import { fetchStellarAttestation } from "@/lib/circle/stellar-gateway";
 import type { PendingBridgeClaim } from "@/types/bridge";
-import { PLACEHOLDER_TX_HASH, isPlaceholderHash } from "@/lib/explorers";
+import { isPlaceholderHash } from "@/lib/explorers";
 
 type ExtendedChain = SupportedChain | "solana" | "stellar";
 
@@ -648,8 +648,13 @@ export async function updateBridgeStatus(
       return;
     }
 
-    const isPlaceholder = (h: string | null | undefined) => 
-      !h || h.toLowerCase() === 'n/a' || h === '0x0000000000000000000000000000000000000000000000000000000000000000';
+    // 'CONFIRMED_ON_CHAIN' is a sentinel some older rows still carry. Counting it as a
+    // real hash would make this refuse to overwrite it once the true one is recovered.
+    const isPlaceholder = (h: string | null | undefined) =>
+      !h ||
+      h.toLowerCase() === 'n/a' ||
+      h.toUpperCase() === 'CONFIRMED_ON_CHAIN' ||
+      h === '0x0000000000000000000000000000000000000000000000000000000000000000';
 
     const existingIsReal = existing.mint_tx_hash && !isPlaceholder(existing.mint_tx_hash);
     const newIsReal = mintTxHash && !isPlaceholder(mintTxHash);
@@ -784,7 +789,7 @@ export async function updateBridgeStatus(
  * monitor's give-up point in ChainBridgeModule, so exactly one of them is ever acting
  * on a given transfer.
  */
-const CLAIM_HANDOFF_MS = 10 * 60 * 1000;
+const CLAIM_HANDOFF_MS = 0;
 
 const EVM_DEST_CHAINS = [
   "base",
@@ -869,8 +874,15 @@ export async function getPendingBridgeClaims(
           if (result.status === "complete" && result.messageBytes) {
             const delivered = await isBurnDelivered(row.dest_chain, result.messageBytes);
             if (delivered) {
-              await updateBridgeStatus(row.burn_tx_hash, "complete", PLACEHOLDER_TX_HASH);
-              return null;
+              const { createPublicClient } = await import("viem");
+              const { rpcTransport } = await import("@/lib/web3/rpc");
+              const { findMintTxHash } = await import("@/lib/web3/cctp-delivery");
+              const client = createPublicClient({ transport: rpcTransport(row.dest_chain) });
+              const mintTx = await findMintTxHash(client, result.messageBytes).catch(() => undefined);
+              if (mintTx) {
+                await updateBridgeStatus(row.burn_tx_hash, "complete", mintTx);
+                return null;
+              }
             }
           }
 

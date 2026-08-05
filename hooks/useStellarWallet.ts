@@ -57,12 +57,13 @@ export function useStellarWallet(options?: { enabled?: boolean }) {
       };
 
       const wallet = await provision();
-      if (!wallet || wallet.signerGranted) return wallet;
+      if (!wallet || (wallet.signerGranted && wallet.trustlineReady)) return wallet;
 
-      // First run for this wallet — grant the server, then re-provision so the trustline
-      // setup (which needs that grant) can actually run.
-      const granted = await grantServerSigner(wallet.address);
-      return granted ? ((await provision()) ?? wallet) : wallet;
+      // If signer is not granted, grant it now; then re-provision so trustline setup runs.
+      if (!wallet.signerGranted) {
+        await grantServerSigner(wallet.address);
+      }
+      return (await provision()) ?? wallet;
     },
     enabled: (options?.enabled ?? true) && !!privyUserId && !!email,
     staleTime: STALE_MS,

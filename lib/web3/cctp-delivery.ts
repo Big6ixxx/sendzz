@@ -64,8 +64,19 @@ const MESSAGE_RECEIVED_V2 = {
   ],
 } as const;
 
-/** How far back to look for the delivery. Ample for a mint we just watched land. */
-const LOG_LOOKBACK_BLOCKS = 50_000n;
+/**
+ * How far back to hunt for the delivery event.
+ *
+ * This was briefly dropped to 50 blocks because some public nodes cap `eth_getLogs` at a
+ * 50-block span. That silently broke mint-hash recovery: 50 blocks is under two minutes
+ * on most of these chains, so any claim not looked up almost immediately came back
+ * "delivered, hash unknown" and the row was completed with a placeholder instead of a
+ * real hash. The cap is a per-request span limit, not a history limit, so the fix is to
+ * ask for a wide range first and fall back to walking it in cap-sized windows.
+ */
+const LOG_WIDE_LOOKBACK_BLOCKS = 10_000n;
+const LOG_WINDOW_BLOCKS = 50n;
+const LOG_WINDOW_ATTEMPTS = 40n; // 40 x 50 = 2,000 blocks when windowing is forced
 
 /**
  * The transaction that minted this message on the destination chain, if we can find it.
@@ -81,22 +92,57 @@ export async function findMintTxHash(
   const nonce = extractCctpNonce(messageHex);
   if (!nonce) return undefined;
 
-  try {
-    const latest = await client.getBlockNumber();
-    const fromBlock = latest > LOG_LOOKBACK_BLOCKS ? latest - LOG_LOOKBACK_BLOCKS : 0n;
-
+  const query = async (fromBlock: bigint, toBlock: bigint) => {
     const logs = await client.getLogs({
       address: transmitter as `0x${string}`,
       event: MESSAGE_RECEIVED_V2,
       args: { nonce },
       fromBlock,
-      toBlock: latest,
+      toBlock,
     });
     return logs[0]?.transactionHash;
+  };
+
+  let latest: bigint;
+  try {
+    latest = await client.getBlockNumber();
   } catch (err) {
-    console.warn('[CCTP] Mint tx lookup failed:', (err as Error).message);
+    console.warn(`[CCTP/Delivery] Could not read block height: ${(err as Error).message}`);
     return undefined;
   }
+
+  const floor = (n: bigint) => (latest > n ? latest - n : 0n);
+
+  // One wide query first — most providers allow it, and it's a single round trip.
+  try {
+    const hash = await query(floor(LOG_WIDE_LOOKBACK_BLOCKS), latest);
+    if (hash) {
+      console.log(`[CCTP/Delivery] ✓ Found MessageReceivedV2 in wide scan. Tx: ${hash}`);
+      return hash;
+    }
+  } catch {
+    // Range rejected — walk it in cap-sized windows instead, newest first.
+    for (let i = 0n; i < LOG_WINDOW_ATTEMPTS; i++) {
+      const to = floor(i * LOG_WINDOW_BLOCKS);
+      const from = floor((i + 1n) * LOG_WINDOW_BLOCKS);
+      if (to === 0n) break;
+      try {
+        const hash = await query(from, to);
+        if (hash) {
+          console.log(`[CCTP/Delivery] ✓ Found MessageReceivedV2 in windowed scan. Tx: ${hash}`);
+          return hash;
+        }
+      } catch (err) {
+        console.warn(
+          `[CCTP/Delivery] Window ${from}-${to} rejected: ${(err as Error).message}`,
+        );
+        return undefined;
+      }
+    }
+  }
+
+  console.warn('[CCTP/Delivery] No MessageReceivedV2 log found in the scanned range.');
+  return undefined;
 }
 
 /**
@@ -120,9 +166,13 @@ export async function isMessageDelivered(
       functionName: 'usedNonces',
       args: [nonce],
     });
-    return used !== 0n;
+    const isDelivered = used !== 0n;
+    if (isDelivered) {
+      console.log(`[CCTP/Delivery] Nonce ${nonce} is confirmed USED on-chain.`);
+    }
+    return isDelivered;
   } catch (err) {
-    console.error('[CCTP] usedNonces lookup failed:', (err as Error).message);
+    console.error(`[CCTP/Delivery] ❌ usedNonces RPC query failed (RPC node unreachable or rate-limited): ${(err as Error).message}`);
     return false;
   }
 }

@@ -12,18 +12,13 @@
 import { ChainLogo } from "@/components/deposit-withdraw/ChainLogo";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePortfolio } from "@/hooks/usePortfolio";
-import { CHAIN_NAMES, type SupportedChain } from "@/lib/circle/gateway";
+import { CHAIN_NAMES, isBridgeable, type SupportedChain } from "@/lib/circle/gateway";
 import { EVM_CHAINS } from "@/lib/web3/routing";
 import { executeSmartBridge } from "@/lib/web3/bridge-actions";
 import { prepareSolanaBurnTx } from "@/lib/web3/solana-bridge";
-import {
-  claimBridgeOnDestination,
-  type SolanaTxSigner,
-} from "@/lib/web3/bridge-claim";
+import { claimBridgeOnDestination } from "@/lib/web3/bridge-claim";
 import { classifyAppError } from "@/lib/errors/appErrors";
 import { explorerTxUrl } from "@/lib/explorers";
-
-import { recordBridgeTransaction } from "@/lib/supabase/transactions";
 import { cn } from "@/lib/utils";
 import { useWallets } from "@privy-io/react-auth";
 import {
@@ -187,9 +182,7 @@ export function ChainBridgeModule({
                 setBridgeStep("mint_sig");
 
                 if (monitor.destChain === "solana") {
-                  toast.info(
-                    "Attestation ready! Approve the popup to receive USDC on Solana.",
-                  );
+                  toast.info("Minting USDC on Solana...");
                 } else if (monitor.destChain === "stellar") {
                   toast.info("Minting USDC on Stellar...");
                 } else {
@@ -206,24 +199,14 @@ export function ChainBridgeModule({
                 }
 
                 if (!mintHash) {
-                  const signSolanaTx: SolanaTxSigner = async (tx) => {
-                    const { signedTransaction } = await signTransaction({
-                      transaction: tx.serialize({ requireAllSignatures: false }),
-                      wallet: embeddedSolWallet!,
-                    });
-                    return signedTransaction as Uint8Array;
-                  };
-
                   mintHash = await claimBridgeOnDestination({
                     destChain: monitor.destChain,
                     sourceChain: monitor.sourceChain,
                     burnTxHash: monitor.burnTxHash,
                     messageBytes: data.messageBytes,
                     attestation: data.attestation,
-                    connection: solConn.current,
                     embeddedWallet,
                     solanaWallet: embeddedSolWallet,
-                    signSolanaTx,
                     stellarWallet,
                   });
                 }
@@ -390,10 +373,16 @@ export function ChainBridgeModule({
           body: JSON.stringify({
             walletId: stellarWallet.walletId,
             senderAddress: stellarWallet.address,
-            recipientAddress:
-              dest === "ethereum" ? embeddedWallet!.address : smartAddress,
+            // Each destination family has its own recipient. Solana was missing here,
+            // so Stellar → Solana burns encoded an EVM address as the Solana
+            // mintRecipient — a message no Solana claim could ever satisfy.
+            //
+            // Ethereum L1 disabled — restore alongside it:
+            //   : dest === "ethereum" ? embeddedWallet!.address
+            recipientAddress: dest === "solana" ? solanaAddress! : smartAddress,
             amount: amount,
             destChain: dest,
+            userEmail,
           }),
         });
         const data = await res.json();
@@ -403,8 +392,8 @@ export function ChainBridgeModule({
         if (!embeddedSolWallet) {
           throw new Error("Solana wallet not ready. Please wait a moment.");
         }
-        const recipient =
-          dest === "ethereum" ? embeddedWallet!.address : smartAddress;
+        // Ethereum L1 disabled — was: dest === "ethereum" ? embeddedWallet!.address
+        const recipient = smartAddress;
         toast.info("Preparing gasless Solana transfer...");
         const { sponsoredTx } = await prepareSolanaBurnTx({
           connection: solConn.current,
@@ -440,14 +429,13 @@ export function ChainBridgeModule({
 
         burnTxHash = signature;
       } else {
+        // Ethereum L1 disabled — was: dest === "ethereum" ? embeddedWallet!.address
         const recipient =
           dest === "stellar"
             ? stellarWallet!.address
             : dest === "solana"
               ? solanaAddress! // recipient on Solana = the user's Solana wallet (CCTP mints to their ATA)
-              : dest === "ethereum"
-                ? embeddedWallet!.address
-                : smartAddress;
+              : smartAddress;
         const { txHashPromise } = await executeSmartBridge(
           embeddedWallet!,
           source as SupportedChain,
@@ -458,12 +446,16 @@ export function ChainBridgeModule({
         burnTxHash = await txHashPromise;
       }
 
-      await recordBridgeTransaction({
-        userEmail,
-        sourceChain: source as SupportedChain,
-        destChain: dest as SupportedChain,
-        amountUsdc: amountNum,
-        burnTxHash,
+      await fetch("/api/bridge/record", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userEmail,
+          sourceChain: source,
+          destChain: dest,
+          amountUsdc: amountNum,
+          burnTxHash,
+        }),
       }).catch(console.error);
 
       setMonitor({ burnTxHash, sourceChain: source, destChain: dest });
@@ -645,36 +637,21 @@ export function ChainBridgeModule({
             </button>
           )}
         </div>
-
-        {!isDone && bridgeStep !== "burn_sig" && phase !== "submitting" && (
-          <p className="text-[10px] text-white/15">
-            You can safely close this — the bridge completes automatically.
-          </p>
-        )}
       </div>
     );
   }
 
   // ─── Form ────────────────────────────────────────────────────────────────────
   const allSources = [
-    ...EVM_CHAINS,
+    // Ethereum L1 is filtered out on both sides — see BRIDGE_DISABLED_CHAINS.
+    ...EVM_CHAINS.filter(isBridgeable),
     ...(stellarWallet?.address ? ["stellar" as const] : []),
-    ...(solanaAddress ? ["solana" as const] : []),
+    // ...(solanaAddress ? ["solana" as const] : []),
   ];
   // Sources and destinations come from the same list on purpose. Excluding a chain here
   // while still offering it below would let funds bridge in with no way to bridge out.
   const fundedSources = allSources.filter((c) => balanceOf(c) > 0);
-  const destinationChains =
-    source === "solana"
-      ? allSources.filter((c) => c !== source && c !== "stellar")
-      : source === "stellar"
-        ? allSources.filter((c) => c !== source && c !== "solana")
-        : allSources.filter((c) => {
-            if (c === source) return false;
-            // Allow Solana as dest only if the user has a Solana wallet
-            if (c === "solana" && !solanaAddress) return false;
-            return true;
-          });
+  const destinationChains = allSources.filter((c) => c !== source);
 
   return (
     <div className="card-glass p-6 sm:p-8 space-y-8">
@@ -709,20 +686,7 @@ export function ChainBridgeModule({
                 key={c}
                 onClick={() => {
                   setSource(c);
-                  if (c === "solana") {
-                    // Solana → EVM: default to Base
-                    setDest((prev) =>
-                      prev && prev !== "solana" && prev !== "stellar"
-                        ? prev
-                        : "base",
-                    );
-                  } else if (c === "stellar") {
-                    // Stellar can't go to Solana
-                    if (dest === c || dest === "solana") setDest(null);
-                  } else {
-                    // EVM source: only reset dest if it equals the new source
-                    if (dest === c) setDest(null);
-                  }
+                  if (dest === c) setDest(null);
                 }}
                 className={cn(
                   "flex items-center gap-2.5 px-3 py-3 rounded-xl border transition-all text-left",

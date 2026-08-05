@@ -21,7 +21,8 @@ import {
   SMART_BRIDGE_CHAINS,
   type SupportedChain,
 } from "@/lib/circle/gateway";
-import { recordBridgeTransaction, updateBridgeStatus } from "@/lib/supabase/transactions";
+import { isPlaceholderHash } from "@/lib/explorers";
+import { updateBridgeStatus } from "@/lib/supabase/transactions";
 import { executeSmartBridge } from "@/lib/web3/bridge-actions";
 import { prepareSolanaBurnTx } from "@/lib/web3/solana-bridge";
 import { cn } from "@/lib/utils";
@@ -139,7 +140,7 @@ export function SmartBridgeModule({
   // ─── EVM attestation monitor ─────────────────────────────────────────────
 
   useEffect(() => {
-    if (!monitoringTx || isComplete || monitoringTx.chain === "solana") return;
+    if (!monitoringTx || isComplete || monitoringTx.chain === "solana" || monitoringTx.chain === "stellar") return;
 
     let attempts = 0;
     const interval = setInterval(async () => {
@@ -196,22 +197,30 @@ export function SmartBridgeModule({
         const data = await res.json();
         if (data.status === "complete") {
           let mHash = data.mintTxHash ?? "";
-          // Solana has no CCTP auto-relayer on Base — gaslessly submit receiveMessage
-          if (!mHash && data.attestation && data.messageBytes && embeddedEvmWallet) {
+          const activeEvmWallet = embeddedEvmWallet ?? wallets.find((w) => w.walletClientType === "privy") ?? wallets[0];
+
+          if ((!mHash || mHash === 'N/A' || isPlaceholderHash(mHash)) && data.attestation && data.messageBytes && activeEvmWallet) {
             const { executeReceiveMessage } = await import("@/lib/web3/bridge-actions");
-            mHash = await executeReceiveMessage(
-              embeddedEvmWallet,
+            const resHash = await executeReceiveMessage(
+              activeEvmWallet,
               data.messageBytes,
               data.attestation,
-            );
+            ).catch(() => null);
+            if (resHash && resHash !== 'N/A' && !isPlaceholderHash(resHash)) {
+              mHash = resHash;
+            }
           }
-          setIsComplete(true);
-          setMintTxHash(mHash || null);
-          clearInterval(interval);
-          await updateBridgeStatus(monitoringTx.hash, "complete", mHash);
-          queryClient.invalidateQueries({ queryKey: ["history"] });
-          queryClient.invalidateQueries({ queryKey: ["cross-chain-balances"] });
-          toast.success("Bridge complete! USDC is now on Base.");
+
+          if (mHash && mHash !== 'N/A' && !isPlaceholderHash(mHash)) {
+            console.log(`[SmartBridgeModule] 🎉 Mint transaction hash resolved (${monitoringTx.hash}):`, mHash);
+            setIsComplete(true);
+            setMintTxHash(mHash);
+            clearInterval(interval);
+            await updateBridgeStatus(monitoringTx.hash, "complete", mHash);
+            queryClient.invalidateQueries({ queryKey: ["history"] });
+            queryClient.invalidateQueries({ queryKey: ["cross-chain-balances"] });
+            toast.success("Bridge complete! USDC is now on Base.");
+          }
         }
       } catch (err) {
         console.error("[SmartBridge] Solana monitoring error:", err);
@@ -237,25 +246,36 @@ export function SmartBridgeModule({
         const data = await res.json() as { status: string; attestation?: string; messageBytes?: string; mintTxHash?: string };
         if (data.status === "complete") {
           let mHash = data.mintTxHash ?? "";
-          if (!mHash && data.attestation && data.messageBytes && embeddedEvmWallet) {
+          const activeEvmWallet = embeddedEvmWallet ?? wallets.find((w) => w.walletClientType === "privy") ?? wallets[0];
+
+          if ((!mHash || mHash === 'N/A' || isPlaceholderHash(mHash)) && data.attestation && data.messageBytes && activeEvmWallet) {
             const { executeReceiveMessage } = await import("@/lib/web3/bridge-actions");
-            mHash = await executeReceiveMessage(
-              embeddedEvmWallet,
+            const resHash = await executeReceiveMessage(
+              activeEvmWallet,
               data.messageBytes,
               data.attestation,
-            );
+            ).catch((err) => {
+              console.error("[SmartBridge] Stellar executeReceiveMessage error:", err);
+              return null;
+            });
+            if (resHash && resHash !== 'N/A' && !isPlaceholderHash(resHash)) {
+              mHash = resHash;
+            }
           }
-          setIsComplete(true);
-          setMintTxHash(mHash || null);
-          clearInterval(interval);
-          await fetch("/api/bridge/complete", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ burnTxHash: monitoringTx.hash, mintTxHash: mHash }),
-          });
-          queryClient.invalidateQueries({ queryKey: ["history"] });
-          queryClient.invalidateQueries({ queryKey: ["cross-chain-balances"] });
-          toast.success("Stellar bridge complete! USDC is now on Base.");
+
+          if (mHash && mHash !== 'N/A' && !isPlaceholderHash(mHash)) {
+            setIsComplete(true);
+            setMintTxHash(mHash);
+            clearInterval(interval);
+            await fetch("/api/bridge/complete", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ burnTxHash: monitoringTx.hash, mintTxHash: mHash }),
+            });
+            queryClient.invalidateQueries({ queryKey: ["history"] });
+            queryClient.invalidateQueries({ queryKey: ["cross-chain-balances"] });
+            toast.success("Stellar bridge complete! USDC is now on Base.");
+          }
         }
       } catch (err) {
         console.error("[SmartBridge] Stellar monitoring error:", err);
@@ -281,13 +301,17 @@ export function SmartBridgeModule({
         smartAddress,
       );
       const burnTxHash = await txHashPromise;
-      await recordBridgeTransaction({
-        userEmail,
-        sourceChain: chain,
-        destChain: "base",
-        amountUsdc: parseFloat(amount),
-        burnTxHash,
-      });
+      await fetch("/api/bridge/record", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userEmail,
+          sourceChain: chain,
+          destChain: "base",
+          amountUsdc: parseFloat(amount),
+          burnTxHash,
+        }),
+      }).catch(console.error);
       queryClient.invalidateQueries({ queryKey: ["history"] });
       setMonitoringTx({ hash: burnTxHash, chain });
       setMintTxHash(null);
@@ -337,13 +361,17 @@ export function SmartBridgeModule({
         lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
       }, "confirmed");
 
-      await recordBridgeTransaction({
-        userEmail,
-        sourceChain: "solana" as never,
-        destChain: "base",
-        amountUsdc: parseFloat(amount),
-        burnTxHash: signature,
-      });
+      await fetch("/api/bridge/record", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userEmail,
+          sourceChain: "solana",
+          destChain: "base",
+          amountUsdc: parseFloat(amount),
+          burnTxHash: signature,
+        }),
+      }).catch(console.error);
       queryClient.invalidateQueries({ queryKey: ["history"] });
       setMonitoringTx({ hash: signature, chain: "solana" });
       setMintTxHash(null);
@@ -376,19 +404,24 @@ export function SmartBridgeModule({
           senderAddress: stellarWallet.address,
           recipientAddress: smartAddress,
           amount,
+          userEmail,
         }),
       });
       const data = await res.json() as { burnTxHash?: string; error?: string };
       if (!res.ok) throw new Error(data.error || "Stellar bridge failed");
 
       const burnTxHash = data.burnTxHash!;
-      await recordBridgeTransaction({
-        userEmail,
-        sourceChain: "stellar" as never,
-        destChain: "base",
-        amountUsdc: parseFloat(amount),
-        burnTxHash,
-      });
+      await fetch("/api/bridge/record", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userEmail,
+          sourceChain: "stellar",
+          destChain: "base",
+          amountUsdc: parseFloat(amount),
+          burnTxHash,
+        }),
+      }).catch(console.error);
       setMonitoringTx({ hash: burnTxHash, chain: "stellar" as ChainBalanceChain });
       setMintTxHash(null);
       toast.success("Stellar bridge submitted! Monitoring for Circle attestation...");

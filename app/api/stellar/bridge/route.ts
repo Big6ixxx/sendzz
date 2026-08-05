@@ -36,12 +36,13 @@ import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
   try {
-    const { walletId, senderAddress, recipientAddress, amount, destChain } = await req.json() as {
+    const { walletId, senderAddress, recipientAddress, amount, destChain, userEmail } = await req.json() as {
       walletId: string;
       senderAddress: string;
       recipientAddress: string;
       amount: string;
       destChain?: string;
+      userEmail?: string;
     };
 
     const finalDestChain = destChain || 'base';
@@ -84,9 +85,8 @@ export async function POST(req: Request) {
 
     // ── Calculate CCTP max fee ─────────────────────────────────────────────
     console.log('[Stellar/Bridge] Calculating CCTP max fee...');
-    // Use Standard Transfer (2000) for small transactions (<= 2 USDC) to keep it free,
-    // otherwise use Fast Transfer (1000) for larger amounts.
-    const minFinalityThreshold = parsedAmount <= 2.0 ? 2000 : 1000;
+    // Always use Fast Transfer (1000) so Circle Iris attestation completes in 1-2 mins (Standard Transfer 2000 takes 13+ mins).
+    const minFinalityThreshold = 1000;
     const maxFeeSubunits = await calculateStellarMaxFee(amount, finalDestChain, minFinalityThreshold);
     console.log(`[Stellar/Bridge] Max fee subunits: ${maxFeeSubunits}`);
 
@@ -142,6 +142,22 @@ export async function POST(req: Request) {
 
     const burnResult = await submitStellarTransaction(feeBumpBurn);
     console.log(`[Stellar/Bridge] ✓ depositForBurn submitted: ${burnResult.hash}`);
+
+    // Persist to Supabase database server-side so it appears in transaction history & pending claims
+    try {
+      const { recordBridgeTransaction } = await import('@/lib/supabase/transactions');
+      if (userEmail) {
+        await recordBridgeTransaction({
+          userEmail,
+          sourceChain: 'stellar',
+          destChain: finalDestChain,
+          amountUsdc: parsedAmount,
+          burnTxHash: burnResult.hash,
+        });
+      }
+    } catch (dbErr) {
+      console.error('[Stellar/Bridge] Database recording failed (non-fatal):', dbErr);
+    }
 
     return NextResponse.json({
       success: true,

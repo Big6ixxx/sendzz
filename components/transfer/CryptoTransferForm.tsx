@@ -40,9 +40,10 @@ interface CryptoTransferFormProps {
   solanaBalance: number;
 }
 
+// Ethereum L1 commented out — see BRIDGE_DISABLED_CHAINS in lib/circle/gateway.
 const AVAILABLE_CHAINS: (SupportedChain | 'stellar' | 'solana')[] = [
   'base',
-  'ethereum',
+  // 'ethereum',
   'arbitrum',
   'optimism',
   'polygon',

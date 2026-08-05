@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { initiateDeveloperControlledWalletsClient } from '@circle-fin/developer-controlled-wallets';
-import { Transaction, PublicKey } from '@solana/web3.js';
+import { Transaction, VersionedTransaction, TransactionMessage, PublicKey } from '@solana/web3.js';
 import { Buffer } from 'buffer';
 
 export async function POST(req: NextRequest) {
@@ -32,24 +32,30 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Decode the transaction, replace the feePayer with the Circle DCW address
     const txBytes = Buffer.from(transaction, 'base64');
-    const tx = Transaction.from(txBytes);
-    tx.feePayer = new PublicKey(circleWalletAddress);
+    let updatedTransactionBase64 = transaction;
 
-    // Also replace the eventRentPayer in the depositForBurn instruction (index 1 in the keys array)
-    // only if the instruction targets the TokenMessengerMinterV2 program (burn transaction).
-    if (tx.instructions.length > 0) {
-      const firstIx = tx.instructions[0];
-      const TOKEN_MESSENGER_MINTER_V2_PID = 'CCTPV2vPZJS2u2BBsUoscuikbYjnpFmbFsvVuJdgUMQe';
-      if (firstIx.programId.toBase58() === TOKEN_MESSENGER_MINTER_V2_PID && firstIx.keys.length > 1) {
-        firstIx.keys[1].pubkey = new PublicKey(circleWalletAddress);
+    try {
+      const tx = Transaction.from(txBytes);
+      tx.feePayer = new PublicKey(circleWalletAddress);
+
+      // Also replace the eventRentPayer in the depositForBurn instruction (index 1 in the keys array)
+      // only if the instruction targets the TokenMessengerMinterV2 program (burn transaction).
+      if (tx.instructions.length > 0) {
+        const firstIx = tx.instructions[0];
+        const TOKEN_MESSENGER_MINTER_V2_PID = 'CCTPV2vPZJS2u2BBsUoscuikbYjnpFmbFsvVuJdgUMQe';
+        if (firstIx.programId.toBase58() === TOKEN_MESSENGER_MINTER_V2_PID && firstIx.keys.length > 1) {
+          firstIx.keys[1].pubkey = new PublicKey(circleWalletAddress);
+        }
       }
-    }
 
-    const updatedTransactionBase64 = tx
-      .serialize({ requireAllSignatures: false, verifySignatures: false })
-      .toString('base64');
+      updatedTransactionBase64 = tx
+        .serialize({ requireAllSignatures: false, verifySignatures: false })
+        .toString('base64');
+    } catch {
+      // V0 VersionedTransaction — already compiled with circleWalletAddress as feePayer!
+      updatedTransactionBase64 = transaction;
+    }
 
     // Initialize the Circle DCW Client
     const circleClient = initiateDeveloperControlledWalletsClient({
