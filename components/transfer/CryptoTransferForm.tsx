@@ -16,6 +16,7 @@ import { Info, Loader2, ShieldCheck, Wallet } from 'lucide-react';
 import { CHAIN_NAMES, SupportedChain } from '@/lib/circle/gateway';
 import { IS_ARC_ENABLED } from '@/lib/web3/network';
 import { SourceSelector } from '@/components/SourceSelector';
+import { ChainLogo } from '@/components/deposit-withdraw/ChainLogo';
 import type { ChainBalances, SourcePreference } from '@/lib/web3/routing';
 import { HOME_CHAIN } from '@/lib/explorers';
 
@@ -130,7 +131,7 @@ export function CryptoTransferForm({
             {AVAILABLE_CHAINS.map((chain) => (
               <SelectItem key={chain} value={chain}>
                 <div className="flex items-center gap-3">
-                  <img src={`/chains/${chain}.png`} alt={chain} className="w-5 h-5 rounded-full object-cover" />
+                  <ChainLogo chain={chain} size={20} />
                   <span className="text-xs font-bold">{ALL_CHAIN_NAMES[chain]}</span>
                 </div>
               </SelectItem>

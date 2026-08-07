@@ -35,6 +35,7 @@ import {
   EyeOff,
   ShieldAlert,
   ChevronDown,
+  ExternalLink,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -225,8 +226,8 @@ export default function Dashboard() {
           <div className="card-glass p-8 md:p-10 rounded-3xl">
             <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-8 flex-wrap">
               <div className="space-y-4 min-w-0">
-                {/* Header row: label + eye toggle on the same line */}
-                <div className="flex items-center gap-3">
+                {/* Header row: label + network breakdown + eye toggle + Mainnet routing button */}
+                <div className="flex flex-wrap items-center gap-3">
                   <p
                     className="text-[10px] font-bold uppercase tracking-[0.25em]"
                     style={{ color: "rgba(248,248,246,0.35)" }}
@@ -266,7 +267,7 @@ export default function Dashboard() {
                   </button>
                   <button
                     onClick={toggleBalanceVisibility}
-                    className="p-1.5 rounded-full transition-all hover:bg-white/5 ml-1"
+                    className="p-1.5 rounded-full transition-all hover:bg-white/5"
                     style={{ color: "rgba(248,248,246,0.3)" }}
                     title={
                       hideBalance
@@ -280,6 +281,22 @@ export default function Dashboard() {
                       <Eye className="w-4 h-4" />
                     )}
                   </button>
+
+                  <a
+                    href="https://sendzz.io"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all hover:scale-[1.03] active:scale-[0.97] shadow-md group ml-auto sm:ml-2"
+                    style={{
+                      background: "linear-gradient(135deg, rgba(0, 232, 122, 0.15) 0%, rgba(0, 232, 122, 0.05) 100%)",
+                      border: "1px solid rgba(0, 232, 122, 0.3)",
+                      color: "#00e87a",
+                    }}
+                    title="Switch to Sendzz Production Mainnet (sendzz.io)"
+                  >
+                    <span>Use Sendzz on Mainnet</span>
+                    <ExternalLink className="w-3 h-3 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                  </a>
                 </div>
                 {/* Balance + USDC label + refresh — all on one baseline */}
                 <div className="flex items-baseline gap-3 min-w-0">
