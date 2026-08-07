@@ -572,11 +572,60 @@ export async function saveWithdrawalTxHash(
   }
 }
 
+/**
+ * Drop the deposit-scanner's shadow of a fiat-ramp delivery, so the provider row can take
+ * the hash. Call this immediately before writing `tx_hash` onto a provider deposit.
+ *
+ * A ramp row is created before its hash is known, and `knownHashes` in the deposit scanner
+ * only collects non-null hashes — so between the provider's on-chain send and its webhook,
+ * the scanner sees an unattributed arrival and records it as `provider: 'onchain'`. Once the
+ * webhook names the hash, the two rows are the same money, and the provider row is the one to
+ * keep: it alone carries the fiat side (amount, currency, order id).
+ *
+ * Since `deposits_user_tx_hash_uniq` (migration 035) forbids the pair, clearing the shadow
+ * isn't just tidiness — without it the provider's own update would hit a unique violation.
+ */
+export async function clearOnchainDepositShadow(
+  providerOrderId: string,
+  txHash: string,
+): Promise<void> {
+  try {
+    const { data: row } = await supabaseAdmin
+      .from("deposits")
+      .select("id, user_id")
+      .eq("provider_order_id", providerOrderId)
+      .maybeSingle();
+    if (!row?.user_id) return;
+
+    const { data: removed, error } = await supabaseAdmin
+      .from("deposits")
+      .delete()
+      .eq("user_id", row.user_id)
+      .eq("tx_hash", txHash)
+      .eq("provider", "onchain")
+      .neq("id", row.id)
+      .select("id");
+
+    if (error) throw error;
+    if (removed?.length) {
+      console.log(
+        `[Supabase] Replaced ${removed.length} scanned deposit(s) with ramp order ${providerOrderId}`,
+      );
+    }
+  } catch (err) {
+    // Non-fatal: the caller's update is the important half. Worst case the duplicate
+    // survives and the update is rejected by the unique index, which the caller logs.
+    console.error("[Supabase] Failed to clear on-chain deposit shadow:", err);
+  }
+}
+
 export async function saveDepositTxHash(
   paycrestTxId: string,
   txHash: string,
 ): Promise<void> {
   try {
+    await clearOnchainDepositShadow(paycrestTxId, txHash);
+
     const { error } = await supabaseAdmin
       .from("deposits")
       .update({ tx_hash: txHash })
@@ -930,7 +979,7 @@ export async function getUserActivities(userEmail: string) {
     const normalizedEmail = userEmail.toLowerCase();
     const { data: userRecord } = await supabaseAdmin
       .from("users")
-      .select("id, smart_account_address, solana_address")
+      .select("id, smart_account_address, solana_address, stellar_address")
       .eq("email", normalizedEmail)
       .single();
 
@@ -946,13 +995,18 @@ export async function getUserActivities(userEmail: string) {
 
     // Record any new on-chain USDC deposits BEFORE reading the deposits table, so freshly
     // received crypto shows up in history. Best-effort + throttled — never blocks the load.
-    if (userRecord?.smart_account_address || userRecord?.solana_address) {
+    if (
+      userRecord?.smart_account_address ||
+      userRecord?.solana_address ||
+      userRecord?.stellar_address
+    ) {
       try {
         const { scanUsdcDeposits } = await import("@/lib/web3/deposit-scanner");
         await scanUsdcDeposits({
           userId: internalId,
           address: userRecord.smart_account_address ?? "",
           solanaAddress: userRecord.solana_address ?? undefined,
+          stellarAddress: userRecord.stellar_address ?? undefined,
         });
       } catch (e) {
         console.error("[Supabase] deposit scan failed (non-fatal):", e);

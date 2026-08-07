@@ -118,8 +118,8 @@ export async function GET(req: Request) {
 async function scanStaleUsers(): Promise<{ scanned: number; inserted: number }> {
   const { data: users, error } = await supabaseAdmin
     .from('users')
-    .select('id, smart_account_address, solana_address')
-    .or('smart_account_address.not.is.null,solana_address.not.is.null')
+    .select('id, smart_account_address, solana_address, stellar_address')
+    .or('smart_account_address.not.is.null,solana_address.not.is.null,stellar_address.not.is.null')
     .order('last_deposit_scan_at', { ascending: true, nullsFirst: true })
     .limit(DEPOSIT_SCAN_BATCH);
 
@@ -140,6 +140,7 @@ async function scanStaleUsers(): Promise<{ scanned: number; inserted: number }> 
         userId: u.id,
         address: u.smart_account_address ?? '',
         solanaAddress: u.solana_address ?? undefined,
+        stellarAddress: u.stellar_address ?? undefined,
       });
       scanned++;
     } catch (e) {
