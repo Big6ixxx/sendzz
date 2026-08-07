@@ -13,10 +13,8 @@ import {
 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
-import {
-  calculatePaycrestBaseAmount,
-  PAYCREST_PARTNER_FEE_PERCENT,
-} from "@/lib/paycrest/config";
+import { calculatePaycrestBaseAmount } from "@/lib/paycrest/config";
+import { PLATFORM_FEE_PERCENT } from "@/lib/ramp/fees";
 import { BankSelector } from "./BankSelector";
 import { DepositNetworkAccordion } from "./DepositNetworkAccordion";
 import { useDepositWithdraw } from "./useDepositWithdraw";
@@ -109,7 +107,7 @@ export function DepositForm({ hook }: DepositFormProps) {
             <div className="flex justify-between text-sm pt-2 border-t border-border">
               <span className="text-muted-foreground">Platform Fee</span>
               <span className="font-semibold text-foreground">
-                {PAYCREST_PARTNER_FEE_PERCENT}%
+                {PLATFORM_FEE_PERCENT}%
               </span>
             </div>
           </div>

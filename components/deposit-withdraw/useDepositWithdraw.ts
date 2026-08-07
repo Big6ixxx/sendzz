@@ -50,6 +50,7 @@ import {
 import { parseFriendlyError } from "@/components/transfer/useTransfer";
 import { ConnectedWallet } from "@privy-io/react-auth";
 import { calculatePaycrestBaseAmount } from "@/lib/paycrest/config";
+import { totalFromBase } from "@/lib/ramp/fees";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -482,9 +483,9 @@ export function useDepositWithdraw(
       return;
     }
 
-    // Include the platform fee (provider-specific) in the balance check.
-    const feeRate = feePercent / 100;
-    const totalUsdcRequired = val * (1 + feeRate);
+    // Include the platform fee (provider-specific) in the balance check — the input is the
+    // base, so the fee is added on top of it.
+    const totalUsdcRequired = totalFromBase(val, feePercent);
 
     // Early KYC & Limit Pre-Check — block immediately at step 1 before bank details, 2FA, or signing
     try {
@@ -604,8 +605,7 @@ export function useDepositWithdraw(
     const amountUsdc = parseFloat(quoteUsdcAmount);
 
     // Total amount that will be deducted including the platform fee (provider-specific).
-    const feeRate = feePercent / 100;
-    const totalUsdcRequired = amountUsdc * (1 + feeRate);
+    const totalUsdcRequired = totalFromBase(amountUsdc, feePercent);
 
     if (totalUsdcRequired >= twoFaThreshold) {
       if (!twoFaEnabled) {
@@ -722,7 +722,12 @@ export function useDepositWithdraw(
       if (mustConsolidate && embeddedProvider) {
         const targetChain = withdrawChain as SupportedChain;
         const targetName = CHAIN_NAMES[targetChain] ?? targetChain;
-        const required = (parseFloat(quoteUsdcAmount) * 1.003).toFixed(6);
+        // Bring over base + fee — the fee is a second transfer out of the same chain, so
+        // consolidating only the base would strand the withdrawal one fee short.
+        const required = totalFromBase(
+          parseFloat(quoteUsdcAmount),
+          feePercent,
+        ).toFixed(6);
         // Honour the user's chosen networks (if any); otherwise pull from everything.
         const allBalances = chainBalances ?? {};
         const sourceBalances: ChainBalances = consolidateFrom

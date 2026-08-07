@@ -20,6 +20,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useRef, useEffect, useState } from 'react';
 
+import { PLATFORM_FEE_PERCENT } from '@/lib/ramp/fees';
+
 /* ─── Mock UI Card Components ─── */
 
 function WalletCard() {
@@ -328,7 +330,7 @@ const FAQS = [
   },
   {
     q: "Are there any transaction or gas fees?",
-    a: "Sendzz P2P transfers are 100% free with zero gas fees. Network gas costs on Base and supported chains are fully sponsored by Sendzz using Account Abstraction paymasters and Circle Gas Station. For fiat withdrawals to your local bank account, a minimal 0.3% partner fee applies.",
+    a: `Sendzz P2P transfers are 100% free with zero gas fees. Network gas costs on Base and supported chains are fully sponsored by Sendzz using Account Abstraction paymasters and Circle Gas Station. For fiat withdrawals to your local bank account, a minimal ${PLATFORM_FEE_PERCENT}% platform fee applies.`,
     icon: Zap,
     highlight: "Zero Network Gas Fees",
   },

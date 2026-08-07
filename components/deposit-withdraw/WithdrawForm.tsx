@@ -15,6 +15,7 @@ import { BankSelector } from "./BankSelector";
 import { SourceSelector } from "@/components/SourceSelector";
 import { OrderAdvancedDetails } from "./OrderAdvancedDetails";
 import { CHAIN_NAMES, type SupportedChain } from "@/lib/circle/gateway";
+import { baseFromTotal, feeFromBase, totalFromBase } from "@/lib/ramp/fees";
 import { useDepositWithdraw } from "./useDepositWithdraw";
 import { ReceiptActions } from "@/components/receipt/ReceiptActions";
 import { ReceiptData } from "@/lib/receipt/types";
@@ -32,6 +33,9 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
   const fiatSymbol = getCurrencySymbol(hook.fiatCurrency);
   const parsedAmount = parseFloat(hook.amount || "0");
 
+  // Fee % is provider-specific — read from the hook, never hardcoded.
+  const feePercent = hook.feePercent;
+
   // Derived: what the input value means in USDC (base, before fee)
   const usdcBase = (() => {
     if (!parsedAmount || !hook.rate) return 0;
@@ -39,10 +43,8 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
     return parsedAmount / hook.rate; // fiat → USDC
   })();
 
-  // Total USDC that will be deducted (base + fee). Fee % is provider-specific.
-  const feePercent = hook.feePercent;
-  const feeRate = feePercent / 100;
-  const usdcTotal = usdcBase * (1 + feeRate);
+  // Total USDC that will be deducted (base + fee) — the fee is added on top of the input.
+  const usdcTotal = totalFromBase(usdcBase, feePercent);
 
   // The full deduction (incl. fee) can't exceed the user's combined balance.
   const totalAvailable = parseFloat(hook.balance) || 0;
@@ -70,7 +72,8 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
 
   const handleMax = () => {
     if (!hook.rate) return;
-    const maxBaseUsdc = parseFloat(hook.balance) / (1 + feeRate);
+    // The input is the base and the fee goes on top, so back the fee out of the balance.
+    const maxBaseUsdc = baseFromTotal(parseFloat(hook.balance) || 0, feePercent);
     if (amountCurrency === "usd") {
       hook.setAmount(maxBaseUsdc.toFixed(2));
       hook.setInputMode("usdc");
@@ -295,11 +298,12 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
             </span>
           </div>
           <div className="flex justify-between text-sm text-muted-foreground">
-            <span>Network Fee ({feePercent}%)</span>
+            <span>Platform Fee ({feePercent}%)</span>
             <span>
-              {(parseFloat(hook.quoteUsdcAmount) * feeRate).toLocaleString(undefined, {
-                maximumFractionDigits: 2,
-              })}{" "}
+              {feeFromBase(
+                parseFloat(hook.quoteUsdcAmount),
+                feePercent,
+              ).toLocaleString(undefined, { maximumFractionDigits: 2 })}{" "}
               USDC
             </span>
           </div>
@@ -307,9 +311,10 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
             <span className="font-bold">Total Deducted</span>
             <span className="font-bold text-red-400">
               -
-              {(parseFloat(hook.quoteUsdcAmount) * (1 + feeRate)).toLocaleString(undefined, {
-                maximumFractionDigits: 2,
-              })}{" "}
+              {totalFromBase(
+                parseFloat(hook.quoteUsdcAmount),
+                feePercent,
+              ).toLocaleString(undefined, { maximumFractionDigits: 2 })}{" "}
               USDC
             </span>
           </div>

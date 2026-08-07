@@ -17,7 +17,7 @@ import type { RampProviderName } from "./types";
 export type FeeCollection = "provider" | "onchain";
 
 export interface ProviderFee {
-  /** Platform fee as a percentage of the base USDC amount (e.g. 0.3 = 0.3%). */
+  /** Platform fee as a percentage of the base USDC amount (e.g. 0.5 = 0.5%). */
   percent: number;
   /**
    * Who collects it. `provider` = the provider skims it (send base×(1+fee) to one address).
@@ -49,16 +49,30 @@ const BITNOB_FEE_TREASURY: Record<string, string | undefined> = {
   stellar: process.env.BITNOB_FEE_TREASURY_STELLAR, // coming soon
 };
 
+/**
+ * The platform fee, as a percentage — the one number to change when pricing moves.
+ *
+ * Every fee, on every provider, on both deposit and withdrawal, derives from this: the
+ * per-provider entries below default to it, and `lib/paycrest/config.ts` re-exports it for the
+ * on-ramp math and the UI. It lived in two places before and the copies could silently drift,
+ * which would mean charging one number and displaying another.
+ *
+ * Raising this is NOT enough on its own for Paycrest: they skim their own partner fee, so the
+ * matching value must also be set on the Paycrest dashboard or the "send extra" math nets the
+ * wrong payout. Bitnob needs no dashboard change — we collect that one ourselves (see below).
+ */
+export const PLATFORM_FEE_PERCENT = 0.5;
+
 export const PROVIDER_FEES: Record<RampProviderName, ProviderFee> = {
   // Paycrest collects the partner fee itself (configured on the Paycrest dashboard). This
   // percentage MUST match the dashboard value so the "send extra" math nets the right payout.
   paycrest: {
-    percent: num(process.env.PAYCREST_FEE_PERCENT, 0.3),
+    percent: num(process.env.PAYCREST_FEE_PERCENT, PLATFORM_FEE_PERCENT),
     collection: "provider",
   },
   // Bitnob has no partner-fee mechanism, so we collect on-chain to our own treasury.
   bitnob: {
-    percent: num(process.env.BITNOB_FEE_PERCENT, 0.3),
+    percent: num(process.env.BITNOB_FEE_PERCENT, PLATFORM_FEE_PERCENT),
     collection: "onchain",
     treasury: BITNOB_FEE_TREASURY,
   },
@@ -68,9 +82,47 @@ export function getProviderFee(provider: RampProviderName): ProviderFee {
   return PROVIDER_FEES[provider];
 }
 
-/** Fee fraction (e.g. 0.003) for a provider. */
+/** Fee fraction (e.g. 0.005) for a provider. */
 export function feeRate(provider: RampProviderName): number {
   return getProviderFee(provider).percent / 100;
+}
+
+// ── Fee arithmetic ───────────────────────────────────────────────────────────
+// Two amounts exist in every ramp order and the difference matters:
+//
+//   base  — what funds the payout. The provider is quoted on this.
+//   total — what actually leaves the user's wallet: base + fee.
+//
+// Convert between them ONLY through these helpers. They take the percentage rather than a
+// provider so the client can use them too (it reads the rate from `getProviderFeePercent`,
+// since a provider's percent can be overridden per-environment).
+//
+// Every call site used to inline its own `* (1 + feePercent / 100)`, and one of them had the
+// rate hardcoded as `1.003` — silently correct at 0.3% and silently wrong the moment the fee
+// moved. Funnelling the arithmetic through here is what stops that from recurring: change
+// PLATFORM_FEE_PERCENT and there is no second copy of the maths to forget.
+
+/** base → total multiplier for `percent` (e.g. 0.5 → 1.005). */
+export function feeMultiplier(percent: number): number {
+  return 1 + percent / 100;
+}
+
+/** Total deducted from the wallet to fund `base` — i.e. base + fee. */
+export function totalFromBase(base: number, percent: number): number {
+  return base * feeMultiplier(percent);
+}
+
+/** Base a fixed `total` funds once the fee is taken OUT of it (the inverse of totalFromBase). */
+export function baseFromTotal(total: number, percent: number): number {
+  return total / feeMultiplier(percent);
+}
+
+/** The fee itself, given whichever amount you happen to hold. */
+export function feeFromBase(base: number, percent: number): number {
+  return totalFromBase(base, percent) - base;
+}
+export function feeFromTotal(total: number, percent: number): number {
+  return total - baseFromTotal(total, percent);
 }
 
 export interface AppliedFee {
@@ -84,8 +136,8 @@ export interface AppliedFee {
 
 /** Split a base amount into base + platform fee + total for `provider`. */
 export function applyFee(base: number, provider: RampProviderName): AppliedFee {
-  const fee = base * feeRate(provider);
-  return { base, fee, total: base + fee };
+  const percent = getProviderFee(provider).percent;
+  return { base, fee: feeFromBase(base, percent), total: totalFromBase(base, percent) };
 }
 
 /**
