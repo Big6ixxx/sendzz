@@ -15,6 +15,7 @@
 
 import type { ConnectedWallet } from '@privy-io/react-auth';
 import { executeReceiveMessage } from '@/lib/web3/bridge-actions';
+import { EVM_CLAIM_CHAINS } from '@/lib/web3/cctp-delivery';
 import type { SupportedChain } from '@/lib/circle/gateway';
 
 export interface BridgeClaimParams {
@@ -31,8 +32,6 @@ export interface BridgeClaimParams {
   burnTxHash?: string;
   sourceChain?: string;
 }
-
-const EVM_DEST_CHAINS = ['base', 'arbitrum', 'optimism', 'polygon', 'avalanche', 'ethereum'];
 
 /**
  * A claim involves a bundler, a paymaster and an RPC, none of which are guaranteed to
@@ -67,7 +66,7 @@ export async function claimBridgeOnDestination(
 
   if (dest === 'solana') return withClaimTimeout(claimOnSolana(params));
   if (dest === 'stellar') return withClaimTimeout(claimOnStellar(params));
-  if (EVM_DEST_CHAINS.includes(dest)) {
+  if (EVM_CLAIM_CHAINS.includes(dest)) {
     return withClaimTimeout(claimOnEvm(params, dest as SupportedChain));
   }
 
@@ -107,7 +106,7 @@ async function claimOnSolana(params: BridgeClaimParams): Promise<string | undefi
   return data.txHash;
 }
 
-async function claimOnStellar(params: BridgeClaimParams): Promise<string> {
+async function claimOnStellar(params: BridgeClaimParams): Promise<string | undefined> {
   const { burnTxHash, sourceChain, stellarWallet } = params;
   if (!burnTxHash || !sourceChain) {
     throw new Error('Missing burn transaction details for the Stellar claim.');
@@ -127,8 +126,12 @@ async function claimOnStellar(params: BridgeClaimParams): Promise<string> {
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    if (res.status === 409 || data.code === 'already_claimed' || data.alreadyClaimed) {
+      return undefined;
+    }
     throw new Error(data.error || 'Failed to claim on Stellar');
   }
+  if (data.alreadyClaimed) return undefined;
   return data.txHash;
 }
 

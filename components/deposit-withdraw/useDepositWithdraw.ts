@@ -759,6 +759,9 @@ export function useDepositWithdraw(
         await consolidateFundsToChain(embeddedProvider, {
           targetChain,
           requiredAmount: required,
+          // `required` carries a 0.3% cushion so the bridges are sized generously; the
+          // off-ramp only ever moves the quoted amount, so that is what has to arrive.
+          confirmAmount: quoteUsdcAmount,
           balances: sourceBalances,
           recipient: userAddress,
           solana: includeSolana ? solanaSource : undefined,

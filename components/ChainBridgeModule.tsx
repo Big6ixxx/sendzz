@@ -3,7 +3,7 @@
 /**
  * ChainBridgeModule — move USDC between the user's own networks.
  *
- * Unlike SmartBridgeModule (which only consolidates idle funds onto Base), this lets
+ * Unlike SmartBridgeModule (which only consolidates onto the settlement chain), this lets
  * the user pick BOTH the source and destination chain and bridge between them via
  * Circle CCTP V2. The mint recipient is the user's own smart account (for EVM) or
  * Stellar address. Gasless on both legs (burn + mint sponsored by circle/relayer).
@@ -31,10 +31,9 @@ import { Connection } from "@solana/web3.js";
 import { ArrowDown, CheckCircle2, ExternalLink, Loader2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { SOLANA_RPC_URL } from '@/lib/solana/network';
 
-const SOLANA_RPC =
-  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ??
-  "https://api.mainnet-beta.solana.com";
+const SOLANA_RPC = SOLANA_RPC_URL;
 
 const CHAIN_DISPLAY_NAMES: Record<string, string> = {
   ...CHAIN_NAMES,
@@ -212,10 +211,19 @@ export function ChainBridgeModule({
                 }
               }
 
-              if (cancelled) return;
               clearInterval(interval);
 
-              await fetch("/api/bridge/complete", {
+              if (!cancelled) {
+                setMintTxHash(mintHash ?? null);
+                setBridgeStep("complete");
+                setPhase("complete");
+                toast.success(
+                  `Bridge complete! USDC is now on ${CHAIN_DISPLAY_NAMES[monitor.destChain]}.`,
+                );
+              }
+
+              // Fire completion recording and cache refetches in the background
+              fetch("/api/bridge/complete", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -224,16 +232,11 @@ export function ChainBridgeModule({
                 }),
               }).catch(console.error);
 
-              setMintTxHash(mintHash ?? null);
-              setBridgeStep("complete");
-              setPhase("complete");
               queryClient.invalidateQueries({ queryKey: ["portfolio"] });
               queryClient.invalidateQueries({ queryKey: ["cross-chain-balances"] });
               queryClient.invalidateQueries({ queryKey: ["history"] });
               queryClient.invalidateQueries({ queryKey: ["pending-bridge-claims"] });
-              toast.success(
-                `Bridge complete! USDC is now on ${CHAIN_DISPLAY_NAMES[monitor.destChain]}.`,
-              );
+              queryClient.refetchQueries({ queryKey: ["portfolio"] }).catch(console.error);
             } catch (err) {
               const classified = classifyAppError(err);
               if (classified.isAlreadyProcessed) {

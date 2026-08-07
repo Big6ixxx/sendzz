@@ -21,13 +21,15 @@ import {
 } from "@/lib/web3/routing";
 import { isAddress } from "viem";
 import { useStellarWallet } from "@/hooks/useStellarWallet";
+import { HOME_CHAIN } from '@/lib/explorers';
+import { SOLANA_RPC_URL } from '@/lib/solana/network';
 
 export interface CrossChainSendInfo {
   sourceChain: SupportedChain;
   destChain: SupportedChain | 'stellar' | 'solana';
   amount: string;
   recipient: string;
-  /** When true, funds are gathered onto Base (from EVM chains + Solana) before delivery. */
+  /** When true, funds are gathered onto the settlement chain (EVM + Solana) first. */
   consolidate?: boolean;
 }
 
@@ -52,7 +54,7 @@ export function useCryptoTransfer({
 }: UseCryptoTransferProps) {
   const [recipientAddress, setRecipientAddress] = useState("");
   const [amount, setAmount] = useState("");
-  const [selectedChain, setSelectedChain] = useState<SupportedChain | 'stellar' | 'solana'>("base");
+  const [selectedChain, setSelectedChain] = useState<SupportedChain | 'stellar' | 'solana'>(HOME_CHAIN);
   const [memo, setMemo] = useState("");
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string>("");
@@ -77,7 +79,7 @@ export function useCryptoTransfer({
   const { signTransaction } = useSignTransaction();
 
   const solanaConnection = useMemo(() => new Connection(
-    process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com',
+    SOLANA_RPC_URL,
     'confirmed'
   ), []);
 
@@ -341,7 +343,7 @@ export function useCryptoTransfer({
       return;
     }
 
-    // User override: combine chosen networks onto Base, then deliver.
+    // User override: combine chosen networks onto the settlement chain, then deliver.
     if (sourcePref.mode === "consolidate") {
       const sum = sourcePref.from.reduce(
         (s, k) => {
@@ -360,7 +362,7 @@ export function useCryptoTransfer({
       setLoading(false);
       setStatus("");
       setBridgeConfirm({
-        sourceChain: "base",
+        sourceChain: HOME_CHAIN as SupportedChain,
         destChain: selectedChain,
         amount,
         recipient: recipientAddress,
@@ -370,7 +372,7 @@ export function useCryptoTransfer({
     }
 
     const plan = planExternalSend(amount, selectedChain, chainBalances ?? {}, {
-      homeChain: "base",
+      homeChain: HOME_CHAIN as SupportedChain,
     });
 
     if (plan.mode === "direct") {
@@ -392,13 +394,13 @@ export function useCryptoTransfer({
     }
 
     // No single chain covers it. If the combined balance (EVM + Solana) does, gather
-    // funds onto Base first, then deliver to the destination.
+    // funds onto the settlement chain first, then deliver to the destination.
     const solBal = solanaSource?.balance ?? 0;
     if (plan.totalAvailable + solBal + 1e-9 >= parseFloat(amount)) {
       setLoading(false);
       setStatus("");
       setBridgeConfirm({
-        sourceChain: "base",
+        sourceChain: HOME_CHAIN as SupportedChain,
         destChain: selectedChain,
         amount,
         recipient: recipientAddress,
@@ -673,7 +675,7 @@ export function useCryptoTransfer({
       let txHash: string;
 
       if (info.consolidate) {
-        // Gather funds onto Base, then deliver. Honour the user's chosen networks if set.
+        // Gather onto the settlement chain, then deliver. Honour chosen networks if set.
         const from = sourcePref.mode === "consolidate" ? sourcePref.from : null;
         const allBalances = chainBalances ?? {};
         const sourceBalances: ChainBalances = from
@@ -684,9 +686,9 @@ export function useCryptoTransfer({
             )
           : allBalances;
         const includeSolana = from ? from.includes("solana") : true;
-        setStatus("Gathering your funds onto Base…");
+        setStatus(`Gathering your funds onto ${CHAIN_NAMES[HOME_CHAIN as SupportedChain]}…`);
         await consolidateFundsToChain(embeddedProvider, {
-          targetChain: "base",
+          targetChain: HOME_CHAIN as SupportedChain,
           requiredAmount: info.amount,
           balances: sourceBalances,
           recipient: smartAddress,
@@ -694,18 +696,20 @@ export function useCryptoTransfer({
           onStatus: setStatus,
         });
 
-        if (info.destChain === "base") {
-          setStatus("Sending on Base…");
+        // Funds were just consolidated onto the settlement chain. If that is where the
+        // payment is going, send directly; otherwise bridge onward from it.
+        if (info.destChain === HOME_CHAIN) {
+          setStatus(`Sending on ${CHAIN_NAMES[HOME_CHAIN]}…`);
           const provider = await embeddedProvider.getEthereumProvider();
           txHash = await executeCircleGaslessTransfer(
             provider,
             info.recipient,
             info.amount,
-            "base",
+            HOME_CHAIN,
           );
         } else {
           const { burnTxHash, mintTxHash } = await bridgeAndDeliver(embeddedProvider, {
-            sourceChain: "base",
+            sourceChain: HOME_CHAIN,
             destChain: info.destChain as SupportedChain,
             amountUSDC: info.amount,
             recipient: info.recipient,

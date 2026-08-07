@@ -1,8 +1,9 @@
 import { toModularTransport, modularWalletActions } from '@circle-fin/modular-wallets-core';
 import { EIP1193Provider } from '@privy-io/react-auth';
-import { encodeFunctionData, parseAbi, parseUnits, type Address } from 'viem';
+import { encodeFunctionData, parseAbi, parseUnits, type Address, type Hex } from 'viem';
 import { createBundlerClient } from 'viem/account-abstraction';
 import { getCircleClient } from './circle-client';
+import { getCircleChainSlug } from './circle-networks';
 import {
   chain as baseChain,
   CIRCLE_CLIENT_KEY,
@@ -12,6 +13,7 @@ import {
 import { VIEM_CHAINS } from './multichain';
 import { USDC_ADDRESSES, GAS_POLICY_IDS, type SupportedChain } from '../circle/gateway';
 import { type RouteLeg } from './routing';
+import { HOME_CHAIN } from '@/lib/explorers';
 
 const ERC20_ABI = parseAbi([
   'function transfer(address _to, uint256 _value) returns (bool)',
@@ -19,14 +21,14 @@ const ERC20_ABI = parseAbi([
 
 // All operations default to mainnet
 function getChainSlug(targetChain: SupportedChain): string {
-  return targetChain;
+  return getCircleChainSlug(targetChain);
 }
 
 export async function executeCircleGaslessTransfer(
   provider: EIP1193Provider,
   recipientAddress: string,
   amountUSDC: string,
-  targetChain: SupportedChain = 'base'
+  targetChain: SupportedChain = HOME_CHAIN
 ) {
   return executeCircleGaslessBatchTransfer(provider, [
     { recipientAddress, amountUSDC },
@@ -62,7 +64,7 @@ export async function executeRoutedTransfer(
 export async function executeCircleGaslessBatchTransfer(
   provider: EIP1193Provider,
   transfers: { recipientAddress: string; amountUSDC: string }[],
-  targetChain: SupportedChain = 'base'
+  targetChain: SupportedChain = HOME_CHAIN
 ) {
   const selectedChain = VIEM_CHAINS[targetChain];
   const usdcContractAddress = USDC_ADDRESSES[targetChain];
@@ -92,6 +94,11 @@ export async function executeCircleGaslessBatchTransfer(
   });
 
   // 3. Encode all transfers as multiple calls
+  //
+  // Arc is not a special case here. Its USDC is the native gas token, but it is also a
+  // standard ERC-20 at USDC_ADDRESSES.arc, and that is the interface Circle tells apps
+  // to use. Sending a native `value` transfer instead would move 10^12 times less than
+  // intended, because the amount is parsed at 6 decimals and the native token has 18.
   const calls = transfers.map((t) => {
     const amountParsed = parseUnits(t.amountUSDC, 6);
     const transferData = encodeFunctionData({

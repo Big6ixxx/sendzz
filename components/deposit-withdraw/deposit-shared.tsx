@@ -93,4 +93,12 @@ export const CHAIN_META: Record<string, ChainMeta> = {
     description: 'Stellar network',
     explorerTx: (h) => explorerTxUrl('stellar', h) ?? '',
   },
+  arc: {
+    name: 'Arc Testnet',
+    color: '#00e87a',
+    bg: 'rgba(0,232,122,0.08)',
+    border: 'rgba(0,232,122,0.2)',
+    description: 'Circle USDC L1',
+    explorerTx: (h) => explorerTxUrl('arc', h) ?? '',
+  },
 };

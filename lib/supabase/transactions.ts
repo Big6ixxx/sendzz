@@ -34,9 +34,13 @@ async function recoverMintTxHash(
   burnTxHash: string,
 ): Promise<string | undefined> {
   const dest = destChain.toLowerCase();
-  if (!EVM_DEST_CHAINS.includes(dest)) return undefined;
 
   try {
+    const { EVM_CLAIM_CHAINS, findMintTxHash } = await import(
+      "@/lib/web3/cctp-delivery"
+    );
+    if (!EVM_CLAIM_CHAINS.includes(dest)) return undefined;
+
     const attestation = await getAttestation(
       sourceChain as ExtendedChain,
       burnTxHash,
@@ -45,9 +49,12 @@ async function recoverMintTxHash(
 
     const { createPublicClient } = await import("viem");
     const { rpcTransport } = await import("@/lib/web3/rpc");
-    const { findMintTxHash } = await import("@/lib/web3/cctp-delivery");
+    const { VIEM_CHAINS } = await import("@/lib/web3/multichain");
 
-    const client = createPublicClient({ transport: rpcTransport(dest) });
+    const client = createPublicClient({
+      chain: VIEM_CHAINS[dest as SupportedChain],
+      transport: rpcTransport(dest),
+    });
     return await findMintTxHash(client, attestation.messageBytes);
   } catch (err) {
     console.error(
@@ -220,13 +227,16 @@ export async function recordDeposit(params: {
       return;
     }
 
+    // No `paycrest_tx_id` here: migration 030 drops that column, and 027 replaced it with
+    // the provider-agnostic `provider_order_id` set below from the same value. Production
+    // still has the column only because it has not run 030 yet — writing to it made the
+    // insert fail outright on any database that is fully migrated.
     const baseRow = {
       user_id: user.id,
       amount_fiat: params.amountFiat,
       currency_fiat: params.currencyFiat,
       amount_usdc: params.amountUsdc,
       status: params.status,
-      paycrest_tx_id: params.paycrestTxId || null,
     };
 
     const extra: Record<string, unknown> = {};
@@ -678,7 +688,7 @@ export async function updateBridgeStatus(
       .from("bridge_transactions")
       .update({
         attestation_status: status as "complete" | "failed" | "pending",
-        mint_tx_hash: mintTxHash || null,
+        mint_tx_hash: mintTxHash || (status === 'complete' ? 'reconciled' : null),
         updated_at: new Date().toISOString(),
       })
       .eq("burn_tx_hash", burnTxHash)
@@ -789,16 +799,7 @@ export async function updateBridgeStatus(
  * monitor's give-up point in ChainBridgeModule, so exactly one of them is ever acting
  * on a given transfer.
  */
-const CLAIM_HANDOFF_MS = 0;
-
-const EVM_DEST_CHAINS = [
-  "base",
-  "arbitrum",
-  "optimism",
-  "polygon",
-  "avalanche",
-  "ethereum",
-];
+const CLAIM_HANDOFF_MS = 90_000;
 
 /**
  * Has the destination chain already consumed this message's nonce?
@@ -812,14 +813,20 @@ async function isBurnDelivered(
   messageBytes: string,
 ): Promise<boolean> {
   const dest = destChain.toLowerCase();
-  if (!EVM_DEST_CHAINS.includes(dest)) return false;
 
   try {
     const { createPublicClient } = await import("viem");
     const { rpcTransport } = await import("@/lib/web3/rpc");
-    const { isMessageDelivered } = await import("@/lib/web3/cctp-delivery");
+    const { VIEM_CHAINS } = await import("@/lib/web3/multichain");
+    const { EVM_CLAIM_CHAINS, isMessageDelivered } = await import(
+      "@/lib/web3/cctp-delivery"
+    );
+    if (!EVM_CLAIM_CHAINS.includes(dest)) return false;
 
-    const client = createPublicClient({ transport: rpcTransport(dest) });
+    const client = createPublicClient({
+      chain: VIEM_CHAINS[dest as SupportedChain],
+      transport: rpcTransport(dest),
+    });
     return await isMessageDelivered(client, messageBytes);
   } catch (err) {
     console.error(
@@ -846,7 +853,7 @@ export async function getPendingBridgeClaims(
       .from("bridge_transactions")
       .select("id, source_chain, dest_chain, amount, burn_tx_hash, mint_tx_hash, created_at")
       .eq("user_id", userRecord.id)
-      .is("mint_tx_hash", null)
+      .eq("attestation_status", "pending")
       .lt("created_at", new Date(Date.now() - CLAIM_HANDOFF_MS).toISOString())
       .order("created_at", { ascending: false })
       .limit(20);
@@ -876,8 +883,12 @@ export async function getPendingBridgeClaims(
             if (delivered) {
               const { createPublicClient } = await import("viem");
               const { rpcTransport } = await import("@/lib/web3/rpc");
+              const { VIEM_CHAINS } = await import("@/lib/web3/multichain");
               const { findMintTxHash } = await import("@/lib/web3/cctp-delivery");
-              const client = createPublicClient({ transport: rpcTransport(row.dest_chain) });
+              const client = createPublicClient({
+                chain: VIEM_CHAINS[row.dest_chain.toLowerCase() as SupportedChain],
+                transport: rpcTransport(row.dest_chain),
+              });
               const mintTx = await findMintTxHash(client, result.messageBytes).catch(() => undefined);
               if (mintTx) {
                 await updateBridgeStatus(row.burn_tx_hash, "complete", mintTx);

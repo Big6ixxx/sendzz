@@ -89,7 +89,11 @@ export function classifyAppError(err: unknown): AppError {
   if (
     msg.includes('nonce already used') ||
     msg.includes('message already received') ||
-    msg.includes('message already processed')
+    msg.includes('message already processed') ||
+    msg.includes('already claimed') ||
+    msg.includes('already_claimed') ||
+    msg.includes('already received') ||
+    msg.includes('already processed')
   ) {
     return { message: 'This transfer was already processed. Please refresh your balance.', category: 'already_processed', isSilent: false, isAlreadyProcessed: true };
   }
@@ -152,6 +156,16 @@ export function classifyAppError(err: unknown): AppError {
     return { message: 'The claim could not be completed on Stellar right now. Your funds are safe — please try again shortly.', category: 'contract_revert', isSilent: false, isAlreadyProcessed: false };
   }
 
+  // ── Account-abstraction validation codes ──────────────────────────────────
+  //
+  // Checked on their own rather than only inside the "userOperation" branch below,
+  // because viem's message for a failed *estimate* names neither the EntryPoint nor the
+  // operation — it opens "Failed to simulate deployment for Smart Account" and carries
+  // the code only in its `Details:` line. Those fell through to the generic revert text.
+  if (/\bAA1[0-4]\b/i.test(rawMsg) || msg.includes('initcode failed')) {
+    return { message: 'Setting up your wallet on this network failed. Please try again.', category: 'wallet_not_registered', isSilent: false, isAlreadyProcessed: false };
+  }
+
   if (
     msg.includes('useroperation') ||
     msg.includes('user operation') ||
@@ -179,14 +193,19 @@ export function classifyAppError(err: unknown): AppError {
     return { message: 'Insufficient balance to complete this action.', category: 'insufficient_funds', isSilent: false, isAlreadyProcessed: false };
   }
 
+  // A bare "502"/"503" used to be enough to land here. A failed userOperation message
+  // carries kilobytes of calldata, and three digits turn up in hex constantly, so on-chain
+  // reverts were being reported as connectivity problems — sending users to their wifi
+  // settings for a gas limit. Status codes now have to look like status codes.
   if (
     msg.includes('network error') ||
     msg.includes('fetch failed') ||
     msg.includes('econnrefused') ||
     msg.includes('timeout') ||
     msg.includes('failed to fetch') ||
-    msg.includes('503') ||
-    msg.includes('502')
+    msg.includes('bad gateway') ||
+    msg.includes('service unavailable') ||
+    /\b(?:http|status(?:\s+code)?)\s*:?\s*50[23]\b/.test(msg)
   ) {
     return { message: 'Network issue. Please check your connection and try again.', category: 'network', isSilent: false, isAlreadyProcessed: false };
   }

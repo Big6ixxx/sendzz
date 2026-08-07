@@ -50,6 +50,8 @@ import { useRef, useState, useEffect } from "react";
 import { toast } from "sonner";
 import { parseAppError, isUserCancelled } from "@/lib/errors/appErrors";
 import { explorerTxUrl } from "@/lib/explorers";
+import { SOLANA_RPC_URL } from '@/lib/solana/network';
+import { HOME_CHAIN } from '@/lib/explorers';
 
 if (typeof window !== "undefined") {
   window.Buffer = window.Buffer || Buffer;
@@ -61,7 +63,7 @@ if (typeof window !== "undefined") {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const SOLANA_RPC =
-  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com";
+  SOLANA_RPC_URL;
 
 const CHAIN_DISPLAY_NAMES: Record<string, string> = {
   ...CHAIN_NAMES,
@@ -651,7 +653,7 @@ export function SmartBridgeModule({
                           </>
                         ) : (
                           <>
-                            Bridge to Base
+                            Bridge to {CHAIN_NAMES[HOME_CHAIN as SupportedChain]}
                             <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                           </>
                         )}

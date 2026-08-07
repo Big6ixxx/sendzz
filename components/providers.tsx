@@ -6,14 +6,24 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import {
   arbitrum,
+  arbitrumSepolia,
   avalanche,
+  avalancheFuji,
   base,
   baseSepolia,
   mainnet,
   optimism,
+  optimismSepolia,
   polygon,
+  polygonAmoy,
+  sepolia,
 } from 'viem/chains';
 import { ReactNode, useState, useEffect } from 'react';
+import { arcTestnet } from '@/lib/web3/arc-chain';
+import { VIEM_CHAINS } from '@/lib/web3/multichain';
+import { HOME_CHAIN } from '@/lib/explorers';
+import { IS_MAINNET } from '@/lib/web3/network';
+import type { SupportedChain } from '@/lib/circle/gateway';
 import { BalanceVisibilityProvider } from '@/components/providers/BalanceVisibilityProvider';
 
 export function Providers({ children }: { children: ReactNode }) {
@@ -40,7 +50,15 @@ export function Providers({ children }: { children: ReactNode }) {
       }),
   );
 
-  const isProd = process.env.NEXT_PUBLIC_SIMULATION_MODE === 'false';
+  const isProd = IS_MAINNET;
+
+  // Privy keys its Solana RPCs by cluster, so the cluster and the endpoint have to move
+  // together — leaving the key on `solana:mainnet` while the rest of the app reads devnet
+  // USDC points the embedded Solana wallet at a different network than the balances.
+  const solanaCluster = isProd ? 'solana:mainnet' : 'solana:devnet';
+  const solanaRpcUrl =
+    process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
+    (isProd ? 'https://api.mainnet-beta.solana.com' : 'https://api.devnet.solana.com');
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -63,27 +81,31 @@ export function Providers({ children }: { children: ReactNode }) {
           },
           solana: {
             rpcs: {
-              'solana:mainnet': {
+              [solanaCluster]: {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                rpc: createSolanaRpc(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com') as any,
+                rpc: createSolanaRpc(solanaRpcUrl) as any,
                 rpcSubscriptions: createSolanaRpcSubscriptions(
-                  (process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com')
-                    .replace('https', 'wss')
-                    .replace('http', 'ws')
+                  solanaRpcUrl.replace('https', 'wss').replace('http', 'ws'),
                 ),
               },
             },
           },
-          defaultChain: isProd ? base : baseSepolia,
-          supportedChains: [
-            mainnet,
-            arbitrum,
-            optimism,
-            polygon,
-            avalanche,
-            base,
-            baseSepolia,
-          ],
+          // Privy can only switch the embedded wallet to a chain listed here, and a CCTP
+          // claim switches to whichever chain the mint lands on. Listing only the
+          // mainnet set meant every testnet claim failed to switch and then signed
+          // against the wrong network, so both families are declared in full.
+          defaultChain: VIEM_CHAINS[HOME_CHAIN as SupportedChain],
+          supportedChains: isProd
+            ? [mainnet, arbitrum, optimism, polygon, avalanche, base]
+            : [
+                sepolia,
+                arbitrumSepolia,
+                optimismSepolia,
+                polygonAmoy,
+                avalancheFuji,
+                baseSepolia,
+                arcTestnet,
+              ],
         }}
       >
         <BalanceVisibilityProvider>

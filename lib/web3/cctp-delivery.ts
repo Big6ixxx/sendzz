@@ -14,12 +14,33 @@
  */
 
 import type { PublicClient } from 'viem';
+import { MESSAGE_TRANSMITTER_V2 } from '../circle/gateway';
 
-/** MessageTransmitterV2 — one CREATE2 address across every supported EVM chain. */
-export const MESSAGE_TRANSMITTER_ADDRESS =
-  process.env.NEXT_PUBLIC_SIMULATION_MODE === 'true'
-    ? '0x81D40F2169b009c9103C280963d76e4B4d4c464B'
-    : '0x81D40F21F12A8F0E3252Bccb954D722d4c464B64';
+/**
+ * MessageTransmitterV2 — one CREATE2 address across every EVM chain in a network family.
+ * Mainnet and testnet are different address sets; both live in `circle/gateway` so the
+ * bridge and the delivery check can never disagree about which contract they mean.
+ */
+export const MESSAGE_TRANSMITTER_ADDRESS: string = MESSAGE_TRANSMITTER_V2;
+
+/**
+ * EVM destinations whose delivery state this module can read.
+ *
+ * Deliberately wider than the chains we let a user bridge *to*: a chain drops out of the
+ * bridge UI long before its historical rows do, and a row we can't check gets treated as
+ * undelivered forever. Arc belongs here for the opposite reason — it is the testnet home
+ * chain, so it is the most common destination of all, and three separate copies of this
+ * list had all omitted it. Keep this the single copy.
+ */
+export const EVM_CLAIM_CHAINS: string[] = [
+  'arc',
+  'base',
+  'arbitrum',
+  'optimism',
+  'polygon',
+  'avalanche',
+  'ethereum',
+];
 
 export const USED_NONCES_ABI = [
   {

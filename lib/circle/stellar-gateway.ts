@@ -21,40 +21,42 @@ import {
   Keypair,
   nativeToScVal,
   scValToNative,
-  Networks,
   TransactionBuilder,
   xdr,
 } from '@stellar/stellar-sdk';
 import { rpc as SorobanRpc } from '@stellar/stellar-sdk';
 import { type AttestationResponse, type AttestationStatus } from './gateway';
 import { solanaMintRecipientBytes32 } from './solana-gateway';
+import { IS_TESTNET } from '../web3/network';
+import { STELLAR } from '../stellar/network';
+import { HOME_CHAIN } from '@/lib/explorers';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
 export const STELLAR_CCTP_DOMAIN = 27;
 export const BASE_CCTP_DOMAIN = 6;
 
-/** Env-configured Soroban contract addresses */
-export const STELLAR_TOKEN_MESSENGER_CONTRACT =
-  process.env.NEXT_PUBLIC_STELLAR_TOKEN_MESSENGER_CONTRACT ?? '';
-export const STELLAR_USDC_CONTRACT =
-  process.env.NEXT_PUBLIC_STELLAR_USDC_CONTRACT ??
-  'CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75';
+/**
+ * Soroban contract addresses, resolved per network by `lib/stellar/network`. These were
+ * read directly from generic env vars, which meant a testnet build used mainnet contract
+ * ids — see the note in that module.
+ */
+export const STELLAR_TOKEN_MESSENGER_CONTRACT = STELLAR.tokenMessengerContract;
+export const STELLAR_USDC_CONTRACT = STELLAR.usdcContract;
 
-export const STELLAR_RPC_URL =
-  process.env.NEXT_PUBLIC_STELLAR_RPC_URL ??
-  'https://soroban-rpc.mainnet.stellar.gateway.fm';
+const IS_SIMULATION = IS_TESTNET;
 
-export const STELLAR_HORIZON_URL =
-  process.env.NEXT_PUBLIC_STELLAR_HORIZON_URL ?? 'https://horizon.stellar.org';
+export const STELLAR_RPC_URL = STELLAR.sorobanRpcUrl;
 
-export const STELLAR_NETWORK_PASSPHRASE =
-  process.env.NEXT_PUBLIC_STELLAR_NETWORK_PASSPHRASE ?? Networks.PUBLIC;
+export const STELLAR_HORIZON_URL = STELLAR.horizonUrl;
 
-/** Circle's USDC classic asset issuer on Stellar mainnet */
-const USDC_CLASSIC_ISSUER = 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
+export const STELLAR_NETWORK_PASSPHRASE = STELLAR.networkPassphrase;
 
-const IRIS_API_BASE = 'https://iris-api.circle.com/v2';
+/** Circle's USDC classic asset issuer, per network. */
+const USDC_CLASSIC_ISSUER = STELLAR.usdcIssuer;
+const IRIS_API_BASE = IS_SIMULATION
+  ? 'https://iris-api-sandbox.circle.com/v2'
+  : 'https://iris-api.circle.com/v2';
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
@@ -153,7 +155,7 @@ export async function buildStellarDepositForBurnTx(
   evmRecipient: string,
   amountUsdc: string,
   maxFeeSubunits: bigint,
-  destChain: string = 'base',
+  destChain: string = HOME_CHAIN,
   account?: Account,
   minFinalityThreshold: number = 1000,
 ): Promise<StellarDepositForBurnResult> {
@@ -307,7 +309,7 @@ export async function fetchStellarAttestation(
  */
 export async function calculateStellarMaxFee(
   amountUsdc: string,
-  destChain: string = 'base',
+  destChain: string = HOME_CHAIN,
   minFinalityThreshold: number = 1000,
 ): Promise<bigint> {
   const { fetchCctpFees, CCTP_DOMAINS } = await import('./gateway');

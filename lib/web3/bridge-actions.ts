@@ -10,6 +10,7 @@ import { type ConnectedWallet } from '@privy-io/react-auth';
 import { VIEM_CHAINS } from './multichain';
 import {
   TOKEN_MESSENGER_V2,
+  MESSAGE_TRANSMITTER_V2,
   USDC_ADDRESSES,
   CCTP_DOMAINS,
   GAS_POLICY_IDS,
@@ -23,9 +24,11 @@ import { solanaMintRecipientBytes32 } from '../circle/solana-gateway';
 
 import { getCircleClient, getStandardRpcUrl } from './circle-client';
 import { rpcTransport } from './rpc';
+import { IS_TESTNET } from './network';
 import { findMintTxHash, isMessageDelivered } from './cctp-delivery';
 import { EVM_CHAINS, type ChainBalances, type SolanaSource, type SourceChainKey } from './routing';
 import { toast } from 'sonner';
+import { HOME_CHAIN } from '@/lib/explorers';
 
 /**
  * Gas price for a sponsored userOperation.
@@ -87,21 +90,62 @@ const SDK_DEFAULT_VERIFICATION_GAS = 100_000n;
 /**
  * Known starting points, to skip a doomed first attempt. Measured 2026-08-04; if a chain
  * starts costing a round trip, re-measure rather than nudging the number.
+ *
+ * These are *validation-only* costs, measured against an account that already exists on
+ * the chain. They must never be applied to an op that also has to deploy the account —
+ * see `deployed` in `sendWithAdaptiveVerificationGas`.
  */
 const VERIFICATION_GAS_SEED: Record<string, bigint> = {
   polygon: 265_000n, // validation measured at ~132,900 → 2x keeps efficiency at 0.5
 };
 
 /**
+ * Where to retry after the bundler reports the deployment itself ran out of gas.
+ *
+ * Deploying a Circle modular account costs several times what validating one does, so
+ * escalating from the validation-sized number gets nowhere. This overshoots deliberately:
+ * the "efficiency too low" reply that a too-high limit provokes reports the exact ratio,
+ * which converges on the right value in one more round trip. Being too low does not
+ * converge on anything — it just fails again.
+ */
+const DEPLOYMENT_VERIFICATION_GAS = 1_000_000n;
+
+/**
+ * Does this smart account already exist on the chain its client is pointed at?
+ *
+ * Assumes *not* deployed when the check itself fails. That direction is the safe one: it
+ * only means we skip the seed and let the bundler estimate, which costs nothing. Assuming
+ * "deployed" on a failed check would re-create the bug this answers.
+ */
+async function isAccountDeployed(account: { isDeployed?: () => Promise<boolean> }): Promise<boolean> {
+  if (typeof account.isDeployed !== 'function') return false;
+  return account.isDeployed().catch(() => false);
+}
+
+/**
  * Send a sponsored userOperation, correcting `verificationGasLimit` against whichever
  * bound the bundler rejects. Bounded at four attempts; anything not about verification
  * gas is rethrown untouched so real failures aren't retried into confusion.
+ *
+ * `deployed` says whether the smart account already exists on this chain. It matters
+ * because an op for an account that doesn't yet exist carries `factory`/`factoryData`,
+ * and then `verificationGasLimit` has to pay for the *deployment* as well as the
+ * signature check. Seeding such an op with a validation-sized number is how a claim on
+ * the first-ever chain for a wallet died on `AA13 initCode failed or OOG` — which, until
+ * this function learned to recognise it, was not retried at all: every attempt re-sent
+ * the same too-small limit, and the failure came out of gas *estimation*, so the user was
+ * never even prompted to sign.
  */
-async function sendWithAdaptiveVerificationGas(
+export async function sendWithAdaptiveVerificationGas(
   chain: string,
   send: (verificationGasLimit: bigint | undefined) => Promise<`0x${string}`>,
+  deployed = true,
 ): Promise<`0x${string}`> {
-  let limit: bigint | undefined = VERIFICATION_GAS_SEED[chain.toLowerCase()];
+  // An undeployed account gets no seed: the bundler's own estimate is the only one that
+  // knows what this factory costs on this chain, and it accounts for the initCode.
+  let limit: bigint | undefined = deployed
+    ? VERIFICATION_GAS_SEED[chain.toLowerCase()]
+    : undefined;
 
   for (let attempt = 0; ; attempt++) {
     try {
@@ -126,6 +170,17 @@ async function sendWithAdaptiveVerificationGas(
         }
       }
 
+      // AA13 is the deployment leg running out of gas, AA26 the validation leg. Both mean
+      // "too low", so both escalate — but AA13 starts from the deployment-sized number,
+      // because tripling a validation-sized one lands short again.
+      if (/AA13|initCode failed/i.test(msg)) {
+        limit = bigMax(applied * 3n, DEPLOYMENT_VERIFICATION_GAS);
+        console.warn(
+          `[SmartBridge] ${chain} account deployment ran out of verification gas at ${applied}. Retrying at ${limit}.`,
+        );
+        continue;
+      }
+
       if (/AA26|over verificationGasLimit/i.test(msg)) {
         limit = applied * 3n;
         console.warn(
@@ -146,8 +201,8 @@ const BASE_FEE_PAD = 4n;
 const PRIORITY_FEE_PAD = 10n;
 
 /**
- * Absolute priority-fee floors for the fallback path, set against what Circle's bundler
- * actually quotes on each chain (its `high` tier) with roughly 2x headroom.
+ * Absolute priority-fee floors, set against what Circle's bundler actually quotes on
+ * each chain (its `high` tier) with roughly 2x headroom.
  *
  * These exist because a chain's required priority fee is not proportional to its base
  * fee or to what its public node reports. Avalanche is the case that proves it: base fee
@@ -155,13 +210,26 @@ const PRIORITY_FEE_PAD = 10n;
  * number lands ~4x under the bundler's floor. Arbitrum's public node reports a priority
  * fee of exactly 0, which any multiplier leaves at 0.
  *
+ * Polygon is the case that forces a *hard* floor rather than a formula. Bor refuses to
+ * admit a transaction below its `txpool.pricelimit` — 30 gwei on PoS mainnet, 25 gwei on
+ * Amoy — and it refuses it *silently*: the bundle is dropped from the mempool, so the
+ * userOperation is accepted, never mined, and never errors. That is exactly what a
+ * Polygon bridge looked like from the UI, while every other chain worked.
+ *
  * Measured 2026-08-04 — re-check if a chain starts stalling at the approve step.
  */
 const DEFAULT_MIN_PRIORITY_FEE = 10_000_000n; // 0.01 gwei — covers base/arbitrum/optimism
-const MIN_PRIORITY_FEE: Record<string, bigint> = {
-  polygon: 250_000_000_000n, // bundler high ≈ 156 gwei
-  avalanche: 5_000_000_000n, // bundler high ≈ 3 gwei
-};
+const MIN_PRIORITY_FEE: Record<string, bigint> = IS_TESTNET
+  ? {
+      // Amoy's Bor pricelimit is 25 gwei; 30 clears it with headroom. The mainnet
+      // number below is far above what Amoy needs and only wastes paymaster funds.
+      polygon: 30_000_000_000n,
+      avalanche: 5_000_000_000n, // bundler high ≈ 3 gwei
+    }
+  : {
+      polygon: 250_000_000_000n, // bundler high ≈ 156 gwei, above Bor's 30 gwei limit
+      avalanche: 5_000_000_000n,
+    };
 
 const bigMax = (a: bigint, b: bigint) => (a > b ? a : b);
 
@@ -170,6 +238,8 @@ export async function sponsoredUserOpFees(
   client: PublicClient,
   chain: string,
 ): Promise<{ maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }> {
+  const floor = MIN_PRIORITY_FEE[chain.toLowerCase()] ?? DEFAULT_MIN_PRIORITY_FEE;
+
   const { modularWalletActions } = await import('@circle-fin/modular-wallets-core');
   const quoted = await bundlerClient
     .extend(modularWalletActions)
@@ -178,15 +248,24 @@ export async function sponsoredUserOpFees(
 
   const level = quoted?.high ?? quoted?.medium ?? null;
   if (level?.maxFeePerGas && level?.maxPriorityFeePerGas) {
-    const fees = {
-      maxFeePerGas: BigInt(level.maxFeePerGas) * MAX_FEE_HEADROOM,
-      maxPriorityFeePerGas: BigInt(level.maxPriorityFeePerGas),
-    };
-    console.log(
-      `[SmartBridge] ${chain} userOp fees (bundler-quoted): ` +
-        `maxFee ${Number(fees.maxFeePerGas) / 1e9} gwei, priority ${Number(fees.maxPriorityFeePerGas) / 1e9} gwei`,
+    // The floor applies here too, not just to the fallback below. A bundler quote is
+    // the bundler's opinion of a competitive fee, not a guarantee the chain's own
+    // mempool will admit it — and on Polygon those two disagree. Leaving the floor on
+    // the fallback path only meant it never ran, because the bundler always quotes.
+    const maxPriorityFeePerGas = bigMax(BigInt(level.maxPriorityFeePerGas), floor);
+    // maxFeePerGas is a ceiling that must cover the priority fee it sits above,
+    // otherwise the op is rejected as malformed rather than merely underpriced.
+    const maxFeePerGas = bigMax(
+      BigInt(level.maxFeePerGas) * MAX_FEE_HEADROOM,
+      maxPriorityFeePerGas * MAX_FEE_HEADROOM,
     );
-    return fees;
+
+    console.log(
+      `[SmartBridge] ${chain} userOp fees (bundler-quoted${
+        maxPriorityFeePerGas > BigInt(level.maxPriorityFeePerGas) ? ', raised to chain floor' : ''
+      }): maxFee ${Number(maxFeePerGas) / 1e9} gwei, priority ${Number(maxPriorityFeePerGas) / 1e9} gwei`,
+    );
+    return { maxFeePerGas, maxPriorityFeePerGas };
   }
 
   const [feeData, block] = await Promise.all([
@@ -194,7 +273,6 @@ export async function sponsoredUserOpFees(
     client.getBlock({ blockTag: 'latest' }).catch(() => null),
   ]);
 
-  const floor = MIN_PRIORITY_FEE[chain.toLowerCase()] ?? DEFAULT_MIN_PRIORITY_FEE;
   const estimatedPriority = feeData?.maxPriorityFeePerGas ?? 1_000_000n;
   const maxPriorityFeePerGas = bigMax(estimatedPriority * PRIORITY_FEE_PAD, floor);
 
@@ -254,6 +332,16 @@ const ERC20_ABI = [
   },
 ] as const;
 
+const BALANCE_OF_ABI = [
+  {
+    name: 'balanceOf',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'account', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+] as const;
+
 const TOKEN_MESSENGER_ABI = [
   {
     name: 'depositForBurn',
@@ -293,7 +381,7 @@ export async function executeSmartBridge(
   sourceChain: SupportedChain,
   amountUSDC: string,
   recipientAddress: string,
-  destChain: SupportedChain | 'stellar' | 'solana' = 'base'
+  destChain: SupportedChain | 'stellar' | 'solana' = HOME_CHAIN
 ): Promise<{ userOpHash: `0x${string}`; txHashPromise: Promise<string> }> {
 
   try {
@@ -323,8 +411,9 @@ export async function executeSmartBridge(
 
     if (destChain === 'stellar') {
       const { StrKey } = await import('@stellar/stellar-sdk');
-      // Set mintRecipient and destinationCaller to CctpForwarder contract address
-      const forwarderRawBytes = StrKey.decodeContract('CBZL2IH7F6BIDAA3WBNXYKIXSATJGMSW7K5P5MJ6STX5RXN47TZJDF5T');
+      const { STELLAR } = await import('@/lib/stellar/network');
+      // Set mintRecipient and destinationCaller to network-appropriate CctpForwarder contract address
+      const forwarderRawBytes = StrKey.decodeContract(STELLAR.cctpForwarder);
       mintRecipient = `0x${forwarderRawBytes.toString('hex')}`;
       destinationCaller = `0x${forwarderRawBytes.toString('hex')}`;
 
@@ -392,30 +481,38 @@ export async function executeSmartBridge(
           ],
         });
 
+    // Arc takes the same two-call path as every other chain: approve the TokenMessenger
+    // on the USDC ERC-20, then burn. `depositForBurn` is not payable, so the previous
+    // attempt to pass the amount as native `value` reverted every Arc bridge.
+    const bridgeCalls = [
+      {
+        to: usdcAddress as `0x${string}`,
+        data: encodeFunctionData({
+          abi: ERC20_ABI,
+          functionName: 'approve',
+          args: [TOKEN_MESSENGER_V2 as `0x${string}`, amountRaw],
+        }),
+      },
+      {
+        to: TOKEN_MESSENGER_V2 as `0x${string}`,
+        data: depositCallData,
+      },
+    ];
+
     toast.info('Initiating bridge transfer...');
-    const bridgeOpHash = await sendWithAdaptiveVerificationGas(sourceChain, (verificationGasLimit) =>
-      bundlerClient.sendUserOperation({
-        account,
-        calls: [
-          {
-            to: usdcAddress as `0x${string}`,
-            data: encodeFunctionData({
-              abi: ERC20_ABI,
-              functionName: 'approve',
-              args: [TOKEN_MESSENGER_V2 as `0x${string}`, amountRaw],
-            }),
-          },
-          {
-            to: TOKEN_MESSENGER_V2 as `0x${string}`,
-            data: depositCallData,
-          },
-        ],
-        maxFeePerGas,
-        maxPriorityFeePerGas,
-        verificationGasLimit,
-        paymaster: true,
-        paymasterContext: policyId ? { policyId } : undefined,
-      }),
+    const bridgeOpHash = await sendWithAdaptiveVerificationGas(
+      sourceChain,
+      (verificationGasLimit) =>
+        bundlerClient.sendUserOperation({
+          account,
+          calls: bridgeCalls,
+          maxFeePerGas,
+          maxPriorityFeePerGas,
+          verificationGasLimit,
+          paymaster: true,
+          paymasterContext: policyId ? { policyId } : undefined,
+        }),
+      await isAccountDeployed(account),
     );
 
     toast.info('Bridge transaction sent! Finalizing...');
@@ -485,7 +582,7 @@ export async function executeReceiveMessage(
   embeddedWallet: ConnectedWallet,
   messageHex: string,
   attestationHex: string,
-  destChain: SupportedChain = 'base',
+  destChain: SupportedChain = HOME_CHAIN,
 ): Promise<string> {
   const normMessage = messageHex.toLowerCase();
   if (pendingClaims.has(normMessage)) {
@@ -494,14 +591,10 @@ export async function executeReceiveMessage(
   }
   pendingClaims.add(normMessage);
 
-  let MESSAGE_TRANSMITTER = '0x81D40F21F12A8F0E3252Bccb954D722d4c464B64';
+  const MESSAGE_TRANSMITTER = MESSAGE_TRANSMITTER_V2;
   let standardRpcClient: PublicClient | null = null;
 
   try {
-    if (process.env.NEXT_PUBLIC_SIMULATION_MODE === 'true') {
-      MESSAGE_TRANSMITTER = '0x81D40F2169b009c9103C280963d76e4B4d4c464B';
-    }
-
     const chainId = CHAIN_IDS[destChain];
   const chainHex = `0x${chainId.toString(16)}`;
 
@@ -624,25 +717,39 @@ export async function executeReceiveMessage(
     destChain,
   );
 
-    const userOpHash = await sendWithAdaptiveVerificationGas(destChain, (verificationGasLimit) =>
-      bundlerClient.sendUserOperation({
-        account,
-        calls: [
-          {
-            to: MESSAGE_TRANSMITTER as `0x${string}`,
-            data: encodeFunctionData({
-              abi: MESSAGE_TRANSMITTER_ABI,
-              functionName: 'receiveMessage',
-              args: [normalizedMessage, normalizedAttestation],
-            }),
-          },
-        ],
-        maxFeePerGas,
-        maxPriorityFeePerGas,
-        verificationGasLimit,
-        paymaster: true,
-        ...(policyId ? { paymasterContext: { policyId } } : {}),
-      }),
+    // A claim is very often a wallet's first ever transaction on the destination chain —
+    // the bridge is what puts funds there in the first place — so this is the common
+    // case, not an edge case.
+    const deployed = await isAccountDeployed(account);
+    if (!deployed) {
+      console.log(
+        `[executeReceiveMessage] Smart account is not yet deployed on ${destChain}; ` +
+          'the claim will deploy it as part of the same userOperation.',
+      );
+    }
+
+    const userOpHash = await sendWithAdaptiveVerificationGas(
+      destChain,
+      (verificationGasLimit) =>
+        bundlerClient.sendUserOperation({
+          account,
+          calls: [
+            {
+              to: MESSAGE_TRANSMITTER as `0x${string}`,
+              data: encodeFunctionData({
+                abi: MESSAGE_TRANSMITTER_ABI,
+                functionName: 'receiveMessage',
+                args: [normalizedMessage, normalizedAttestation],
+              }),
+            },
+          ],
+          maxFeePerGas,
+          maxPriorityFeePerGas,
+          verificationGasLimit,
+          paymaster: true,
+          ...(policyId ? { paymasterContext: { policyId } } : {}),
+        }),
+      deployed,
     );
 
     // Poll both standard RPC client (processedMessages) and bundler client (with timeout) for instant, hang-free resolution
@@ -685,11 +792,26 @@ export async function executeReceiveMessage(
     const recovered = await findMintTxHash(standardRpcClient, normalizedMessage, MESSAGE_TRANSMITTER);
     if (recovered) return recovered;
 
-    // Never return `userOpHash` here. 'N/A' means "delivered, hash unknown", which the
-    // callers already understand — the pending-claims reconciler will fill in the real
-    // hash on a later pass rather than the row being frozen with a bogus one.
-    console.warn('[executeReceiveMessage] Could not resolve a mint tx hash yet.');
-    return 'N/A';
+    // 'N/A' means "delivered, hash unknown" — a *success* to every caller, which then
+    // marks the bridge complete and tells the user their USDC has arrived. So it may
+    // only be returned once the chain confirms the mint actually happened. Returning it
+    // unconditionally is what made a silently-stalled claim look like a finished bridge:
+    // the op was never mined, nothing arrived, and the UI still said "Bridge complete".
+    //
+    // Never return `userOpHash` here either — a userOp hash is not a transaction hash,
+    // and storing one puts a value in mint_tx_hash that no explorer will resolve.
+    if (await isMessageDelivered(standardRpcClient, normalizedMessage, MESSAGE_TRANSMITTER)) {
+      console.warn('[executeReceiveMessage] Delivered, but the mint tx hash is not resolvable yet.');
+      return 'N/A';
+    }
+
+    // Not delivered. The burn and its attestation stay valid forever, so this is a retry,
+    // not a loss — say so plainly and let the caller surface it.
+    // Kept short and plain: `classifyAppError` rewrites anything over 120 characters as
+    // "Something went wrong", so a longer message would never reach the user.
+    throw new Error(
+      `Claim not confirmed on ${destChain} yet. Your USDC is safe — please try again.`,
+    );
   } catch (error) {
     if (standardRpcClient) {
       const isProcessedNow = await isMessageDelivered(
@@ -773,10 +895,7 @@ export async function bridgeAndDeliver(
     throw new Error('Bridge attestation timed out');
   }
 
-  const MESSAGE_TRANSMITTER =
-    process.env.NEXT_PUBLIC_SIMULATION_MODE === 'true'
-      ? '0x81D40F2169b009c9103C280963d76e4B4d4c464B'
-      : '0x81D40F21F12A8F0E3252Bccb954D722d4c464B64';
+  const MESSAGE_TRANSMITTER = MESSAGE_TRANSMITTER_V2;
 
   let mintTxHash: string | undefined = attestationData.mintTxHash;
   if (!mintTxHash && attestationData.attestation && attestationData.messageBytes) {
@@ -824,6 +943,14 @@ export async function consolidateFundsToChain(
   params: {
     targetChain: SupportedChain;
     requiredAmount: string;
+    /**
+     * What the caller will actually spend afterwards, if that differs from
+     * `requiredAmount`. Callers pad `requiredAmount` to size the bridges generously
+     * (withdrawal adds 0.3%, batch 0.1%); the padding is headroom, not a requirement, so
+     * confirming against it would fail a near-max transfer that would have gone through.
+     * Defaults to `requiredAmount`.
+     */
+    confirmAmount?: string;
     balances: ChainBalances;
     recipient: string;
     onStatus?: (status: string) => void;
@@ -859,13 +986,13 @@ export async function consolidateFundsToChain(
     }
   }
 
-  // Add Solana source (only if target is Base)
-  if (targetChain === 'base' && solana && solana.balance > 0) {
+  // Solana and Stellar can only be pulled in when the target is the settlement chain —
+  // those rails bridge into it, not to an arbitrary chain.
+  if (targetChain === HOME_CHAIN && solana && solana.balance > 0) {
     allSources.push({ type: 'solana', chain: 'solana', balance: solana.balance });
   }
 
-  // Add Stellar source (only if target is Base)
-  if (targetChain === 'base' && stellar && stellar.balance > 0) {
+  if (targetChain === HOME_CHAIN && stellar && stellar.balance > 0) {
     allSources.push({ type: 'stellar', chain: 'stellar', balance: stellar.balance });
   }
 
@@ -896,6 +1023,76 @@ export async function consolidateFundsToChain(
     }
     remaining -= take;
   }
+
+  onStatus?.(`Confirming funds on ${CHAIN_NAMES[targetChain]}…`);
+  await waitForConsolidatedBalance(
+    targetChain,
+    recipient,
+    parseFloat(params.confirmAmount ?? requiredAmount) || 0,
+    onStatus,
+  );
+}
+
+/**
+ * Block until the target chain actually shows the money.
+ *
+ * Every caller of `consolidateFundsToChain` spends the funds immediately afterwards, and
+ * until now that was a race it usually won by luck. `bridgeAndDeliver` resolves once the
+ * destination mint is *in flight* — Circle's relayer may still be submitting it, and even
+ * a landed mint takes a block to become readable. Spending against a balance that hasn't
+ * appeared yet fails as an ERC-20 transfer revert, which tells the user nothing and, in
+ * the p2p flow, happens after their funds have already left the source chain.
+ *
+ * CCTP also charges a fee on every hop, taken out of the amount bridged. Consolidating a
+ * user's *entire* balance therefore always lands a few micro-USDC short of the request —
+ * the 1% buffer above cannot cover it, because there is nothing left to take the buffer
+ * from. No amount of waiting fixes that, so it is reported as what it is (send slightly
+ * less) rather than left to surface as an ERC-20 revert further down the flow.
+ *
+ * The comparison is exact for that reason: a "close enough" tolerance here just moves the
+ * revert one step later, since the caller goes on to spend the full requested amount.
+ */
+async function waitForConsolidatedBalance(
+  targetChain: SupportedChain,
+  address: string,
+  required: number,
+  onStatus?: (status: string) => void,
+  timeoutMs = 90_000,
+): Promise<void> {
+  const client = createPublicClient({
+    chain: VIEM_CHAINS[targetChain],
+    transport: rpcTransport(targetChain),
+  });
+  const usdc = USDC_ADDRESSES[targetChain] as `0x${string}`;
+  const requiredRaw = parseUnits(required.toFixed(6), 6);
+
+  const deadline = Date.now() + timeoutMs;
+  let latest = 0n;
+  while (Date.now() < deadline) {
+    latest = await client
+      .readContract({
+        address: usdc,
+        abi: BALANCE_OF_ABI,
+        functionName: 'balanceOf',
+        args: [address as `0x${string}`],
+      })
+      .catch(() => latest);
+
+    if (latest >= requiredRaw) return;
+    onStatus?.(
+      `Confirming funds on ${CHAIN_NAMES[targetChain]} ` +
+        `(${(Number(latest) / 1e6).toFixed(2)} of ${required.toFixed(2)} USDC)…`,
+    );
+    await new Promise((r) => setTimeout(r, 5_000));
+  }
+
+  console.warn(
+    `[Consolidate] ${CHAIN_NAMES[targetChain]} settled at ${latest} of ${requiredRaw} ` +
+      `micro-USDC for ${address}.`,
+  );
+  throw new Error(
+    `Bridge fees left you just short on ${CHAIN_NAMES[targetChain]}. Please send a slightly smaller amount.`,
+  );
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {

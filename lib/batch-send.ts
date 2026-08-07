@@ -105,7 +105,7 @@ export async function batchSend({
 
     if (!plan.feasible) {
       // Funds too fragmented (or partly on Solana) to pay everyone on a single chain.
-      // If the combined balance covers it, bridge everything onto Base and run one batch
+      // If the combined balance covers it, bridge onto the settlement chain, one batch
       // there; otherwise fail with a clear reason.
       const requiredTotal = parseFloat(amount) * transferParams.length;
       const solBal = solanaSource?.balance ?? 0;
@@ -118,6 +118,10 @@ export async function batchSend({
           await consolidateFundsToChain(wallet, {
             targetChain: 'base',
             requiredAmount: (requiredTotal * 1.001).toFixed(6),
+            // The 0.1% above is bridge-sizing headroom; the batch pays out exactly
+            // `requiredTotal`, so confirming against the padded figure would reject a
+            // payroll that can in fact be paid.
+            confirmAmount: requiredTotal.toFixed(6),
             balances: balancesForRoute,
             recipient: smartAddress,
             solana: solanaSource,

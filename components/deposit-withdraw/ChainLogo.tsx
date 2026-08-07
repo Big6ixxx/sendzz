@@ -12,11 +12,23 @@ const CHAIN_LOGOS: Record<string, string> = {
   stellar:      '/chains/stellar.png',
   base:          '/chains/base.png',
   'base-direct': '/chains/base.png',
+  // No `arc` entry on purpose: there is no /chains/arc.png in public/, and naming a file
+  // that doesn't exist renders a broken image rather than nothing. Arc falls through to
+  // the initials badge below until real artwork is added here.
 };
 
 export function ChainLogo({ chain, size = 32 }: { chain: string; size?: number }) {
   const src = CHAIN_LOGOS[chain];
-  if (!src) return null;
+  if (!src) {
+    return (
+      <div
+        className="rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-xs"
+        style={{ width: size, height: size }}
+      >
+        {chain.slice(0, 2).toUpperCase()}
+      </div>
+    );
+  }
 
   return (
     <Image

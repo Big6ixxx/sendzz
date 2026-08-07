@@ -21,6 +21,7 @@ import {
 import Link from 'next/link';
 import { use, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { HOME_CHAIN_LABEL } from '@/lib/explorers';
 
 interface OrderData {
   id: string;
@@ -84,7 +85,7 @@ const STATUS_MAP: Record<
   },
   settling: {
     label: 'Settling Funds',
-    sub: 'Finalizing the transfer to your Base Mainnet address.',
+    sub: `Finalizing the transfer to your ${HOME_CHAIN_LABEL} address.`,
     icon: Loader2,
     color: '#00e87a',
     progress: 90,
@@ -369,7 +370,7 @@ export default function TxStatusPage({
                       <div className="px-4 py-2 rounded-xl bg-accent/10 border border-accent/20 flex items-center gap-2">
                         <ShieldCheck className="w-4 h-4 text-accent" />
                         <span className="text-[11px] font-bold uppercase tracking-widest text-accent">
-                          Base Mainnet
+                          {HOME_CHAIN_LABEL}
                         </span>
                       </div>
                       <p className="text-[10px] font-bold opacity-30 uppercase tracking-widest">

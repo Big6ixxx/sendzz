@@ -13,9 +13,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Info, Loader2, ShieldCheck, Wallet } from 'lucide-react';
-import { SupportedChain } from '@/lib/circle/gateway';
+import { CHAIN_NAMES, SupportedChain } from '@/lib/circle/gateway';
+import { IS_ARC_ENABLED } from '@/lib/web3/network';
 import { SourceSelector } from '@/components/SourceSelector';
 import type { ChainBalances, SourcePreference } from '@/lib/web3/routing';
+import { HOME_CHAIN } from '@/lib/explorers';
 
 interface CryptoTransferFormProps {
   recipientAddress: string;
@@ -42,6 +44,10 @@ interface CryptoTransferFormProps {
 
 // Ethereum L1 commented out — see BRIDGE_DISABLED_CHAINS in lib/circle/gateway.
 const AVAILABLE_CHAINS: (SupportedChain | 'stellar' | 'solana')[] = [
+  // Arc leads while enabled: it is the settlement chain on testnet, and it was
+  // previously given a display name here without ever being added to the list, so it
+  // could never actually be picked as a send network.
+  ...(IS_ARC_ENABLED ? (['arc'] as SupportedChain[]) : []),
   'base',
   // 'ethereum',
   'arbitrum',
@@ -61,6 +67,7 @@ const ALL_CHAIN_NAMES: Record<SupportedChain | 'stellar' | 'solana', string> = {
   avalanche: 'Avalanche',
   stellar: 'Stellar',
   solana: 'Solana',
+  arc: 'Arc Testnet',
 };
 
 export function CryptoTransferForm({
@@ -139,7 +146,7 @@ export function CryptoTransferForm({
                 <Loader2 className="w-3 h-3 animate-spin text-accent" />
             ) : (
                 <span className="text-[11px] font-black tracking-wider text-foreground">
-                    {parseFloat(balance).toFixed(2)} USDC
+                    {(Math.floor((parseFloat(balance || '0')) * 100) / 100).toFixed(2)} USDC
                 </span>
             )}
         </div>
@@ -230,7 +237,7 @@ export function CryptoTransferForm({
           solanaBalance={solanaBalance}
           requiredAmount={parseFloat(amount || '0')}
           allowConsolidate
-          consolidationTarget="Base"
+          consolidationTarget={CHAIN_NAMES[HOME_CHAIN as SupportedChain]}
           value={sourcePref}
           onChange={setSourcePref}
         />

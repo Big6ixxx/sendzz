@@ -318,8 +318,11 @@ export function transferReceivedTemplate(
         <p style="font-size: 28px; font-weight: 950; color: #111111; margin: 0;">${amount} USDC</p>
       </div>
       
-      <p style="font-size: 15px; line-height: 1.6; color: #404040; margin: 0;">
-        </p>
+      <p style="font-size: 15px; line-height: 1.6; color: #404040; margin: 0 0 24px 0;">
+        Click below to view your balance and transaction details on Sendzz:
+      </p>
+
+      <a href="${APP_URL || 'https://sendzz.io'}/dashboard" style="display: inline-block; background-color: #67ED0A; color: #004421 !important; padding: 14px 40px; border-radius: 12px; text-decoration: none; font-weight: 800; font-size: 16px;">View on Sendzz</a>
 
       ${noteSection}
     </div>

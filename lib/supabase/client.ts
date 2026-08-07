@@ -6,6 +6,7 @@
 
 import type { Database } from '@/types/database';
 import { createBrowserClient } from '@supabase/ssr';
+import { guardSupabaseWrites } from './network-guard';
 
 let browserClient: ReturnType<typeof createBrowserClient<Database>> | null =
   null;
@@ -15,9 +16,11 @@ let browserClient: ReturnType<typeof createBrowserClient<Database>> | null =
  */
 export function getSupabaseBrowserClient() {
   if (!browserClient) {
-    browserClient = createBrowserClient<Database>(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    browserClient = guardSupabaseWrites(
+      createBrowserClient<Database>(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      ),
     );
   }
   return browserClient;
@@ -27,8 +30,10 @@ export function getSupabaseBrowserClient() {
  * Create a new Supabase browser client (for cases where you need a fresh instance)
  */
 export function createSupabaseBrowserClient() {
-  return createBrowserClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  return guardSupabaseWrites(
+    createBrowserClient<Database>(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    ),
   );
 }

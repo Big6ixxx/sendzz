@@ -17,12 +17,12 @@
 import {
   Asset,
   Keypair,
-  Networks,
   Operation,
   Transaction,
   TransactionBuilder,
 } from '@stellar/stellar-sdk';
 import { PrivyClient } from '@privy-io/node';
+import { STELLAR, stellarSponsorSecret } from './network';
 
 // ── Privy client ─────────────────────────────────────────────────────────────
 
@@ -33,13 +33,14 @@ const privy = new PrivyClient({
 
 // ── Network constants ─────────────────────────────────────────────────────────
 
-export const STELLAR_HORIZON_URL =
-  process.env.NEXT_PUBLIC_STELLAR_HORIZON_URL ?? 'https://horizon.stellar.org';
+// All of these follow NEXT_PUBLIC_SIMULATION_MODE via `lib/stellar/network`. The issuer
+// in particular used to be a hardcoded mainnet constant, so on testnet every trustline
+// was built against an asset that does not exist there.
+export const STELLAR_HORIZON_URL = STELLAR.horizonUrl;
 
-export const STELLAR_NETWORK_PASSPHRASE =
-  process.env.NEXT_PUBLIC_STELLAR_NETWORK_PASSPHRASE ?? Networks.PUBLIC;
+export const STELLAR_NETWORK_PASSPHRASE = STELLAR.networkPassphrase;
 
-const USDC_CLASSIC_ISSUER = 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
+const USDC_CLASSIC_ISSUER = STELLAR.usdcIssuer;
 const USDC_ASSET = new Asset('USDC', USDC_CLASSIC_ISSUER);
 
 /**
@@ -113,11 +114,13 @@ export async function hasServerSigner(walletId: string): Promise<boolean> {
 }
 
 function getSponsorKeypair(): Keypair {
-  const secret = process.env.STELLAR_SPONSOR_SECRET_KEY;
+  const secret = stellarSponsorSecret();
   if (!secret) {
     throw new Error(
       'STELLAR_SPONSOR_SECRET_KEY is not configured. ' +
-      'Generate a Stellar keypair, fund it with 5–10 XLM, and add the secret key to your .env.',
+      'Generate a Stellar keypair, fund it with 5–10 XLM, and add the secret key to your .env. ' +
+      'On testnet, STELLAR_SPONSOR_SECRET_KEY_TESTNET is used first if set, and the ' +
+      'account can be funded from https://friendbot.stellar.org?addr=<public key>.',
     );
   }
   return Keypair.fromSecret(secret);

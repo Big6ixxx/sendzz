@@ -5,7 +5,7 @@
  *
  * Solana uses a different execution path from EVM (Privy embedded Solana wallet, a
  * Circle DCW fee-payer for gas, SPL USDC). This module makes Solana usable as a
- * *spendable source*: bridge its USDC onto Base, after which the normal EVM routing
+ * *spendable source*: bridge its USDC onto the settlement chain, after which EVM routing
  * spends it. `prepareSolanaBurnTx` is shared with SmartBridgeModule; `bridgeSolanaToBase`
  * is the awaitable end-to-end used by auto-consolidation.
  */
@@ -29,6 +29,7 @@ import {
 } from "@/lib/circle/gateway";
 import { executeReceiveMessage } from "./bridge-actions";
 import type { ConnectedWallet } from "@privy-io/react-auth";
+import { HOME_CHAIN } from '@/lib/explorers';
 
 /**
  * Build a Solana depositForBurn transaction targeting `recipientEvm` on Base, fund its
@@ -47,7 +48,7 @@ export async function prepareSolanaBurnTx(params: {
     walletAddress,
     amount,
     recipientEvm,
-    destChain = "base",
+    destChain = HOME_CHAIN,
   } = params;
 
   // CCTP fee (non-fatal — fall back to 0).

@@ -15,10 +15,14 @@
  */
 
 import { type SupportedChain } from '../circle/gateway';
+import { IS_ARC_ENABLED } from './network';
 
 /**
  * The EVM chains a Circle smart account can transact on (shared CREATE2 address).
  * Ethereum L1 is commented out — see BRIDGE_DISABLED_CHAINS in lib/circle/gateway.
+ *
+ * Arc is present only while it is enabled: it is testnet-only, so a mainnet build must
+ * not route a payment to a chain that does not exist yet.
  */
 export const EVM_CHAINS: SupportedChain[] = [
   'base',
@@ -26,6 +30,7 @@ export const EVM_CHAINS: SupportedChain[] = [
   'arbitrum',
   'optimism',
   'avalanche',
+  ...(IS_ARC_ENABLED ? (['arc'] as SupportedChain[]) : []),
   // 'ethereum',
 ];
 
@@ -33,8 +38,12 @@ export const EVM_CHAINS: SupportedChain[] = [
  * Spend preference, cheapest/fastest first. The home chain is hoisted to the front by
  * the planner. Ethereum L1 sat last here (highest real cost even when gas is sponsored,
  * and slowest finality) before it was switched off.
+ *
+ * Arc leads when enabled — USDC is its native gas token and finality is sub-second, so
+ * spending from Arc first both settles fastest and keeps funds on the demo's home chain.
  */
 const SPEND_PRIORITY: SupportedChain[] = [
+  ...(IS_ARC_ENABLED ? (['arc'] as SupportedChain[]) : []),
   'base',
   'polygon',
   'arbitrum',
@@ -139,7 +148,7 @@ export function planTransferRoute(
   balances: ChainBalances,
   opts: { homeChain?: SupportedChain; source?: SourcePreference } = {},
 ): RoutePlan {
-  const home = opts.homeChain ?? 'base';
+  const home = opts.homeChain ?? (IS_ARC_ENABLED ? 'arc' : 'base');
   const order = spendOrder(home);
 
   const requestedMicro = toMicro(parseFloat(amountUsdc));

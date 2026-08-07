@@ -14,15 +14,24 @@
  */
 
 import { NextResponse } from 'next/server';
-import { Keypair, TransactionBuilder, Contract, xdr, Networks } from '@stellar/stellar-sdk';
+import { Keypair, TransactionBuilder, Contract, xdr } from '@stellar/stellar-sdk';
 import { rpc as SorobanRpc } from '@stellar/stellar-sdk';
-import { loadStellarAccount } from '@/lib/circle/stellar-gateway';
+import {
+  loadStellarAccount,
+  STELLAR_RPC_URL,
+  STELLAR_NETWORK_PASSPHRASE,
+} from '@/lib/circle/stellar-gateway';
 import { ensureStellarUsdcReceivable } from '@/lib/stellar/privy-wallet';
 import { CCTP_DOMAINS } from '@/lib/circle/gateway';
+import { STELLAR, STELLAR_CCTP_AVAILABLE, stellarSponsorSecret } from '@/lib/stellar/network';
+import { IS_TESTNET } from '@/lib/web3/network';
 
-const STELLAR_RPC_URL = process.env.NEXT_PUBLIC_STELLAR_RPC_URL || 'https://soroban-rpc.mainnet.stellar.gateway.fm';
-const STELLAR_CCTP_FORWARDER = 'CBZL2IH7F6BIDAA3WBNXYKIXSATJGMSW7K5P5MJ6STX5RXN47TZJDF5T';
-const STELLAR_NETWORK_PASSPHRASE = Networks.PUBLIC;
+/**
+ * Circle's Soroban CCTP forwarder, resolved per network. Circle has published no CCTP
+ * deployment for Stellar testnet, so this is empty there and the guard below refuses the
+ * route rather than invoking a mainnet contract id against a testnet RPC.
+ */
+const STELLAR_CCTP_FORWARDER = STELLAR.cctpForwarder;
 
 /** Soroban surfaces the missing-trustline case as a host error, not a typed code. */
 function isTrustlineError(raw: string): boolean {
@@ -40,8 +49,16 @@ function safeClaimError(raw: string): { error: string; code: string } {
     };
   }
   const lower = raw.toLowerCase();
-  if (lower.includes('nonce already used') || lower.includes('already received') || lower.includes('already processed')) {
-    return { error: 'This transfer has already been claimed.', code: 'already_claimed' };
+  if (
+    lower.includes('nonce already used') ||
+    lower.includes('already received') ||
+    lower.includes('already processed') ||
+    lower.includes('already claimed') ||
+    lower.includes('#6908') ||
+    lower.includes('6908') ||
+    lower.includes('invalidmintrecipient')
+  ) {
+    return { error: 'This transfer has already been claimed or reconciled on-chain.', code: 'already_claimed' };
   }
   if (lower.includes('insufficient') || lower.includes('sponsor')) {
     return {
@@ -68,6 +85,22 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { error: 'txHash and sourceChain are required' },
         { status: 400 },
+      );
+    }
+
+    // Fail loudly rather than invoking a mainnet contract id against a testnet RPC,
+    // which reverts with an opaque Soroban error well after the burn has happened.
+    if (!STELLAR_CCTP_AVAILABLE) {
+      return NextResponse.json(
+        {
+          error:
+            'Claiming USDC to Stellar is not available on this network: Circle has not ' +
+            'published CCTP Soroban contracts for Stellar testnet. Set ' +
+            'NEXT_PUBLIC_STELLAR_CCTP_FORWARDER_TESTNET and ' +
+            'NEXT_PUBLIC_STELLAR_TOKEN_MESSENGER_CONTRACT_TESTNET once they exist. ' +
+            'Sending and receiving USDC on Stellar itself is unaffected.',
+        },
+        { status: 501 },
       );
     }
 
@@ -99,8 +132,10 @@ export async function POST(req: Request) {
       }
     }
 
-    // 1. Fetch attestation from Iris API
-    const irisRes = await fetch(`https://iris-api.circle.com/v2/messages/${domain}?transactionHash=${txHash}`);
+    const irisDomain = IS_TESTNET
+      ? 'https://iris-api-sandbox.circle.com/v2'
+      : 'https://iris-api.circle.com/v2';
+    const irisRes = await fetch(`${irisDomain}/messages/${domain}?transactionHash=${txHash}`);
     if (!irisRes.ok) {
       throw new Error(`Iris API query failed: ${irisRes.statusText}`);
     }
@@ -137,7 +172,7 @@ export async function POST(req: Request) {
     const attestationBytes = Buffer.from(attestation.startsWith('0x') ? attestation.slice(2) : attestation, 'hex');
 
     // 2. Setup Sponsor Keypair
-    const sponsorSecret = process.env.STELLAR_SPONSOR_SECRET_KEY;
+    const sponsorSecret = stellarSponsorSecret();
     if (!sponsorSecret) {
       throw new Error('STELLAR_SPONSOR_SECRET_KEY is not configured on the server');
     }
@@ -185,8 +220,17 @@ export async function POST(req: Request) {
 
     if (!simulated.ok) {
       console.error('[Stellar/Claim] Soroban simulation failed:', simulated.error);
-      const safe = safeClaimError(simulated.error);
-      return NextResponse.json(safe, { status: safe.code === 'already_claimed' ? 409 : 502 });
+      const safe = safeClaimError(JSON.stringify(simulated.error));
+      if (safe.code === 'already_claimed') {
+        try {
+          const { updateBridgeStatus } = await import('@/lib/supabase/transactions');
+          await updateBridgeStatus(txHash, 'complete');
+        } catch (e) {
+          console.error('[Stellar/Claim] Auto-reconcile error:', e);
+        }
+        return NextResponse.json({ success: true, alreadyClaimed: true, error: safe.error }, { status: 200 });
+      }
+      return NextResponse.json(safe, { status: 502 });
     }
 
     const preppedTx = simulated.tx;

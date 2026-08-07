@@ -12,6 +12,8 @@ import {
 } from './config';
 import { VIEM_CHAINS } from './multichain';
 import { SupportedChain } from '../circle/gateway';
+import { getCircleChainSlug } from './circle-networks';
+import { HOME_CHAIN } from '@/lib/explorers';
 import { rpcUrls } from './rpc';
 
 export { ALCHEMY_SUBDOMAIN } from './rpc';
@@ -33,7 +35,8 @@ export function getStandardRpcUrl(chainName: string): string {
   }
 }
 
-const getCircleRpcUrl = (chainName: string = 'base') => `${CIRCLE_CLIENT_URL}/${chainName}`;
+const getCircleRpcUrl = (chainName: string = HOME_CHAIN) =>
+  `${CIRCLE_CLIENT_URL}/${getCircleChainSlug(chainName)}`;
 
 // Build a viem custom account from Privy's provider
 // Privy supports eth_signTypedData_v4 but NOT raw signing
@@ -71,7 +74,7 @@ function privyToLocalAccount(provider: EIP1193Provider, address: Address) {
   };
 }
 
-export async function getCircleClient(provider: EIP1193Provider, targetChain: string = 'base') {
+export async function getCircleClient(provider: EIP1193Provider, targetChain: string = HOME_CHAIN) {
   if (!CIRCLE_CLIENT_KEY) throw new Error('Circle Client Key not configured.');
   if (!CIRCLE_CLIENT_URL) throw new Error('Circle Client URL not configured.');
 
@@ -100,10 +103,21 @@ export async function getCircleClient(provider: EIP1193Provider, targetChain: st
   // Use our custom Privy-compatible local account instead of walletClientToLocalAccount
   const localAccount = privyToLocalAccount(provider, address);
 
-  const account = await toCircleSmartAccount({
-    client: publicClient,
-    owner: localAccount,
-  });
+  let account;
+  try {
+    account = await toCircleSmartAccount({
+      client: publicClient,
+      owner: localAccount,
+    });
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    if (errMsg.includes('Owner identifier already exists in another environment')) {
+      throw new Error(
+        'Your current wallet address was registered under Circle LIVE keys. Please log out of Sendzz and sign in with a fresh test email to create a new testnet wallet.',
+      );
+    }
+    throw err;
+  }
 
   // Circle's modularTransport handles the Paymaster and Gas Station natively across all supported chains
   const bundlerClient = createBundlerClient({
@@ -115,7 +129,7 @@ export async function getCircleClient(provider: EIP1193Provider, targetChain: st
   return { bundlerClient, account, localAccount, publicClient };
 }
 
-export async function getCircleAddress(provider: EIP1193Provider, targetChain: string = 'base') {
+export async function getCircleAddress(provider: EIP1193Provider, targetChain: string = HOME_CHAIN) {
   if (!CIRCLE_CLIENT_KEY) throw new Error('Circle Client Key not configured.');
 
   const chainObj = VIEM_CHAINS[targetChain as SupportedChain] ?? defaultChain;

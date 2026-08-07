@@ -14,6 +14,7 @@
  */
 
 import { truncateAddress } from '@/lib/utils';
+import { IS_ARC_ENABLED } from '@/lib/web3/network';
 import { ArrowRight, Copy, Loader2 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import Link from 'next/link';
@@ -30,6 +31,9 @@ type Rail = 'evm' | 'solana' | 'stellar';
 // there would be tracked nowhere and movable by nothing, so we don't advertise the
 // network even though the address itself can still technically receive on it.
 const EVM_NETWORKS: { key: string; name: string }[] = [
+  // Arc only while it exists — it is testnet-only, so a mainnet build must not offer a
+  // deposit network the funds could never arrive on.
+  ...(IS_ARC_ENABLED ? [{ key: 'arc', name: 'Arc Testnet' }] : []),
   { key: 'base', name: 'Base' },
   // { key: 'ethereum', name: 'Ethereum' },
   { key: 'polygon', name: 'Polygon' },

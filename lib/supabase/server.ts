@@ -7,6 +7,7 @@
 import type { Database } from '@/types/database';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { guardSupabaseWrites } from './network-guard';
 
 /**
  * Create a Supabase client for server-side use (respects RLS)
@@ -14,7 +15,7 @@ import { cookies } from 'next/headers';
 export async function createClient() {
   const cookieStore = await cookies();
 
-  return createServerClient<Database>(
+  return guardSupabaseWrites(createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -35,7 +36,7 @@ export async function createClient() {
         },
       },
     },
-  );
+  ));
 }
 
 /**
@@ -48,7 +49,7 @@ export function createAdminClient() {
     throw new Error('SUPABASE_SERVICE_ROLE_KEY is not set');
   }
 
-  return createServerClient<Database>(
+  return guardSupabaseWrites(createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     serviceRoleKey,
     {
@@ -65,5 +66,5 @@ export function createAdminClient() {
         persistSession: false,
       },
     },
-  );
+  ));
 }

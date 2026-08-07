@@ -9,15 +9,38 @@
  */
 
 import { fallback, http, type Transport } from 'viem';
+import { IS_TESTNET } from './network';
 
-export const ALCHEMY_SUBDOMAIN: Record<string, string> = {
-  ethereum: 'eth-mainnet',
-  arbitrum: 'arb-mainnet',
-  avalanche: 'avax-mainnet',
-  optimism: 'opt-mainnet',
-  polygon: 'polygon-mainnet',
-  base: 'base-mainnet',
-};
+/**
+ * Alchemy network subdomains.
+ *
+ * These must track the active network family. When the app ran in testnet mode with a
+ * mainnet-only map here, `rpcUrls` still appended a Base *mainnet* Alchemy endpoint as a
+ * fallback, so a testnet balance read could quietly answer with mainnet funds whenever a
+ * public testnet node was slow — mainnet balances appearing in a testnet build.
+ *
+ * A chain absent from this map simply has no Alchemy endpoint, which callers must treat
+ * as "not scannable via the Transfers API" rather than building an `undefined` hostname.
+ * Arc appears only on testnet, because there is no Arc mainnet to point at.
+ */
+export const ALCHEMY_SUBDOMAIN: Record<string, string> = IS_TESTNET
+  ? {
+      ethereum: 'eth-sepolia',
+      arbitrum: 'arb-sepolia',
+      avalanche: 'avax-fuji',
+      optimism: 'opt-sepolia',
+      polygon: 'polygon-amoy',
+      base: 'base-sepolia',
+      arc: 'arc-testnet',
+    }
+  : {
+      ethereum: 'eth-mainnet',
+      arbitrum: 'arb-mainnet',
+      avalanche: 'avax-mainnet',
+      optimism: 'opt-mainnet',
+      polygon: 'polygon-mainnet',
+      base: 'base-mainnet',
+    };
 
 /**
  * Keyless public endpoints, in preference order.
@@ -27,17 +50,30 @@ export const ALCHEMY_SUBDOMAIN: Record<string, string> = {
  * answering, which is why a funded Polygon balance read as zero once Alchemy 403'd.
  * Verified reachable when written — re-check them if a chain starts reporting empty.
  */
-export const PUBLIC_RPCS: Record<string, string[]> = {
-  ethereum: ['https://ethereum-rpc.publicnode.com'],
-  arbitrum: ['https://arbitrum-one-rpc.publicnode.com', 'https://arb1.arbitrum.io/rpc'],
-  avalanche: [
-    'https://avalanche-c-chain-rpc.publicnode.com',
-    'https://api.avax.network/ext/bc/C/rpc',
-  ],
-  optimism: ['https://optimism-rpc.publicnode.com', 'https://mainnet.optimism.io'],
-  polygon: ['https://polygon-bor-rpc.publicnode.com'],
-  base: ['https://mainnet.base.org', 'https://base.llamarpc.com', 'https://base-rpc.publicnode.com', 'https://1rpc.io/base'],
-};
+export const PUBLIC_RPCS: Record<string, string[]> = IS_TESTNET
+  ? {
+      ethereum: ['https://rpc.sepolia.org', 'https://ethereum-sepolia-rpc.publicnode.com'],
+      arbitrum: ['https://sepolia-rollup.arbitrum.io/rpc', 'https://arbitrum-sepolia-rpc.publicnode.com'],
+      avalanche: ['https://api.avax-test.network/ext/bc/C/rpc', 'https://avalanche-fuji-c-chain-rpc.publicnode.com'],
+      optimism: ['https://sepolia.optimism.io', 'https://optimism-sepolia-rpc.publicnode.com'],
+      polygon: ['https://polygon-amoy-bor-rpc.publicnode.com', 'https://polygon-amoy.drpc.org'],
+      base: ['https://sepolia.base.org', 'https://base-sepolia-rpc.publicnode.com'],
+      arc: ['https://rpc.testnet.arc.network'],
+    }
+  : {
+      ethereum: ['https://ethereum-rpc.publicnode.com'],
+      arbitrum: ['https://arbitrum-one-rpc.publicnode.com', 'https://arb1.arbitrum.io/rpc'],
+      avalanche: [
+        'https://avalanche-c-chain-rpc.publicnode.com',
+        'https://api.avax.network/ext/bc/C/rpc',
+      ],
+      optimism: ['https://optimism-rpc.publicnode.com', 'https://mainnet.optimism.io'],
+      polygon: ['https://polygon-bor-rpc.publicnode.com'],
+      base: ['https://mainnet.base.org', 'https://base.llamarpc.com', 'https://base-rpc.publicnode.com', 'https://1rpc.io/base'],
+      // Arc has no mainnet. Kept so a stored Arc record can still be read, but Arc is
+      // filtered out of every runtime chain list in a mainnet build.
+      arc: ['https://rpc.testnet.arc.network'],
+    };
 
 /**
  * Per-chain override, for when a chain needs a specific provider: `<CHAIN>_RPC_URL`,

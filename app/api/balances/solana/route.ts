@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
+import { SOLANA_RPC_URL } from '@/lib/solana/network';
 
 // Solana USDC mint (mainnet)
 const SOLANA_USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 
 const SOLANA_RPC =
-  process.env.SOLANA_RPC_URL ??
-  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ??
-  'https://api.mainnet-beta.solana.com';
+  SOLANA_RPC_URL;
 
 /**
  * GET /api/balances/solana?address=<base58>

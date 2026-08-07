@@ -15,7 +15,13 @@ import { BankSelector } from "./BankSelector";
 import { SourceSelector } from "@/components/SourceSelector";
 import { OrderAdvancedDetails } from "./OrderAdvancedDetails";
 import { CHAIN_NAMES, type SupportedChain } from "@/lib/circle/gateway";
+import { HOME_CHAIN } from "@/lib/explorers";
 import { useDepositWithdraw } from "./useDepositWithdraw";
+import { TestnetRampNotice } from "./TestnetRampNotice";
+import {
+  WITHDRAWALS_ENABLED,
+  TESTNET_WITHDRAWAL_MESSAGE,
+} from "@/lib/ramp/testnet-guard";
 import { ReceiptActions } from "@/components/receipt/ReceiptActions";
 import { ReceiptData } from "@/lib/receipt/types";
 import { cn } from "@/lib/utils";
@@ -236,18 +242,31 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
               requiredAmount={usdcTotal}
               singleSourceChains={hook.rampNetworks}
               allowConsolidate
-              consolidationTarget="Base"
+              consolidationTarget={CHAIN_NAMES[HOME_CHAIN as SupportedChain] ?? "Arc Testnet"}
               value={hook.sourcePref}
               onChange={hook.setSourcePref}
             />
           )}
 
+        <TestnetRampNotice
+          show={!WITHDRAWALS_ENABLED}
+          message={TESTNET_WITHDRAWAL_MESSAGE}
+        />
+
         <button
           onClick={hook.handleWithdrawQuote}
-          disabled={hook.loading || hook.rateLoading || !hook.amount || isOverBalance}
+          disabled={
+            !WITHDRAWALS_ENABLED ||
+            hook.loading ||
+            hook.rateLoading ||
+            !hook.amount ||
+            isOverBalance
+          }
           className="btn-primary w-full gap-2"
         >
-          {hook.loading ? (
+          {!WITHDRAWALS_ENABLED ? (
+            "Unavailable on testnet"
+          ) : hook.loading ? (
             <Loader2 className="w-5 h-5 animate-spin" />
           ) : isOverBalance ? (
             "Insufficient Balance"

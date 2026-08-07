@@ -13,21 +13,17 @@ import {
   Account,
   Asset,
   Memo,
-  Networks,
   Operation,
   TransactionBuilder,
 } from '@stellar/stellar-sdk';
+import { STELLAR } from './network';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const STELLAR_HORIZON_URL =
-  process.env.NEXT_PUBLIC_STELLAR_HORIZON_URL ?? 'https://horizon.stellar.org';
+const STELLAR_HORIZON_URL = STELLAR.horizonUrl;
+const STELLAR_NETWORK_PASSPHRASE = STELLAR.networkPassphrase;
 
-const STELLAR_NETWORK_PASSPHRASE =
-  process.env.NEXT_PUBLIC_STELLAR_NETWORK_PASSPHRASE ?? Networks.PUBLIC;
-
-/** Circle's USDC classic asset issuer on Stellar mainnet */
-const USDC_CLASSIC_ISSUER = 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
+const USDC_CLASSIC_ISSUER = STELLAR.usdcIssuer;
 const USDC_ASSET = new Asset('USDC', USDC_CLASSIC_ISSUER);
 
 // ── Account helpers ───────────────────────────────────────────────────────────

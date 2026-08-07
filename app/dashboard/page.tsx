@@ -19,6 +19,7 @@ import { usePortfolio } from "@/hooks/usePortfolio";
 import { useSolanaBridge } from "@/hooks/useSolanaBridge";
 import { ChainLogo } from "@/components/deposit-withdraw/ChainLogo";
 import { CHAIN_NAMES } from "@/lib/circle/gateway";
+import { HOME_CHAIN } from "@/lib/explorers";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { useStellarWallet } from "@/hooks/useStellarWallet";
 import { PendingBridgeClaims } from "@/components/bridge/PendingBridgeClaims";
@@ -245,13 +246,16 @@ export default function Dashboard() {
                     <span>
                       {fundedChains.length > 1
                         ? `Across ${fundedChains.length} networks`
+                        : fundedChains[0]?.chain === "arc"
+                        ? "Arc Testnet"
+                        : fundedChains[0]?.chain === "solana"
+                        ? "Solana"
+                        : fundedChains[0]?.chain === "stellar"
+                        ? "Stellar"
                         : CHAIN_NAMES[
                             (fundedChains[0]?.chain as keyof typeof CHAIN_NAMES) ??
-                              "base"
-                          ] ??
-                          (fundedChains[0]?.chain === "solana"
-                            ? "Solana"
-                            : "Base")}
+                              (HOME_CHAIN as keyof typeof CHAIN_NAMES)
+                          ] ?? (HOME_CHAIN === "arc" ? "Arc Testnet" : "Base")}
                     </span>
                     <ChevronDown
                       className={cn(

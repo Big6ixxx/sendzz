@@ -23,9 +23,10 @@ import { initiateDeveloperControlledWalletsClient } from '@circle-fin/developer-
 import { Connection, PublicKey } from '@solana/web3.js';
 import { buildReceiveMessageOnSolanaTx } from '@/lib/circle/solana-gateway';
 import { fetchAttestation } from '@/lib/circle/gateway';
+import { SOLANA_RPC_URL } from '@/lib/solana/network';
 
 const SOLANA_RPC =
-  process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
+  SOLANA_RPC_URL;
 
 /** How long to wait for the mint to confirm before handing the retry back to the caller. */
 const CONFIRM_TIMEOUT_MS = 60_000;

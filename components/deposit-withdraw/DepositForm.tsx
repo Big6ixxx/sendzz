@@ -20,6 +20,11 @@ import {
 import { BankSelector } from "./BankSelector";
 import { DepositNetworkAccordion } from "./DepositNetworkAccordion";
 import { useDepositWithdraw } from "./useDepositWithdraw";
+import { TestnetRampNotice } from "./TestnetRampNotice";
+import {
+  DEPOSITS_ENABLED,
+  TESTNET_DEPOSIT_MESSAGE,
+} from "@/lib/ramp/testnet-guard";
 import { ReceiptActions } from "@/components/receipt/ReceiptActions";
 import { ReceiptData } from "@/lib/receipt/types";
 
@@ -154,9 +159,17 @@ export function DepositForm({ hook }: DepositFormProps) {
           onChange={(c) => hook.setDepositNetwork(c as typeof hook.depositNetwork)}
         />
 
+        <div className="mt-4">
+          <TestnetRampNotice
+            show={!DEPOSITS_ENABLED}
+            message={TESTNET_DEPOSIT_MESSAGE}
+          />
+        </div>
+
         <button
           onClick={() => hook.handleDepositInitiate()}
           disabled={
+            !DEPOSITS_ENABLED ||
             hook.loading ||
             hook.rateLoading ||
             !hook.amount ||
@@ -164,7 +177,9 @@ export function DepositForm({ hook }: DepositFormProps) {
           }
           className="btn-primary w-full gap-2 mt-4"
         >
-          {hook.loading ? (
+          {!DEPOSITS_ENABLED ? (
+            "Unavailable on testnet"
+          ) : hook.loading ? (
             <Loader2 className="w-5 h-5 animate-spin" />
           ) : (
             "Continue to Deposit"

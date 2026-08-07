@@ -1,4 +1,5 @@
-import { EXPLORER_TX_BASE } from '@/lib/explorers';
+import { EXPLORER_TX_BASE, HOME_CHAIN } from '@/lib/explorers';
+import { IS_TESTNET, IS_ARC_ENABLED } from '@/lib/web3/network';
 
 export const CCTP_DOMAINS: Record<string, number> = {
   ethereum: 0,
@@ -8,24 +9,63 @@ export const CCTP_DOMAINS: Record<string, number> = {
   solana: 5,
   base: 6,
   polygon: 7,
+  // Arc is domain 26. Verified against MessageTransmitterV2.localDomain() on Arc, which
+  // returns 0x1a, and against Iris, which rejects domain 20 as an invalid domain id.
+  arc: 26,
   stellar: 27,
 };
 
-export type SupportedChain = 'ethereum' | 'avalanche' | 'optimism' | 'arbitrum' | 'base' | 'polygon';
+export type SupportedChain = 'ethereum' | 'avalanche' | 'optimism' | 'arbitrum' | 'base' | 'polygon' | 'arc';
 
-// CCTP V2 TokenMessengerV2 — same address across all EVM chains (CREATE2 deployment)
-export const TOKEN_MESSENGER_V2 =
-  '0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d' as const;
+/**
+ * CCTP V2 contracts. Each is one CREATE2 address across every chain in its network
+ * family, but mainnet and testnet are *different* address sets — the testnet set is what
+ * Arc uses, and it is deployed identically on Base Sepolia, Arbitrum Sepolia and Fuji.
+ * Pointing testnet at the mainnet addresses (as this file used to) targets an account
+ * with no code, so every burn and claim reverts.
+ */
+export const TOKEN_MESSENGER_V2 = (
+  IS_TESTNET
+    ? '0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA'
+    : '0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d'
+) as `0x${string}`;
 
-// USDC contract addresses per chain
-export const USDC_ADDRESSES: Record<SupportedChain, string> = {
-  ethereum: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-  avalanche: '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E',
-  optimism: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
-  arbitrum: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
-  base: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-  polygon: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
-};
+export const MESSAGE_TRANSMITTER_V2 = (
+  IS_TESTNET
+    ? '0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275'
+    : '0x81D40F21F12A8F0E3252Bccb954D722d4c464B64'
+) as `0x${string}`;
+
+const IS_SIMULATION = IS_TESTNET;
+
+// USDC contract addresses per chain (Mainnet vs Testnet)
+export const USDC_ADDRESSES: Record<SupportedChain, string> = IS_SIMULATION
+  ? {
+      ethereum: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+      avalanche: '0x5425890298aed601595a70AB815c96711a31Bc65',
+      optimism: '0x5fd84259d66Cd46123540766Be93DFE6D43130D7',
+      arbitrum: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',
+      base: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+      polygon: '0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582',
+      // Arc exposes USDC through two interfaces over one balance: a native gas token
+      // (18 decimals, for gas and msg.value only) and this ERC-20 system contract
+      // (6 decimals). Circle's guidance is to use the ERC-20 for all app logic —
+      // transfers, approvals and balance reads — exactly like USDC on any other chain.
+      // Never mix the two representations: they differ by 10^12.
+      arc: '0x3600000000000000000000000000000000000000',
+    }
+  : {
+      ethereum: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+      avalanche: '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E',
+      optimism: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
+      arbitrum: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+      base: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+      polygon: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
+      // Arc has no mainnet yet. This keeps the record total for the type, but Arc is
+      // filtered out of every runtime chain list when IS_ARC_ENABLED is false, so it is
+      // unreachable in a mainnet build.
+      arc: '0x3600000000000000000000000000000000000000',
+    };
 
 export const CHAIN_NAMES: Record<SupportedChain, string> = {
   ethereum: 'Ethereum',
@@ -34,16 +74,28 @@ export const CHAIN_NAMES: Record<SupportedChain, string> = {
   arbitrum: 'Arbitrum',
   base: 'Base',
   polygon: 'Polygon',
+  arc: IS_TESTNET ? 'Arc Testnet' : 'Arc',
 };
 
-export const CHAIN_IDS: Record<SupportedChain, number> = {
-  ethereum: 1,
-  avalanche: 43114,
-  optimism: 10,
-  arbitrum: 42161,
-  base: 8453,
-  polygon: 137,
-};
+export const CHAIN_IDS: Record<SupportedChain, number> = IS_SIMULATION
+  ? {
+      ethereum: 11155111,
+      avalanche: 43113,
+      optimism: 11155420,
+      arbitrum: 421614,
+      base: 84532,
+      polygon: 80002,
+      arc: 5042002,
+    }
+  : {
+      ethereum: 1,
+      avalanche: 43114,
+      optimism: 10,
+      arbitrum: 42161,
+      base: 8453,
+      polygon: 137,
+      arc: 5042002,
+    };
 
 /**
  * EVM explorer bases, kept for existing callers. The full per-chain map (including Solana
@@ -56,6 +108,7 @@ export const CHAIN_EXPLORERS: Record<SupportedChain, string> = {
   arbitrum: EXPLORER_TX_BASE.arbitrum,
   base: EXPLORER_TX_BASE.base,
   polygon: EXPLORER_TX_BASE.polygon,
+  arc: EXPLORER_TX_BASE.arc,
 };
 
 // Source chains the user can bridge FROM (Base is the destination)
@@ -70,6 +123,9 @@ export const SOURCE_CHAINS: SupportedChain[] = [
   // 'ethereum',
   'optimism',
   'polygon',
+  // Arc is testnet-only, so it drops out of balance scanning and bridging automatically
+  // in a mainnet build rather than pointing at a chain that does not exist yet.
+  ...(IS_ARC_ENABLED ? (['arc'] as SupportedChain[]) : []),
 ];
 
 /**
@@ -110,11 +166,21 @@ export function isBridgeable(chain: string): boolean {
 export const SMART_BRIDGE_CHAINS: SupportedChain[] = SOURCE_CHAINS.filter(isBridgeable);
 
 /**
- * Circle Gas Station policy IDs per chain — set in .env
+ * Circle Gas Station policy IDs per chain — set in .env.
  * Used by executeSmartBridge to sponsor gas for USDC burns.
  * Chains without a policy ID fall back to Circle's default paymaster.
+ *
+ * A policy belongs to the Circle account that created it, so a LIVE policy id is
+ * meaningless to a TEST key and is rejected when passed as paymaster context. The two
+ * sets are therefore kept apart, and testnet simply has no policies configured by
+ * default — falling back to Circle's default paymaster is the right behaviour there.
+ * Set the *_TESTNET variables only if you create Gas Station policies on a test account.
+ *
+ * These are read as literals rather than by building the variable name, because Next
+ * inlines `NEXT_PUBLIC_*` by exact textual match and a computed lookup resolves to
+ * undefined in the browser bundle.
  */
-export const GAS_POLICY_IDS: Partial<Record<SupportedChain, string | undefined>> = {
+const MAINNET_GAS_POLICIES: Partial<Record<SupportedChain, string | undefined>> = {
   arbitrum:  process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_ARBITRUM,
   avalanche: process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_AVALANCHE,
   ethereum:  process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_ETHEREUM,
@@ -122,8 +188,21 @@ export const GAS_POLICY_IDS: Partial<Record<SupportedChain, string | undefined>>
   polygon:   process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_POLYGON,
 };
 
-// Circle Iris API base URL (mainnet)
-const IRIS_API_BASE = 'https://iris-api.circle.com/v2';
+const TESTNET_GAS_POLICIES: Partial<Record<SupportedChain, string | undefined>> = {
+  arbitrum:  process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_ARBITRUM_TESTNET,
+  avalanche: process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_AVALANCHE_TESTNET,
+  optimism:  process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_OPTIMISM_TESTNET,
+  polygon:   process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_POLYGON_TESTNET,
+  base:      process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_BASE_TESTNET,
+  arc:       process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_ARC_TESTNET,
+};
+
+export const GAS_POLICY_IDS: Partial<Record<SupportedChain, string | undefined>> =
+  IS_TESTNET ? TESTNET_GAS_POLICIES : MAINNET_GAS_POLICIES;
+
+const IRIS_API_BASE = IS_SIMULATION
+  ? 'https://iris-api-sandbox.circle.com/v2'
+  : 'https://iris-api.circle.com/v2';
 
 // ─── Fee Fetching ───────────────────────────────────────────────────────────
 
@@ -159,7 +238,7 @@ export async function fetchCctpFees(
 export async function calculateMaxFee(
   sourceChain: SupportedChain,
   amountUSDC: string,
-  destChain: SupportedChain | 'stellar' | 'solana' = 'base',
+  destChain: SupportedChain | 'stellar' | 'solana' = HOME_CHAIN,
   minFinalityThreshold: number = 1000,
 ): Promise<bigint> {
   const sourceDomain = CCTP_DOMAINS[sourceChain];
@@ -207,8 +286,8 @@ export function getCCTPDepositInstructions(
 
   return {
     sourceChain,
-    destinationChain: 'base' as SupportedChain,
-    destinationDomain: CCTP_DOMAINS.base,
+    destinationChain: HOME_CHAIN as SupportedChain,
+    destinationDomain: CCTP_DOMAINS[HOME_CHAIN],
     tokenMessenger: TOKEN_MESSENGER_V2,
     usdcAddress: USDC_ADDRESSES[sourceChain],
     amount,

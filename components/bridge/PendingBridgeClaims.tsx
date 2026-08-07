@@ -103,20 +103,25 @@ export function PendingBridgeClaims({
       await settle();
     } catch (err) {
       const classified = classifyAppError(err);
-      if (classified.isAlreadyProcessed) {
-        // The mint landed elsewhere (relayer, another tab) — reconcile and move on.
+      console.warn("[PendingBridgeClaims] Claim attempt failed:", err);
+
+      // Only a claim that the destination chain has *already* consumed may be marked
+      // complete. Every other failure has to leave the row pending: the USDC is burned
+      // and unminted, and this panel is the only place the user can finish it. Marking
+      // it complete on any error dismissed the one banner standing between a stalled
+      // claim and stranded funds — a Polygon claim that never got mined vanished from
+      // the list and reported success.
+      if (classified.isAlreadyProcessed || classified.category === "already_processed") {
         await fetch("/api/bridge/complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          // No hash to report — send none rather than a sentinel. The reconciler in
-          // getPendingBridgeClaims recovers the real one from the delivery log.
           body: JSON.stringify({ burnTxHash: claim.burnTxHash }),
         }).catch(console.error);
-        toast.success("This transfer has already arrived. Refreshing your balance...");
-        await settle();
+        toast.success("This transfer has already been claimed on-chain.");
       } else if (!classified.isSilent) {
         toast.error(classified.message);
       }
+      await settle();
     } finally {
       setClaimingId(null);
     }

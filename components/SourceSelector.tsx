@@ -76,7 +76,8 @@ export function SourceSelector({
     [fundedChains, solanaBalance, stellarBalance],
   );
 
-  const hasEnough = (c: SupportedChain) => (balances[c] ?? 0) + 1e-9 >= requiredAmount;
+  const toMicro = (val: number) => BigInt(Math.round((val ?? 0) * 1_000_000));
+  const hasEnough = (c: SupportedChain) => toMicro(balances[c] ?? 0) >= toMicro(requiredAmount);
   const isDirectSupported = (c: SupportedChain) =>
     !singleSourceChains || singleSourceChains.includes(c);
   const canSingle = (c: SupportedChain) => hasEnough(c) && isDirectSupported(c);
@@ -105,6 +106,12 @@ export function SourceSelector({
     if (set.has(c)) set.delete(c);
     else set.add(c);
     onChange({ mode: 'consolidate', from: Array.from(set) });
+  };
+
+  const formatUsdc = (val: number) => {
+    // Floor to 2 decimals so $0.9995 is rendered as $0.99 rather than visually rounded up to $1.00
+    const floored = Math.floor((val ?? 0) * 100) / 100;
+    return `$${floored.toFixed(2)}`;
   };
 
   return (
@@ -142,7 +149,7 @@ export function SourceSelector({
           {/* Single-chain sources */}
           {fundedChains.map((c) => {
             const eligible = canSingle(c);
-            const bal = `$${(balances[c] ?? 0).toFixed(2)}`;
+            const bal = formatUsdc(balances[c] ?? 0);
             // Distinguish "has funds but not a direct payout chain" from "not enough funds".
             const subtitle = eligible
               ? `${bal} available`

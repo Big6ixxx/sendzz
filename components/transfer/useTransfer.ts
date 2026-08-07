@@ -12,7 +12,8 @@ import {
   type SolanaSource,
   type SourcePreference,
 } from "@/lib/web3/routing";
-import { CHAIN_NAMES } from "@/lib/circle/gateway";
+import { CHAIN_NAMES, type SupportedChain } from "@/lib/circle/gateway";
+import { HOME_CHAIN } from "@/lib/explorers";
 import { sendTransferEmail } from "@/lib/email/sendEmail";
 import { type FiatCurrencyCode } from "@/lib/currency-config";
 import { ReceiptData } from "@/lib/receipt/types";
@@ -388,10 +389,10 @@ export function useTransfer({
       const balancesForRoute: ChainBalances =
         chainBalances && Object.keys(chainBalances).length > 0
           ? chainBalances
-          : { base: parseFloat(balance) || 0 };
+          : { [HOME_CHAIN]: parseFloat(balance) || 0 };
 
       let plan = planTransferRoute(amountUsdc, balancesForRoute, {
-        homeChain: "base",
+        homeChain: HOME_CHAIN as SupportedChain,
         source: sourcePref,
       });
 
@@ -410,9 +411,24 @@ export function useTransfer({
         return;
       }
 
-      if (!plan.feasible) {
-        // EVM alone can't cover it — pull in Solana or Stellar (bridged to Base) if that closes
-        // the gap, then send everything from Base.
+      // Fragmented funds settle as one payment, not several.
+      //
+      // `planTransferRoute` will happily pay a single recipient from several chains at
+      // once, and for a while that is what an email transfer did: sending 20 against
+      // 10 on Arc and 10 on Polygon arrived as two separate transfers on two chains.
+      // It is fast and it is technically correct, but it is not what was asked for and
+      // it is not what the recipient sees — they get "money", so it has to land once,
+      // on the home chain, for the full amount.
+      //
+      // A single chain that covers the whole amount is still spent directly (rule 1 in
+      // the router): that path needs no bridge and stays instant. Only genuine
+      // fragmentation pays for a CCTP hop.
+      const needsSingleChainSettlement =
+        plan.feasible && plan.multiSource && sourcePref.mode === "auto";
+
+      if (!plan.feasible || needsSingleChainSettlement) {
+        // EVM alone can't cover it — pull in Solana or Stellar if that closes the gap,
+        // then send everything from the home chain.
         const solBal = solanaSource?.balance ?? 0;
         const stelBal = stellarBalance ?? 0;
         if (plan.totalAvailable + solBal + stelBal + 1e-9 >= parseFloat(amountUsdc)) {
@@ -438,7 +454,7 @@ export function useTransfer({
             : undefined;
 
           await consolidateFundsToChain(embeddedProvider, {
-            targetChain: "base",
+            targetChain: HOME_CHAIN as SupportedChain,
             requiredAmount: amountUsdc,
             balances: balancesForRoute,
             recipient: smartAddress,
@@ -448,7 +464,7 @@ export function useTransfer({
           });
           plan = {
             feasible: true,
-            legs: [{ chain: "base", amount: amountUsdc }],
+            legs: [{ chain: HOME_CHAIN as SupportedChain, amount: amountUsdc }],
             totalAvailable: parseFloat(amountUsdc),
             requested: parseFloat(amountUsdc),
             multiSource: false,

@@ -1,6 +1,8 @@
 import { fetchAttestation, type SupportedChain } from '@/lib/circle/gateway';
 import { fetchSolanaAttestation } from '@/lib/circle/solana-gateway';
 import { fetchStellarAttestation } from '@/lib/circle/stellar-gateway';
+import { EVM_CLAIM_CHAINS } from '@/lib/web3/cctp-delivery';
+import { HOME_CHAIN } from '@/lib/explorers';
 import { NextRequest, NextResponse } from 'next/server';
 
 type ExtendedChain = SupportedChain | 'solana' | 'stellar';
@@ -69,11 +71,19 @@ export async function GET(req: NextRequest) {
         const { CIRCLE_CLIENT_KEY, CIRCLE_SEND_URL } = await import('@/lib/web3/config');
 
         if (CIRCLE_CLIENT_KEY) {
-          const bundlerUrl = `${CIRCLE_SEND_URL}/${sourceChain}`;
+          // Circle addresses its bundler by *its* chain slug, not our chain key: on
+          // testnet `polygon` is Polygon mainnet and Amoy is `polygonAmoy`. Building the
+          // URL from the raw key pointed every testnet lookup at a mainnet bundler,
+          // which knows nothing about the userOp and answers "not found" — so a burn
+          // whose hash still needed resolving never got resolved.
+          const { getCircleChainSlug } = await import('@/lib/web3/circle-networks');
+          const bundlerUrl = `${CIRCLE_SEND_URL}/${getCircleChainSlug(sourceChain)}`;
           const transport = toModularTransport(bundlerUrl, CIRCLE_CLIENT_KEY);
           const bundler = createBundlerClient({ chain: VIEM_CHAINS[sourceChain as SupportedChain], transport });
-          const userOpReceipt = (await bundler.getUserOperationReceipt({ hash: txHash as `0x${string}` }).catch(() => null)) as any;
-          const resolvedHash = userOpReceipt?.receipt?.transactionHash || userOpReceipt?.transactionHash;
+          const userOpReceipt = await bundler
+            .getUserOperationReceipt({ hash: txHash as `0x${string}` })
+            .catch(() => null);
+          const resolvedHash = userOpReceipt?.receipt?.transactionHash;
           if (resolvedHash && typeof resolvedHash === 'string' && resolvedHash.startsWith('0x')) {
             console.log(`[Bridge Status API] Resolved UserOpHash ${txHash} -> on-chain txHash: ${resolvedHash}`);
             const reResult = await getAttestation(sourceChain, resolvedHash);
@@ -97,16 +107,19 @@ export async function GET(req: NextRequest) {
 
     // If Iris attestation is complete but mintTxHash is still missing/manual-claim, check on-chain processed state
     if (result.status === 'complete' && !result.mintTxHash && result.messageBytes) {
-      const destChain = dbTx?.dest_chain || 'base';
-      const evmDestChains = ['base', 'arbitrum', 'optimism', 'polygon', 'avalanche', 'ethereum'];
-      
-      if (evmDestChains.includes(destChain.toLowerCase())) {
+      const destChain = (dbTx?.dest_chain || HOME_CHAIN).toLowerCase();
+
+      if (EVM_CLAIM_CHAINS.includes(destChain)) {
         try {
           const { createPublicClient } = await import('viem');
           const { rpcTransport } = await import('@/lib/web3/rpc');
+          const { VIEM_CHAINS } = await import('@/lib/web3/multichain');
           const { isMessageDelivered } = await import('@/lib/web3/cctp-delivery');
 
-          const client = createPublicClient({ transport: rpcTransport(destChain) });
+          const client = createPublicClient({
+            chain: VIEM_CHAINS[destChain as SupportedChain],
+            transport: rpcTransport(destChain),
+          });
 
           const isProcessed = await isMessageDelivered(client, result.messageBytes);
 

@@ -28,6 +28,8 @@ import {
 } from '@solana/spl-token';
 import crypto from 'crypto';
 import { type AttestationResponse, type AttestationStatus, CCTP_DOMAINS, type SupportedChain } from './gateway';
+import { IS_TESTNET } from '../web3/network';
+import { HOME_CHAIN } from '@/lib/explorers';
 
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -41,11 +43,18 @@ export const TOKEN_MESSENGER_MINTER_V2 = new PublicKey(
 export const MESSAGE_TRANSMITTER_V2 = new PublicKey(
   'CCTPV2Sm4AdWt5296sk4P66VBZ7bEhcARwFaaS9YPbeC',
 );
+const IS_SIMULATION = IS_TESTNET;
+
+/** Circle's USDC mint — devnet and mainnet-beta are different tokens. */
 export const SOLANA_USDC_MINT = new PublicKey(
-  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+  IS_SIMULATION
+    ? '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'
+    : 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
 );
 
-const IRIS_API_BASE = 'https://iris-api.circle.com/v2';
+const IRIS_API_BASE = IS_SIMULATION
+  ? 'https://iris-api-sandbox.circle.com/v2'
+  : 'https://iris-api.circle.com/v2';
 
 // Anchor discriminator = sha256("global:<instruction_name>")[0..8]
 const DEPOSIT_FOR_BURN_DISCRIMINATOR = crypto
@@ -200,7 +209,7 @@ export async function buildDepositForBurnTx(
   amountUsdc: string,
   evmRecipient: string,
   maxFeeSubunits: bigint,
-  destChain: SupportedChain = 'base',
+  destChain: SupportedChain = HOME_CHAIN,
   feePayerPublicKey?: PublicKey,
 ): Promise<DepositForBurnResult> {
   // Convert to 6-decimal subunits

@@ -11,6 +11,7 @@
 import { BitnobProvider } from "./providers/bitnob";
 import { PaycrestProvider } from "./providers/paycrest";
 import { RampUnsupportedError, type RampProvider } from "./provider";
+import { assertDepositsAllowed, assertWithdrawalsAllowed } from "./testnet-guard";
 import type {
   CreateOffRampParams,
   CreateOnRampParams,
@@ -166,7 +167,8 @@ function matchBank(
 }
 
 export const Ramp = {
-  createOnRampOrder(params: CreateOnRampParams): Promise<RampOrderResponse> {
+  async createOnRampOrder(params: CreateOnRampParams): Promise<RampOrderResponse> {
+    assertDepositsAllowed();
     return withFallback("onRamp", (p) => p.createOnRampOrder(params));
   },
 
@@ -217,7 +219,11 @@ export const Ramp = {
     return byName(provider).verifyAccount(institution, accountNumber, currency);
   },
 
-  createOffRampOrderFor(provider: RampProviderName, params: CreateOffRampParams) {
+  // `async` so the guard surfaces as a rejected promise rather than a synchronous throw.
+  // Both methods declare a Promise return type, and a caller using `.catch()` instead of
+  // try/catch would otherwise never see the error.
+  async createOffRampOrderFor(provider: RampProviderName, params: CreateOffRampParams) {
+    assertWithdrawalsAllowed();
     return byName(provider).createOffRampOrder(params);
   },
 
@@ -235,7 +241,10 @@ export const Ramp = {
     return matchBank(data, bankName);
   },
 
-  createOffRampOrder(params: CreateOffRampParams): Promise<RampOrderResponse> {
+  async createOffRampOrder(params: CreateOffRampParams): Promise<RampOrderResponse> {
+    // Both off-ramp entry points are guarded, not just the pinned-provider one: an
+    // order created through either reaches a live payout provider.
+    assertWithdrawalsAllowed();
     return withFallback("offRamp", (p) => p.createOffRampOrder(params));
   },
 

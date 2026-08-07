@@ -36,22 +36,28 @@ import {
 } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 
-/** Alchemy Transfers API subdomain per chain. */
-const ALCHEMY_SUBDOMAIN: Record<SupportedChain, string> = {
-  ethereum: 'eth-mainnet',
-  arbitrum: 'arb-mainnet',
-  avalanche: 'avax-mainnet',
-  optimism: 'opt-mainnet',
-  polygon: 'polygon-mainnet',
-  base: 'base-mainnet',
-};
+/**
+ * Alchemy Transfers API subdomain per chain — shared with the RPC layer so the scanner
+ * and the balance reads can never end up on different networks. This file used to keep
+ * its own mainnet-only copy, which meant a testnet build scanned mainnet for deposits.
+ */
+import { ALCHEMY_SUBDOMAIN } from './rpc';
+import { IS_TESTNET } from './network';
 
-const SCAN_CHAINS = Object.keys(USDC_ADDRESSES) as SupportedChain[];
-const SOLANA_USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
-const SOLANA_RPC =
-  process.env.SOLANA_RPC_URL ??
-  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ??
-  'https://api.mainnet-beta.solana.com';
+/**
+ * Chains worth scanning: those Alchemy can actually serve in the current network family.
+ * Filtering here rather than assuming every chain in `USDC_ADDRESSES` is scannable keeps
+ * Arc (testnet-only) from producing an `undefined` Alchemy hostname in a mainnet build.
+ */
+const SCAN_CHAINS = (Object.keys(USDC_ADDRESSES) as SupportedChain[]).filter(
+  (chain) => ALCHEMY_SUBDOMAIN[chain],
+);
+// Reused rather than restated: a second copy of the mint here meant the scanner looked
+// for mainnet USDC while the rest of the app transacted in devnet USDC.
+import { SOLANA_USDC_MINT } from '../circle/solana-gateway';
+import { SOLANA_RPC_URL } from '../solana/network';
+
+const SOLANA_RPC = SOLANA_RPC_URL;
 
 // Per-scan work caps so a deep backfill chunks across scans instead of blocking a history load.
 const EVM_MAX_PAGES = 5; // × 1000 transfers per chain per scan
@@ -128,6 +134,66 @@ interface AlchemyTransfer {
   metadata?: { blockTimestamp?: string };
 }
 
+/** Fallback log scanning via standard RPC eth_getLogs when Alchemy EAPIs are unavailable (e.g. Arc Testnet) */
+async function scanEvmViaLogs(
+  chain: SupportedChain,
+  address: string,
+  fromBlockHex: string,
+): Promise<AlchemyTransfer[]> {
+  const { createPublicClient, parseAbiItem } = await import('viem');
+  const { VIEM_CHAINS } = await import('@/lib/web3/multichain');
+  const { rpcTransport } = await import('./rpc');
+
+  const client = createPublicClient({
+    chain: VIEM_CHAINS[chain],
+    transport: rpcTransport(chain),
+  });
+
+  const currentBlock = await client.getBlockNumber();
+  const startBlock =
+    fromBlockHex && fromBlockHex !== '0x0'
+      ? BigInt(fromBlockHex)
+      : currentBlock > 10000n
+        ? currentBlock - 10000n
+        : 0n;
+
+  const CHUNK_SIZE = 2000n;
+  let start = startBlock;
+  const transfers: AlchemyTransfer[] = [];
+
+  while (start <= currentBlock) {
+    let end = start + CHUNK_SIZE - 1n;
+    if (end > currentBlock) end = currentBlock;
+
+    try {
+      const logs = await client.getLogs({
+        address: USDC_ADDRESSES[chain] as `0x${string}`,
+        event: parseAbiItem(
+          'event Transfer(address indexed from, address indexed to, uint256 value)',
+        ),
+        args: { to: address as `0x${string}` },
+        fromBlock: start,
+        toBlock: end,
+      });
+
+      for (const log of logs) {
+        if (!log.transactionHash || !log.args.value) continue;
+        transfers.push({
+          hash: log.transactionHash,
+          value: Number(log.args.value) / 1_000_000,
+          from: log.args.from ?? ZERO_ADDRESS,
+          blockNum: log.blockNumber ? `0x${log.blockNumber.toString(16)}` : '0x0',
+        });
+      }
+    } catch (err) {
+      console.warn(`[DepositScan] eth_getLogs failed for ${chain} blocks ${start}-${end}:`, err);
+    }
+    start = end + 1n;
+  }
+
+  return transfers;
+}
+
 /** Fetch incoming USDC transfers to `address` on `chain` from `fromBlockHex`, paging up to a cap. */
 async function fetchIncomingUsdc(
   chain: SupportedChain,
@@ -139,49 +205,52 @@ async function fetchIncomingUsdc(
   const out: AlchemyTransfer[] = [];
   let pageKey: string | undefined;
 
-  for (let page = 0; page < EVM_MAX_PAGES; page++) {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: 1,
-        jsonrpc: '2.0',
-        method: 'alchemy_getAssetTransfers',
-        params: [
-          {
-            fromBlock: fromBlockHex,
-            toBlock: 'latest',
-            toAddress: address,
-            contractAddresses: [USDC_ADDRESSES[chain]],
-            category: ['erc20'],
-            withMetadata: true,
-            excludeZeroValue: true,
-            order: 'asc',
-            maxCount: '0x3e8', // 1000
-            ...(pageKey ? { pageKey } : {}),
-          },
-        ],
-      }),
-    });
-    if (res.status === 401 || res.status === 403) {
-      // The Transfers API has no public equivalent, so this chain simply can't be
-      // scanned until the network is enabled. Say which knob to turn.
-      throw new Error(
-        `Alchemy returned ${res.status} for ${chain}. Enable ${chain} on the Alchemy app ` +
-          `(dashboard.alchemy.com → your app → Networks) — deposits on this chain are not being recorded.`,
-      );
+  try {
+    for (let page = 0; page < EVM_MAX_PAGES; page++) {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 1,
+          jsonrpc: '2.0',
+          method: 'alchemy_getAssetTransfers',
+          params: [
+            {
+              fromBlock: fromBlockHex,
+              toBlock: 'latest',
+              toAddress: address,
+              contractAddresses: [USDC_ADDRESSES[chain]],
+              category: ['erc20'],
+              withMetadata: true,
+              excludeZeroValue: true,
+              order: 'asc',
+              maxCount: '0x3e8', // 1000
+              ...(pageKey ? { pageKey } : {}),
+            },
+          ],
+        }),
+      });
+      if (!res.ok) {
+        console.warn(`[DepositScan] Alchemy ${chain} returned ${res.status}, falling back to RPC logs...`);
+        return await scanEvmViaLogs(chain, address, fromBlockHex);
+      }
+      const json = (await res.json()) as {
+        result?: { transfers?: AlchemyTransfer[]; pageKey?: string };
+        error?: { message: string };
+      };
+      if (json.error) {
+        console.warn(`[DepositScan] Alchemy ${chain} error "${json.error.message}", falling back to RPC logs...`);
+        return await scanEvmViaLogs(chain, address, fromBlockHex);
+      }
+      out.push(...(json.result?.transfers ?? []));
+      pageKey = json.result?.pageKey;
+      if (!pageKey) break;
     }
-    if (!res.ok) throw new Error(`Alchemy ${chain} transfers ${res.status}`);
-    const json = (await res.json()) as {
-      result?: { transfers?: AlchemyTransfer[]; pageKey?: string };
-      error?: { message: string };
-    };
-    if (json.error) throw new Error(`Alchemy ${chain}: ${json.error.message}`);
-    out.push(...(json.result?.transfers ?? []));
-    pageKey = json.result?.pageKey;
-    if (!pageKey) break;
+    return out;
+  } catch (err) {
+    console.warn(`[DepositScan] Alchemy request failed for ${chain}, falling back to RPC logs:`, err);
+    return await scanEvmViaLogs(chain, address, fromBlockHex);
   }
-  return out;
 }
 
 async function scanEvmChain(

@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createPublicClient, type Chain } from 'viem';
 import { rpcTransport } from '@/lib/web3/rpc';
-import { mainnet, arbitrum, avalanche, optimism, polygon, base } from 'viem/chains';
+import { VIEM_CHAINS } from '@/lib/web3/multichain';
 import { USDC_ADDRESSES, SOURCE_CHAINS, type SupportedChain } from '@/lib/circle/gateway';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
+import { SOLANA_RPC_URL } from '@/lib/solana/network';
 
 const BALANCE_ABI = [
   {
@@ -25,9 +26,7 @@ const SOLANA_USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyT
 // 2. NEXT_PUBLIC_SOLANA_RPC_URL (public, set in .env)
 // 3. Public fallback (often 403s from browsers but fine server-side)
 const SOLANA_RPC =
-  process.env.SOLANA_RPC_URL ??
-  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ??
-  'https://api.mainnet-beta.solana.com';
+  SOLANA_RPC_URL;
 
 /**
  * `key` is our chain identifier, not viem's display name — those differ ("Arbitrum One",
@@ -39,12 +38,13 @@ function makeClient(key: SupportedChain, chain: Chain) {
 
 function getEvmClients(): Record<SupportedChain, ReturnType<typeof createPublicClient>> {
   return {
-    ethereum: makeClient('ethereum', mainnet),
-    arbitrum: makeClient('arbitrum', arbitrum),
-    avalanche: makeClient('avalanche', avalanche),
-    optimism: makeClient('optimism', optimism),
-    polygon: makeClient('polygon', polygon),
-    base: makeClient('base', base),
+    ethereum: makeClient('ethereum', VIEM_CHAINS.ethereum),
+    arbitrum: makeClient('arbitrum', VIEM_CHAINS.arbitrum),
+    avalanche: makeClient('avalanche', VIEM_CHAINS.avalanche),
+    optimism: makeClient('optimism', VIEM_CHAINS.optimism),
+    polygon: makeClient('polygon', VIEM_CHAINS.polygon),
+    base: makeClient('base', VIEM_CHAINS.base),
+    arc: makeClient('arc', VIEM_CHAINS.arc),
   };
 }
 
@@ -135,6 +135,9 @@ export async function GET(req: NextRequest) {
       const client = clients[chain];
       const usdcAddress = USDC_ADDRESSES[chain];
 
+      // Arc needs no special case: its USDC ERC-20 at USDC_ADDRESSES.arc reports the
+      // same balance the native token does, already in 6 decimals. Reading the native
+      // balance instead would return an 18-decimal figure for the same funds.
       const balance = await withTimeout(
         client.readContract({
           address: usdcAddress as `0x${string}`,
@@ -155,7 +158,8 @@ export async function GET(req: NextRequest) {
 
       const formatted = (Number(balance) / 1_000_000).toString();
       return { chain, balance: formatted, hasBalance: Number(balance) > 0 };
-    } catch {
+    } catch (err) {
+      console.error(`[Balances] ${chain} read error:`, err);
       return { chain, balance: '0', hasBalance: false };
     }
   });

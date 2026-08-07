@@ -19,6 +19,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useRef, useEffect, useState } from 'react';
+import { HOME_CHAIN_LABEL } from '@/lib/explorers';
 
 /* ─── Mock UI Card Components ─── */
 
@@ -550,7 +551,7 @@ export default function Landing() {
               className="w-1.5 h-1.5 rounded-full animate-beacon"
               style={{ background: '#00e87a' }}
             />
-            Now live on Base Mainnet
+            Now live on {HOME_CHAIN_LABEL}
           </div>
 
           {/* Main headline */}
