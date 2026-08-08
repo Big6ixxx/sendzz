@@ -11,22 +11,58 @@ import {
   Search,
   Wallet
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 
 import { getAdminUsers } from '@/lib/supabase/admin';
 
 const ITEMS_PER_PAGE = 20;
 
-export default function UserDirectory() {
-  const { user: adminUser } = usePrivy();
-  const [searchTerm, setSearchTerm] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
+/** `?q=…&page=…` for a given view, omitting defaults so a clean view has a clean URL. */
+function viewParams(searchTerm: string, page: number): string {
+  const p = new URLSearchParams();
+  if (searchTerm) p.set('q', searchTerm);
+  if (page > 1) p.set('page', String(page));
+  return p.toString();
+}
+
+// `useSearchParams` needs a Suspense boundary to prerender, so the view lives in a child.
+export default function UserDirectoryPage() {
+  return (
+    <Suspense fallback={<div className="h-96 rounded-3xl bg-white/2 animate-pulse" />}>
+      <UserDirectory />
+    </Suspense>
+  );
+}
+
+function UserDirectory() {
+  const { user: adminUser, getAccessToken } = usePrivy();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // Seeded from the URL so returning here — by back link, browser back, refresh, or a shared
+  // link — restores the exact view rather than dumping you on page 1 of an unfiltered list.
+  const [searchTerm, setSearchTerm] = useState(() => searchParams.get('q') ?? '');
+  const [currentPage, setCurrentPage] = useState(
+    () => Number(searchParams.get('page')) || 1,
+  );
+
+  // Mirror the view back into the URL. Debounced and `replace`d so typing a search doesn't
+  // push a history entry per keystroke — back should leave the directory, not un-type a word.
+  useEffect(() => {
+    const qs = viewParams(searchTerm, currentPage);
+    const next = qs ? `${pathname}?${qs}` : pathname;
+    if (next === `${pathname}${window.location.search}`) return;
+    const timer = setTimeout(() => router.replace(next, { scroll: false }), 250);
+    return () => clearTimeout(timer);
+  }, [searchTerm, currentPage, pathname, router]);
 
   const { data: users, isLoading } = useQuery({
     queryKey: ['admin-users', adminUser?.email?.address],
     queryFn: async () => {
       if (!adminUser?.email?.address) return [];
-      return getAdminUsers(adminUser.email.address);
+      return getAdminUsers((await getAccessToken()) ?? undefined);
     },
     enabled: !!adminUser?.email?.address,
   });
@@ -45,15 +81,24 @@ export default function UserDirectory() {
 
   // Pagination logic
   const totalPages = Math.ceil(filteredUsers.length / ITEMS_PER_PAGE);
+  // Clamped: a restored `?page=` can outrun the list if rows were removed (or the search is
+  // narrower than when the link was made), and an unclamped page renders as an empty table.
+  const safePage = Math.min(Math.max(currentPage, 1), Math.max(totalPages, 1));
   const currentUsers = filteredUsers.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE,
+    (safePage - 1) * ITEMS_PER_PAGE,
+    safePage * ITEMS_PER_PAGE,
   );
 
   const handlePageChange = (newPage: number) => {
     if (newPage >= 1 && newPage <= totalPages) {
       setCurrentPage(newPage);
     }
+  };
+
+  /** Open a user, carrying the current view along so their page can link straight back to it. */
+  const openUser = (userId: string) => {
+    const qs = viewParams(searchTerm, safePage);
+    router.push(`/admin/users/${userId}${qs ? `?${qs}` : ''}`);
   };
 
   return (
@@ -138,7 +183,16 @@ export default function UserDirectory() {
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       transition={{ delay: i * 0.03 }}
-                      className="group hover:bg-white/2 transition-colors"
+                      onClick={() => openUser(user.id)}
+                      role="link"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          openUser(user.id);
+                        }
+                      }}
+                      className="group hover:bg-white/2 transition-colors cursor-pointer focus:outline-none focus:bg-white/3"
                     >
                       <td className="px-6 py-6">
                         <div className="flex items-center gap-4">
@@ -311,8 +365,8 @@ export default function UserDirectory() {
 
           <div className="flex items-center gap-2">
             <button
-              onClick={() => handlePageChange(currentPage - 1)}
-              disabled={currentPage === 1}
+              onClick={() => handlePageChange(safePage - 1)}
+              disabled={safePage === 1}
               className="p-2 rounded-xl bg-white/5 border border-white/10 text-white/40 hover:text-white disabled:opacity-50 transition-all"
             >
               <ChevronLeft className="w-5 h-5" />
@@ -320,15 +374,15 @@ export default function UserDirectory() {
             <div className="flex items-center gap-1 mx-2">
               <span className="text-xs font-bold text-white/60">Page</span>
               <span className="w-8 h-8 flex items-center justify-center rounded-lg bg-blue-400/10 border border-blue-400/20 text-blue-400 text-xs font-bold">
-                {currentPage}
+                {safePage}
               </span>
               <span className="text-xs font-bold text-white/60">
                 of {totalPages || 1}
               </span>
             </div>
             <button
-              onClick={() => handlePageChange(currentPage + 1)}
-              disabled={currentPage === totalPages || totalPages === 0}
+              onClick={() => handlePageChange(safePage + 1)}
+              disabled={safePage === totalPages || totalPages === 0}
               className="p-2 rounded-xl bg-white/5 border border-white/10 text-white/40 hover:text-white disabled:opacity-50 transition-all"
             >
               <ChevronRight className="w-5 h-5" />

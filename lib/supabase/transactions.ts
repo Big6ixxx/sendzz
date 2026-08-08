@@ -1,10 +1,12 @@
 "use server";
 
 import { Database } from "@/types/database";
+import { redactEmail } from "@/lib/log";
 import { supabaseAdmin } from "./adminClient";
 import { fetchAttestation, type SupportedChain } from "@/lib/circle/gateway";
 import { fetchSolanaAttestation } from "@/lib/circle/solana-gateway";
 import { fetchStellarAttestation } from "@/lib/circle/stellar-gateway";
+import { requireUser } from "@/lib/auth/session";
 import type { PendingBridgeClaim } from "@/types/bridge";
 import { isPlaceholderHash } from "@/lib/explorers";
 
@@ -96,7 +98,7 @@ export async function recordTransfer(params: {
     );
 
     if (!sender) {
-      console.warn(`[Supabase] Sender ${senderEmail} not found. Skipping.`);
+      console.warn(`[Supabase] Sender ${redactEmail(senderEmail)} not found. Skipping.`);
       return;
     }
 
@@ -655,7 +657,7 @@ export async function recordBridgeTransaction(params: {
       .single();
 
     if (userError || !user) {
-      console.error(`[Supabase] User not found for bridge: ${normalizedEmail}`);
+      console.error(`[Supabase] User not found for bridge: ${redactEmail(normalizedEmail)}`);
       return;
     }
 
@@ -879,10 +881,10 @@ async function isBurnDelivered(
   }
 }
 export async function getPendingBridgeClaims(
-  userEmail: string,
+  accessToken?: string,
 ): Promise<PendingBridgeClaim[]> {
   try {
-    const normalizedEmail = userEmail.toLowerCase();
+    const { email: normalizedEmail } = await requireUser(accessToken);
     const { data: userRecord } = await supabaseAdmin
       .from("users")
       .select("id")
@@ -974,9 +976,17 @@ export async function getPendingBridgeClaims(
 
 // --- ACTIVITY HISTORY ---
 
-export async function getUserActivities(userEmail: string) {
+/**
+ * A user's own activity history.
+ *
+ * Takes no email: it used to, which made it an open endpoint for reading anyone's entire
+ * financial history by typing their address. The account read is now whichever account the
+ * session belongs to, so there is no "other user" to ask for.
+ */
+export async function getUserActivities(accessToken?: string) {
   try {
-    const normalizedEmail = userEmail.toLowerCase();
+    const session = await requireUser(accessToken);
+    const normalizedEmail = session.email;
     const { data: userRecord } = await supabaseAdmin
       .from("users")
       .select("id, smart_account_address, solana_address, stellar_address")

@@ -21,10 +21,10 @@ export class PaycrestClient {
     path: string,
     options: RequestInit = {},
   ): Promise<T> {
+    // Method and path only. The body of an off-ramp order carries the customer's bank
+    // account number and account name, and responses carry order + payout detail — none of
+    // which belongs in a server log. Statuses and errors below are enough to debug with.
     console.log(`[Paycrest] Request: ${options.method || 'GET'} ${path}`);
-    if (options.body) {
-      console.log(`[Paycrest] Body:`, options.body);
-    }
 
     const res = await fetch(`${this.baseUrl}${path}`, {
       ...options,
@@ -42,7 +42,7 @@ export class PaycrestClient {
     }
 
     const data = await res.json();
-    console.log(`[Paycrest] Response:`, data);
+    console.log(`[Paycrest] Response: ${res.status} ${path}`);
     return data as T;
   }
 

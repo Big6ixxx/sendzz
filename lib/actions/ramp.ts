@@ -1,5 +1,6 @@
 "use server";
 
+import { requireUserId } from "@/lib/auth/session";
 import { Ramp } from "@/lib/ramp";
 import { isBridgeable } from "@/lib/circle/gateway";
 import { applyFee, getProviderFee, resolveFeeTreasury } from "@/lib/ramp/fees";
@@ -34,17 +35,15 @@ export async function getProviderFeePercent(
  */
 export async function initiateOnRamp({
   amountFiat,
-  userId,
   userAddress,
-  userEmail,
   refundAccount,
   fiatCurrency = "NGN",
   network = "base",
+  accessToken,
 }: {
   amountFiat: number;
-  userId: string;
   userAddress: string;
-  userEmail: string;
+  accessToken?: string;
   refundAccount: {
     institution: string;
     accountIdentifier: string;
@@ -55,6 +54,12 @@ export async function initiateOnRamp({
   network?: RampNetwork;
 }): Promise<RampOrderResponse> {
   try {
+    // Identity from the session — see the note in executeOffRamp. A caller-supplied id here
+    // would let a deposit (and its KYC-limit consumption) be booked to another account.
+    const session = await requireUserId(accessToken);
+    const userId = session.userId;
+    const userEmail = session.email;
+
     // KYC limit guard for on-ramps.
     // Convert fiat amount → USD equivalent using the live buy rate before
     // checking limits. USDC is pegged 1:1 to USD, so amountUsdc ≈ amountUsd.
@@ -250,15 +255,22 @@ export async function executeOffRamp(params: {
   inputMode: "fiat" | "usdc";
   bank: { accountNumber: string; accountName: string; bankName: string };
   userRefundAddress: string;
-  userEmail: string;
-  /** Authenticated user's Supabase ID — required for KYC/limit enforcement. */
-  userId: string;
   fiatCurrency: RampCurrency;
   network: RampNetwork;
   consolidated?: boolean;
+  accessToken?: string;
 }): Promise<{ order: RampOrderResponse; provider: RampProviderName }> {
+  // ── Identity ────────────────────────────────────────────────────────────
+  // Taken from the session, never from `params`. This action moves money and records it
+  // against an account, so a caller-supplied userId/userEmail would let someone charge a
+  // withdrawal to another account — and, because the KYC guard is keyed on that id, evade
+  // their own spending limit by naming a fresh one.
+  const session = await requireUserId(params.accessToken);
+  const userId = session.userId;
+  const userEmail = session.email;
+
   // ── KYC & Limit Guard ───────────────────────────────────────────────────
-  const guard = await kycGuard(params.userId, params.amountUsdc);
+  const guard = await kycGuard(userId, params.amountUsdc);
   if (!guard.allowed) {
     throw Object.assign(
       new Error(guard.message),
@@ -304,7 +316,7 @@ export async function executeOffRamp(params: {
           accountName: params.bank.accountName,
         },
         userRefundAddress: params.userRefundAddress,
-        userEmail: params.userEmail,
+        userEmail: userEmail,
         fiatCurrency: params.fiatCurrency,
         network: params.network,
       });
@@ -326,7 +338,7 @@ export async function executeOffRamp(params: {
 
       const { recordWithdrawal } = await import("@/lib/supabase/transactions");
       await recordWithdrawal({
-        userEmail: params.userEmail,
+        userEmail: userEmail,
         amountUsdc: finalAmountUsdc,
         fiatCurrency: params.fiatCurrency,
         fiatAmount: isFiat

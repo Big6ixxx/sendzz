@@ -19,6 +19,7 @@ import {
   hasServerSigner,
 } from '@/lib/stellar/privy-wallet';
 import { getUserAddresses, registerStellarAddress } from '@/lib/supabase/users';
+import { redactEmail } from '@/lib/log';
 import { NextResponse } from 'next/server';
 
 /**
@@ -61,7 +62,7 @@ export async function POST(req: Request) {
       );
     }
 
-    console.log(`[Stellar/Provision] Provisioning/checking for: ${email}`);
+    console.log(`[Stellar/Provision] Provisioning/checking for: ${redactEmail(email)}`);
 
     let trustlineError: string | null = null;
 

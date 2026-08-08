@@ -58,7 +58,7 @@ export function BankSelector({
   const handleDeleteContact = React.useCallback(async (contactId: string) => {
     if (!userEmail) return;
     try {
-      await deleteBankContact(userEmail, contactId);
+      await deleteBankContact(contactId);
       toast.success('Account removed');
       onContactsChanged?.();
     } catch {

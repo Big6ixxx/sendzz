@@ -1,4 +1,5 @@
 import { registerUserAddress } from '@/lib/supabase/users';
+import { redactEmail } from '@/lib/log';
 import { computeCircleSmartAddress } from '@/lib/web3/circle-client';
 import { LinkedAccountEmbeddedWallet, PrivyClient } from '@privy-io/node';
 import { NextResponse } from 'next/server';
@@ -17,7 +18,7 @@ export async function POST(req: Request) {
     }
 
     // 1. Create a "shell" user in Privy for this email
-    console.log(`[JIT Wallet] Creating Privy user for: ${email}`);
+    console.log(`[JIT Wallet] Creating Privy user for: ${redactEmail(email)}`);
     const user = await privy.users().create({
       linked_accounts: [{ type: 'email', address: email }],
       wallets: [{ chain_type: 'ethereum' }],

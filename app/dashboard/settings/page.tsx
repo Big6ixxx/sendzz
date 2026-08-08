@@ -140,7 +140,7 @@ export default function SettingsPage() {
   const fetchBankContacts = useCallback(async () => {
     if (!userEmail) return;
     setIsBankLoading(true);
-    const contacts = await getUserBankContacts(userEmail).catch(() => []);
+    const contacts = await getUserBankContacts().catch(() => []);
     setBankContacts(contacts);
     setIsBankLoading(false);
   }, [userEmail]);
@@ -202,7 +202,7 @@ export default function SettingsPage() {
   const fetchEmailContacts = useCallback(async () => {
     if (!userEmail) return;
     setIsEmailLoading(true);
-    const contacts = await getUserContacts(userEmail).catch(() => []);
+    const contacts = await getUserContacts().catch(() => []);
     setEmailContacts(contacts);
     setIsEmailLoading(false);
   }, [userEmail]);
@@ -251,7 +251,7 @@ export default function SettingsPage() {
     if (!contactToDelete) return;
     setIsDeleting(true);
     try {
-      await deleteBankContact(userEmail, contactToDelete.id);
+      await deleteBankContact(contactToDelete.id);
       toast.success("Account removed");
       fetchBankContacts();
     } catch {
@@ -266,7 +266,7 @@ export default function SettingsPage() {
     if (!emailContactToDelete) return;
     setIsDeleting(true);
     try {
-      await deleteContact(userEmail, emailContactToDelete.id);
+      await deleteContact(emailContactToDelete.id);
       toast.success("Contact removed");
       fetchEmailContacts();
     } catch {

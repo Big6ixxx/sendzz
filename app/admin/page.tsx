@@ -11,7 +11,7 @@ import { AdminCharts } from './components/AdminCharts';
 import { AdminActivityBreakdown } from './components/AdminActivityBreakdown';
 
 export default function AdminOverview() {
-  const { user } = usePrivy();
+  const { user, getAccessToken } = usePrivy();
   const [period, setPeriod] = useState<'7d' | '30d' | 'all'>('7d');
 
   const {
@@ -20,13 +20,13 @@ export default function AdminOverview() {
     refetch: refetchStats,
   } = useQuery({
     queryKey: ['admin-stats', user?.email?.address],
-    queryFn: () => getAdminStats(user!.email!.address!),
+    queryFn: async () => getAdminStats((await getAccessToken()) ?? undefined),
     enabled: !!user?.email?.address,
   });
 
   const { data: analytics, isLoading: analyticsLoading } = useQuery({
     queryKey: ['admin-analytics', user?.email?.address, period],
-    queryFn: () => getAdminAnalytics(user!.email!.address!, period),
+    queryFn: async () => getAdminAnalytics(period, (await getAccessToken()) ?? undefined),
     enabled: !!user?.email?.address,
   });
 

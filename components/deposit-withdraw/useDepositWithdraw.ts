@@ -234,7 +234,7 @@ export function useDepositWithdraw(
 
     // Fetch bank contacts
     if (userEmail) {
-      getUserBankContacts(userEmail).then(setBankContacts).catch(console.error);
+      getUserBankContacts().then(setBankContacts).catch(console.error);
 
       // Fetch security preferences
       fetch(`/api/user/preferences?email=${encodeURIComponent(userEmail)}`)
@@ -434,7 +434,7 @@ export function useDepositWithdraw(
     // Early KYC & Limit Pre-Check — block immediately at step 1
     try {
       const { checkKycLimitAction } = await import("@/lib/kyc/guard");
-      const guard = await checkKycLimitAction(estimatedUsdc, userEmail);
+      const guard = await checkKycLimitAction(estimatedUsdc);
       if (!guard.allowed) {
         toast.error(guard.message);
         return;
@@ -447,9 +447,7 @@ export function useDepositWithdraw(
     try {
       const res = await initiateOnRamp({
         amountFiat: val,
-        userId,
         userAddress,
-        userEmail,
         refundAccount: {
           institution: bankDetails.bankCode,
           accountIdentifier: bankDetails.accountNumber,
@@ -490,7 +488,7 @@ export function useDepositWithdraw(
     // Early KYC & Limit Pre-Check — block immediately at step 1 before bank details, 2FA, or signing
     try {
       const { checkKycLimitAction } = await import("@/lib/kyc/guard");
-      const guard = await checkKycLimitAction(totalUsdcRequired, userEmail);
+      const guard = await checkKycLimitAction(totalUsdcRequired);
       if (!guard.allowed) {
         toast.error(guard.message);
         return;
@@ -787,8 +785,6 @@ export function useDepositWithdraw(
           bankName: bankDetails.bankName || bankDetails.bankCode,
         },
         userRefundAddress: userAddress,
-        userEmail,
-        userId,
         fiatCurrency,
         network: withdrawChain,
         consolidated: mustConsolidate,
@@ -982,7 +978,7 @@ export function useDepositWithdraw(
 
   const refreshBankContacts = useCallback(async () => {
     if (userEmail) {
-      const contacts = await getUserBankContacts(userEmail).catch(() => []);
+      const contacts = await getUserBankContacts().catch(() => []);
       setBankContacts(contacts);
     }
   }, [userEmail]);
@@ -1050,7 +1046,6 @@ export function useDepositWithdraw(
     handleSaveBankContact: async () => {
       try {
         await addBankContact({
-          userEmail,
           bankName: bankDetails.bankName,
           bankCode: bankDetails.bankCode,
           accountNumber: bankDetails.accountNumber,
@@ -1058,7 +1053,7 @@ export function useDepositWithdraw(
         });
         toast.success("Bank account saved!");
         setShowSavePrompt(false);
-        getUserBankContacts(userEmail)
+        getUserBankContacts()
           .then(setBankContacts)
           .catch(console.error);
         if (type === "withdraw") {

@@ -1,4 +1,5 @@
 import { sendTransferEmail } from '@/lib/email/sendEmail';
+import { redactEmail } from '@/lib/log';
 import { getUserAddressByEmail } from '@/lib/supabase/users';
 import { recordTransfer } from '@/lib/supabase/transactions';
 import { executeCircleGaslessBatchTransfer } from '@/lib/web3/circle-actions';
@@ -195,11 +196,11 @@ export async function batchSend({
           txHash,
           chain: group.chain,
         }).catch((err) =>
-          console.error(`[BatchSend] Ledger failed for ${p.email}:`, err),
+          console.error(`[BatchSend] Ledger failed for ${redactEmail(p.email)}:`, err),
         );
 
         sendTransferEmail(p.email, p.amountUSDC, senderEmail).catch((err) =>
-          console.error(`[BatchSend] Email failed for ${p.email}:`, err),
+          console.error(`[BatchSend] Email failed for ${redactEmail(p.email)}:`, err),
         );
 
         const result: SendResult = {

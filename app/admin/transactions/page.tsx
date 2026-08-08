@@ -36,7 +36,7 @@ const DATE_RANGE_LABELS: Record<DateRange, string> = {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function AdminTransactions() {
-  const { user } = usePrivy();
+  const { user, getAccessToken } = usePrivy();
   const [filterType, setFilterType] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>('30d');
   const [search, setSearch] = useState('');
@@ -47,7 +47,11 @@ export default function AdminTransactions() {
     queryKey: ['admin-transactions', filterType, dateRange, user?.email?.address],
     queryFn: async () => {
       if (!user?.email?.address) return [];
-      return getAdminTransactions(user.email.address, filterType || undefined, dateRange);
+      return getAdminTransactions(
+        filterType || undefined,
+        dateRange,
+        (await getAccessToken()) ?? undefined,
+      );
     },
     enabled: !!user?.email?.address,
   });

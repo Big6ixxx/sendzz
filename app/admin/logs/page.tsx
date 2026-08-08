@@ -20,7 +20,7 @@ import {
 import { useState } from 'react';
 
 export default function AdminLogs() {
-  const { user } = usePrivy();
+  const { user, getAccessToken } = usePrivy();
   const [logType, setLogType] = useState<'webhooks' | 'audit'>('webhooks');
   const [search, setSearch] = useState('');
 
@@ -28,7 +28,7 @@ export default function AdminLogs() {
     queryKey: ['admin-logs', logType, user?.email?.address],
     queryFn: async () => {
       if (!user?.email?.address) return [];
-      return getAdminLogs(user.email.address, logType);
+      return getAdminLogs(logType, (await getAccessToken()) ?? undefined);
     },
     enabled: !!user?.email?.address,
   });

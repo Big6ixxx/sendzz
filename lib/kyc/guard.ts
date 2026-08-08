@@ -170,22 +170,12 @@ export async function isKycApproved(userIdOrEmail: string): Promise<boolean> {
  */
 export async function checkKycLimitAction(
   transactionAmountUsdc: number,
-  userEmail?: string,
+  accessToken?: string,
 ): Promise<KycGuardResult> {
-  if (userEmail) {
-    return kycGuard(userEmail, transactionAmountUsdc);
-  }
-
-  const { createClient } = await import("@/lib/supabase/server");
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return { allowed: true };
-  }
-
-  return kycGuard(user.id, transactionAmountUsdc);
+  // Identity comes from the session. It used to accept an email, which meant a caller whose
+  // own limit was exhausted could simply name a fresh account and be measured against theirs.
+  const { requireUser } = await import("@/lib/auth/session");
+  const { email } = await requireUser(accessToken);
+  return kycGuard(email, transactionAmountUsdc);
 }
 

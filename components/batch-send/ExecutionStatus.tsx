@@ -20,7 +20,7 @@ export function ExecutionStatus({ hook, onClose }: ExecutionStatusProps) {
 
   const { data: contacts = [] } = useQuery({
     queryKey: ['contacts', hook.senderEmail],
-    queryFn: () => getUserContacts(hook.senderEmail),
+    queryFn: () => getUserContacts(),
     enabled: !!hook.senderEmail,
   });
 
@@ -191,7 +191,6 @@ export function ExecutionStatus({ hook, onClose }: ExecutionStatusProps) {
                     await Promise.all(
                       newRecipients.map(email => 
                         addContact({
-                          userEmail: hook.senderEmail,
                           contactEmail: email,
                           contactName: email.split('@')[0]
                         })

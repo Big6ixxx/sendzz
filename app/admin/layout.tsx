@@ -6,6 +6,8 @@ import { usePrivy } from '@privy-io/react-auth';
 import { motion } from 'framer-motion';
 import {
   ArrowLeftRight,
+  ChevronLeft,
+  ChevronRight,
   LayoutDashboard,
   Lock,
   LogOut,
@@ -32,11 +34,29 @@ export default function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { ready, authenticated, user, logout } = usePrivy();
+  const { ready, authenticated, user, logout, getAccessToken } = usePrivy();
   const router = useRouter();
   const pathname = usePathname();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+
+  // Desktop collapse, mirroring components/layout/Sidebar.tsx. The key is admin-scoped so
+  // collapsing here doesn't also collapse the user dashboard — different contexts, and an
+  // admin sweeping tables wants the space in a way a user checking a balance may not.
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('admin-sidebar-collapsed') === 'true';
+    }
+    return false;
+  });
+
+  const toggleCollapse = () => {
+    setIsCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem('admin-sidebar-collapsed', String(next));
+      return next;
+    });
+  };
 
   useEffect(() => {
     const section =
@@ -48,7 +68,7 @@ export default function AdminLayout({
     async function verify() {
       if (ready && authenticated && user?.email?.address) {
         try {
-          const result = await checkIsAdmin(user.email.address);
+          const result = await checkIsAdmin((await getAccessToken()) ?? undefined);
           setIsAdmin(result);
         } catch (err) {
           console.error('[Admin Auth Error]', err);
@@ -59,7 +79,7 @@ export default function AdminLayout({
       }
     }
     verify();
-  }, [ready, authenticated, user, router]);
+  }, [ready, authenticated, user, router, getAccessToken]);
 
   if (!ready || isAdmin === null) {
     return (
@@ -165,8 +185,9 @@ export default function AdminLayout({
       {/* Sidebar */}
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-50 w-64 transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0',
+          'fixed inset-y-0 left-0 z-50 transform transition-all duration-300 ease-in-out lg:relative lg:translate-x-0',
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full',
+          isCollapsed ? 'w-64 lg:w-20' : 'w-64',
         )}
         style={{
           background: 'rgba(10, 10, 11, 0.7)',
@@ -174,12 +195,49 @@ export default function AdminLayout({
           borderRight: '1px solid rgba(255,255,255,0.06)',
         }}
       >
-        <div className="flex flex-col h-full p-5 overflow-y-auto">
+        <div
+          className={cn(
+            'flex flex-col h-full overflow-y-auto transition-all duration-300',
+            isCollapsed ? 'p-3 lg:px-4' : 'p-5',
+          )}
+        >
           {/* Logo */}
-          <div className="flex items-center justify-between mb-10 px-2 shrink-0">
-            <Link href="/">
-              <Image src="/logo.svg" alt="Sendzz" width={100} height={30} priority />
+          <div
+            className={cn(
+              'flex items-center justify-between mb-10 shrink-0',
+              isCollapsed ? 'lg:flex-col lg:gap-4 lg:items-center' : 'px-2',
+            )}
+          >
+            <Link href="/" className="block shrink-0">
+              {isCollapsed ? (
+                <div className="w-8 h-8 relative flex items-center justify-center">
+                  <Image
+                    src="/Sendz-512.png"
+                    alt="Sendzz"
+                    width={32}
+                    height={32}
+                    priority
+                    className="object-contain"
+                  />
+                </div>
+              ) : (
+                <Image src="/logo.svg" alt="Sendzz" width={100} height={30} priority />
+              )}
             </Link>
+
+            {/* Desktop collapse toggle */}
+            <button
+              onClick={toggleCollapse}
+              className="hidden lg:flex p-1.5 rounded-lg transition-colors text-white/40 hover:text-white/80 hover:bg-white/5 outline-none"
+              title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            >
+              {isCollapsed ? (
+                <ChevronRight className="w-4.5 h-4.5" />
+              ) : (
+                <ChevronLeft className="w-4.5 h-4.5" />
+              )}
+            </button>
+
             <button
               onClick={() => setIsSidebarOpen(false)}
               className="p-1.5 rounded-lg transition-colors lg:hidden"
@@ -198,7 +256,11 @@ export default function AdminLayout({
                   key={item.name}
                   href={item.href}
                   onClick={() => setIsSidebarOpen(false)}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all relative"
+                  title={isCollapsed ? item.name : undefined}
+                  className={cn(
+                    'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all relative',
+                    isCollapsed && 'lg:justify-center lg:px-0',
+                  )}
                   style={{
                     color: active ? '#f8f8f6' : 'rgba(248,248,246,0.4)',
                     background: active ? 'rgba(255,255,255,0.07)' : 'transparent',
@@ -206,14 +268,21 @@ export default function AdminLayout({
                     backdropFilter: active ? 'blur(8px)' : 'none',
                   }}
                 >
-                  {active && (
+                  {active && !isCollapsed && (
                     <div
                       className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-full"
                       style={{ background: '#00e87a' }}
                     />
                   )}
-                  <item.icon className="w-4 h-4" />
-                  {item.name}
+                  <item.icon className="w-4 h-4 shrink-0" />
+                  <span
+                    className={cn(
+                      'transition-all duration-300',
+                      isCollapsed ? 'lg:hidden' : 'inline',
+                    )}
+                  >
+                    {item.name}
+                  </span>
                 </Link>
               );
             })}
@@ -222,17 +291,33 @@ export default function AdminLayout({
           {/* User + logout */}
           <div className="mt-auto pt-5 space-y-2" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
             <div
-              className="px-3 py-3 rounded-xl"
-              style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
+              className={cn(
+                'px-3 py-3 rounded-xl transition-all',
+                isCollapsed && 'lg:bg-transparent lg:border-transparent lg:px-0 lg:py-1',
+              )}
+              style={
+                isCollapsed
+                  ? undefined
+                  : {
+                      background: 'rgba(255,255,255,0.04)',
+                      border: '1px solid rgba(255,255,255,0.06)',
+                    }
+              }
             >
-              <div className="flex items-center gap-2.5">
+              <div className={cn('flex items-center gap-2.5', isCollapsed && 'lg:justify-center')}>
                 <div
                   className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
                   style={{ background: 'rgba(0,232,122,0.15)', color: '#00e87a' }}
+                  title={isCollapsed ? user?.email?.address : undefined}
                 >
                   <User className="w-3.5 h-3.5" />
                 </div>
-                <div className="flex-1 min-w-0">
+                <div
+                  className={cn(
+                    'flex-1 min-w-0 transition-all duration-300',
+                    isCollapsed ? 'lg:hidden' : 'block',
+                  )}
+                >
                   <p className="text-xs font-semibold truncate" style={{ color: 'rgba(248,248,246,0.8)' }}>
                     {user?.email?.address}
                   </p>
@@ -245,7 +330,11 @@ export default function AdminLayout({
 
             <button
               onClick={() => logout()}
-              className="flex items-center gap-3 px-3 py-2.5 w-full rounded-xl text-sm font-medium transition-all"
+              title={isCollapsed ? 'Sign Out' : undefined}
+              className={cn(
+                'flex items-center gap-3 px-3 py-2.5 w-full rounded-xl text-sm font-medium transition-all',
+                isCollapsed && 'lg:justify-center lg:px-0',
+              )}
               style={{ color: 'rgba(248,248,246,0.35)' }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.color = '#f87171';
@@ -256,8 +345,12 @@ export default function AdminLayout({
                 e.currentTarget.style.background = 'transparent';
               }}
             >
-              <LogOut className="w-4 h-4" />
-              Sign Out
+              <LogOut className="w-4 h-4 shrink-0" />
+              <span
+                className={cn('transition-all duration-300', isCollapsed ? 'lg:hidden' : 'inline')}
+              >
+                Sign Out
+              </span>
             </button>
           </div>
         </div>

@@ -257,7 +257,7 @@ export function useCryptoTransfer({
     if (!isNaN(valUsdc) && valUsdc > 0) {
       try {
         const { checkKycLimitAction } = await import("@/lib/kyc/guard");
-        const guard = await checkKycLimitAction(valUsdc, senderEmail);
+        const guard = await checkKycLimitAction(valUsdc);
         if (!guard.allowed) {
           toast.error(guard.message);
           setLoading(false);

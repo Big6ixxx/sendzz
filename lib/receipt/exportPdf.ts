@@ -77,6 +77,7 @@ function buildTablePage(
   dateRange: DateRange,
   summary: { total: number; volume: number; byType: Record<string, number> },
   isFirstPage: boolean,
+  subject?: string,
 ): { html: string; links: LinkMeta[] } {
   const generatedAt = format(new Date(), 'dd MMM yyyy, HH:mm') + ' UTC';
   const rangeLabel = DATE_RANGE_LABELS[dateRange];
@@ -149,7 +150,10 @@ function buildTablePage(
   </div>
 
   <div style="margin-bottom:28px;">
-    <div style="font-size:22px;font-weight:700;color:#1a1a1a;letter-spacing:-0.03em;margin-bottom:4px;">Transaction Hash Export</div>
+    <div style="font-size:22px;font-weight:700;color:#1a1a1a;letter-spacing:-0.03em;margin-bottom:4px;">
+      ${subject ? 'Account Transaction Record' : 'Transaction Hash Export'}
+    </div>
+    ${subject ? `<div style="font-size:11px;color:#1a1a1a;font-weight:600;margin-bottom:4px;">${subject}</div>` : ''}
     <div style="font-size:10px;color:#999;font-weight:500;">
       Period: ${rangeLabel}&nbsp;&nbsp;·&nbsp;&nbsp;Generated ${generatedAt}&nbsp;&nbsp;·&nbsp;&nbsp;Settled transactions only
     </div>
@@ -173,7 +177,9 @@ function buildTablePage(
   </table>
 
   <div style="margin-top:28px;padding-top:14px;border-top:1px solid #d8ecd0;display:flex;justify-content:space-between;align-items:center;">
-    <div style="font-size:8px;color:#bbb;font-weight:500;">Sendzz Platform · Confidential · No user details included</div>
+    <div style="font-size:8px;color:#bbb;font-weight:500;">
+      Sendzz Platform · Confidential${subject ? ' · Contains account-identifying information' : ' · No user details included'}
+    </div>
     <div style="font-size:8px;color:#bbb;">${generatedAt}</div>
   </div>
 
@@ -184,9 +190,17 @@ function buildTablePage(
 
 // ─── Main export function ─────────────────────────────────────────────────────
 
+/**
+ * Render settled transactions to a PDF.
+ *
+ * `subject` turns a platform-wide export into a single-account record: it titles the report,
+ * names the account, and flips the confidentiality footer — which otherwise (correctly) states
+ * that no user details are included.
+ */
 export async function exportTransactionsPDF(
   transactions: AdminTransaction[],
   dateRange: DateRange,
+  subject?: { label: string; slug?: string },
 ): Promise<void> {
   const settled = transactions.filter(isSettled);
 
@@ -218,7 +232,10 @@ export async function exportTransactionsPDF(
 
   const rangeLabel = DATE_RANGE_LABELS[dateRange].replace(' ', '_');
   const generatedAt = format(new Date(), 'yyyy-MM-dd_HH-mm');
-  const filename = `sendzz_tx_export_${rangeLabel}_${generatedAt}.pdf`;
+  const subjectSlug = subject
+    ? `_${(subject.slug ?? subject.label).replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '')}`
+    : '';
+  const filename = `sendzz_tx_export${subjectSlug}_${rangeLabel}_${generatedAt}.pdf`;
 
   // A4 landscape dimensions in mm
   const PAGE_W_MM = 297;
@@ -227,7 +244,15 @@ export async function exportTransactionsPDF(
   let doc: InstanceType<typeof jsPDF> | null = null;
 
   for (let p = 0; p < pages.length; p++) {
-    const { html, links } = buildTablePage(pages[p], p, logoSrc, dateRange, summary, p === 0);
+    const { html, links } = buildTablePage(
+      pages[p],
+      p,
+      logoSrc,
+      dateRange,
+      summary,
+      p === 0,
+      subject?.label,
+    );
 
     const container = document.createElement('div');
     container.style.cssText = 'position:absolute;left:-9999px;top:0;width:1100px;';

@@ -1,4 +1,5 @@
 import { supabaseAdmin } from './adminClient';
+import { redactEmail } from '@/lib/log';
 import type { Json } from '@/types/database';
 import webpush from 'web-push';
 
@@ -66,7 +67,7 @@ export async function savePushSubscription(email: string, subscription: webpush.
         });
 
       if (error) throw error;
-      console.log(`[Notifications] Successfully registered push subscription for ${email}`);
+      console.log(`[Notifications] Successfully registered push subscription for ${redactEmail(email)}`);
     }
   } catch (err) {
     console.error('[Notifications] Failed to save push subscription:', err);
@@ -116,7 +117,7 @@ export async function markNotificationsAsRead(email: string, ids?: string[]): Pr
 
     const { error } = await query;
     if (error) throw error;
-    console.log(`[Notifications] Marked notifications as read for ${email}`);
+    console.log(`[Notifications] Marked notifications as read for ${redactEmail(email)}`);
   } catch (err) {
     console.error('[Notifications] Failed to mark notifications as read:', err);
   }
@@ -150,7 +151,7 @@ export async function createNotification(
       .single();
 
     if (error || !inserted) throw error;
-    console.log(`[Notifications] In-app notification created for ${email}: "${title}"`);
+    console.log(`[Notifications] In-app notification created for ${redactEmail(email)}: "${title}"`);
 
     // 2. Fetch all registered push subscriptions for this user
     const { data: subscriptions, error: subsError } = await db
@@ -159,7 +160,7 @@ export async function createNotification(
       .eq('user_id', userId);
 
     if (subsError || !subscriptions || subscriptions.length === 0) {
-      console.log(`[Notifications] No push subscriptions found for ${email}. Skipping push.`);
+      console.log(`[Notifications] No push subscriptions found for ${redactEmail(email)}. Skipping push.`);
       return;
     }
 
@@ -173,7 +174,7 @@ export async function createNotification(
       }
     });
 
-    console.log(`[Notifications] Sending push notifications to ${subscriptions.length} devices for ${email}...`);
+    console.log(`[Notifications] Sending push notifications to ${subscriptions.length} devices for ${redactEmail(email)}...`);
     
     const pushPromises = subscriptions.map(async (subRow: { subscription: unknown }) => {
       try {

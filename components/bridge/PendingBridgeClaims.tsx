@@ -69,7 +69,7 @@ export function PendingBridgeClaims({
 
   const { data: claims = [], refetch } = useQuery<PendingBridgeClaim[]>({
     queryKey: ["pending-bridge-claims", userEmail],
-    queryFn: () => getPendingBridgeClaims(userEmail),
+    queryFn: () => getPendingBridgeClaims(),
     enabled: !!userEmail,
     refetchInterval: 20_000,
   });

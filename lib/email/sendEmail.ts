@@ -1,6 +1,7 @@
 'use server';
 
 import { Resend } from 'resend';
+import { redactEmail } from '@/lib/log';
 import { claimTransferTemplate, transferReceivedTemplate, depositConfirmedTemplate, bridgeCompletedTemplate, withdrawalCompletedTemplate, securityAlertTemplate, transferSentTemplate } from './templates';
 import { userWantsEmail } from '@/lib/supabase/emailPrefs';
 
@@ -78,7 +79,7 @@ export async function sendTransferEmail(
   if (!options.isPendingClaim) {
     const wantsEmail = await userWantsEmail(recipientEmail, 'email_notif_transfer');
     if (!wantsEmail) {
-      console.log(`[sendTransferEmail] Skipping — ${recipientEmail} opted out of transfer emails.`);
+      console.log(`[sendTransferEmail] Skipping — ${redactEmail(recipientEmail)} opted out of transfer emails.`);
       return;
     }
   }
@@ -120,7 +121,7 @@ export async function sendBridgeEmail(
   try {
     const wantsEmail = await userWantsEmail(recipientEmail, 'email_notif_bridge');
     if (!wantsEmail) {
-      console.log(`[sendBridgeEmail] Skipping — ${recipientEmail} opted out of bridge emails.`);
+      console.log(`[sendBridgeEmail] Skipping — ${redactEmail(recipientEmail)} opted out of bridge emails.`);
       return;
     }
 
@@ -149,7 +150,7 @@ export async function sendDepositEmail(
   try {
     const wantsEmail = await userWantsEmail(recipientEmail, 'email_notif_deposit');
     if (!wantsEmail) {
-      console.log(`[sendDepositEmail] Skipping — ${recipientEmail} opted out of deposit emails.`);
+      console.log(`[sendDepositEmail] Skipping — ${redactEmail(recipientEmail)} opted out of deposit emails.`);
       return;
     }
 
@@ -180,7 +181,7 @@ export async function sendWithdrawalEmail(
   try {
     const wantsEmail = await userWantsEmail(recipientEmail, 'email_notif_withdrawal');
     if (!wantsEmail) {
-      console.log(`[sendWithdrawalEmail] Skipping — ${recipientEmail} opted out of withdrawal emails.`);
+      console.log(`[sendWithdrawalEmail] Skipping — ${redactEmail(recipientEmail)} opted out of withdrawal emails.`);
       return;
     }
 
@@ -207,7 +208,7 @@ export async function sendSecurityEmail(
   try {
     const wantsEmail = await userWantsEmail(recipientEmail, 'email_notif_security');
     if (!wantsEmail) {
-      console.log(`[sendSecurityEmail] Skipping — ${recipientEmail} opted out of security emails.`);
+      console.log(`[sendSecurityEmail] Skipping — ${redactEmail(recipientEmail)} opted out of security emails.`);
       return;
     }
 
@@ -238,7 +239,7 @@ export async function sendTransferSentEmail(
   try {
     const wantsEmail = await userWantsEmail(senderEmail, 'email_notif_transfer');
     if (!wantsEmail) {
-      console.log(`[sendTransferSentEmail] Skipping — ${senderEmail} opted out of transfer emails.`);
+      console.log(`[sendTransferSentEmail] Skipping — ${redactEmail(senderEmail)} opted out of transfer emails.`);
       return;
     }
 

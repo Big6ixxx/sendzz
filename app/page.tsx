@@ -1,6 +1,7 @@
 'use client';
 
 import { usePrivy } from '@privy-io/react-auth';
+import { redactEmail } from '@/lib/log';
 import {
   ArrowRight,
   ArrowUpRight,
@@ -430,7 +431,7 @@ export default function Landing() {
       if (emailParam) {
         hasTriggeredRef.current = true;
         if (!authenticated) {
-          console.log(`[Auto-Login] Pre-filling email in Privy: ${emailParam}`);
+          console.log(`[Auto-Login] Pre-filling email in Privy: ${redactEmail(emailParam)}`);
           login({
             prefill: {
               type: 'email',
