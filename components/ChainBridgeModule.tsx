@@ -10,6 +10,7 @@
  */
 
 import { ChainLogo } from "@/components/deposit-withdraw/ChainLogo";
+import { MONITOR_MAX_ATTEMPTS, MONITOR_POLL_MS } from "@/lib/web3/bridge-timing";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { CHAIN_NAMES, isBridgeable, type SupportedChain } from "@/lib/circle/gateway";
@@ -133,8 +134,7 @@ export function ChainBridgeModule({
 
     const interval = setInterval(async () => {
       attempts++;
-      // 120 × 5s = 10 min, the point at which PendingBridgeClaims takes over.
-      if (attempts > 120) {
+      if (attempts > MONITOR_MAX_ATTEMPTS) {
         clearInterval(interval);
         // Give up on watching, not on the transfer — the burn and its attestation stay
         // valid forever, so hand it to the Pending Claims panel instead of spinning.
@@ -308,7 +308,7 @@ export function ChainBridgeModule({
       } catch (err) {
         console.error("[ChainBridge] status fetch error:", err);
       }
-    }, 5000);
+    }, MONITOR_POLL_MS);
 
     return () => {
       cancelled = true;

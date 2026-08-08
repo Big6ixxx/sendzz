@@ -16,6 +16,7 @@
  */
 
 import { useCrossChainBalances, type ChainBalance, type ChainBalanceChain } from "@/hooks/useCrossChainBalances";
+import { MONITOR_MAX_ATTEMPTS, MONITOR_POLL_MS } from "@/lib/web3/bridge-timing";
 import {
   CHAIN_NAMES,
   SMART_BRIDGE_CHAINS,
@@ -145,7 +146,7 @@ export function SmartBridgeModule({
     let attempts = 0;
     const interval = setInterval(async () => {
       attempts++;
-      if (attempts > 120) {
+      if (attempts > MONITOR_MAX_ATTEMPTS) {
         clearInterval(interval);
         return;
       }
@@ -173,7 +174,7 @@ export function SmartBridgeModule({
       } catch (err) {
         console.error("[SmartBridge] EVM monitoring error:", err);
       }
-    }, 5000);
+    }, MONITOR_POLL_MS);
 
     return () => clearInterval(interval);
   }, [monitoringTx, isComplete, queryClient]);
@@ -186,7 +187,7 @@ export function SmartBridgeModule({
     let attempts = 0;
     const interval = setInterval(async () => {
       attempts++;
-      if (attempts > 120) {
+      if (attempts > MONITOR_MAX_ATTEMPTS) {
         clearInterval(interval);
         return;
       }
@@ -225,7 +226,7 @@ export function SmartBridgeModule({
       } catch (err) {
         console.error("[SmartBridge] Solana monitoring error:", err);
       }
-    }, 5000);
+    }, MONITOR_POLL_MS);
 
     return () => clearInterval(interval);
   }, [monitoringTx, isComplete, queryClient, embeddedEvmWallet]);
@@ -238,7 +239,7 @@ export function SmartBridgeModule({
     let attempts = 0;
     const interval = setInterval(async () => {
       attempts++;
-      if (attempts > 120) { clearInterval(interval); return; }
+      if (attempts > MONITOR_MAX_ATTEMPTS) { clearInterval(interval); return; }
       try {
         const res = await fetch(
           `/api/bridge/status?txHash=${monitoringTx.hash}&sourceChain=stellar`,
@@ -280,7 +281,7 @@ export function SmartBridgeModule({
       } catch (err) {
         console.error("[SmartBridge] Stellar monitoring error:", err);
       }
-    }, 5000);
+    }, MONITOR_POLL_MS);
 
     return () => clearInterval(interval);
   }, [monitoringTx, isComplete, queryClient, embeddedEvmWallet]);

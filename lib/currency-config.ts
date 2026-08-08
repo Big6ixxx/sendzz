@@ -55,3 +55,27 @@ export function getCurrencyFlag(code: string): string {
   };
   return flags[code] || '🏳️';
 }
+
+/**
+ * Payout country for a currency code — kept beside the flag map above so the two can't drift.
+ *
+ * XOF and XAF are shared across a monetary union rather than belonging to one country, so they
+ * name the zone instead of guessing a member state. Anything unmapped returns null rather than
+ * a made-up country: in an admin log a wrong country is worse than an absent one.
+ */
+export function getCurrencyCountry(code: string): string | null {
+  const countries: Record<string, string> = {
+    NGN: 'Nigeria',
+    KES: 'Kenya',
+    GHS: 'Ghana',
+    UGX: 'Uganda',
+    TZS: 'Tanzania',
+    XOF: 'West African CFA zone',
+    XAF: 'Central African CFA zone',
+    RWF: 'Rwanda',
+    GMD: 'The Gambia',
+    MWK: 'Malawi',
+    BRL: 'Brazil',
+  };
+  return countries[code?.toUpperCase()] ?? null;
+}

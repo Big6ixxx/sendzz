@@ -89,7 +89,14 @@ export function classifyAppError(err: unknown): AppError {
   if (
     msg.includes('nonce already used') ||
     msg.includes('message already received') ||
-    msg.includes('message already processed')
+    msg.includes('message already processed') ||
+    // The Stellar claim route sanitises Soroban errors before they reach the browser, so the
+    // raw wordings above never survive the trip. Match its output and its error code too —
+    // otherwise an already-claimed transfer falls through to the generic "couldn't complete"
+    // branch below, and the user is told to retry something that can never succeed.
+    msg.includes('already been claimed') ||
+    msg.includes('already_claimed') ||
+    msg.includes('already arrived')
   ) {
     return { message: 'This transfer was already processed. Please refresh your balance.', category: 'already_processed', isSilent: false, isAlreadyProcessed: true };
   }

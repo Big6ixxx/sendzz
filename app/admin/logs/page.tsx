@@ -19,10 +19,13 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 
+import { LogDetailModal, summariseCause } from './LogDetailModal';
+
 export default function AdminLogs() {
   const { user, getAccessToken } = usePrivy();
   const [logType, setLogType] = useState<'webhooks' | 'audit'>('webhooks');
   const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState<AdminLog | null>(null);
 
   const { data, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ['admin-logs', logType, user?.email?.address],
@@ -241,7 +244,16 @@ export default function AdminLogs() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.03 }}
-              className="card-glass p-5 flex flex-col md:flex-row md:items-center justify-between gap-6 hover:bg-white/6 transition-all group"
+              onClick={() => setSelected(log)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setSelected(log);
+                }
+              }}
+              className="card-glass p-5 flex flex-col md:flex-row md:items-center justify-between gap-6 hover:bg-white/6 transition-all group cursor-pointer focus:outline-none focus:ring-1 focus:ring-white/20"
             >
               <div className="flex items-center gap-5">
                 <div
@@ -313,17 +325,31 @@ export default function AdminLogs() {
 
               <div className="flex items-center gap-4">
                 <div className="hidden lg:block">
-                  <p className="text-[10px] font-bold text-white/20 uppercase tracking-[0.2em] mb-1">
-                    Payload Insight
-                  </p>
-                  <p className="text-[10px] text-white/40 truncate max-w-[200px] italic">
-                    {JSON.stringify(
+                  {(() => {
+                    // Surface the reason itself rather than the first 100 characters of raw
+                    // JSON — for a failed or expired payout that one line is the whole reason
+                    // an admin opened this page.
+                    const payload =
                       logType === 'webhooks'
                         ? (log as WebhookLog).payload_json
-                        : (log as AuditLog).metadata_json,
-                    ).slice(0, 100)}
-                    ...
-                  </p>
+                        : (log as AuditLog).metadata_json;
+                    const cause = summariseCause(payload);
+                    return (
+                      <>
+                        <p className="text-[10px] font-bold text-white/20 uppercase tracking-[0.2em] mb-1">
+                          {cause ? 'Reported Cause' : 'Payload'}
+                        </p>
+                        <p
+                          className={cn(
+                            'text-[10px] truncate max-w-[260px]',
+                            cause ? 'text-amber-400/80 font-medium' : 'text-white/40 italic',
+                          )}
+                        >
+                          {cause ?? `${JSON.stringify(payload).slice(0, 100)}...`}
+                        </p>
+                      </>
+                    );
+                  })()}
                 </div>
                 <button className="p-3 rounded-xl bg-white/5 border border-white/10 text-white/40 hover:text-white hover:bg-white/10 transition-all">
                   <Code2 className="w-4 h-4" />
@@ -339,6 +365,8 @@ export default function AdminLogs() {
           End of Log Stream
         </p>
       </div>
+
+      <LogDetailModal log={selected} logType={logType} onClose={() => setSelected(null)} />
     </div>
   );
 }

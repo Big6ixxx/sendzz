@@ -100,7 +100,12 @@ async function claimOnSolana(params: BridgeClaimParams): Promise<string | undefi
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data.error || 'Failed to claim on Solana');
+    // Carry the machine-readable code alongside the friendly text — classifyAppError keys
+    // off the string, and `already_claimed` is the difference between "retry" and "it's
+    // already in your wallet, stop showing this".
+    throw new Error(
+      [data.error, data.code].filter(Boolean).join(' ') || 'Failed to claim on Solana',
+    );
   }
   // Already delivered — the caller reconciles this the same way it does on EVM.
   if (data.alreadyClaimed) return undefined;
@@ -127,7 +132,12 @@ async function claimOnStellar(params: BridgeClaimParams): Promise<string> {
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data.error || 'Failed to claim on Stellar');
+    // Carry the machine-readable code alongside the friendly text — classifyAppError keys
+    // off the string, and `already_claimed` is the difference between "retry" and "it's
+    // already in your wallet, stop showing this".
+    throw new Error(
+      [data.error, data.code].filter(Boolean).join(' ') || 'Failed to claim on Stellar',
+    );
   }
   return data.txHash;
 }

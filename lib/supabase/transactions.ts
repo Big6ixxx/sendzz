@@ -8,7 +8,8 @@ import { fetchSolanaAttestation } from "@/lib/circle/solana-gateway";
 import { fetchStellarAttestation } from "@/lib/circle/stellar-gateway";
 import { requireUser } from "@/lib/auth/session";
 import type { PendingBridgeClaim } from "@/types/bridge";
-import { isPlaceholderHash } from "@/lib/explorers";
+import { isPlaceholderHash, PLACEHOLDER_TX_HASH } from "@/lib/explorers";
+import { CLAIM_HANDOFF_MS } from "@/lib/web3/bridge-timing";
 
 type ExtendedChain = SupportedChain | "solana" | "stellar";
 
@@ -835,12 +836,7 @@ export async function updateBridgeStatus(
  * flash an "unclaimed" banner during the gap between attestation and mint.
  */
 
-/**
- * How long the in-page bridge monitor owns a burn before this takes over. Matches the
- * monitor's give-up point in ChainBridgeModule, so exactly one of them is ever acting
- * on a given transfer.
- */
-const CLAIM_HANDOFF_MS = 0;
+
 
 const EVM_DEST_CHAINS = [
   "base",
@@ -854,15 +850,27 @@ const EVM_DEST_CHAINS = [
 /**
  * Has the destination chain already consumed this message's nonce?
  *
- * Only answerable for EVM destinations today; Solana and Stellar fall back to the
- * record written when their claim succeeded. Returns false when unknown, so an
- * unreachable RPC never hides a transfer the user still needs to claim.
+ * EVM reads the MessageTransmitter's used-nonce map directly. Stellar has no such read, so it
+ * simulates the claim and treats an already-received rejection as proof (see lib/stellar/
+ * delivery). Solana still has no check — its burns fall back to the record written when the
+ * claim succeeded.
+ *
+ * Returns false whenever the answer is unknown, so an unreachable RPC or an unrecognised error
+ * never hides a transfer the user still needs to claim.
  */
 async function isBurnDelivered(
   destChain: string,
   messageBytes: string,
+  attestation?: string,
 ): Promise<boolean> {
   const dest = destChain.toLowerCase();
+
+  if (dest === "stellar") {
+    if (!attestation) return false;
+    const { isStellarBurnDelivered } = await import("@/lib/stellar/delivery");
+    return isStellarBurnDelivered(messageBytes, attestation);
+  }
+
   if (!EVM_DEST_CHAINS.includes(dest)) return false;
 
   try {
@@ -897,7 +905,12 @@ export async function getPendingBridgeClaims(
       .from("bridge_transactions")
       .select("id, source_chain, dest_chain, amount, burn_tx_hash, mint_tx_hash, created_at")
       .eq("user_id", userRecord.id)
+      // Unfinished means BOTH: no mint hash recorded AND not already reconciled. Filtering on
+      // the hash alone stranded every transfer we confirmed as delivered but couldn't find a
+      // mint hash for — `updateBridgeStatus(hash, "complete")` writes a null hash, so the row
+      // matched `mint_tx_hash IS NULL` forever and the claim card never went away.
       .is("mint_tx_hash", null)
+      .neq("attestation_status", "complete")
       .lt("created_at", new Date(Date.now() - CLAIM_HANDOFF_MS).toISOString())
       .order("created_at", { ascending: false })
       .limit(20);
@@ -923,17 +936,33 @@ export async function getPendingBridgeClaims(
           // never happened. Ask the destination chain directly before insisting the
           // funds are unclaimed — otherwise the banner outlives the transfer.
           if (result.status === "complete" && result.messageBytes) {
-            const delivered = await isBurnDelivered(row.dest_chain, result.messageBytes);
+            const delivered = await isBurnDelivered(
+              row.dest_chain,
+              result.messageBytes,
+              result.attestation ?? undefined,
+            );
             if (delivered) {
-              const { createPublicClient } = await import("viem");
-              const { rpcTransport } = await import("@/lib/web3/rpc");
-              const { findMintTxHash } = await import("@/lib/web3/cctp-delivery");
-              const client = createPublicClient({ transport: rpcTransport(row.dest_chain) });
-              const mintTx = await findMintTxHash(client, result.messageBytes).catch(() => undefined);
-              if (mintTx) {
-                await updateBridgeStatus(row.burn_tx_hash, "complete", mintTx);
-                return null;
+              // Try for the real mint hash so history can link to an explorer.
+              let mintTx: string | undefined;
+              if (EVM_DEST_CHAINS.includes(row.dest_chain.toLowerCase())) {
+                const { createPublicClient } = await import("viem");
+                const { rpcTransport } = await import("@/lib/web3/rpc");
+                const { findMintTxHash } = await import("@/lib/web3/cctp-delivery");
+                const client = createPublicClient({ transport: rpcTransport(row.dest_chain) });
+                mintTx = await findMintTxHash(client, result.messageBytes).catch(() => undefined);
               }
+
+              // Reconcile whether or not we found it. Delivery is the fact that matters — the
+              // money is already in the user's wallet. Previously a missing hash meant we
+              // skipped the update entirely, so a delivered transfer kept showing a Claim
+              // button that could only ever fail. The placeholder records "delivered, hash
+              // unknown"; isPlaceholderHash keeps the UI from rendering it as a dead link.
+              await updateBridgeStatus(
+                row.burn_tx_hash,
+                "complete",
+                mintTx ?? PLACEHOLDER_TX_HASH,
+              );
+              return null;
             }
           }
 
