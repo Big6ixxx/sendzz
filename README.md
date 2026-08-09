@@ -4,20 +4,44 @@ A cross-border payment platform built on Base. Send USDC to anyone via email, de
 
 ---
 
+## Live Deployments
+
+Sendzz is live on both **Mainnet** and **Testnet**:
+
+- **Mainnet:** Live across EVM chains and Stellar for cross-chain USDC transfers and fiat rails.
+- **Testnet:** Live on Arc Testnet — check out the testnet version at **[arc.sendzz.io](https://arc.sendzz.io)**.
+
+---
+
 ## Table of Contents
 
-- [Features](#features)
-- [Tech Stack](#tech-stack)
-- [Architecture Overview](#architecture-overview)
-- [Database Schema](#database-schema)
-- [API Routes](#api-routes)
-- [Pages & Routes](#pages--routes)
-- [Email Templates](#email-templates)
-- [Environment Variables](#environment-variables)
-- [Local Development Setup](#local-development-setup)
-- [Paycrest Webhook Configuration](#paycrest-webhook-configuration)
-- [Admin Access](#admin-access)
-- [Testing](#testing)
+- [Sendzz](#sendzz)
+  - [Live Deployments](#live-deployments)
+  - [Table of Contents](#table-of-contents)
+  - [Features](#features)
+    - [Gasless USDC Transfers](#gasless-usdc-transfers)
+    - [Fiat On-Ramp (Deposit)](#fiat-on-ramp-deposit)
+    - [Fiat Off-Ramp (Withdrawal)](#fiat-off-ramp-withdrawal)
+    - [Cross-Chain USDC Bridge](#cross-chain-usdc-bridge)
+    - [Batch Transfers](#batch-transfers)
+    - [Transaction History](#transaction-history)
+    - [Admin Dashboard](#admin-dashboard)
+    - [Email Notifications](#email-notifications)
+    - [Dark / Light Mode](#dark--light-mode)
+  - [Tech Stack](#tech-stack)
+  - [Architecture Overview](#architecture-overview)
+    - [Withdrawal Status Flow](#withdrawal-status-flow)
+  - [Database Schema](#database-schema)
+  - [API Routes](#api-routes)
+  - [Pages \& Routes](#pages--routes)
+  - [Email Templates](#email-templates)
+  - [Environment Variables](#environment-variables)
+  - [Local Development Setup](#local-development-setup)
+    - [Prerequisites](#prerequisites)
+    - [Steps](#steps)
+  - [Paycrest Webhook Configuration](#paycrest-webhook-configuration)
+  - [Admin Access](#admin-access)
+  - [Testing](#testing)
 
 ---
 
