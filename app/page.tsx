@@ -21,7 +21,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useRef, useEffect, useState } from 'react';
 
-import { PLATFORM_FEE_PERCENT } from '@/lib/ramp/fees';
+import { usePlatformFee } from '@/lib/hooks/usePlatformFee';
 
 /* ─── Mock UI Card Components ─── */
 
@@ -316,7 +316,7 @@ function CardTriptych() {
   );
 }
 
-const FAQS = [
+const buildFaqs = (platformFee: number | null) => [
   {
     q: "Is Sendzz non-custodial? How does 'Your Email Is Your Key' work?",
     a: "Yes, Sendzz is 100% non-custodial. Your email address is your master key. When you log in with your email, Privy generates an Ethereum L2 Smart Account (ERC-4337 on Base) using secure Multi-Party Computation (MPC) and WebAuthn Passkeys. Sendzz never stores or touches your private keys, cannot freeze your account, and cannot move your money without your explicit authorization.",
@@ -331,7 +331,7 @@ const FAQS = [
   },
   {
     q: "Are there any transaction or gas fees?",
-    a: `Sendzz P2P transfers are 100% free with zero gas fees. Network gas costs on Base and supported chains are fully sponsored by Sendzz using Account Abstraction paymasters and Circle Gas Station. For fiat withdrawals to your local bank account, a minimal ${PLATFORM_FEE_PERCENT}% platform fee applies.`,
+    a: `Sendzz P2P transfers are 100% free with zero gas fees. Network gas costs on Base and supported chains are fully sponsored by Sendzz using Account Abstraction paymasters and Circle Gas Station. For fiat withdrawals to your local bank account, a minimal ${platformFee ?? '—'}% platform fee applies.`,
     icon: Zap,
     highlight: "Zero Network Gas Fees",
   },
@@ -353,7 +353,7 @@ function HomeFaqItem({
   faq,
   defaultOpen = false,
 }: {
-  faq: (typeof FAQS)[number];
+  faq: ReturnType<typeof buildFaqs>[number];
   defaultOpen?: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
@@ -404,6 +404,8 @@ function HomeFaqItem({
 
 /* ─── Main Landing Page ─── */
 export default function Landing() {
+  const platformFee = usePlatformFee();
+  const faqs = buildFaqs(platformFee);
   const { ready, authenticated, login } = usePrivy();
   const router = useRouter();
   const heroRef = useRef<HTMLDivElement>(null);
@@ -769,7 +771,7 @@ export default function Landing() {
           </div>
 
           <div className="space-y-4">
-            {FAQS.map((faq, index) => (
+            {faqs.map((faq, index) => (
               <HomeFaqItem key={index} faq={faq} defaultOpen={index === 0} />
             ))}
           </div>

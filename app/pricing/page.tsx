@@ -6,9 +6,10 @@ import { Check } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { PLATFORM_FEE_PERCENT } from "@/lib/ramp/fees";
+import { usePlatformFee } from '@/lib/hooks/usePlatformFee';
 
 export default function PricingPage() {
+  const platformFee = usePlatformFee();
   const { authenticated, login } = usePrivy();
   const router = useRouter();
 
@@ -224,13 +225,13 @@ export default function PricingPage() {
                     {
                       s: "Fiat Deposit (On-ramp)",
                       n: "$0.00",
-                      o: `${PLATFORM_FEE_PERCENT}%`,
+                      o: platformFee === null ? '—' : `${platformFee}%`,
                       st: "< 2 mins",
                     },
                     {
                       s: "Fiat Withdrawal (Off-ramp)",
                       n: "$0.00",
-                      o: `${PLATFORM_FEE_PERCENT}%`,
+                      o: platformFee === null ? '—' : `${platformFee}%`,
                       st: "< 5 mins",
                     },
                     {

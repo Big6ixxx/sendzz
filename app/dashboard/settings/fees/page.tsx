@@ -19,7 +19,7 @@ import {
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import { PLATFORM_FEE_PERCENT } from '@/lib/ramp/fees';
+import { usePlatformFee } from '@/lib/hooks/usePlatformFee';
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
@@ -106,6 +106,7 @@ function HelpFaqItem({ faq }: { faq: (typeof HELP_FAQS)[number] }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function HelpCenterPage() {
+  const platformFee = usePlatformFee();
   const router = useRouter();
 
   return (
@@ -182,7 +183,7 @@ export default function HelpCenterPage() {
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="font-black text-xl text-accent">{PLATFORM_FEE_PERCENT}%</p>
+                  <p className="font-black text-xl text-accent">{platformFee ?? '—'}%</p>
                   <p className="text-[10px] uppercase font-bold text-muted-foreground">Of deposit or withdrawal</p>
                 </div>
               </div>

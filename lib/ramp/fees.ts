@@ -6,11 +6,13 @@
  * mechanism (Bitnob), so we collect it ourselves ON-CHAIN by routing the fee portion to our
  * own per-chain treasury address in the same transfer as the payout.
  *
- * To add/adjust fees:
- *   • change a percentage → set <PROVIDER>_FEE_PERCENT
- *   • move a fee on/off the provider → flip `collection`
- *   • add a self-collecting provider → add an entry with its own <PROVIDER>_FEE_TREASURY_<CHAIN> vars
- * Everything reads from PROVIDER_FEES; call sites never hardcode a percentage.
+ * Every rate comes from the environment — PAYCREST_FEE_PERCENT and BITNOB_FEE_PERCENT. There
+ * is no compiled-in default anywhere, so the charged fee and the displayed fee cannot diverge.
+ *
+ * To adjust fees:
+ *   • change a percentage → set <PROVIDER>_FEE_PERCENT (no deploy needed for the value itself)
+ *   • move a fee on/off the provider → flip `collection` in FEE_COLLECTION
+ *   • add a self-collecting provider → add its <PROVIDER>_FEE_TREASURY_<CHAIN> vars
  */
 import type { RampProviderName } from "./types";
 
@@ -26,11 +28,6 @@ export interface ProviderFee {
   collection: FeeCollection;
   /** Per-chain fee-collection addresses. Required (per chain) when `collection === 'onchain'`. */
   treasury?: Record<string, string | undefined>;
-}
-
-function num(v: string | undefined, fallback: number): number {
-  const n = v != null && v !== "" ? Number(v) : NaN;
-  return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
 /**
@@ -49,42 +46,54 @@ const BITNOB_FEE_TREASURY: Record<string, string | undefined> = {
   stellar: process.env.BITNOB_FEE_TREASURY_STELLAR, // coming soon
 };
 
-/**
- * The platform fee, as a percentage — the one number to change when pricing moves.
- *
- * Every fee, on every provider, on both deposit and withdrawal, derives from this: the
- * per-provider entries below default to it, and `lib/paycrest/config.ts` re-exports it for the
- * on-ramp math and the UI. It lived in two places before and the copies could silently drift,
- * which would mean charging one number and displaying another.
- *
- * Raising this is NOT enough on its own for Paycrest: they skim their own partner fee, so the
- * matching value must also be set on the Paycrest dashboard or the "send extra" math nets the
- * wrong payout. Bitnob needs no dashboard change — we collect that one ourselves (see below).
- */
-export const PLATFORM_FEE_PERCENT = 0.5;
-
-export const PROVIDER_FEES: Record<RampProviderName, ProviderFee> = {
-  // Paycrest collects the partner fee itself (configured on the Paycrest dashboard). This
-  // percentage MUST match the dashboard value so the "send extra" math nets the right payout.
-  paycrest: {
-    percent: num(process.env.PAYCREST_FEE_PERCENT, PLATFORM_FEE_PERCENT),
-    collection: "provider",
-  },
-  // Bitnob has no partner-fee mechanism, so we collect on-chain to our own treasury.
-  bitnob: {
-    percent: num(process.env.BITNOB_FEE_PERCENT, PLATFORM_FEE_PERCENT),
-    collection: "onchain",
-    treasury: BITNOB_FEE_TREASURY,
-  },
+/** Env var holding each provider's fee percentage. There is no compiled-in rate. */
+const FEE_ENV_VAR: Record<RampProviderName, string> = {
+  paycrest: "PAYCREST_FEE_PERCENT",
+  bitnob: "BITNOB_FEE_PERCENT",
 };
 
-export function getProviderFee(provider: RampProviderName): ProviderFee {
-  return PROVIDER_FEES[provider];
-}
+/**
+ * How each provider's fee reaches us. The percentage is NOT here — see getProviderFee.
+ *
+ *  • paycrest — skims its own partner fee, configured on their dashboard. PAYCREST_FEE_PERCENT
+ *    MUST match that dashboard value, or the "send extra" reverse-calculation nets the wrong
+ *    payout. Changing the env var alone is not enough for Paycrest.
+ *  • bitnob — has no partner-fee mechanism, so we collect on-chain to our own treasury.
+ */
+const FEE_COLLECTION: Record<RampProviderName, Pick<ProviderFee, "collection" | "treasury">> = {
+  paycrest: { collection: "provider" },
+  bitnob: { collection: "onchain", treasury: BITNOB_FEE_TREASURY },
+};
 
-/** Fee fraction (e.g. 0.005) for a provider. */
-export function feeRate(provider: RampProviderName): number {
-  return getProviderFee(provider).percent / 100;
+/**
+ * The fee for a provider, read from its environment variable.
+ *
+ * **Every rate comes from env — there is no hardcoded default.** A compiled-in fallback is
+ * what let the app charge two different fees at once: the server honoured the env override
+ * while deposits and the whole UI used the constant baked into the bundle. With one source
+ * there is nothing to drift from.
+ *
+ * Read lazily, per call, rather than once at module load, so a config change takes effect on
+ * the next request instead of the next deploy — and so importing this module from a client
+ * bundle (where process.env is empty) can't capture a wrong value at build time.
+ *
+ * Throws when the variable is missing or not a sane percentage. That is deliberate: a payout
+ * whose fee we can't determine must fail loudly, exactly as a missing fee treasury does. It is
+ * never silently treated as free.
+ */
+export function getProviderFee(provider: RampProviderName): ProviderFee {
+  const envVar = FEE_ENV_VAR[provider];
+  const raw = process.env[envVar];
+  const percent = Number(raw);
+
+  if (raw == null || raw === "" || !Number.isFinite(percent) || percent < 0 || percent > 100) {
+    throw new Error(
+      `${envVar} is not configured (got ${JSON.stringify(raw)}). ` +
+        `Set it to the ${provider} fee percentage, e.g. ${envVar}=0.5`,
+    );
+  }
+
+  return { percent, ...FEE_COLLECTION[provider] };
 }
 
 // ── Fee arithmetic ───────────────────────────────────────────────────────────
@@ -99,11 +108,11 @@ export function feeRate(provider: RampProviderName): number {
 //
 // Every call site used to inline its own `* (1 + feePercent / 100)`, and one of them had the
 // rate hardcoded as `1.003` — silently correct at 0.3% and silently wrong the moment the fee
-// moved. Funnelling the arithmetic through here is what stops that from recurring: change
-// PLATFORM_FEE_PERCENT and there is no second copy of the maths to forget.
+// moved. Funnelling the arithmetic through here is what stops that recurring: the rate comes
+// from env, and there is no second copy of the maths to forget.
 
 /** base → total multiplier for `percent` (e.g. 0.5 → 1.005). */
-export function feeMultiplier(percent: number): number {
+function feeMultiplier(percent: number): number {
   return 1 + percent / 100;
 }
 
@@ -117,12 +126,9 @@ export function baseFromTotal(total: number, percent: number): number {
   return total / feeMultiplier(percent);
 }
 
-/** The fee itself, given whichever amount you happen to hold. */
+/** The fee portion of a base amount. */
 export function feeFromBase(base: number, percent: number): number {
   return totalFromBase(base, percent) - base;
-}
-export function feeFromTotal(total: number, percent: number): number {
-  return total - baseFromTotal(total, percent);
 }
 
 export interface AppliedFee {

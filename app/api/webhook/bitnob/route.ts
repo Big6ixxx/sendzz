@@ -1,6 +1,7 @@
 import { Database, Json } from '@/types/database';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
+import { verifyBitnobSignature } from '@/lib/bitnob/webhook-signature';
 import { triggerWithdrawalNotifications } from '@/lib/supabase/transactions';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -99,8 +100,10 @@ export async function POST(req: Request) {
     }
 
     // ─── Signature verification ───────────────────────────────────────────────
-    // Bitnob signs HMAC-SHA512( webhookSecret, JSON.stringify(body) ) as hex, sent in
-    // the x-bitnob-signature header (note: SHA-512, and over the re-stringified body).
+    // HMAC-SHA512 over the RAW body, in x-bitnob-signature. See lib/bitnob/webhook-signature
+    // for why the raw bytes matter: hashing a re-serialised parse silently rejected every
+    // event carrying a numeric amount — which is all of the deposit events — and that is what
+    // left Kenyan payouts stuck until their quote expired.
     const webhookSecret = process.env.BITNOB_WEBHOOK_SECRET;
     if (!webhookSecret) {
       console.error(`[Bitnob Webhook] [${requestId}] BITNOB_WEBHOOK_SECRET not set`);
@@ -113,28 +116,34 @@ export async function POST(req: Request) {
       return new Response('Missing signature header', { status: 400 });
     }
 
-    const receivedSig = String(signature).trim().toLowerCase();
-    const computed = crypto
-      .createHmac('sha512', String(webhookSecret).trim())
-      .update(JSON.stringify(event))
-      .digest('hex')
-      .toLowerCase();
-
-    const sigOk =
-      receivedSig.length === computed.length &&
-      (() => {
-        try {
-          return crypto.timingSafeEqual(
-            Buffer.from(computed, 'utf8'),
-            Buffer.from(receivedSig, 'utf8'),
-          );
-        } catch {
-          return false;
-        }
-      })();
+    const sigOk = verifyBitnobSignature({
+      rawBody: payload,
+      signature: String(signature),
+      secret: webhookSecret,
+    });
 
     if (!sigOk) {
-      console.error(`[Bitnob Webhook] [${requestId}] Signature mismatch`);
+      const rejectedEvent = event.event ?? event.type ?? 'unknown';
+      console.error(
+        `[Bitnob Webhook] [${requestId}] Signature mismatch — event=${rejectedEvent}`,
+      );
+      // Leave a trace. A rejected webhook previously vanished without one, which is precisely
+      // why the dropped deposit.success events were invisible while the expired ones showed up
+      // in the admin log. Identifiers only — the body failed verification, so it isn't trusted.
+      await supabaseAdmin
+        .from('webhook_events')
+        .insert({
+          provider: 'bitnob',
+          event_id: `rejected-${requestId}-${Date.now()}`,
+          event_type: `signature_rejected:${rejectedEvent}`,
+          payload_json: {
+            reason: 'HMAC did not match the raw body or its compact re-serialisation',
+            event: rejectedEvent,
+            reference: event.data?.reference ?? event.data?.id ?? null,
+          } as Json,
+          processed: false,
+        })
+        .then(undefined, () => undefined);
       return new Response('Invalid signature', { status: 400 });
     }
 

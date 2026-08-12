@@ -37,19 +37,6 @@ export class AdminAuthError extends Error {
   }
 }
 
-/**
- * Resolve the caller from their Privy session. Delegates to the shared verifier in
- * lib/auth/session so admin and user auth can never drift apart on what counts as proof.
- *
- * `accessToken` is an accepted input where an email never is, and the difference is the whole
- * point: a token is verified cryptographically with Privy, so supplying someone else's means
- * actually stealing it. It exists as a fallback because the `privy-token` cookie isn't
- * guaranteed in every deployment, and a cookie-only check would lock every admin out.
- */
-async function sessionIdentity(accessToken?: string): Promise<AdminSession | null> {
-  return getVerifiedIdentity(accessToken);
-}
-
 /** Is this email on the approved list? DB first, env as the fallback for bootstrapping. */
 async function isApprovedAdmin(email: string): Promise<boolean> {
   try {
@@ -100,7 +87,7 @@ async function logDenial(attemptedEmail: string | null, reason: string): Promise
  * Use for UI decisions (rendering the console vs. the restricted screen).
  */
 export async function getAdminSession(accessToken?: string): Promise<AdminSession | null> {
-  const identity = await sessionIdentity(accessToken);
+  const identity = await getVerifiedIdentity(accessToken);
   if (!identity) return null;
   if (!(await isApprovedAdmin(identity.email))) return null;
   return identity;
@@ -111,7 +98,7 @@ export async function getAdminSession(accessToken?: string): Promise<AdminSessio
  * FIRST — it is the only thing standing between a stranger and the whole platform's records.
  */
 export async function requireAdmin(accessToken?: string): Promise<AdminSession> {
-  const identity = await sessionIdentity(accessToken);
+  const identity = await getVerifiedIdentity(accessToken);
   if (!identity) {
     await logDenial(null, 'no_valid_session');
     throw new AdminAuthError();

@@ -3,9 +3,7 @@ import {
   applyFee,
   baseFromTotal,
   feeFromBase,
-  feeFromTotal,
-  PLATFORM_FEE_PERCENT,
-  PROVIDER_FEES,
+  getProviderFee,
   totalFromBase,
 } from './fees';
 
@@ -38,7 +36,6 @@ describe('fee arithmetic', () => {
     const base = baseFromTotal(100, 0.5);
     expect(base).toBeCloseTo(99.502488, 6);
     expect(totalFromBase(base, 0.5)).toBeCloseTo(100, 9); // lands exactly on the balance
-    expect(base + feeFromTotal(100, 0.5)).toBeCloseTo(100, 9);
   });
 
   it('is a no-op at 0%', () => {
@@ -48,8 +45,12 @@ describe('fee arithmetic', () => {
   });
 
   it('applyFee agrees with the standalone helpers', () => {
+    // Set explicitly: the suite doesn't load .env, and there is no compiled-in rate to fall
+    // back on — getProviderFee throws when unconfigured, which is the point.
+    process.env.PAYCREST_FEE_PERCENT = '0.5';
+    process.env.BITNOB_FEE_PERCENT = '0.5';
     for (const provider of ['paycrest', 'bitnob'] as const) {
-      const { percent } = PROVIDER_FEES[provider];
+      const { percent } = getProviderFee(provider);
       const { base, fee, total } = applyFee(250, provider);
       expect(base).toBe(250);
       expect(fee).toBeCloseTo(feeFromBase(250, percent), 9);
@@ -57,11 +58,45 @@ describe('fee arithmetic', () => {
     }
   });
 
-  it('every provider derives its rate from the single platform constant', () => {
-    // No env override is set in test, so each provider must fall back to the one constant.
-    // If someone adds a provider with a hardcoded percentage, this fails.
-    for (const cfg of Object.values(PROVIDER_FEES)) {
-      expect(cfg.percent).toBe(PLATFORM_FEE_PERCENT);
+  /**
+   * The rate must come from env and nowhere else. A compiled-in fallback is what previously
+   * let the server charge one number while the UI displayed another.
+   */
+  it('reads each provider rate from its environment variable', () => {
+    const prev = { p: process.env.PAYCREST_FEE_PERCENT, b: process.env.BITNOB_FEE_PERCENT };
+    try {
+      process.env.PAYCREST_FEE_PERCENT = '1.25';
+      process.env.BITNOB_FEE_PERCENT = '0.75';
+      expect(getProviderFee('paycrest').percent).toBe(1.25);
+      expect(getProviderFee('bitnob').percent).toBe(0.75);
+    } finally {
+      process.env.PAYCREST_FEE_PERCENT = prev.p;
+      process.env.BITNOB_FEE_PERCENT = prev.b;
+    }
+  });
+
+  it('throws rather than assuming a rate when the variable is missing or invalid', () => {
+    const prev = process.env.PAYCREST_FEE_PERCENT;
+    try {
+      for (const bad of [undefined, '', 'abc', '-1', '101']) {
+        if (bad === undefined) delete process.env.PAYCREST_FEE_PERCENT;
+        else process.env.PAYCREST_FEE_PERCENT = bad;
+        expect(() => getProviderFee('paycrest')).toThrow(/PAYCREST_FEE_PERCENT/);
+      }
+    } finally {
+      process.env.PAYCREST_FEE_PERCENT = prev;
+    }
+  });
+
+  it('picks up a change without a reload — the value is read per call', () => {
+    const prev = process.env.BITNOB_FEE_PERCENT;
+    try {
+      process.env.BITNOB_FEE_PERCENT = '0.5';
+      expect(getProviderFee('bitnob').percent).toBe(0.5);
+      process.env.BITNOB_FEE_PERCENT = '0.9';
+      expect(getProviderFee('bitnob').percent).toBe(0.9);
+    } finally {
+      process.env.BITNOB_FEE_PERCENT = prev;
     }
   });
 });

@@ -1,3 +1,5 @@
+import { GENERIC_ERROR_MESSAGE, toUserSafeMessage } from './sanitize';
+
 /**
  * Centralized app error classifier for Sendzz.
  *
@@ -216,7 +218,14 @@ export function classifyAppError(err: unknown): AppError {
     return { message: rawMsg, category: 'unknown', isSilent: false, isAlreadyProcessed: false };
   }
 
-  return { message: `Something went wrong: ${rawMsg.slice(0, 200)}`, category: 'unknown', isSilent: false, isAlreadyProcessed: false };
+  // Only echo the original when it's clean — no provider names, no JSON, no request paths.
+  // The raw text is already in the console for whoever is debugging.
+  return {
+    message: toUserSafeMessage(rawMsg) ?? GENERIC_ERROR_MESSAGE,
+    category: 'unknown',
+    isSilent: false,
+    isAlreadyProcessed: false,
+  };
 }
 
 /** Shorthand: returns just the user-safe message string */

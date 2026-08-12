@@ -5,6 +5,7 @@
  */
 import { getPaycrestClient } from "@/lib/paycrest/client";
 import { calculatePaycrestBaseAmount } from "@/lib/paycrest/config";
+import { getProviderFee } from "../fees";
 import type { PaycrestNetwork, PaycrestOrderResponse } from "@/lib/paycrest/types";
 import type { RampProvider } from "../provider";
 import type {
@@ -78,14 +79,58 @@ export class PaycrestProvider implements RampProvider {
     rates: true,
   };
 
+  /**
+   * Does Paycrest actually serve this currency?
+   *
+   * This used to answer `true` for everything, which made currency-aware routing a no-op: an
+   * RWF request was handed to Paycrest, which doesn't cover Rwanda, and hung until the gateway
+   * timed out. Ask Paycrest for its own currency list instead.
+   *
+   * Cached, since it's consulted on every routing decision and the list rarely changes. An
+   * unreachable list returns the cached answer if we have one, otherwise `false` — guessing
+   * "yes" is precisely what sent a payout to a provider that couldn't settle it.
+   */
   async supportsCurrency(currency: RampCurrency): Promise<boolean> {
     if (!currency) return false;
-    return true;
+    const supported = await this.supportedCurrencyCodes();
+    if (!supported) return false;
+    return supported.has(currency.toUpperCase());
+  }
+
+  private static currencyCache: { codes: Set<string>; at: number } | null = null;
+  private static readonly CURRENCY_TTL_MS = 10 * 60 * 1000;
+
+  private async supportedCurrencyCodes(): Promise<Set<string> | null> {
+    const cached = PaycrestProvider.currencyCache;
+    if (cached && Date.now() - cached.at < PaycrestProvider.CURRENCY_TTL_MS) {
+      return cached.codes;
+    }
+    try {
+      const { data } = await this.getCurrencies();
+      const codes = new Set(
+        (data ?? []).map((c) => String(c.code || "").toUpperCase()).filter(Boolean),
+      );
+      if (codes.size > 0) {
+        PaycrestProvider.currencyCache = { codes, at: Date.now() };
+        return codes;
+      }
+    } catch (err) {
+      console.warn(
+        "[Paycrest] Could not load supported currencies:",
+        err instanceof Error ? err.message : err,
+      );
+    }
+    // Serve a stale list through an outage rather than flip-flopping on what's supported.
+    return cached?.codes ?? null;
   }
 
   async createOnRampOrder(params: CreateOnRampParams): Promise<RampOrderResponse> {
     const paycrest = getPaycrestClient();
-    const baseAmount = calculatePaycrestBaseAmount(params.amountFiat);
+    // Effective rate — honours PAYCREST_FEE_PERCENT, not just the compiled-in default.
+    const baseAmount = calculatePaycrestBaseAmount(
+      params.amountFiat,
+      getProviderFee('paycrest').percent,
+    );
     const safeUserId = params.userId.replace(/[^a-z0-9]/gi, "");
     const order = await paycrest.createOrder({
       amount: baseAmount.toFixed(2),

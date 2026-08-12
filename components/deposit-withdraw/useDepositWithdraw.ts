@@ -381,7 +381,14 @@ export function useDepositWithdraw(
         name = "VERIFIED ACCOUNT";
       }
       setBankDetails((prev) => ({ ...prev, accountName: name }));
-      toast.success("Bank account verified");
+
+      // Mobile money has no name enquiry, so the wording stays on what was actually checked
+      // — the number — without claiming we confirmed the recipient.
+      toast.success(
+        res.nameVerified === false
+          ? "Mobile money number accepted"
+          : "Bank account verified",
+      );
     } catch (err) {
       toast.error(parseFriendlyError(err));
       setBankDetails((prev) => ({ ...prev, accountName: "" }));
@@ -424,7 +431,7 @@ export function useDepositWithdraw(
     }
 
     // Check estimated USDC > 1 (after fees)
-    const baseAmount = calculatePaycrestBaseAmount(val);
+    const baseAmount = calculatePaycrestBaseAmount(val, feePercent);
     const estimatedUsdc = baseAmount / (rate || 1);
     if (estimatedUsdc <= 1) {
       toast.error("Estimated deposit must be greater than 1 USDC");

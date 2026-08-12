@@ -71,8 +71,8 @@ export async function getVerifiedIdentity(
   }
 }
 
-/** The signed-in user for this request, or null. Use where absence is a normal outcome. */
-export async function getSessionUser(accessToken?: string): Promise<SessionUser | null> {
+/** The signed-in user for this request, or null. */
+async function getSessionUser(accessToken?: string): Promise<SessionUser | null> {
   const identity = await getVerifiedIdentity(accessToken);
   if (!identity) return null;
 
