@@ -239,6 +239,7 @@ export class BitnobProvider implements RampProvider {
     destinationType: string,
     country: string,
     bank: CreateOffRampParams["bank"],
+    userEmail?: string,
   ): BitnobBeneficiary {
     const base = { destination_type: destinationType, country, account_name: bank.accountName };
     switch (destinationType) {
@@ -247,14 +248,31 @@ export class BitnobProvider implements RampProvider {
       case "mobile_money":
       case "paybill":
       case "paytill":
-        // Mobile-money rails: account_number carries the phone/till number, bank_code the
-        // provider. Sent as an international MSISDN — the settlement form — so the payout
+        // Mobile-money rails require `network` and `sender` identity details.
+        // Sent as an international MSISDN — the settlement form — so the payout
         // matches the number the format check normalised.
+        const code = (bank.bankCode || "").toUpperCase();
+        let network = "MTN";
+        if (code.includes("AIRT")) network = "AIRTEL";
+        else if (code.includes("VODA")) network = "VODAFONE";
+        else if (code.includes("SAFA") || code.includes("MPESA")) network = "SAFARICOM";
+        else if (code.includes("ORANGE")) network = "ORANGE";
+        else if (code.includes("WAVE")) network = "WAVE";
+        else if (code.includes("QMONEY")) network = "QMONEY";
+        else if (code.includes("AFRI")) network = "AFRIMONEY";
+
+        const senderName = userEmail ? userEmail.split("@")[0] : bank.accountName || "Sendzz User";
         return {
           ...base,
           account_number:
             toInternationalMsisdn(bank.accountNumber, country) ?? bank.accountNumber,
           bank_code: bank.bankCode,
+          network,
+          sender: {
+            account_name: senderName,
+            country: country,
+            address: `${country} Region`,
+          },
         };
       default:
         // swift/wire/ach/sepa/domestic_gbp need field schemas the app doesn't collect.
@@ -299,7 +317,7 @@ export class BitnobProvider implements RampProvider {
       country,
       from_asset: "USDC",
       to_currency: params.fiatCurrency,
-      source: "onchain",
+      source: "offchain",
       chain: params.network,
       reference,
     });
@@ -318,12 +336,8 @@ export class BitnobProvider implements RampProvider {
       quote_id: quote.quote_id,
       reference,
       payment_reason: "user_withdrawal",
-      beneficiary: this.buildBeneficiary(destinationType, country, params.bank),
+      beneficiary: this.buildBeneficiary(destinationType, country, params.bank, params.userEmail),
     });
-
-    // Finalize is NOT called here — the payout can only be finalized AFTER its on-chain
-    // deposit confirms (otherwise Bitnob 400s "cannot transition to pending"). It's driven
-    // from the deposit.success webhook instead.
 
     // Prefer an address returned by initialize (payout-bound); otherwise use the one above.
     const receiveAddress = depositAddressOf(initialized) ?? address.address;

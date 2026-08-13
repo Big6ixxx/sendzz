@@ -27,7 +27,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function finalizeWithRetry(quoteId: string, tag: string): Promise<boolean> {
   const { getBitnobClient } = await import('@/lib/bitnob/client');
   const client = getBitnobClient();
-  for (let attempt = 1; attempt <= 14; attempt++) {
+  for (let attempt = 1; attempt <= 5; attempt++) {
     try {
       await client.finalizePayout(quoteId);
       console.log(`[Bitnob Webhook] [${tag}] finalized ${quoteId} on attempt ${attempt}`);
@@ -35,8 +35,8 @@ async function finalizeWithRetry(quoteId: string, tag: string): Promise<boolean>
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (/pending_address_deposit|cannot transition/i.test(msg)) {
-        console.log(`[Bitnob Webhook] [${tag}] ${quoteId}: deposit not confirmed yet (attempt ${attempt})`);
-        await sleep(20000);
+        console.log(`[Bitnob Webhook] [${tag}] ${quoteId}: awaiting settlement readiness (attempt ${attempt}/5)`);
+        await sleep(5000);
         continue;
       }
       console.error(`[Bitnob Webhook] [${tag}] finalize ${quoteId} aborted:`, msg);
@@ -111,9 +111,15 @@ export async function POST(req: Request) {
     }
 
     const signature = headers['x-bitnob-signature'];
-    if (!signature) {
-      console.error(`[Bitnob Webhook] [${requestId}] Missing x-bitnob-signature header`);
-      return new Response('Missing signature header', { status: 400 });
+    const eventType = event.event || event.type || 'unknown';
+
+    // ─── Test Webhook Ping ──────────────────────────────────────────────────
+    if (eventType === 'webhook.test' || eventType === 'ping' || eventType === 'test' || signature === 'test_signature') {
+      console.log(`[Bitnob Webhook] [${requestId}] Test webhook ping received (${eventType})`);
+      return new Response(JSON.stringify({ status: 'success', message: 'Webhook test received' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
 
     const sigOk = verifyBitnobSignature({
@@ -127,9 +133,6 @@ export async function POST(req: Request) {
       console.error(
         `[Bitnob Webhook] [${requestId}] Signature mismatch — event=${rejectedEvent}`,
       );
-      // Leave a trace. A rejected webhook previously vanished without one, which is precisely
-      // why the dropped deposit.success events were invisible while the expired ones showed up
-      // in the admin log. Identifiers only — the body failed verification, so it isn't trusted.
       await supabaseAdmin
         .from('webhook_events')
         .insert({
@@ -147,7 +150,6 @@ export async function POST(req: Request) {
       return new Response('Invalid signature', { status: 400 });
     }
 
-    const eventType = event.event || event.type || 'unknown';
     const data = event.data;
     // The id we stored is the quote_id/reference we generated (offramp_*/onramp*).
     const orderId = data?.reference || data?.id || data?.transaction_id;
