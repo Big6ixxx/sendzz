@@ -38,7 +38,7 @@ import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
   try {
-    const { walletId, senderAddress, recipientAddress, amount, destChain, userEmail, chargeFee } =
+    const { walletId, senderAddress, recipientAddress, amount, destChain, userEmail, chargeFee = true } =
       await req.json() as {
         walletId: string;
         senderAddress: string;

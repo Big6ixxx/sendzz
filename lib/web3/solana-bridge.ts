@@ -138,7 +138,7 @@ export async function bridgeSolanaToBase(params: {
   onStatus?.("Confirming on Solana…");
   const burnTxHash = await signAndBroadcast(sponsoredTx);
 
-  onStatus?.("Burn confirmed on-chain! Delivering on Base…");
+  onStatus?.("Burn confirmed! Consolidating funds onto Base…");
   const deadline = Date.now() + (params.timeoutMs ?? 20_000); // 20-second max client wait
   while (Date.now() < deadline) {
     try {
@@ -150,7 +150,7 @@ export async function bridgeSolanaToBase(params: {
         if (data.status === "complete") {
           let mintTxHash: string | undefined = data.mintTxHash;
           if (!mintTxHash && data.attestation && data.messageBytes) {
-            onStatus?.("Delivering on Base…");
+            onStatus?.("Finalizing consolidation on Base…");
             mintTxHash = await executeReceiveMessage(
               evmWallet,
               data.messageBytes,

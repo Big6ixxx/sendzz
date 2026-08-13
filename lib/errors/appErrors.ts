@@ -81,6 +81,15 @@ export function classifyAppError(err: unknown): AppError {
   }
 
   if (
+    msg.includes('unauthorized') ||
+    msg.includes('autherror') ||
+    msg.includes('invalid access token') ||
+    msg.includes('jwt expired')
+  ) {
+    return { message: 'Your session expired. Please refresh the page to continue.', category: 'validation', isSilent: false, isAlreadyProcessed: false };
+  }
+
+  if (
     msg.includes('message expired') ||
     msg.includes('must be re-signed') ||
     msg.includes('signature expired')

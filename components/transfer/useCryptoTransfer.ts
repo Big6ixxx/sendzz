@@ -13,6 +13,7 @@ import {
   executeCircleGaslessTransfer,
 } from "@/lib/web3/circle-actions";
 import { bridgeAndDeliver, consolidateFundsToChain } from "@/lib/web3/bridge-actions";
+import { bridgeStellarToBase } from "@/lib/web3/stellar-bridge";
 import { toast } from "sonner";
 import { parseFriendlyError } from "./useTransfer";
 import { SupportedChain, CHAIN_NAMES } from "@/lib/circle/gateway";
@@ -55,6 +56,7 @@ export function useCryptoTransfer({
   chainBalances,
   solanaSource,
 }: UseCryptoTransferProps) {
+  const { getAccessToken } = usePrivy();
   const transferFeePercent = usePlatformFeePercent("transfer");
   const [recipientAddress, setRecipientAddress] = useState("");
   const [amount, setAmount] = useState("");
@@ -95,7 +97,7 @@ export function useCryptoTransfer({
   // Load Stellar TEE wallet details — shared and cached with every other consumer, so
   // selecting Stellar doesn't re-provision a wallet that is already set up.
   const { data: stellarWallet } = useStellarWallet({
-    enabled: selectedChain === 'stellar',
+    enabled: !!privyUserId,
   });
 
   const ensureStellarSetup = useCallback(async () => {
@@ -218,7 +220,7 @@ export function useCryptoTransfer({
       const data = await res.json();
       return data.usdc || "0.00";
     },
-    enabled: selectedChain === "stellar" && !!stellarWallet?.address,
+    enabled: !!stellarWallet?.address,
   });
 
   const balance = selectedChain === "stellar"
@@ -302,6 +304,8 @@ export function useCryptoTransfer({
   // transfer, or a cross-chain bridge (which needs an extra confirmation modal).
   const proceedAfterAuth = async () => {
     const amt = parseFloat(amount);
+    const feePercent = transferFeePercent ?? 0;
+    const totalNeeded = amt * (1 + feePercent / 100);
 
     if (selectedChain === "stellar" || selectedChain === "solana") {
       await executeDirectTransfer();
@@ -326,8 +330,8 @@ export function useCryptoTransfer({
       }
 
       const evmChain = c as SupportedChain;
-      if ((chainBalances?.[evmChain] ?? 0) + 1e-9 < amt) {
-        toast.error(`${CHAIN_NAMES[evmChain]} doesn't hold enough for this send.`);
+      if ((chainBalances?.[evmChain] ?? 0) + 1e-9 < totalNeeded) {
+        toast.error(`${CHAIN_NAMES[evmChain]} doesn't hold enough for this send (including fees).`);
         setLoading(false);
         setStatus("");
         return;
@@ -357,8 +361,8 @@ export function useCryptoTransfer({
         },
         0,
       );
-      if (sum + 1e-9 < amt) {
-        toast.error("Selected networks don't hold enough for this send.");
+      if (sum + 1e-9 < totalNeeded) {
+        toast.error("Selected networks don't hold enough for this send (including fees).");
         setLoading(false);
         setStatus("");
         return;
@@ -375,7 +379,7 @@ export function useCryptoTransfer({
       return;
     }
 
-    const plan = planExternalSend(amount, selectedChain, chainBalances ?? {}, {
+    const plan = planExternalSend(totalNeeded.toFixed(6), selectedChain, chainBalances ?? {}, {
       homeChain: "base",
     });
 
@@ -397,10 +401,25 @@ export function useCryptoTransfer({
       return;
     }
 
-    // No single chain covers it. If the combined balance (EVM + Solana) does, gather
-    // funds onto Base first, then deliver to the destination.
     const solBal = solanaSource?.balance ?? 0;
-    if (plan.totalAvailable + solBal + 1e-9 >= parseFloat(amount)) {
+    const stellarBal = parseFloat(stellarUsdcBalance) || 0;
+
+    // If Stellar alone holds the full amount for a send to any destination chain, bridge directly from Stellar.
+    if (stellarBal + 1e-9 >= totalNeeded && stellarWallet?.address && (selectedChain as string) !== "stellar" && (selectedChain as string) !== "solana") {
+      setLoading(false);
+      setStatus("");
+      setBridgeConfirm({
+        sourceChain: "stellar" as any,
+        destChain: selectedChain,
+        amount,
+        recipient: recipientAddress,
+      });
+      return;
+    }
+
+    // No single chain covers it. If the combined balance (EVM + Solana + Stellar) does, gather
+    // funds onto Base first, then deliver to the destination.
+    if (plan.totalAvailable + solBal + stellarBal + 1e-9 >= totalNeeded) {
       setLoading(false);
       setStatus("");
       setBridgeConfirm({
@@ -545,7 +564,8 @@ export function useCryptoTransfer({
     chain: string,
     amountUsdc: string,
   ): Promise<{ usdc: string; treasury: string } | null> => {
-    const quote = await quoteFee("transfer", chain, parseFloat(amountUsdc));
+    const token = await getAccessToken().catch(() => null);
+    const quote = await quoteFee("transfer", chain, parseFloat(amountUsdc), token ?? undefined);
     if (quote.fee <= 0) return null;
     if (!quote.treasury) {
       throw new Error(
@@ -724,25 +744,55 @@ export function useCryptoTransfer({
             )
           : allBalances;
         const includeSolana = from ? from.includes("solana") : true;
+        const includeStellar = from ? from.includes("stellar") : true;
+        const stellarBal = parseFloat(stellarUsdcBalance) || 0;
+        const feePercent = transferFeePercent ?? 0;
+        const totalRequiredAmount = (parseFloat(info.amount) * (1 + feePercent / 100)).toFixed(6);
+
         setStatus("Gathering your funds onto Base…");
         await consolidateFundsToChain(embeddedProvider, {
           targetChain: "base",
-          requiredAmount: info.amount,
+          requiredAmount: totalRequiredAmount,
           balances: sourceBalances,
           recipient: smartAddress,
           solana: includeSolana ? solanaSource : undefined,
+          stellar: includeStellar && stellarWallet?.address && stellarBal > 0 ? {
+            walletId: stellarWallet.walletId,
+            address: stellarWallet.address,
+            balance: stellarBal,
+            bridgeToBase: async (amount, recipient, onStatus) => {
+              await bridgeStellarToBase({
+                walletId: stellarWallet.walletId,
+                senderAddress: stellarWallet.address,
+                amount,
+                recipientEvm: recipient,
+                evmWallet: embeddedProvider,
+                onStatus,
+              });
+            },
+          } : undefined,
           onStatus: setStatus,
         });
 
         if (info.destChain === "base") {
           setStatus("Sending on Base…");
           const provider = await embeddedProvider.getEthereumProvider();
-          txHash = await executeCircleGaslessTransfer(
-            provider,
-            info.recipient,
-            info.amount,
-            "base",
-          );
+          const fee = await resolveTransferFee("base", info.amount);
+          txHash = fee
+            ? await executeCircleGaslessBatchTransfer(
+                provider,
+                [
+                  { recipientAddress: info.recipient, amountUSDC: info.amount },
+                  { recipientAddress: fee.treasury, amountUSDC: fee.usdc },
+                ],
+                "base",
+              )
+            : await executeCircleGaslessTransfer(
+                provider,
+                info.recipient,
+                info.amount,
+                "base",
+              );
         } else {
           const { burnTxHash, mintTxHash } = await bridgeAndDeliver(embeddedProvider, {
             sourceChain: "base",
@@ -753,6 +803,21 @@ export function useCryptoTransfer({
           });
           txHash = mintTxHash ?? burnTxHash;
         }
+      } else if (info.sourceChain === ("stellar" as any)) {
+        setStatus(`Bridging directly from Stellar to ${CHAIN_NAMES[info.destChain as SupportedChain]}…`);
+        if (!stellarWallet?.address) throw new Error("Stellar wallet not connected.");
+        const feePercent = transferFeePercent ?? 0;
+        const totalAmountWithFee = (parseFloat(info.amount) * (1 + feePercent / 100)).toFixed(6);
+        const { burnTxHash, mintTxHash } = await bridgeStellarToBase({
+          walletId: stellarWallet.walletId,
+          senderAddress: stellarWallet.address,
+          amount: totalAmountWithFee,
+          recipientEvm: info.recipient,
+          evmWallet: embeddedProvider,
+          destChain: info.destChain as SupportedChain,
+          onStatus: setStatus,
+        });
+        txHash = mintTxHash ?? burnTxHash;
       } else {
         // A single EVM chain covers it — bridge straight to the recipient.
         setStatus(`Bridging from ${CHAIN_NAMES[info.sourceChain]}…`);
@@ -809,7 +874,7 @@ export function useCryptoTransfer({
   const spendable =
     evmSpendable +
     (solanaSource?.balance ?? 0) +
-    (selectedChain === "stellar" ? parseFloat(stellarUsdcBalance) || 0 : 0);
+    (parseFloat(stellarUsdcBalance) || 0);
 
   // The wallet has to cover the amount AND the platform fee charged alongside it.
   const requiredTotal =

@@ -97,7 +97,7 @@ const VERIFICATION_GAS_SEED: Record<string, bigint> = {
  * bound the bundler rejects. Bounded at four attempts; anything not about verification
  * gas is rethrown untouched so real failures aren't retried into confusion.
  */
-async function sendWithAdaptiveVerificationGas(
+export async function sendWithAdaptiveVerificationGas(
   chain: string,
   send: (verificationGasLimit: bigint | undefined) => Promise<`0x${string}`>,
 ): Promise<`0x${string}`> {

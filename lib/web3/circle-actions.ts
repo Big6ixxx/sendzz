@@ -1,17 +1,17 @@
-import { toModularTransport, modularWalletActions } from '@circle-fin/modular-wallets-core';
+import { toModularTransport } from '@circle-fin/modular-wallets-core';
 import { EIP1193Provider } from '@privy-io/react-auth';
-import { encodeFunctionData, parseAbi, parseUnits, type Address } from 'viem';
+import { createPublicClient, encodeFunctionData, parseAbi, parseUnits, type Address } from 'viem';
 import { createBundlerClient } from 'viem/account-abstraction';
 import { getCircleClient } from './circle-client';
 import {
-  chain as baseChain,
   CIRCLE_CLIENT_KEY,
   CIRCLE_SEND_URL,
-  USDC_ADDRESS,
 } from './config';
 import { VIEM_CHAINS } from './multichain';
 import { USDC_ADDRESSES, GAS_POLICY_IDS, type SupportedChain } from '../circle/gateway';
 import { type RouteLeg } from './routing';
+import { rpcTransport } from './rpc';
+import { sponsoredUserOpFees, sendWithAdaptiveVerificationGas } from './bridge-actions';
 
 const ERC20_ABI = parseAbi([
   'function transfer(address _to, uint256 _value) returns (bool)',
@@ -109,27 +109,31 @@ export async function executeCircleGaslessBatchTransfer(
 
   const policyId = GAS_POLICY_IDS[targetChain];
 
-  const modularClient = bundlerClient.extend(modularWalletActions);
-  const gasPrices = await modularClient.getUserOperationGasPrice().catch(() => null);
-  const gasLevel = gasPrices?.medium ?? gasPrices?.high ?? null;
+  const standardRpcClient = createPublicClient({
+    chain: selectedChain,
+    transport: rpcTransport(targetChain),
+  });
 
-  const maxPriorityFeePerGas = gasLevel?.maxPriorityFeePerGas
-    ? BigInt(gasLevel.maxPriorityFeePerGas)
-    : 1_000_000n;
-  const maxFeePerGas = gasLevel?.maxFeePerGas
-    ? BigInt(gasLevel.maxFeePerGas)
-    : undefined;
+  const { maxFeePerGas, maxPriorityFeePerGas } = await sponsoredUserOpFees(
+    bundlerClient,
+    standardRpcClient,
+    targetChain,
+  );
 
-  // 4. Send UserOperation in one batch
+  // 4. Send UserOperation in one batch with adaptive verification gas and chain-specific fee floors
   console.log(`[BatchTransfer] Sending UserOp with ${calls.length} calls on ${targetChain}...`);
 
-  const userOpHash = await bundlerClient.sendUserOperation({
-    calls,
-    maxFeePerGas,
-    maxPriorityFeePerGas,
-    paymaster: true,
-    paymasterContext: policyId ? { policyId } : undefined,
-  });
+  const userOpHash = await sendWithAdaptiveVerificationGas(targetChain, (verificationGasLimit: bigint | undefined) =>
+    bundlerClient.sendUserOperation({
+      account,
+      calls,
+      maxFeePerGas,
+      maxPriorityFeePerGas,
+      verificationGasLimit,
+      paymaster: true,
+      paymasterContext: policyId ? { policyId } : undefined,
+    }),
+  );
 
   console.log('[BatchTransfer] UserOp Hash:', userOpHash);
 
