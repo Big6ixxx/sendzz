@@ -16,6 +16,7 @@
  */
 
 import { useCrossChainBalances, type ChainBalance, type ChainBalanceChain } from "@/hooks/useCrossChainBalances";
+import { quoteFee } from "@/lib/actions/fees";
 import { MONITOR_MAX_ATTEMPTS, MONITOR_POLL_MS } from "@/lib/web3/bridge-timing";
 import {
   CHAIN_NAMES,
@@ -295,11 +296,27 @@ export function SmartBridgeModule({
     }
     setBridgingChain(chain);
     try {
+      // Consolidating is still a bridge the user asked for, so it's charged — unlike the
+      // consolidation we trigger ourselves to fund a withdrawal, which passes no fee at all.
+      // Resolved before the burn: a burn can't be undone if the chain has no treasury.
+      let platformFee: { usdc: string; treasury: string } | undefined;
+      const quote = await quoteFee("bridge", chain, parseFloat(amount));
+      if (quote.fee > 0) {
+        if (!quote.treasury) {
+          throw new Error(
+            `Bridging from ${chain} is unavailable right now. Please try another network.`,
+          );
+        }
+        platformFee = { usdc: quote.fee.toFixed(6), treasury: quote.treasury };
+      }
+
       const { txHashPromise } = await executeSmartBridge(
         embeddedEvmWallet,
         chain,
         amount,
         smartAddress,
+        "base",
+        platformFee,
       );
       const burnTxHash = await txHashPromise;
       await fetch("/api/bridge/record", {

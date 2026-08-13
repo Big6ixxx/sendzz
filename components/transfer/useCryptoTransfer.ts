@@ -1,4 +1,6 @@
+import { usePlatformFeePercent } from '@/lib/hooks/usePlatformFeePercent';
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { quoteFee } from "@/lib/actions/fees";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { ConnectedWallet, usePrivy, useSigners } from "@privy-io/react-auth";
 import {
@@ -6,7 +8,10 @@ import {
   useWallets as useSolanaWallets,
 } from '@privy-io/react-auth/solana';
 import { Connection } from '@solana/web3.js';
-import { executeCircleGaslessTransfer } from "@/lib/web3/circle-actions";
+import {
+  executeCircleGaslessBatchTransfer,
+  executeCircleGaslessTransfer,
+} from "@/lib/web3/circle-actions";
 import { bridgeAndDeliver, consolidateFundsToChain } from "@/lib/web3/bridge-actions";
 import { toast } from "sonner";
 import { parseFriendlyError } from "./useTransfer";
@@ -50,6 +55,7 @@ export function useCryptoTransfer({
   chainBalances,
   solanaSource,
 }: UseCryptoTransferProps) {
+  const transferFeePercent = usePlatformFeePercent("transfer");
   const [recipientAddress, setRecipientAddress] = useState("");
   const [amount, setAmount] = useState("");
   const [selectedChain, setSelectedChain] = useState<SupportedChain | 'stellar' | 'solana'>("base");
@@ -528,6 +534,27 @@ export function useCryptoTransfer({
   };
 
   // Same-chain send: the recipient is on a chain the user already holds funds on.
+  /**
+   * The platform fee for a send to an external wallet, or null when there's none to charge.
+   *
+   * Throws if the chain has no treasury configured rather than sending fee-free — the same
+   * fail-closed rule the off-ramp uses, so a misconfigured chain is loud instead of silently
+   * giving the service away.
+   */
+  const resolveTransferFee = async (
+    chain: string,
+    amountUsdc: string,
+  ): Promise<{ usdc: string; treasury: string } | null> => {
+    const quote = await quoteFee("transfer", chain, parseFloat(amountUsdc));
+    if (quote.fee <= 0) return null;
+    if (!quote.treasury) {
+      throw new Error(
+        `Sending on ${chain} is unavailable right now. Please try another network.`,
+      );
+    }
+    return { usdc: quote.fee.toFixed(6), treasury: quote.treasury };
+  };
+
   const executeDirectTransfer = async () => {
     if (!amount || !recipientAddress) return;
     if (selectedChain !== "stellar" && selectedChain !== "solana" && !embeddedProvider) {
@@ -591,6 +618,7 @@ export function useCryptoTransfer({
           senderAddress: solAddress,
           recipientAddress,
           amount,
+          platformFee: (await resolveTransferFee("solana", amount)) ?? undefined,
         });
 
         setStatus("Confirming on Solana...");
@@ -617,12 +645,24 @@ export function useCryptoTransfer({
       } else {
         if (!embeddedProvider) throw new Error("Wallet provider not connected.");
         const provider = await embeddedProvider.getEthereumProvider();
-        txHash = await executeCircleGaslessTransfer(
-          provider,
-          recipientAddress,
-          amount,
-          selectedChain,
-        );
+        // Fee rides in the same gasless UserOp as the transfer, so the recipient's USDC and
+        // ours move together or not at all.
+        const fee = await resolveTransferFee(selectedChain, amount);
+        txHash = fee
+          ? await executeCircleGaslessBatchTransfer(
+              provider,
+              [
+                { recipientAddress, amountUSDC: amount },
+                { recipientAddress: fee.treasury, amountUSDC: fee.usdc },
+              ],
+              selectedChain,
+            )
+          : await executeCircleGaslessTransfer(
+              provider,
+              recipientAddress,
+              amount,
+              selectedChain,
+            );
       }
 
       toast.success("Transfer completed!");
@@ -750,8 +790,34 @@ export function useCryptoTransfer({
     setStatus("");
   };
 
-  const isOverBalance = parseFloat(amount || "0") > parseFloat(balance);
-  const isZeroBalance = parseFloat(balance) === 0;
+  /**
+   * What the router can actually gather for this send — not just the selected chain.
+   *
+   * `handleTransfer` already falls back to consolidating other networks onto Base and
+   * delivering from there, but the submit button was gated on the SELECTED chain's balance
+   * alone. So the moment no single chain covered the amount, the button read "Exceeds balance"
+   * and disabled itself — making that consolidation path unreachable from the UI even when the
+   * user had plenty across chains.
+   *
+   * Mirrors exactly what the router can reach: EVM chains plus Solana. Stellar only counts when
+   * it's the selected chain, since nothing gathers Stellar funds onto Base.
+   */
+  const evmSpendable = Object.values(chainBalances ?? {}).reduce<number>(
+    (sum, v) => sum + (v ?? 0),
+    0,
+  );
+  const spendable =
+    evmSpendable +
+    (solanaSource?.balance ?? 0) +
+    (selectedChain === "stellar" ? parseFloat(stellarUsdcBalance) || 0 : 0);
+
+  // The wallet has to cover the amount AND the platform fee charged alongside it.
+  const requiredTotal =
+    (parseFloat(amount || "0") || 0) *
+    (1 + (transferFeePercent ?? 0) / 100);
+
+  const isOverBalance = requiredTotal > spendable + 1e-9;
+  const isZeroBalance = spendable === 0;
 
   return {
     recipientAddress,
@@ -765,6 +831,8 @@ export function useCryptoTransfer({
     loading,
     status,
     balance,
+    spendable,
+    transferFeePercent,
     isFetchingBalance,
     isOverBalance,
     isZeroBalance,

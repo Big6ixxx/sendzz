@@ -194,8 +194,13 @@ export async function buildSolanaUsdcTransferTx(params: {
   senderAddress: string;
   recipientAddress: string;
   amount: string;
+  /**
+   * Platform fee, sent to the treasury in the SAME transaction as the transfer — so the two
+   * confirm together, matching how the EVM rails batch the fee into one user operation.
+   */
+  platformFee?: { usdc: string; treasury: string };
 }): Promise<Transaction> {
-  const { connection, senderAddress, recipientAddress, amount } = params;
+  const { connection, senderAddress, recipientAddress, amount, platformFee } = params;
   const senderPubKey = new PublicKey(senderAddress);
   const recipientPubKey = new PublicKey(recipientAddress);
 
@@ -233,6 +238,36 @@ export async function buildSolanaUsdcTransferTx(params: {
       6,
     ),
   );
+
+  if (platformFee) {
+    const treasuryPubKey = new PublicKey(platformFee.treasury);
+    const treasuryAta = getAssociatedTokenAddressSync(SOLANA_USDC_MINT, treasuryPubKey, true);
+
+    // The treasury's token account may not exist yet — create it here rather than letting the
+    // transfer fail, which would take the user's send down with it.
+    const treasuryAtaInfo = await connection.getAccountInfo(treasuryAta);
+    if (!treasuryAtaInfo) {
+      tx.add(
+        createAssociatedTokenAccountInstruction(
+          senderPubKey,
+          treasuryAta,
+          treasuryPubKey,
+          SOLANA_USDC_MINT,
+        ),
+      );
+    }
+
+    tx.add(
+      createTransferCheckedInstruction(
+        senderAta,
+        SOLANA_USDC_MINT,
+        treasuryAta,
+        senderPubKey,
+        BigInt(Math.round(parseFloat(platformFee.usdc) * 1_000_000)),
+        6,
+      ),
+    );
+  }
 
   const { blockhash } = await connection.getLatestBlockhash("confirmed");
   tx.recentBlockhash = blockhash;

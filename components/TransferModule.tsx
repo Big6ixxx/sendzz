@@ -180,6 +180,7 @@ export function TransferModule({
         />
       ) : (
         <CryptoTransferForm
+          spendable={cryptoTransfer.spendable}
           recipientAddress={cryptoTransfer.recipientAddress}
           setRecipientAddress={cryptoTransfer.setRecipientAddress}
           amount={cryptoTransfer.amount}

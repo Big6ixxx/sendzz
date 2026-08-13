@@ -252,6 +252,16 @@ const ERC20_ABI = [
     ],
     outputs: [{ name: '', type: 'bool' }],
   },
+  {
+    name: 'transfer',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'to', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
+  },
 ] as const;
 
 const TOKEN_MESSENGER_ABI = [
@@ -288,12 +298,25 @@ const TOKEN_MESSENGER_ABI = [
   },
 ] as const;
 
+/**
+ * `platformFee` is optional ON PURPOSE — it is what separates a billable bridge from plumbing.
+ *
+ * Only a bridge the user came to perform is charged. The same function also runs bridges we
+ * trigger ourselves (consolidating chains to fund a withdrawal, routing a transfer across
+ * networks), and billing those would charge twice for one action. Rather than pass a flag and
+ * hope every call site sets it correctly, the automatic paths simply don't supply a fee and so
+ * cannot charge one. `bridgeAndDeliver` — the consolidation entry point — never passes it.
+ *
+ * When supplied, the fee transfer is appended to the SAME user operation as the burn, so the
+ * two settle together or not at all.
+ */
 export async function executeSmartBridge(
   embeddedWallet: ConnectedWallet,
   sourceChain: SupportedChain,
   amountUSDC: string,
   recipientAddress: string,
-  destChain: SupportedChain | 'stellar' | 'solana' = 'base'
+  destChain: SupportedChain | 'stellar' | 'solana' = 'base',
+  platformFee?: { usdc: string; treasury: string },
 ): Promise<{ userOpHash: `0x${string}`; txHashPromise: Promise<string> }> {
 
   try {
@@ -409,6 +432,23 @@ export async function executeSmartBridge(
             to: TOKEN_MESSENGER_V2 as `0x${string}`,
             data: depositCallData,
           },
+          // Platform fee, in the same operation as the burn — atomic with it, so there's no
+          // outcome where the user's USDC bridges but our fee is missed, or vice versa.
+          ...(platformFee
+            ? [
+                {
+                  to: usdcAddress as `0x${string}`,
+                  data: encodeFunctionData({
+                    abi: ERC20_ABI,
+                    functionName: 'transfer',
+                    args: [
+                      platformFee.treasury as `0x${string}`,
+                      parseUnits(platformFee.usdc, 6),
+                    ],
+                  }),
+                },
+              ]
+            : []),
         ],
         maxFeePerGas,
         maxPriorityFeePerGas,

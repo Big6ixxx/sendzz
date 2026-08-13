@@ -128,6 +128,12 @@ export async function buildUsdcPaymentTx(
   recipientAddress: string,
   amount: string,
   memo?: string,
+  /**
+   * Platform fee, added as a SECOND payment operation in the same transaction. Stellar applies
+   * a transaction atomically, so the recipient's USDC and the fee settle together — the same
+   * guarantee the EVM rails get from batching into one user operation.
+   */
+  platformFee?: { usdc: string; treasury: string },
 ): Promise<BuildUsdcPaymentResult> {
   const account = await loadAccount(senderAddress);
 
@@ -141,6 +147,16 @@ export async function buildUsdcPaymentTx(
       amount,
     }),
   );
+
+  if (platformFee) {
+    builder.addOperation(
+      Operation.payment({
+        destination: platformFee.treasury,
+        asset: USDC_ASSET,
+        amount: platformFee.usdc,
+      }),
+    );
+  }
 
   if (memo) {
     builder.addMemo(Memo.text(memo));

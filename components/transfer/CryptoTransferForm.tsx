@@ -1,3 +1,5 @@
+import { formatFeeSummary } from '@/lib/format-usdc';
+import { usePlatformFeePercent } from '@/lib/hooks/usePlatformFeePercent';
 import React from 'react';
 import {
   Tooltip,
@@ -31,6 +33,7 @@ interface CryptoTransferFormProps {
   balance: string;
   isFetchingBalance: boolean;
   isOverBalance: boolean;
+  spendable: number;
   isZeroBalance: boolean;
   isSettingUpStellar: boolean;
   handleTransfer: (e: React.FormEvent) => void;
@@ -77,6 +80,7 @@ export function CryptoTransferForm({
   balance,
   isFetchingBalance,
   isOverBalance,
+  spendable,
   isZeroBalance,
   isSettingUpStellar,
   handleTransfer,
@@ -85,6 +89,7 @@ export function CryptoTransferForm({
   chainBalances,
   solanaBalance,
 }: CryptoTransferFormProps) {
+  const transferFeePercent = usePlatformFeePercent("transfer");
   const fundedSources =
     Object.values(chainBalances).filter((b) => (b ?? 0) > 0).length +
     (solanaBalance > 0 ? 1 : 0);
@@ -197,10 +202,18 @@ export function CryptoTransferForm({
             </label>
           </div>
           <div className="flex flex-row gap-2 items-center">
-            {parseFloat(balance) > 0 && (
+            {spendable > 0 && (
               <button
                 type="button"
-                onClick={() => setAmount(balance)}
+                disabled={transferFeePercent === null}
+                // Everything the router can reach, less the fee — matching the balance check.
+                // Previously this filled in the selected chain's balance, which with a fee on
+                // top immediately exceeded that chain and forced a pointless consolidation.
+                onClick={() => {
+                  if (transferFeePercent === null) return;
+                  const max = spendable / (1 + transferFeePercent / 100);
+                  setAmount((Math.floor(max * 1e6) / 1e6).toString());
+                }}
                 className="px-3 py-1 rounded-lg bg-accent/10 text-accent text-[10px] font-black uppercase tracking-widest hover:bg-accent/20 transition-colors"
               >
                 MAX
@@ -223,6 +236,37 @@ export function CryptoTransferForm({
           />
         </div>
       </div>
+
+      {/* What actually leaves the wallet. The fee is charged on-chain in the same transaction,
+          so showing it here is the only place the user learns about it before it's taken. */}
+      {parseFloat(amount || '0') > 0 && transferFeePercent !== null && (() => {
+        const amt = parseFloat(amount);
+        const s = formatFeeSummary(
+          amt,
+          (amt * transferFeePercent) / 100,
+          amt * (1 + transferFeePercent / 100),
+        );
+        return (
+        <div className="rounded-2xl bg-white/3 border border-white/8 px-4 py-3 space-y-2">
+          <div className="flex justify-between text-[11px] text-white/40">
+            <span>Sending</span>
+            <span className="tabular-nums">{s.amount} USDC</span>
+          </div>
+          <div className="flex justify-between text-[11px] text-white/40">
+            <span>Platform Fee ({transferFeePercent}%)</span>
+            <span className="tabular-nums">
+              {s.fee} USDC
+            </span>
+          </div>
+          <div className="flex justify-between text-xs font-bold text-white pt-2 border-t border-white/8">
+            <span>Total Deducted</span>
+            <span className="tabular-nums">
+              {s.total} USDC
+            </span>
+          </div>
+        </div>
+        );
+      })()}
 
       {parseFloat(amount || '0') > 0 && fundedSources > 1 && (
         <SourceSelector
@@ -247,7 +291,9 @@ export function CryptoTransferForm({
           ) : isZeroBalance ? (
             'Insufficient Funds'
           ) : isOverBalance ? (
-            'Exceeds Balance'
+            // Now means "more than you hold anywhere", not "more than this one chain" — the
+            // router gathers from other networks when a single chain doesn't cover it.
+            'Exceeds Total Balance'
           ) : (
             <>
               Send Crypto Now
