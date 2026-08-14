@@ -911,7 +911,6 @@ export async function getPendingBridgeClaims(
       // matched `mint_tx_hash IS NULL` forever and the claim card never went away.
       .is("mint_tx_hash", null)
       .neq("attestation_status", "complete")
-      .lt("created_at", new Date(Date.now() - CLAIM_HANDOFF_MS).toISOString())
       .order("created_at", { ascending: false })
       .limit(20);
 

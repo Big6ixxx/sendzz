@@ -23,10 +23,11 @@ import {
   SMART_BRIDGE_CHAINS,
   type SupportedChain,
 } from "@/lib/circle/gateway";
-import { isPlaceholderHash } from "@/lib/explorers";
+import { isPlaceholderHash, PLACEHOLDER_TX_HASH } from "@/lib/explorers";
 import { updateBridgeStatus } from "@/lib/supabase/transactions";
 import { executeSmartBridge } from "@/lib/web3/bridge-actions";
 import { prepareSolanaBurnTx } from "@/lib/web3/solana-bridge";
+import { PendingBridgeClaims } from "@/components/bridge/PendingBridgeClaims";
 import { cn } from "@/lib/utils";
 import { useWallets, usePrivy } from "@privy-io/react-auth";
 import {
@@ -213,16 +214,20 @@ export function SmartBridgeModule({
             }
           }
 
-          if (mHash && mHash !== 'N/A' && !isPlaceholderHash(mHash)) {
-            console.log(`[SmartBridgeModule] 🎉 Mint transaction hash resolved (${monitoringTx.hash}):`, mHash);
-            setIsComplete(true);
-            setMintTxHash(mHash);
-            clearInterval(interval);
-            await updateBridgeStatus(monitoringTx.hash, "complete", mHash);
-            queryClient.invalidateQueries({ queryKey: ["history"] });
-            queryClient.invalidateQueries({ queryKey: ["cross-chain-balances"] });
-            toast.success("Bridge complete! USDC is now on Base.");
-          }
+          const finalMintHash = (mHash && mHash !== 'N/A' && !isPlaceholderHash(mHash)) ? mHash : PLACEHOLDER_TX_HASH;
+          console.log(`[SmartBridgeModule] 🎉 Solana bridge complete (${monitoringTx.hash}):`, finalMintHash);
+          setIsComplete(true);
+          setMintTxHash(finalMintHash);
+          clearInterval(interval);
+          await updateBridgeStatus(monitoringTx.hash, "complete", finalMintHash).catch(console.error);
+          await fetch("/api/bridge/complete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ burnTxHash: monitoringTx.hash, mintTxHash: finalMintHash }),
+          }).catch(console.error);
+          queryClient.invalidateQueries({ queryKey: ["history"] });
+          queryClient.invalidateQueries({ queryKey: ["cross-chain-balances"] });
+          toast.success("Solana bridge complete! USDC is now on Base.");
         }
       } catch (err) {
         console.error("[SmartBridge] Solana monitoring error:", err);
@@ -265,19 +270,20 @@ export function SmartBridgeModule({
             }
           }
 
-          if (mHash && mHash !== 'N/A' && !isPlaceholderHash(mHash)) {
-            setIsComplete(true);
-            setMintTxHash(mHash);
-            clearInterval(interval);
-            await fetch("/api/bridge/complete", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ burnTxHash: monitoringTx.hash, mintTxHash: mHash }),
-            });
-            queryClient.invalidateQueries({ queryKey: ["history"] });
-            queryClient.invalidateQueries({ queryKey: ["cross-chain-balances"] });
-            toast.success("Stellar bridge complete! USDC is now on Base.");
-          }
+          const finalMintHash = (mHash && mHash !== 'N/A' && !isPlaceholderHash(mHash)) ? mHash : PLACEHOLDER_TX_HASH;
+          console.log(`[SmartBridgeModule] 🎉 Stellar bridge complete (${monitoringTx.hash}):`, finalMintHash);
+          setIsComplete(true);
+          setMintTxHash(finalMintHash);
+          clearInterval(interval);
+          await updateBridgeStatus(monitoringTx.hash, "complete", finalMintHash).catch(console.error);
+          await fetch("/api/bridge/complete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ burnTxHash: monitoringTx.hash, mintTxHash: finalMintHash }),
+          }).catch(console.error);
+          queryClient.invalidateQueries({ queryKey: ["history"] });
+          queryClient.invalidateQueries({ queryKey: ["cross-chain-balances"] });
+          toast.success("Stellar bridge complete! USDC is now on Base.");
         }
       } catch (err) {
         console.error("[SmartBridge] Stellar monitoring error:", err);
@@ -473,6 +479,13 @@ export function SmartBridgeModule({
 
   return (
     <div className="space-y-8">
+      {!monitoringTx && (
+        <PendingBridgeClaims
+          userEmail={userEmail}
+          solanaAddress={solanaAddress}
+          stellarWallet={stellarWallet}
+        />
+      )}
       <AnimatePresence mode="wait">
         {monitoringTx ? (
           /* ── Monitoring state ────────────────────────────────────── */
