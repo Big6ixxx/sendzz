@@ -393,7 +393,7 @@ export function SmartBridgeModule({
       queryClient.invalidateQueries({ queryKey: ["history"] });
       setMonitoringTx({ hash: signature, chain: "solana" });
       setMintTxHash(null);
-      toast.success("Solana bridge submitted! Monitoring for Circle attestation...");
+      toast.success("Solana bridge submitted! Monitoring cross-chain attestation...");
       refetch();
     } catch (err) {
       if (!isUserCancelled(err)) {
@@ -442,7 +442,7 @@ export function SmartBridgeModule({
       }).catch(console.error);
       setMonitoringTx({ hash: burnTxHash, chain: "stellar" as ChainBalanceChain });
       setMintTxHash(null);
-      toast.success("Stellar bridge submitted! Monitoring for Circle attestation...");
+      toast.success("Stellar bridge submitted! Monitoring cross-chain attestation...");
       refetch();
     } catch (err) {
       if (!isUserCancelled(err)) {

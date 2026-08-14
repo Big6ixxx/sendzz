@@ -319,7 +319,7 @@ function CardTriptych() {
 const buildFaqs = (platformFee: number | null) => [
   {
     q: "Is Sendzz non-custodial? How does 'Your Email Is Your Key' work?",
-    a: "Yes, Sendzz is 100% non-custodial. Your email address is your master key. When you log in with your email, Privy generates an Ethereum L2 Smart Account (ERC-4337 on Base) using secure Multi-Party Computation (MPC) and WebAuthn Passkeys. Sendzz never stores or touches your private keys, cannot freeze your account, and cannot move your money without your explicit authorization.",
+    a: "Yes, Sendzz is 100% non-custodial. Your email address is your master key. When you log in with your email, Privy generates a Multi-Chain Non-Custodial Smart Account using secure Multi-Party Computation (MPC) and WebAuthn Passkeys. Sendzz never stores or touches your private keys, cannot freeze your account, and cannot move your money without your explicit authorization.",
     icon: Key,
     highlight: "Your Email Is Your Key",
   },
@@ -331,7 +331,7 @@ const buildFaqs = (platformFee: number | null) => [
   },
   {
     q: "Are there any transaction or gas fees?",
-    a: `Sendzz P2P transfers are 100% free with zero gas fees. Network gas costs on Base and supported chains are fully sponsored by Sendzz using Account Abstraction paymasters and Circle Gas Station. For fiat withdrawals to your local bank account, a minimal ${platformFee ?? '—'}% platform fee applies.`,
+    a: `Sendzz P2P transfers are 100% free with zero gas fees. Network gas costs across all supported chains are fully sponsored by Sendzz using Account Abstraction paymasters and Circle Gas Station. For fiat withdrawals to your local bank account, a minimal ${platformFee ?? '—'}% platform fee applies.`,
     icon: Zap,
     highlight: "Zero Network Gas Fees",
   },
@@ -542,21 +542,7 @@ export default function Landing() {
           ref={heroRef}
           className="relative pt-40 pb-0 px-6 text-center flex flex-col items-center"
         >
-          {/* Status pill */}
-          <div
-            className="animate-slide-up opacity-0 delay-100 mb-8 inline-flex items-center gap-2 px-4 py-2 rounded-full text-[11px] font-semibold uppercase tracking-[0.15em]"
-            style={{
-              background: 'rgba(0, 232, 122, 0.1)',
-              border: '1px solid rgba(0, 232, 122, 0.2)',
-              color: '#00e87a',
-            }}
-          >
-            <span
-              className="w-1.5 h-1.5 rounded-full animate-beacon"
-              style={{ background: '#00e87a' }}
-            />
-            Now live on Base Mainnet
-          </div>
+
 
           {/* Main headline */}
           <h1 className="animate-slide-up opacity-0 delay-200 font-display font-bold tracking-tight leading-none text-brand-secondary max-w-4xl">
@@ -723,7 +709,7 @@ export default function Landing() {
               className="text-sm mb-12"
               style={{ color: 'rgba(248,248,246,0.4)' }}
             >
-              Your money lives on Base — an Ethereum L2. You control the keys.
+              Your money lives across multi-chain networks. You control the keys.
               We just make it easy.
             </p>
 
