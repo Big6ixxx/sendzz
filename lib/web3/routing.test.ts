@@ -187,6 +187,6 @@ describe('source overrides', () => {
     expect(plan.feasible).toBe(false);
     expect(plan.needsConsolidation).toBe(true);
     expect(plan.consolidateFrom).toEqual(['polygon', 'solana']);
-    expect(plan.chain).toBe('base'); // settles on the home/supported chain
+    expect(plan.chain).toBe('polygon'); // settles on the highest-balance supported chain
   });
 });

@@ -121,10 +121,9 @@ const APP_EVM_CHAINS = new Set([
 ]);
 
 /**
- * Chains this app can settle an off-ramp on — the EVM chains plus Solana (direct SPL settle).
- * Stellar is coming soon (settle path not built yet), so it's intentionally excluded until then.
+ * Chains this app can settle an off-ramp on — EVM chains, Solana, and Stellar (direct settlement).
  */
-const APP_SETTLEMENT_CHAINS = new Set([...APP_EVM_CHAINS, "solana"]);
+const APP_SETTLEMENT_CHAINS = new Set([...APP_EVM_CHAINS, "solana", "stellar"]);
 
 let currencyNames: Intl.DisplayNames | null | undefined;
 function currencyName(code: string): string {
@@ -311,7 +310,7 @@ export class BitnobProvider implements RampProvider {
     const bitnob = getBitnobClient();
     const reference = `offramp_${Date.now()}`;
 
-    // 1. Quote the USDC → fiat conversion.
+    // 1. Quote the USDC → fiat conversion for the exact target payout amount.
     const quote = await bitnob.createPayoutQuote({
       amount: String(params.amountUsdc),
       country,
@@ -321,6 +320,8 @@ export class BitnobProvider implements RampProvider {
       chain: params.network,
       reference,
     });
+
+    const bitnobFee = quote.fees || "0";
 
     // 2. Generate the deposit address the user funds. It shares this payout's `reference`,
     // which is how Bitnob associates the incoming USDC with the payout (deposit.success
@@ -357,6 +358,7 @@ export class BitnobProvider implements RampProvider {
       source: { type: "crypto", currency: "USDC", network: params.network },
       destination: { type: "fiat", currency: params.fiatCurrency },
       amount: String(params.amountUsdc),
+      bitnobFee,
       createdAt: quote.created_at ?? new Date().toISOString(),
     };
   }

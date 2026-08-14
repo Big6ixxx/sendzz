@@ -522,3 +522,37 @@ export async function getRampNetworks(): Promise<string[]> {
     return FALLBACK;
   }
 }
+
+/**
+ * Finalize a Bitnob payout AFTER the on-chain deposit has been sent and confirmed.
+ * Retries with backoff if Bitnob's deposit indexer is still processing the block.
+ */
+export async function finalizeBitnobPayoutAction(quoteId: string): Promise<boolean> {
+  if (!quoteId) return false;
+  const { getBitnobClient } = await import("@/lib/bitnob/client");
+  const client = getBitnobClient();
+
+  // Poll Bitnob to verify that the on-chain deposit has landed before finalizing payout.
+  // Bitnob returns a 400 'cannot transition ... to pending' while the deposit is still pending on-chain.
+  // Once the on-chain deposit confirms, Bitnob accepts finalizePayout and dispatches the payout.
+  for (let attempt = 1; attempt <= 15; attempt++) {
+    try {
+      await client.finalizePayout(quoteId);
+      console.log(`[Action] finalizeBitnobPayoutAction: deposit confirmed & payout finalized for ${quoteId} on attempt ${attempt}`);
+      return true;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/pending_address_deposit|cannot transition/i.test(msg)) {
+        console.log(`[Action] finalizeBitnobPayoutAction: deposit pending confirmation on-chain for ${quoteId} (attempt ${attempt}/15)...`);
+        await new Promise((r) => setTimeout(r, 4000));
+        continue;
+      }
+      console.error(`[Action] finalizeBitnobPayoutAction failed for ${quoteId}:`, msg);
+      return false;
+    }
+  }
+  console.warn(`[Action] finalizeBitnobPayoutAction: deposit confirmation polling timed out for ${quoteId}`);
+  return false;
+}
+
+

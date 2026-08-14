@@ -126,6 +126,8 @@ export interface RampOrderResponse {
     collection: "provider" | "onchain";
     address?: string;
   };
+  /** Bitnob corridor fee in USDC (e.g. "0.3" for RWF mobile money, "0" for NGN). */
+  bitnobFee?: string;
 }
 
 export interface RampRate {

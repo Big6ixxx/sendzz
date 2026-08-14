@@ -70,6 +70,7 @@ export interface SolanaSource {
     amount: string,
     recipient: string,
     onStatus?: (status: string) => void,
+    destChain?: SupportedChain,
   ) => Promise<void>;
   /**
    * Settle an off-ramp directly on Solana: send the payout USDC to the provider's Solana
@@ -372,19 +373,19 @@ export interface WithdrawalRoutePlan {
  * Honours a user `source` override: `single` forces a chosen supported chain (if it holds
  * enough), `consolidate` gathers the chosen chains onto the settlement chain first.
  */
+export type AllSupportedChain = SupportedChain | 'solana' | 'stellar';
+
 export function planWithdrawalRoute(
   amountUsdc: string,
-  balances: ChainBalances,
+  balances: ChainBalances & { solana?: number; stellar?: number },
   opts: {
-    supportedChains?: SupportedChain[];
+    supportedChains?: (SupportedChain | 'solana' | 'stellar')[];
     homeChain?: SupportedChain;
     source?: SourcePreference;
   } = {},
 ): WithdrawalRoutePlan {
-  const supported = opts.supportedChains ?? RAMP_NETWORKS;
+  const supported = (opts.supportedChains ?? RAMP_NETWORKS) as AllSupportedChain[];
   const home = opts.homeChain ?? 'base';
-  const settlement = supported.includes(home) ? home : supported[0] ?? 'base';
-  const order = spendOrder(home).filter((c) => supported.includes(c));
 
   const requestedMicro = toMicro(parseFloat(amountUsdc));
   const totalMicro = (Object.values(balances) as number[]).reduce(
@@ -398,42 +399,54 @@ export function planWithdrawalRoute(
     return { feasible: false, needsConsolidation: false, totalAvailable, requested };
   }
 
+  // Rank ALL provider-supported chains (including stellar and solana) by user balance descending (highest balance first).
+  const rankedSupportedChains = [...supported].sort((a, b) => {
+    const balA = balances[a as keyof typeof balances] ?? 0;
+    const balB = balances[b as keyof typeof balances] ?? 0;
+    if (balA !== balB) return balB - balA; // highest balance first
+    const evmA = EVM_CHAINS.includes(a as SupportedChain) ? spendOrder(home).indexOf(a as SupportedChain) : 99;
+    const evmB = EVM_CHAINS.includes(b as SupportedChain) ? spendOrder(home).indexOf(b as SupportedChain) : 99;
+    return evmA - evmB;
+  });
+
+  // Pick the highest-balance supported chain to act as consolidation target
+  const targetChain = (rankedSupportedChains[0] ?? (supported.includes(home) ? home : 'base')) as SupportedChain;
+
   // User override: force a single supported chain (must hold enough and be ramp-supported).
   if (opts.source?.mode === 'single') {
     const c = opts.source.chain;
-    // Solana/Stellar settlement isn't an EVM route — the caller handles it directly.
-    if (c === 'solana' || c === 'stellar') {
-      return { feasible: false, needsConsolidation: false, totalAvailable, requested };
-    }
-    if (supported.includes(c) && toMicro(balances[c] ?? 0) >= requestedMicro) {
-      return { feasible: true, chain: c, needsConsolidation: false, totalAvailable, requested };
+    if (supported.includes(c) && toMicro(balances[c as keyof typeof balances] ?? 0) >= requestedMicro) {
+      return { feasible: true, chain: c as SupportedChain, needsConsolidation: false, totalAvailable, requested };
     }
     return { feasible: false, needsConsolidation: false, totalAvailable, requested };
   }
 
-  // User override: consolidate the chosen chains onto the settlement chain.
+  // User override: consolidate the chosen chains onto the highest-balance supported chain.
   if (opts.source?.mode === 'consolidate') {
     return {
       feasible: false,
       needsConsolidation: true,
       consolidateFrom: opts.source.from,
-      chain: settlement,
+      chain: targetChain,
       totalAvailable,
       requested,
     };
   }
 
-  const chain = order.find((c) => toMicro(balances[c] ?? 0) >= requestedMicro);
-  if (chain) {
-    return { feasible: true, chain, needsConsolidation: false, totalAvailable, requested };
+  // 1) SCENARIO 1: Single provider-supported chain that fully covers the amount (highest balance chain first).
+  const directChain = rankedSupportedChains.find((c) => {
+    const balMicro = toMicro(balances[c as keyof typeof balances] ?? 0);
+    return balMicro >= requestedMicro;
+  });
+  if (directChain) {
+    return { feasible: true, chain: directChain as SupportedChain, needsConsolidation: false, totalAvailable, requested };
   }
 
-  // No single supported chain covers it. If the overall balance does, it's a
-  // fragmentation problem that consolidation can fix.
+  // 2) SCENARIO 2: No single supported chain covers it. Consolidate funds into the HIGHEST-BALANCE supported chain!
   return {
     feasible: false,
     needsConsolidation: requestedMicro <= totalMicro,
-    chain: settlement,
+    chain: targetChain,
     totalAvailable,
     requested,
   };
