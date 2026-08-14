@@ -16,15 +16,18 @@
  */
 
 import { useCrossChainBalances, type ChainBalance, type ChainBalanceChain } from "@/hooks/useCrossChainBalances";
+import { quoteFee } from "@/lib/actions/fees";
+import { MONITOR_MAX_ATTEMPTS, MONITOR_POLL_MS } from "@/lib/web3/bridge-timing";
 import {
   CHAIN_NAMES,
   SMART_BRIDGE_CHAINS,
   type SupportedChain,
 } from "@/lib/circle/gateway";
-import { isPlaceholderHash } from "@/lib/explorers";
+import { isPlaceholderHash, PLACEHOLDER_TX_HASH } from "@/lib/explorers";
 import { updateBridgeStatus } from "@/lib/supabase/transactions";
 import { executeSmartBridge } from "@/lib/web3/bridge-actions";
 import { prepareSolanaBurnTx } from "@/lib/web3/solana-bridge";
+import { PendingBridgeClaims } from "@/components/bridge/PendingBridgeClaims";
 import { cn } from "@/lib/utils";
 import { useWallets, usePrivy } from "@privy-io/react-auth";
 import {
@@ -145,7 +148,7 @@ export function SmartBridgeModule({
     let attempts = 0;
     const interval = setInterval(async () => {
       attempts++;
-      if (attempts > 120) {
+      if (attempts > MONITOR_MAX_ATTEMPTS) {
         clearInterval(interval);
         return;
       }
@@ -173,7 +176,7 @@ export function SmartBridgeModule({
       } catch (err) {
         console.error("[SmartBridge] EVM monitoring error:", err);
       }
-    }, 5000);
+    }, MONITOR_POLL_MS);
 
     return () => clearInterval(interval);
   }, [monitoringTx, isComplete, queryClient]);
@@ -186,7 +189,7 @@ export function SmartBridgeModule({
     let attempts = 0;
     const interval = setInterval(async () => {
       attempts++;
-      if (attempts > 120) {
+      if (attempts > MONITOR_MAX_ATTEMPTS) {
         clearInterval(interval);
         return;
       }
@@ -211,21 +214,25 @@ export function SmartBridgeModule({
             }
           }
 
-          if (mHash && mHash !== 'N/A' && !isPlaceholderHash(mHash)) {
-            console.log(`[SmartBridgeModule] 🎉 Mint transaction hash resolved (${monitoringTx.hash}):`, mHash);
-            setIsComplete(true);
-            setMintTxHash(mHash);
-            clearInterval(interval);
-            await updateBridgeStatus(monitoringTx.hash, "complete", mHash);
-            queryClient.invalidateQueries({ queryKey: ["history"] });
-            queryClient.invalidateQueries({ queryKey: ["cross-chain-balances"] });
-            toast.success("Bridge complete! USDC is now on Base.");
-          }
+          const finalMintHash = (mHash && mHash !== 'N/A' && !isPlaceholderHash(mHash)) ? mHash : PLACEHOLDER_TX_HASH;
+          console.log(`[SmartBridgeModule] 🎉 Solana bridge complete (${monitoringTx.hash}):`, finalMintHash);
+          setIsComplete(true);
+          setMintTxHash(finalMintHash);
+          clearInterval(interval);
+          await updateBridgeStatus(monitoringTx.hash, "complete", finalMintHash).catch(console.error);
+          await fetch("/api/bridge/complete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ burnTxHash: monitoringTx.hash, mintTxHash: finalMintHash }),
+          }).catch(console.error);
+          queryClient.invalidateQueries({ queryKey: ["history"] });
+          queryClient.invalidateQueries({ queryKey: ["cross-chain-balances"] });
+          toast.success("Solana bridge complete! USDC is now on Base.");
         }
       } catch (err) {
         console.error("[SmartBridge] Solana monitoring error:", err);
       }
-    }, 5000);
+    }, MONITOR_POLL_MS);
 
     return () => clearInterval(interval);
   }, [monitoringTx, isComplete, queryClient, embeddedEvmWallet]);
@@ -238,7 +245,7 @@ export function SmartBridgeModule({
     let attempts = 0;
     const interval = setInterval(async () => {
       attempts++;
-      if (attempts > 120) { clearInterval(interval); return; }
+      if (attempts > MONITOR_MAX_ATTEMPTS) { clearInterval(interval); return; }
       try {
         const res = await fetch(
           `/api/bridge/status?txHash=${monitoringTx.hash}&sourceChain=stellar`,
@@ -263,24 +270,25 @@ export function SmartBridgeModule({
             }
           }
 
-          if (mHash && mHash !== 'N/A' && !isPlaceholderHash(mHash)) {
-            setIsComplete(true);
-            setMintTxHash(mHash);
-            clearInterval(interval);
-            await fetch("/api/bridge/complete", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ burnTxHash: monitoringTx.hash, mintTxHash: mHash }),
-            });
-            queryClient.invalidateQueries({ queryKey: ["history"] });
-            queryClient.invalidateQueries({ queryKey: ["cross-chain-balances"] });
-            toast.success("Stellar bridge complete! USDC is now on Base.");
-          }
+          const finalMintHash = (mHash && mHash !== 'N/A' && !isPlaceholderHash(mHash)) ? mHash : PLACEHOLDER_TX_HASH;
+          console.log(`[SmartBridgeModule] 🎉 Stellar bridge complete (${monitoringTx.hash}):`, finalMintHash);
+          setIsComplete(true);
+          setMintTxHash(finalMintHash);
+          clearInterval(interval);
+          await updateBridgeStatus(monitoringTx.hash, "complete", finalMintHash).catch(console.error);
+          await fetch("/api/bridge/complete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ burnTxHash: monitoringTx.hash, mintTxHash: finalMintHash }),
+          }).catch(console.error);
+          queryClient.invalidateQueries({ queryKey: ["history"] });
+          queryClient.invalidateQueries({ queryKey: ["cross-chain-balances"] });
+          toast.success("Stellar bridge complete! USDC is now on Base.");
         }
       } catch (err) {
         console.error("[SmartBridge] Stellar monitoring error:", err);
       }
-    }, 5000);
+    }, MONITOR_POLL_MS);
 
     return () => clearInterval(interval);
   }, [monitoringTx, isComplete, queryClient, embeddedEvmWallet]);
@@ -294,11 +302,27 @@ export function SmartBridgeModule({
     }
     setBridgingChain(chain);
     try {
+      // Consolidating is still a bridge the user asked for, so it's charged — unlike the
+      // consolidation we trigger ourselves to fund a withdrawal, which passes no fee at all.
+      // Resolved before the burn: a burn can't be undone if the chain has no treasury.
+      let platformFee: { usdc: string; treasury: string } | undefined;
+      const quote = await quoteFee("bridge", chain, parseFloat(amount));
+      if (quote.fee > 0) {
+        if (!quote.treasury) {
+          throw new Error(
+            `Bridging from ${chain} is unavailable right now. Please try another network.`,
+          );
+        }
+        platformFee = { usdc: quote.fee.toFixed(6), treasury: quote.treasury };
+      }
+
       const { txHashPromise } = await executeSmartBridge(
         embeddedEvmWallet,
         chain,
         amount,
         smartAddress,
+        "base",
+        platformFee,
       );
       const burnTxHash = await txHashPromise;
       await fetch("/api/bridge/record", {
@@ -375,7 +399,7 @@ export function SmartBridgeModule({
       queryClient.invalidateQueries({ queryKey: ["history"] });
       setMonitoringTx({ hash: signature, chain: "solana" });
       setMintTxHash(null);
-      toast.success("Solana bridge submitted! Monitoring for Circle attestation...");
+      toast.success("Solana bridge submitted! Monitoring cross-chain attestation...");
       refetch();
     } catch (err) {
       if (!isUserCancelled(err)) {
@@ -424,7 +448,7 @@ export function SmartBridgeModule({
       }).catch(console.error);
       setMonitoringTx({ hash: burnTxHash, chain: "stellar" as ChainBalanceChain });
       setMintTxHash(null);
-      toast.success("Stellar bridge submitted! Monitoring for Circle attestation...");
+      toast.success("Stellar bridge submitted! Monitoring cross-chain attestation...");
       refetch();
     } catch (err) {
       if (!isUserCancelled(err)) {
@@ -455,6 +479,13 @@ export function SmartBridgeModule({
 
   return (
     <div className="space-y-8">
+      {!monitoringTx && (
+        <PendingBridgeClaims
+          userEmail={userEmail}
+          solanaAddress={solanaAddress}
+          stellarWallet={stellarWallet}
+        />
+      )}
       <AnimatePresence mode="wait">
         {monitoringTx ? (
           /* ── Monitoring state ────────────────────────────────────── */

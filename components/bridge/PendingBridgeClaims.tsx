@@ -69,7 +69,7 @@ export function PendingBridgeClaims({
 
   const { data: claims = [], refetch } = useQuery<PendingBridgeClaim[]>({
     queryKey: ["pending-bridge-claims", userEmail],
-    queryFn: () => getPendingBridgeClaims(userEmail),
+    queryFn: () => getPendingBridgeClaims(),
     enabled: !!userEmail,
     refetchInterval: 20_000,
   });
@@ -167,7 +167,7 @@ export function PendingBridgeClaims({
                     <p className="text-xs text-white/40 font-medium">
                       {claim.ready
                         ? `Your USDC was burned on ${label(claim.sourceChain)} and is waiting to be claimed on ${label(claim.destChain)}. No gas required.`
-                        : "Circle is still verifying this transfer. It will become claimable in 1–2 minutes."}
+                        : "The network is still verifying this transfer. It will become claimable in 1–2 minutes."}
                     </p>
                     {needsSolWallet && (
                       <p className="text-xs text-amber-400/70 font-medium">

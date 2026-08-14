@@ -13,6 +13,7 @@
  * (Per Bitnob's official JS sample: colon-separated, seconds, hex, body included.)
  */
 import crypto from "crypto";
+import { toUserSafeMessage } from '@/lib/errors/sanitize';
 
 // ── Request/response shapes (subset we use) ──────────────────────────────────
 export interface BitnobPayoutQuoteRequest {
@@ -195,7 +196,23 @@ export class BitnobClient {
     const res = await fetch(`${this.baseUrl}${path}`, { ...options, headers });
     if (!res.ok) {
       const errorText = await res.text();
-      throw new Error(`Bitnob ${options.method || "GET"} ${path} failed (${res.status}): ${errorText}`);
+      // The full envelope goes to the log; the user gets, at most, the provider's own `detail`
+      // sentence. Throwing the raw text put a JSON blob — request ids, URLs, the provider's
+      // name — straight into a toast.
+      console.error(
+        `[Bitnob] ${options.method || "GET"} ${path} failed (${res.status}): ${errorText}`,
+      );
+      let detail = "";
+      try {
+        const parsed = JSON.parse(errorText) as { detail?: string; message?: string };
+        detail = (parsed.detail || parsed.message || "").trim();
+      } catch {
+        /* not JSON — fall through to the generic message below */
+      }
+      throw new Error(
+        toUserSafeMessage(detail) ??
+          "We couldn't complete that request. Please try again shortly.",
+      );
     }
     const json = await res.json();
     return json as T;

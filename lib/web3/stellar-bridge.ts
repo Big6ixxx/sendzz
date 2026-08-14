@@ -1,5 +1,6 @@
 import { ConnectedWallet } from "@privy-io/react-auth";
 import { executeReceiveMessage } from "./bridge-actions";
+import { SupportedChain, CHAIN_NAMES } from "@/lib/circle/gateway";
 
 /**
  * Bridge USDC from the user's Privy Stellar wallet to their EVM smart account on Base.
@@ -15,13 +16,14 @@ export async function bridgeStellarToBase(params: {
   amount: string;
   recipientEvm: string;
   evmWallet: ConnectedWallet;
+  destChain?: SupportedChain;
   onStatus?: (status: string) => void;
   timeoutMs?: number;
 }): Promise<{ burnTxHash: string; mintTxHash?: string }> {
-  const { walletId, senderAddress, amount, recipientEvm, evmWallet, onStatus } =
+  const { walletId, senderAddress, amount, recipientEvm, evmWallet, onStatus, destChain = "base" } =
     params;
 
-  onStatus?.("Submitting Stellar bridge transaction…");
+  onStatus?.(`Submitting Stellar bridge transaction to ${CHAIN_NAMES[destChain]}…`);
   const res = await fetch("/api/stellar/bridge", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -30,7 +32,8 @@ export async function bridgeStellarToBase(params: {
       senderAddress,
       recipientAddress: recipientEvm,
       amount,
-      destChain: "base",
+      destChain,
+      chargeFee: true,
     }),
   });
 
@@ -41,7 +44,7 @@ export async function bridgeStellarToBase(params: {
 
   const { burnTxHash } = (await res.json()) as { burnTxHash: string };
 
-  onStatus?.("Burn confirmed on-chain! Delivering on Base…");
+  onStatus?.(`Burn confirmed! Minting on ${CHAIN_NAMES[destChain]}…`);
   const deadline = Date.now() + (params.timeoutMs ?? 20_000); // 20-second max client wait
   while (Date.now() < deadline) {
     try {
@@ -53,12 +56,12 @@ export async function bridgeStellarToBase(params: {
         if (data.status === "complete") {
           let mintTxHash: string | undefined = data.mintTxHash;
           if (!mintTxHash && data.attestation && data.messageBytes) {
-            onStatus?.("Delivering on Base…");
+            onStatus?.(`Finalizing delivery on ${CHAIN_NAMES[destChain]}…`);
             mintTxHash = await executeReceiveMessage(
               evmWallet,
               data.messageBytes,
               data.attestation,
-              "base",
+              destChain,
             ).catch((err) => {
               console.warn("[bridgeStellarToBase] client mint notice:", err);
               return undefined;

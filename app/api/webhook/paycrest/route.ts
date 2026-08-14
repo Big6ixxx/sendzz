@@ -1,7 +1,7 @@
 import { Database, Json } from '@/types/database';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
-import { triggerWithdrawalNotifications } from '@/lib/supabase/transactions';
+import { clearOnchainDepositShadow, triggerWithdrawalNotifications } from '@/lib/supabase/transactions';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -142,6 +142,9 @@ export async function POST(req: Request) {
       // DEPOSIT
       if (status && ['settled', 'completed', 'validated', 'deposited'].includes(status)) {
         const txHash = orderData.txHash || orderData.settlementTxHash || orderData.transactionHash || null;
+        // The scanner may already have recorded this delivery as an unattributed on-chain
+        // deposit — drop that shadow so this row can take the hash.
+        if (txHash) await clearOnchainDepositShadow(orderId, txHash);
         const { error } = await supabaseAdmin
           .from('deposits')
           .update({ status: 'confirmed', tx_hash: txHash })

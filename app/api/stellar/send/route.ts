@@ -7,6 +7,7 @@
  * Body: { walletId, senderAddress, recipientAddress, amount, memo? }
  */
 
+import { getFeeTreasury, getPlatformFeePercent } from '@/lib/fees/platform-fees';
 import {
   signStellarTransaction,
   submitStellarTransaction,
@@ -63,12 +64,30 @@ export async function POST(req: Request) {
 
     console.log(`[Stellar/Send] ${senderAddress.slice(0, 6)} → ${recipientAddress.slice(0, 6)}, ${amount} USDC`);
 
+    // Platform fee, resolved server-side and paid in the same transaction. Fails closed: if
+    // Stellar has no treasury configured we refuse rather than send fee-free.
+    const feePercent = getPlatformFeePercent('transfer');
+    const feeAmount = parsedAmount * (feePercent / 100);
+    let platformFee: { usdc: string; treasury: string } | undefined;
+    if (feeAmount > 0) {
+      const treasury = getFeeTreasury('stellar');
+      if (!treasury) {
+        console.error('[Stellar/Send] No fee treasury configured — set BITNOB_FEE_TREASURY_STELLAR');
+        return NextResponse.json(
+          { error: 'Sending on Stellar is unavailable right now. Please try another network.' },
+          { status: 503 },
+        );
+      }
+      platformFee = { usdc: feeAmount.toFixed(7), treasury };
+    }
+
     // Build unsigned payment transaction
     const { xdr: unsignedXdr } = await buildUsdcPaymentTx(
       senderAddress,
       recipientAddress,
       parsedAmount.toFixed(7),
       memo,
+      platformFee,
     );
 
     // Sign via Privy TEE

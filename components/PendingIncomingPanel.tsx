@@ -32,7 +32,7 @@ export function PendingIncomingPanel({
   const { data: pendingTransfers } = useQuery({
     queryKey: ['pending-incoming', userEmail],
     queryFn: async (): Promise<PendingTransfer[]> => {
-      const data = await getUserActivities(userEmail);
+      const data = await getUserActivities();
       return (data.received || [])
         .filter((t) => t.status === 'pending_claim' && t.sender_id !== userId)
         .map((t) => ({

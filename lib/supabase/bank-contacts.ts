@@ -1,6 +1,7 @@
 'use server';
 
 
+import { requireUserId } from '@/lib/auth/session';
 import { supabaseAdmin } from './adminClient';
 
 export type BankContactRow = {
@@ -13,19 +14,19 @@ export type BankContactRow = {
   created_at: string;
 };
 
-async function resolveUserId(userEmail: string): Promise<string> {
-  const { data: user } = await supabaseAdmin
-    .from('users')
-    .select('id')
-    .eq('email', userEmail.toLowerCase())
-    .single();
-  if (!user) throw new Error('User not found');
-  return user.id;
+/**
+ * The signed-in user's own id. Replaces a lookup that took an email from the caller — these
+ * are POST endpoints, so that let anyone read or edit another person's saved contacts (and,
+ * for bank contacts, their account numbers) by naming their address.
+ */
+async function resolveSelfId(accessToken?: string): Promise<string> {
+  const { userId } = await requireUserId(accessToken);
+  return userId;
 }
 
-export async function getUserBankContacts(userEmail: string): Promise<BankContactRow[]> {
+export async function getUserBankContacts(accessToken?: string): Promise<BankContactRow[]> {
   try {
-    const userId = await resolveUserId(userEmail);
+    const userId = await resolveSelfId(accessToken);
 
     const { data, error } = await supabaseAdmin
       .from('bank_contacts')
@@ -50,14 +51,14 @@ export async function getUserBankContacts(userEmail: string): Promise<BankContac
 }
 
 export async function addBankContact(params: {
-  userEmail: string;
+  accessToken?: string;
   bankName: string;
   bankCode: string;
   accountNumber: string;
   accountName: string;
 }): Promise<{ success: true }> {
   try {
-    const userId = await resolveUserId(params.userEmail);
+    const userId = await resolveSelfId(params.accessToken);
 
     const { error } = await supabaseAdmin.from('bank_contacts').insert({
       user_id: userId,
@@ -80,11 +81,11 @@ export async function addBankContact(params: {
 }
 
 export async function deleteBankContact(
-  userEmail: string,
   contactId: string,
+  accessToken?: string,
 ): Promise<{ success: true }> {
   try {
-    const userId = await resolveUserId(userEmail);
+    const userId = await resolveSelfId(accessToken);
 
     const { error } = await supabaseAdmin
       .from('bank_contacts')

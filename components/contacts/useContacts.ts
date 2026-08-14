@@ -23,18 +23,18 @@ export function useContacts(userEmail: string) {
 
   const { data: contacts = [], isLoading } = useQuery({
     queryKey,
-    queryFn: () => getUserContacts(userEmail),
+    queryFn: () => getUserContacts(),
     enabled: !!userEmail && activeTab === 'mail',
   });
 
   const { data: bankContacts = [], isLoading: isBankLoading } = useQuery({
     queryKey: bankQueryKey,
-    queryFn: () => getUserBankContacts(userEmail),
+    queryFn: () => getUserBankContacts(),
     enabled: !!userEmail && activeTab === 'bank',
   });
 
   const addMutation = useMutation({
-    mutationFn: () => addContact({ userEmail, contactEmail: newEmail, contactName: newName }),
+    mutationFn: () => addContact({ contactEmail: newEmail, contactName: newName }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey });
       setIsAdding(false);
@@ -47,8 +47,8 @@ export function useContacts(userEmail: string) {
 
   const deleteMutation = useMutation({
     mutationFn: (contactId: string) => {
-      if (activeTab === 'bank') return deleteBankContact(userEmail, contactId);
-      return deleteContact(userEmail, contactId);
+      if (activeTab === 'bank') return deleteBankContact(contactId);
+      return deleteContact(contactId);
     },
     onSuccess: () => {
       if (activeTab === 'bank') {
@@ -63,7 +63,7 @@ export function useContacts(userEmail: string) {
   const updateMutation = useMutation({
     mutationFn: () => {
       if (!editingContactId) return Promise.resolve({ success: true as const });
-      return updateContact({ userEmail, contactId: editingContactId, contactEmail: editEmail, contactName: editName });
+      return updateContact({ contactId: editingContactId, contactEmail: editEmail, contactName: editName });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey });
@@ -128,7 +128,7 @@ export function useContacts(userEmail: string) {
 export function useUserContacts(userEmail: string) {
   return useQuery({
     queryKey: ['contacts', userEmail],
-    queryFn: () => getUserContacts(userEmail),
+    queryFn: () => getUserContacts(),
     enabled: !!userEmail,
   });
 }

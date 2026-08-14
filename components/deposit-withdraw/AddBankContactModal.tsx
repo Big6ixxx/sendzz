@@ -61,7 +61,6 @@ export function AddBankContactModal({
     setAddError('');
     try {
       await addBankContact({
-        userEmail,
         bankName: newBank.name,
         bankCode: newBank.code,
         accountNumber: newAccountNumber,

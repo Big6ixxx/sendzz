@@ -1,5 +1,5 @@
 /**
- * On-chain USDC deposit scanner (EVM + Solana).
+ * On-chain USDC deposit scanner (EVM + Solana + Stellar).
  *
  * The portfolio scanner reads live balances, so USDC sent to a user's wallet shows up in their
  * balance — but nothing recorded it, so it never appeared in transaction history. This closes
@@ -23,6 +23,11 @@
  * hash rather than the transaction hash the chain reports. So we test the arrival itself —
  * a bridge *mints* (EVM `Transfer` from the zero address, Solana `mintTo` into the token
  * account), and nobody else can mint USDC to a user. Minted in, not paid in: skip it.
+ *
+ * Stellar needs one extra rule. CCTP doesn't mint straight to the user there: the Soroban
+ * forwarder mints to itself and then *transfers* on (see /api/stellar/claim), so the arrival
+ * looks like an ordinary incoming payment. Deliveries are recognised by their sender instead —
+ * the USDC issuer (an issuer-sourced payment *is* a mint on Stellar) or a CCTP contract.
  */
 import { supabaseAdmin } from '@/lib/supabase/adminClient';
 import type { Json } from '@/types/database';
@@ -53,9 +58,26 @@ const SOLANA_RPC =
   process.env.NEXT_PUBLIC_SOLANA_RPC_URL ??
   'https://api.mainnet-beta.solana.com';
 
+const STELLAR_HORIZON_URL =
+  process.env.NEXT_PUBLIC_STELLAR_HORIZON_URL ?? 'https://horizon.stellar.org';
+/** Circle's USDC classic asset issuer on Stellar mainnet. */
+const STELLAR_USDC_ISSUER = 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
+/**
+ * Soroban contracts that hand USDC to a user as part of a CCTP delivery, not a payment.
+ * The forwarder is what `/api/stellar/claim` invokes; the token messenger covers a direct mint.
+ */
+const STELLAR_BRIDGE_SENDERS = new Set(
+  [
+    process.env.NEXT_PUBLIC_STELLAR_CCTP_FORWARDER ??
+      'CBZL2IH7F6BIDAA3WBNXYKIXSATJGMSW7K5P5MJ6STX5RXN47TZJDF5T',
+    process.env.NEXT_PUBLIC_STELLAR_TOKEN_MESSENGER_CONTRACT,
+  ].filter((c): c is string => Boolean(c)),
+);
+
 // Per-scan work caps so a deep backfill chunks across scans instead of blocking a history load.
 const EVM_MAX_PAGES = 5; // × 1000 transfers per chain per scan
 const SOL_MAX_TX = 50; //     signatures parsed per scan
+const STELLAR_MAX_PAGES = 5; // × 200 payment records per scan
 
 // Warm-instance throttle so rapid history refetches don't hammer the RPCs. Keyed by address.
 const lastScan = new Map<string, number>();
@@ -91,14 +113,27 @@ async function knownHashes(userId: string): Promise<Set<string>> {
   return known;
 }
 
+/**
+ * Insert new deposits, letting the `deposits_user_tx_hash_uniq` index settle races.
+ *
+ * `knownHashes` is read at the start of a scan, so a concurrent scan (the reconcile cron and a
+ * user's history load run in different invocations — the in-memory throttle can't see across
+ * them) can insert the same arrival in between. Upserting on the unique index turns that into a
+ * no-op for the loser instead of an error that would drop the whole batch, including the rows
+ * the other scan never found.
+ */
 async function insertDeposits(rows: DepositRow[]): Promise<number> {
   if (rows.length === 0) return 0;
-  const { error, count } = await supabaseAdmin.from('deposits').insert(rows, { count: 'exact' });
+  const { data, error } = await supabaseAdmin
+    .from('deposits')
+    .upsert(rows, { onConflict: 'user_id,tx_hash', ignoreDuplicates: true })
+    .select('id');
   if (error) {
     console.error('[DepositScan] insert failed:', error.message);
     return 0;
   }
-  return count ?? rows.length;
+  // Ignored duplicates aren't returned, so this counts rows that actually landed.
+  return data?.length ?? 0;
 }
 
 async function readCursors(userId: string): Promise<Map<string, string | null>> {
@@ -317,6 +352,128 @@ async function scanSolana(
   return rows;
 }
 
+// ─── Stellar ─────────────────────────────────────────────────────────────────
+
+/**
+ * A Horizon payment record. Classic payments carry the asset inline; Soroban token calls
+ * arrive as `invoke_host_function` and describe what moved in `asset_balance_changes`.
+ */
+interface HorizonPayment {
+  type: string;
+  paging_token: string;
+  transaction_hash: string;
+  transaction_successful?: boolean;
+  created_at?: string;
+  from?: string;
+  to?: string;
+  amount?: string;
+  asset_code?: string;
+  asset_issuer?: string;
+  asset_balance_changes?: {
+    type?: string; // 'transfer' | 'mint' | 'burn' | 'clawback'
+    from?: string;
+    to?: string;
+    amount?: string;
+    asset_code?: string;
+    asset_issuer?: string;
+  }[];
+}
+
+/** Is this USDC (Circle's classic asset), rather than some other Stellar token? */
+function isStellarUsdc(assetCode?: string, assetIssuer?: string): boolean {
+  return assetCode === 'USDC' && assetIssuer === STELLAR_USDC_ISSUER;
+}
+
+/** Minted in, not paid in — see the note on bridge deliveries in the module header. */
+function isStellarBridgeSender(from?: string): boolean {
+  return !!from && (from === STELLAR_USDC_ISSUER || STELLAR_BRIDGE_SENDERS.has(from));
+}
+
+/**
+ * Incoming USDC credited to `address` by one payment record, ignoring bridge deliveries.
+ * A single Soroban call can credit the account more than once, so changes are summed.
+ */
+function stellarCredit(rec: HorizonPayment, address: string): number {
+  if (rec.type === 'invoke_host_function') {
+    let total = 0;
+    for (const c of rec.asset_balance_changes ?? []) {
+      if (c.to !== address) continue;
+      if (!isStellarUsdc(c.asset_code, c.asset_issuer)) continue;
+      if (c.type === 'mint' || isStellarBridgeSender(c.from)) continue;
+      total += parseFloat(c.amount ?? '0') || 0;
+    }
+    return total;
+  }
+
+  // Classic payment / path payment.
+  if (rec.to !== address) return 0;
+  if (!isStellarUsdc(rec.asset_code, rec.asset_issuer)) return 0;
+  if (rec.from === address || isStellarBridgeSender(rec.from)) return 0;
+  return parseFloat(rec.amount ?? '0') || 0;
+}
+
+/**
+ * Scan incoming USDC payments to the user's G-address since the cursor paging token.
+ *
+ * Horizon's cursor is exclusive, so — unlike the EVM/Solana rails — the boundary record isn't
+ * re-read. Dedupe still guards, because a payment can also reach us as a transfer or bridge row.
+ */
+async function scanStellar(
+  userId: string,
+  address: string,
+  cursor: string | null,
+  known: Set<string>,
+): Promise<DepositRow[]> {
+  // Sum per transaction: several payment operations can share one hash, and `tx_hash` is
+  // what history dedupes on, so they have to land as a single deposit rather than the first.
+  const byHash = new Map<string, DepositRow>();
+  let pageCursor = cursor;
+
+  for (let page = 0; page < STELLAR_MAX_PAGES; page++) {
+    const url =
+      `${STELLAR_HORIZON_URL}/accounts/${address}/payments` +
+      `?order=asc&limit=200&include_failed=false${pageCursor ? `&cursor=${pageCursor}` : ''}`;
+    const res = await fetch(url);
+    if (res.status === 404) return []; // account not funded yet — nothing to scan
+    if (!res.ok) throw new Error(`Horizon payments ${res.status}`);
+
+    const json = (await res.json()) as { _embedded?: { records?: HorizonPayment[] } };
+    const records = json._embedded?.records ?? [];
+    if (records.length === 0) break;
+
+    for (const rec of records) {
+      pageCursor = rec.paging_token;
+      if (rec.transaction_successful === false) continue;
+      const amount = stellarCredit(rec, address);
+      if (amount <= 0) continue;
+
+      const hash = rec.transaction_hash?.toLowerCase();
+      if (!hash || known.has(hash)) continue;
+
+      const existing = byHash.get(hash);
+      if (existing) {
+        existing.amount_usdc += amount;
+        continue;
+      }
+      byHash.set(hash, {
+        user_id: userId,
+        tx_hash: hash,
+        amount_usdc: amount,
+        network: 'stellar',
+        provider: 'onchain',
+        status: 'confirmed',
+        ...(rec.created_at ? { created_at: rec.created_at } : {}),
+        provider_metadata: { source: 'deposit-scan', from: rec.from ?? null, op_type: rec.type },
+      });
+    }
+
+    if (records.length < 200) break; // caught up
+  }
+
+  if (pageCursor && pageCursor !== cursor) await writeCursor(userId, 'stellar', pageCursor);
+  return [...byHash.values()];
+}
+
 // ─── Orchestrator ─────────────────────────────────────────────────────────────
 
 /**
@@ -328,13 +485,14 @@ export async function scanUsdcDeposits(params: {
   userId: string;
   address: string;
   solanaAddress?: string;
+  stellarAddress?: string;
 }): Promise<number> {
   const { userId } = params;
   const address = params.address?.toLowerCase();
   const apiKey = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || '';
-  if (!address && !params.solanaAddress) return 0;
+  if (!address && !params.solanaAddress && !params.stellarAddress) return 0;
 
-  const throttleKey = address || params.solanaAddress!;
+  const throttleKey = address || params.solanaAddress || params.stellarAddress!;
   const now = Date.now();
   if (now - (lastScan.get(throttleKey) ?? 0) < THROTTLE_MS) return 0;
   lastScan.set(throttleKey, now);
@@ -360,6 +518,17 @@ export async function scanUsdcDeposits(params: {
             return await scanSolana(userId, params.solanaAddress!, cursors.get('solana') ?? null, known);
           } catch (e) {
             console.error('[DepositScan] solana:', e instanceof Error ? e.message : e);
+            return [] as DepositRow[];
+          }
+        })()
+      : Promise.resolve([] as DepositRow[]),
+    // Stellar
+    params.stellarAddress
+      ? (async () => {
+          try {
+            return await scanStellar(userId, params.stellarAddress!, cursors.get('stellar') ?? null, known);
+          } catch (e) {
+            console.error('[DepositScan] stellar:', e instanceof Error ? e.message : e);
             return [] as DepositRow[];
           }
         })()

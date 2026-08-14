@@ -161,7 +161,7 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
       const res = await fetch('/api/notifications', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: userEmail }),
+        body: JSON.stringify({}),
       });
       if (res.ok) {
         setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
@@ -178,7 +178,7 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
       const res = await fetch('/api/notifications', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: userEmail, ids: [id] }),
+        body: JSON.stringify({ ids: [id] }),
       });
       if (res.ok) {
         setNotifications((prev) =>

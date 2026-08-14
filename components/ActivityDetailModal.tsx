@@ -134,7 +134,7 @@ export function ActivityDetailModal({
 
       if (!data || data.status === "not_found") {
         toast.error(
-          "Bridge transaction not found on Circle. Please check the transaction hash.",
+          "Bridge transaction not found on-chain. Please check the transaction hash.",
         );
         setIsClaiming(false);
         return;

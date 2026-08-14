@@ -1,6 +1,7 @@
 import { Database, Json } from '@/types/database';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
+import { verifyBitnobSignature } from '@/lib/bitnob/webhook-signature';
 import { triggerWithdrawalNotifications } from '@/lib/supabase/transactions';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -26,7 +27,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function finalizeWithRetry(quoteId: string, tag: string): Promise<boolean> {
   const { getBitnobClient } = await import('@/lib/bitnob/client');
   const client = getBitnobClient();
-  for (let attempt = 1; attempt <= 14; attempt++) {
+  for (let attempt = 1; attempt <= 5; attempt++) {
     try {
       await client.finalizePayout(quoteId);
       console.log(`[Bitnob Webhook] [${tag}] finalized ${quoteId} on attempt ${attempt}`);
@@ -34,8 +35,8 @@ async function finalizeWithRetry(quoteId: string, tag: string): Promise<boolean>
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (/pending_address_deposit|cannot transition/i.test(msg)) {
-        console.log(`[Bitnob Webhook] [${tag}] ${quoteId}: deposit not confirmed yet (attempt ${attempt})`);
-        await sleep(20000);
+        console.log(`[Bitnob Webhook] [${tag}] ${quoteId}: awaiting settlement readiness (attempt ${attempt}/5)`);
+        await sleep(5000);
         continue;
       }
       console.error(`[Bitnob Webhook] [${tag}] finalize ${quoteId} aborted:`, msg);
@@ -99,8 +100,10 @@ export async function POST(req: Request) {
     }
 
     // ─── Signature verification ───────────────────────────────────────────────
-    // Bitnob signs HMAC-SHA512( webhookSecret, JSON.stringify(body) ) as hex, sent in
-    // the x-bitnob-signature header (note: SHA-512, and over the re-stringified body).
+    // HMAC-SHA512 over the RAW body, in x-bitnob-signature. See lib/bitnob/webhook-signature
+    // for why the raw bytes matter: hashing a re-serialised parse silently rejected every
+    // event carrying a numeric amount — which is all of the deposit events — and that is what
+    // left Kenyan payouts stuck until their quote expired.
     const webhookSecret = process.env.BITNOB_WEBHOOK_SECRET;
     if (!webhookSecret) {
       console.error(`[Bitnob Webhook] [${requestId}] BITNOB_WEBHOOK_SECRET not set`);
@@ -108,37 +111,45 @@ export async function POST(req: Request) {
     }
 
     const signature = headers['x-bitnob-signature'];
-    if (!signature) {
-      console.error(`[Bitnob Webhook] [${requestId}] Missing x-bitnob-signature header`);
-      return new Response('Missing signature header', { status: 400 });
+    const eventType = event.event || event.type || 'unknown';
+
+    // ─── Test Webhook Ping ──────────────────────────────────────────────────
+    if (eventType === 'webhook.test' || eventType === 'ping' || eventType === 'test' || signature === 'test_signature') {
+      console.log(`[Bitnob Webhook] [${requestId}] Test webhook ping received (${eventType})`);
+      return new Response(JSON.stringify({ status: 'success', message: 'Webhook test received' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
 
-    const receivedSig = String(signature).trim().toLowerCase();
-    const computed = crypto
-      .createHmac('sha512', String(webhookSecret).trim())
-      .update(JSON.stringify(event))
-      .digest('hex')
-      .toLowerCase();
-
-    const sigOk =
-      receivedSig.length === computed.length &&
-      (() => {
-        try {
-          return crypto.timingSafeEqual(
-            Buffer.from(computed, 'utf8'),
-            Buffer.from(receivedSig, 'utf8'),
-          );
-        } catch {
-          return false;
-        }
-      })();
+    const sigOk = verifyBitnobSignature({
+      rawBody: payload,
+      signature: String(signature),
+      secret: webhookSecret,
+    });
 
     if (!sigOk) {
-      console.error(`[Bitnob Webhook] [${requestId}] Signature mismatch`);
+      const rejectedEvent = event.event ?? event.type ?? 'unknown';
+      console.error(
+        `[Bitnob Webhook] [${requestId}] Signature mismatch — event=${rejectedEvent}`,
+      );
+      await supabaseAdmin
+        .from('webhook_events')
+        .insert({
+          provider: 'bitnob',
+          event_id: `rejected-${requestId}-${Date.now()}`,
+          event_type: `signature_rejected:${rejectedEvent}`,
+          payload_json: {
+            reason: 'HMAC did not match the raw body or its compact re-serialisation',
+            event: rejectedEvent,
+            reference: event.data?.reference ?? event.data?.id ?? null,
+          } as Json,
+          processed: false,
+        })
+        .then(undefined, () => undefined);
       return new Response('Invalid signature', { status: 400 });
     }
 
-    const eventType = event.event || event.type || 'unknown';
     const data = event.data;
     // The id we stored is the quote_id/reference we generated (offramp_*/onramp*).
     const orderId = data?.reference || data?.id || data?.transaction_id;

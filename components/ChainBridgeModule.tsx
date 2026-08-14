@@ -10,6 +10,11 @@
  */
 
 import { ChainLogo } from "@/components/deposit-withdraw/ChainLogo";
+import { formatFeeSummary } from "@/lib/format-usdc";
+import { usePlatformFeePercent } from "@/lib/hooks/usePlatformFeePercent";
+import { quoteFee } from "@/lib/actions/fees";
+import { parseAppError } from "@/lib/errors/appErrors";
+import { MONITOR_MAX_ATTEMPTS, MONITOR_POLL_MS } from "@/lib/web3/bridge-timing";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { CHAIN_NAMES, isBridgeable, type SupportedChain } from "@/lib/circle/gateway";
@@ -106,6 +111,9 @@ export function ChainBridgeModule({
     SupportedChain | "stellar" | "solana" | null
   >(null);
   const [amount, setAmount] = useState("");
+  // Fee rate for the summary below. Comes from the server (BRIDGE_FEE_PERCENT) — never a
+  // client constant, so what's shown is always what will be charged.
+  const bridgeFeePercent = usePlatformFeePercent("bridge");
   const [phase, setPhase] = useState<Phase>("form");
   const [monitor, setMonitor] = useState<Monitor | null>(null);
   const [mintTxHash, setMintTxHash] = useState<string | null>(null);
@@ -116,12 +124,17 @@ export function ChainBridgeModule({
 
   const sourceBalance = source ? balanceOf(source) : 0;
   const amountNum = parseFloat(amount) || 0;
+  // What actually leaves the wallet — the balance check must cover amount + fee, not just the
+  // amount, or a Max-sized bridge would pass validation and then fail on-chain.
+  const bridgeTotal =
+    bridgeFeePercent === null ? amountNum : amountNum * (1 + bridgeFeePercent / 100);
   const canBridge =
     !!source &&
     !!dest &&
     source !== dest &&
     amountNum > 0 &&
-    amountNum <= sourceBalance &&
+    // amount + fee must fit, not just the amount.
+    bridgeTotal <= sourceBalance &&
     (source === "solana" || dest === "solana" ? !!embeddedSolWallet : true) &&
     (source !== "solana" || dest !== "solana" ? !!embeddedWallet : true);
 
@@ -133,8 +146,7 @@ export function ChainBridgeModule({
 
     const interval = setInterval(async () => {
       attempts++;
-      // 120 × 5s = 10 min, the point at which PendingBridgeClaims takes over.
-      if (attempts > 120) {
+      if (attempts > MONITOR_MAX_ATTEMPTS) {
         clearInterval(interval);
         // Give up on watching, not on the transfer — the burn and its attestation stay
         // valid forever, so hand it to the Pending Claims panel instead of spinning.
@@ -308,7 +320,7 @@ export function ChainBridgeModule({
       } catch (err) {
         console.error("[ChainBridge] status fetch error:", err);
       }
-    }, 5000);
+    }, MONITOR_POLL_MS);
 
     return () => {
       cancelled = true;
@@ -327,6 +339,26 @@ export function ChainBridgeModule({
   const handleBridge = async () => {
     if (!canBridge || !source || !dest) return;
     setPhase("submitting");
+
+    // Resolve the fee BEFORE anything irreversible. A burn can't be undone, so discovering
+    // afterwards that this chain has no treasury would mean bridging for free with no way back.
+    let platformFee: { usdc: string; treasury: string } | undefined;
+    try {
+      const quote = await quoteFee("bridge", source, parseFloat(amount));
+      if (quote.fee > 0) {
+        if (!quote.treasury) {
+          throw new Error(
+            `Bridging from ${CHAIN_DISPLAY_NAMES[source] ?? source} is unavailable right now. ` +
+              `Please try another network.`,
+          );
+        }
+        platformFee = { usdc: quote.fee.toFixed(6), treasury: quote.treasury };
+      }
+    } catch (err) {
+      setPhase("form");
+      toast.error(parseAppError(err));
+      return;
+    }
 
     setBridgeStep("burn_sig");
     mintingRef.current = false;
@@ -383,6 +415,9 @@ export function ChainBridgeModule({
             amount: amount,
             destChain: dest,
             userEmail,
+            // Explicit, user-initiated bridge — bill it. The consolidation path in
+            // lib/web3/stellar-bridge omits this and is never charged.
+            chargeFee: true,
           }),
         });
         const data = await res.json();
@@ -442,6 +477,7 @@ export function ChainBridgeModule({
           amount,
           recipient,
           dest as SupportedChain | "stellar" | "solana",
+          platformFee,
         );
         burnTxHash = await txHashPromise;
       }
@@ -750,7 +786,16 @@ export function ChainBridgeModule({
           </p>
           {source && (
             <button
-              onClick={() => setAmount(sourceBalance.toString())}
+              disabled={bridgeFeePercent === null}
+              onClick={() => {
+                // Leave room for the fee: the wallet must cover amount + fee, so Max is the
+                // largest amount whose total still fits. Disabled until the rate is known —
+                // filling in the full balance and correcting later is how Max produced an
+                // amount that immediately read "exceeds your balance".
+                if (bridgeFeePercent === null) return;
+                const max = sourceBalance / (1 + bridgeFeePercent / 100);
+                setAmount((Math.floor(max * 1e6) / 1e6).toString());
+              }}
               className="text-[10px] font-bold uppercase tracking-widest text-accent/70 hover:text-accent"
             >
               Max ${sourceBalance.toFixed(2)}
@@ -770,9 +815,39 @@ export function ChainBridgeModule({
             USDC
           </span>
         </div>
-        {amountNum > sourceBalance && source && (
+        {/* Amount + fee + total, matching the withdrawal summary. */}
+        {amountNum > 0 && bridgeFeePercent !== null && (() => {
+          const s = formatFeeSummary(
+            amountNum,
+            (amountNum * bridgeFeePercent) / 100,
+            amountNum * (1 + bridgeFeePercent / 100),
+          );
+          return (
+          <div className="rounded-2xl bg-white/3 border border-white/8 px-4 py-3 space-y-2">
+            <div className="flex justify-between text-[11px] text-white/40">
+              <span>Bridging</span>
+              <span className="tabular-nums">{s.amount} USDC</span>
+            </div>
+            <div className="flex justify-between text-[11px] text-white/40">
+              <span>Platform Fee ({bridgeFeePercent}%)</span>
+              <span className="tabular-nums">
+                {s.fee} USDC
+              </span>
+            </div>
+            <div className="flex justify-between text-xs font-bold text-white pt-2 border-t border-white/8">
+              <span>Total Deducted</span>
+              <span className="tabular-nums">
+                {s.total} USDC
+              </span>
+            </div>
+          </div>
+          );
+        })()}
+
+        {bridgeTotal > sourceBalance && source && (
           <p className="text-[11px] text-red-400/80 px-1">
-            Exceeds your {CHAIN_DISPLAY_NAMES[source]} balance.
+            Exceeds your {CHAIN_DISPLAY_NAMES[source]} balance
+            {bridgeFeePercent ? " once the fee is included" : ""}.
           </p>
         )}
       </div>

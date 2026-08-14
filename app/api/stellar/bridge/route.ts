@@ -19,6 +19,7 @@
  *   amount          — USDC amount as string e.g. "10.00"
  */
 
+import { getFeeTreasury, getPlatformFeePercent } from '@/lib/fees/platform-fees';
 import {
   signStellarTransaction,
   submitStellarTransaction,
@@ -32,18 +33,26 @@ import {
   getStellarUsdcBalance,
   STELLAR_TOKEN_MESSENGER_CONTRACT,
 } from '@/lib/circle/stellar-gateway';
+import { buildUsdcPaymentTx } from '@/lib/stellar/transactions';
 import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
   try {
-    const { walletId, senderAddress, recipientAddress, amount, destChain, userEmail } = await req.json() as {
-      walletId: string;
-      senderAddress: string;
-      recipientAddress: string;
-      amount: string;
-      destChain?: string;
-      userEmail?: string;
-    };
+    const { walletId, senderAddress, recipientAddress, amount, destChain, userEmail, chargeFee = true } =
+      await req.json() as {
+        walletId: string;
+        senderAddress: string;
+        recipientAddress: string;
+        amount: string;
+        destChain?: string;
+        userEmail?: string;
+        /**
+         * True only for a bridge the user came to perform. Consolidation that funds a
+         * withdrawal omits it, so it is never billed — the same rule the EVM rails enforce by
+         * not passing a fee to executeSmartBridge.
+         */
+        chargeFee?: boolean;
+      };
 
     const finalDestChain = destChain || 'base';
 
@@ -142,6 +151,44 @@ export async function POST(req: Request) {
 
     const burnResult = await submitStellarTransaction(feeBumpBurn);
     console.log(`[Stellar/Bridge] ✓ depositForBurn submitted: ${burnResult.hash}`);
+
+    // ── Platform fee, as a SEPARATE transaction after the burn ────────────────
+    //
+    // It can't ride along with the burn: Stellar requires a transaction containing a Soroban
+    // operation to contain ONLY that operation, so the batching used on EVM is impossible here.
+    //
+    // Deliberately AFTER the burn, and non-fatal. The alternative — fee first — risks taking
+    // the fee and then failing the bridge, which loses the user money for nothing. This way the
+    // worst case is that we don't collect, and the user's bridge is never harmed by our billing.
+    //
+    // Only charged when the caller asked for a user-initiated bridge. Consolidation that funds
+    // a withdrawal calls this route without the flag and is never billed.
+    if (chargeFee) {
+      try {
+        const feePercent = getPlatformFeePercent('bridge');
+        const feeAmount = parsedAmount * (feePercent / 100);
+        const treasury = getFeeTreasury('stellar');
+        if (feeAmount > 0 && treasury) {
+          const { xdr: feeXdr } = await buildUsdcPaymentTx(
+            senderAddress,
+            treasury,
+            feeAmount.toFixed(7),
+          );
+          const signedFee = await signStellarTransaction(walletId, feeXdr, senderAddress);
+          const feeResult = await submitStellarTransaction(
+            await buildFeeBumpTransaction(signedFee),
+          );
+          console.log(`[Stellar/Bridge] Fee collected: ${feeResult.hash}`);
+        } else if (feeAmount > 0) {
+          console.error(
+            '[Stellar/Bridge] No fee treasury configured — set BITNOB_FEE_TREASURY_STELLAR',
+          );
+        }
+      } catch (feeErr) {
+        // Never fail a completed bridge over our own fee.
+        console.error('[Stellar/Bridge] Fee collection failed (non-fatal):', feeErr);
+      }
+    }
 
     // Persist to Supabase database server-side so it appears in transaction history & pending claims
     try {

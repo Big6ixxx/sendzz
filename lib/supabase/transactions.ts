@@ -1,12 +1,15 @@
 "use server";
 
 import { Database } from "@/types/database";
+import { redactEmail } from "@/lib/log";
 import { supabaseAdmin } from "./adminClient";
 import { fetchAttestation, type SupportedChain } from "@/lib/circle/gateway";
 import { fetchSolanaAttestation } from "@/lib/circle/solana-gateway";
 import { fetchStellarAttestation } from "@/lib/circle/stellar-gateway";
+import { requireUser } from "@/lib/auth/session";
 import type { PendingBridgeClaim } from "@/types/bridge";
-import { isPlaceholderHash } from "@/lib/explorers";
+import { isPlaceholderHash, PLACEHOLDER_TX_HASH } from "@/lib/explorers";
+import { CLAIM_HANDOFF_MS } from "@/lib/web3/bridge-timing";
 
 type ExtendedChain = SupportedChain | "solana" | "stellar";
 
@@ -96,7 +99,7 @@ export async function recordTransfer(params: {
     );
 
     if (!sender) {
-      console.warn(`[Supabase] Sender ${senderEmail} not found. Skipping.`);
+      console.warn(`[Supabase] Sender ${redactEmail(senderEmail)} not found. Skipping.`);
       return;
     }
 
@@ -572,11 +575,60 @@ export async function saveWithdrawalTxHash(
   }
 }
 
+/**
+ * Drop the deposit-scanner's shadow of a fiat-ramp delivery, so the provider row can take
+ * the hash. Call this immediately before writing `tx_hash` onto a provider deposit.
+ *
+ * A ramp row is created before its hash is known, and `knownHashes` in the deposit scanner
+ * only collects non-null hashes — so between the provider's on-chain send and its webhook,
+ * the scanner sees an unattributed arrival and records it as `provider: 'onchain'`. Once the
+ * webhook names the hash, the two rows are the same money, and the provider row is the one to
+ * keep: it alone carries the fiat side (amount, currency, order id).
+ *
+ * Since `deposits_user_tx_hash_uniq` (migration 035) forbids the pair, clearing the shadow
+ * isn't just tidiness — without it the provider's own update would hit a unique violation.
+ */
+export async function clearOnchainDepositShadow(
+  providerOrderId: string,
+  txHash: string,
+): Promise<void> {
+  try {
+    const { data: row } = await supabaseAdmin
+      .from("deposits")
+      .select("id, user_id")
+      .eq("provider_order_id", providerOrderId)
+      .maybeSingle();
+    if (!row?.user_id) return;
+
+    const { data: removed, error } = await supabaseAdmin
+      .from("deposits")
+      .delete()
+      .eq("user_id", row.user_id)
+      .eq("tx_hash", txHash)
+      .eq("provider", "onchain")
+      .neq("id", row.id)
+      .select("id");
+
+    if (error) throw error;
+    if (removed?.length) {
+      console.log(
+        `[Supabase] Replaced ${removed.length} scanned deposit(s) with ramp order ${providerOrderId}`,
+      );
+    }
+  } catch (err) {
+    // Non-fatal: the caller's update is the important half. Worst case the duplicate
+    // survives and the update is rejected by the unique index, which the caller logs.
+    console.error("[Supabase] Failed to clear on-chain deposit shadow:", err);
+  }
+}
+
 export async function saveDepositTxHash(
   paycrestTxId: string,
   txHash: string,
 ): Promise<void> {
   try {
+    await clearOnchainDepositShadow(paycrestTxId, txHash);
+
     const { error } = await supabaseAdmin
       .from("deposits")
       .update({ tx_hash: txHash })
@@ -606,7 +658,7 @@ export async function recordBridgeTransaction(params: {
       .single();
 
     if (userError || !user) {
-      console.error(`[Supabase] User not found for bridge: ${normalizedEmail}`);
+      console.error(`[Supabase] User not found for bridge: ${redactEmail(normalizedEmail)}`);
       return;
     }
 
@@ -784,12 +836,7 @@ export async function updateBridgeStatus(
  * flash an "unclaimed" banner during the gap between attestation and mint.
  */
 
-/**
- * How long the in-page bridge monitor owns a burn before this takes over. Matches the
- * monitor's give-up point in ChainBridgeModule, so exactly one of them is ever acting
- * on a given transfer.
- */
-const CLAIM_HANDOFF_MS = 0;
+
 
 const EVM_DEST_CHAINS = [
   "base",
@@ -803,15 +850,27 @@ const EVM_DEST_CHAINS = [
 /**
  * Has the destination chain already consumed this message's nonce?
  *
- * Only answerable for EVM destinations today; Solana and Stellar fall back to the
- * record written when their claim succeeded. Returns false when unknown, so an
- * unreachable RPC never hides a transfer the user still needs to claim.
+ * EVM reads the MessageTransmitter's used-nonce map directly. Stellar has no such read, so it
+ * simulates the claim and treats an already-received rejection as proof (see lib/stellar/
+ * delivery). Solana still has no check — its burns fall back to the record written when the
+ * claim succeeded.
+ *
+ * Returns false whenever the answer is unknown, so an unreachable RPC or an unrecognised error
+ * never hides a transfer the user still needs to claim.
  */
 async function isBurnDelivered(
   destChain: string,
   messageBytes: string,
+  attestation?: string,
 ): Promise<boolean> {
   const dest = destChain.toLowerCase();
+
+  if (dest === "stellar") {
+    if (!attestation) return false;
+    const { isStellarBurnDelivered } = await import("@/lib/stellar/delivery");
+    return isStellarBurnDelivered(messageBytes, attestation);
+  }
+
   if (!EVM_DEST_CHAINS.includes(dest)) return false;
 
   try {
@@ -830,10 +889,10 @@ async function isBurnDelivered(
   }
 }
 export async function getPendingBridgeClaims(
-  userEmail: string,
+  accessToken?: string,
 ): Promise<PendingBridgeClaim[]> {
   try {
-    const normalizedEmail = userEmail.toLowerCase();
+    const { email: normalizedEmail } = await requireUser(accessToken);
     const { data: userRecord } = await supabaseAdmin
       .from("users")
       .select("id")
@@ -846,8 +905,12 @@ export async function getPendingBridgeClaims(
       .from("bridge_transactions")
       .select("id, source_chain, dest_chain, amount, burn_tx_hash, mint_tx_hash, created_at")
       .eq("user_id", userRecord.id)
+      // Unfinished means BOTH: no mint hash recorded AND not already reconciled. Filtering on
+      // the hash alone stranded every transfer we confirmed as delivered but couldn't find a
+      // mint hash for — `updateBridgeStatus(hash, "complete")` writes a null hash, so the row
+      // matched `mint_tx_hash IS NULL` forever and the claim card never went away.
       .is("mint_tx_hash", null)
-      .lt("created_at", new Date(Date.now() - CLAIM_HANDOFF_MS).toISOString())
+      .neq("attestation_status", "complete")
       .order("created_at", { ascending: false })
       .limit(20);
 
@@ -872,17 +935,33 @@ export async function getPendingBridgeClaims(
           // never happened. Ask the destination chain directly before insisting the
           // funds are unclaimed — otherwise the banner outlives the transfer.
           if (result.status === "complete" && result.messageBytes) {
-            const delivered = await isBurnDelivered(row.dest_chain, result.messageBytes);
+            const delivered = await isBurnDelivered(
+              row.dest_chain,
+              result.messageBytes,
+              result.attestation ?? undefined,
+            );
             if (delivered) {
-              const { createPublicClient } = await import("viem");
-              const { rpcTransport } = await import("@/lib/web3/rpc");
-              const { findMintTxHash } = await import("@/lib/web3/cctp-delivery");
-              const client = createPublicClient({ transport: rpcTransport(row.dest_chain) });
-              const mintTx = await findMintTxHash(client, result.messageBytes).catch(() => undefined);
-              if (mintTx) {
-                await updateBridgeStatus(row.burn_tx_hash, "complete", mintTx);
-                return null;
+              // Try for the real mint hash so history can link to an explorer.
+              let mintTx: string | undefined;
+              if (EVM_DEST_CHAINS.includes(row.dest_chain.toLowerCase())) {
+                const { createPublicClient } = await import("viem");
+                const { rpcTransport } = await import("@/lib/web3/rpc");
+                const { findMintTxHash } = await import("@/lib/web3/cctp-delivery");
+                const client = createPublicClient({ transport: rpcTransport(row.dest_chain) });
+                mintTx = await findMintTxHash(client, result.messageBytes).catch(() => undefined);
               }
+
+              // Reconcile whether or not we found it. Delivery is the fact that matters — the
+              // money is already in the user's wallet. Previously a missing hash meant we
+              // skipped the update entirely, so a delivered transfer kept showing a Claim
+              // button that could only ever fail. The placeholder records "delivered, hash
+              // unknown"; isPlaceholderHash keeps the UI from rendering it as a dead link.
+              await updateBridgeStatus(
+                row.burn_tx_hash,
+                "complete",
+                mintTx ?? PLACEHOLDER_TX_HASH,
+              );
+              return null;
             }
           }
 
@@ -925,12 +1004,20 @@ export async function getPendingBridgeClaims(
 
 // --- ACTIVITY HISTORY ---
 
-export async function getUserActivities(userEmail: string) {
+/**
+ * A user's own activity history.
+ *
+ * Takes no email: it used to, which made it an open endpoint for reading anyone's entire
+ * financial history by typing their address. The account read is now whichever account the
+ * session belongs to, so there is no "other user" to ask for.
+ */
+export async function getUserActivities(accessToken?: string) {
   try {
-    const normalizedEmail = userEmail.toLowerCase();
+    const session = await requireUser(accessToken);
+    const normalizedEmail = session.email;
     const { data: userRecord } = await supabaseAdmin
       .from("users")
-      .select("id, smart_account_address, solana_address")
+      .select("id, smart_account_address, solana_address, stellar_address")
       .eq("email", normalizedEmail)
       .single();
 
@@ -946,13 +1033,18 @@ export async function getUserActivities(userEmail: string) {
 
     // Record any new on-chain USDC deposits BEFORE reading the deposits table, so freshly
     // received crypto shows up in history. Best-effort + throttled — never blocks the load.
-    if (userRecord?.smart_account_address || userRecord?.solana_address) {
+    if (
+      userRecord?.smart_account_address ||
+      userRecord?.solana_address ||
+      userRecord?.stellar_address
+    ) {
       try {
         const { scanUsdcDeposits } = await import("@/lib/web3/deposit-scanner");
         await scanUsdcDeposits({
           userId: internalId,
           address: userRecord.smart_account_address ?? "",
           solanaAddress: userRecord.solana_address ?? undefined,
+          stellarAddress: userRecord.stellar_address ?? undefined,
         });
       } catch (e) {
         console.error("[Supabase] deposit scan failed (non-fatal):", e);

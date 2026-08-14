@@ -11,7 +11,7 @@ export function useActivities(userEmail: string, userId: string) {
   return useQuery<Activity[]>({
     queryKey: ['history', userEmail],
     queryFn: async () => {
-      const data = await getUserActivities(userEmail);
+      const data = await getUserActivities();
 
       const unified: Activity[] = [
         ...(data.sent || []).map((t) => ({

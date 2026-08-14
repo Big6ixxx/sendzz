@@ -26,7 +26,6 @@ export function TransferSaveContactPrompt({
     setIsAddingPending(true);
     try {
       await addContact({
-        userEmail: senderEmail,
         contactEmail: recipientEmail,
         contactName: recipientEmail.split('@')[0],
       });

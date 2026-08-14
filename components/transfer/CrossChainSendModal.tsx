@@ -119,9 +119,7 @@ export function CrossChainSendModal({
             </div>
 
             <p className="text-[11px] text-brand-secondary/35 leading-relaxed">
-              Bridging is gasless but takes a few minutes to settle, and a small Circle
-              network fee is deducted from the amount. You can close this app once it
-              starts — delivery completes on its own.
+              Bridging is gasless and takes a few minutes to settle.
             </p>
 
             <div className="flex gap-3 pt-1">

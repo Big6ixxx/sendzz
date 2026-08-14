@@ -97,7 +97,7 @@ const VERIFICATION_GAS_SEED: Record<string, bigint> = {
  * bound the bundler rejects. Bounded at four attempts; anything not about verification
  * gas is rethrown untouched so real failures aren't retried into confusion.
  */
-async function sendWithAdaptiveVerificationGas(
+export async function sendWithAdaptiveVerificationGas(
   chain: string,
   send: (verificationGasLimit: bigint | undefined) => Promise<`0x${string}`>,
 ): Promise<`0x${string}`> {
@@ -252,6 +252,16 @@ const ERC20_ABI = [
     ],
     outputs: [{ name: '', type: 'bool' }],
   },
+  {
+    name: 'transfer',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'to', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
+  },
 ] as const;
 
 const TOKEN_MESSENGER_ABI = [
@@ -288,12 +298,25 @@ const TOKEN_MESSENGER_ABI = [
   },
 ] as const;
 
+/**
+ * `platformFee` is optional ON PURPOSE — it is what separates a billable bridge from plumbing.
+ *
+ * Only a bridge the user came to perform is charged. The same function also runs bridges we
+ * trigger ourselves (consolidating chains to fund a withdrawal, routing a transfer across
+ * networks), and billing those would charge twice for one action. Rather than pass a flag and
+ * hope every call site sets it correctly, the automatic paths simply don't supply a fee and so
+ * cannot charge one. `bridgeAndDeliver` — the consolidation entry point — never passes it.
+ *
+ * When supplied, the fee transfer is appended to the SAME user operation as the burn, so the
+ * two settle together or not at all.
+ */
 export async function executeSmartBridge(
   embeddedWallet: ConnectedWallet,
   sourceChain: SupportedChain,
   amountUSDC: string,
   recipientAddress: string,
-  destChain: SupportedChain | 'stellar' | 'solana' = 'base'
+  destChain: SupportedChain | 'stellar' | 'solana' = 'base',
+  platformFee?: { usdc: string; treasury: string },
 ): Promise<{ userOpHash: `0x${string}`; txHashPromise: Promise<string> }> {
 
   try {
@@ -409,6 +432,23 @@ export async function executeSmartBridge(
             to: TOKEN_MESSENGER_V2 as `0x${string}`,
             data: depositCallData,
           },
+          // Platform fee, in the same operation as the burn — atomic with it, so there's no
+          // outcome where the user's USDC bridges but our fee is missed, or vice versa.
+          ...(platformFee
+            ? [
+                {
+                  to: usdcAddress as `0x${string}`,
+                  data: encodeFunctionData({
+                    abi: ERC20_ABI,
+                    functionName: 'transfer',
+                    args: [
+                      platformFee.treasury as `0x${string}`,
+                      parseUnits(platformFee.usdc, 6),
+                    ],
+                  }),
+                },
+              ]
+            : []),
         ],
         maxFeePerGas,
         maxPriorityFeePerGas,
@@ -728,7 +768,7 @@ export async function bridgeAndDeliver(
   embeddedWallet: ConnectedWallet,
   params: {
     sourceChain: SupportedChain;
-    destChain: SupportedChain;
+    destChain: SupportedChain | 'stellar' | 'solana';
     amountUSDC: string;
     recipient: string;
     onStatus?: (status: string) => void;
@@ -780,30 +820,35 @@ export async function bridgeAndDeliver(
 
   let mintTxHash: string | undefined = attestationData.mintTxHash;
   if (!mintTxHash && attestationData.attestation && attestationData.messageBytes) {
-    const standardRpcClient = createPublicClient({
-      chain: VIEM_CHAINS[destChain],
-      transport: rpcTransport(destChain),
-    });
-    const isProcessed = await isMessageDelivered(
-      standardRpcClient,
-      attestationData.messageBytes,
-      MESSAGE_TRANSMITTER,
-    );
-
-    if (isProcessed) {
-      console.log('[bridgeAndDeliver] Message already processed on-chain. Skipping manual claim popup.');
-      mintTxHash = await findMintTxHash(standardRpcClient, attestationData.messageBytes, MESSAGE_TRANSMITTER);
-      if (!mintTxHash) {
-        mintTxHash = 'N/A';
-      }
+    if (destChain === 'stellar' || destChain === 'solana') {
+      mintTxHash = 'auto';
     } else {
-      onStatus?.(`Delivering on ${destChain}…`);
-      mintTxHash = await executeReceiveMessage(
-        embeddedWallet,
+      const evmDest = destChain as SupportedChain;
+      const standardRpcClient = createPublicClient({
+        chain: VIEM_CHAINS[evmDest],
+        transport: rpcTransport(evmDest),
+      });
+      const isProcessed = await isMessageDelivered(
+        standardRpcClient,
         attestationData.messageBytes,
-        attestationData.attestation,
-        destChain,
+        MESSAGE_TRANSMITTER,
       );
+
+      if (isProcessed) {
+        console.log('[bridgeAndDeliver] Message already processed on-chain. Skipping manual claim popup.');
+        mintTxHash = await findMintTxHash(standardRpcClient, attestationData.messageBytes, MESSAGE_TRANSMITTER);
+        if (!mintTxHash) {
+          mintTxHash = 'N/A';
+        }
+      } else {
+        onStatus?.(`Delivering on ${evmDest}…`);
+        mintTxHash = await executeReceiveMessage(
+          embeddedWallet,
+          attestationData.messageBytes,
+          attestationData.attestation,
+          evmDest,
+        );
+      }
     }
   }
 
@@ -822,25 +867,27 @@ export async function bridgeAndDeliver(
 export async function consolidateFundsToChain(
   embeddedWallet: ConnectedWallet,
   params: {
-    targetChain: SupportedChain;
+    targetChain: SupportedChain | 'stellar' | 'solana';
     requiredAmount: string;
-    balances: ChainBalances;
+    balances: ChainBalances & { solana?: number; stellar?: number };
     recipient: string;
+    stellarRecipient?: string;
+    solanaRecipient?: string;
     onStatus?: (status: string) => void;
-    /** Optional Solana source — drawn from last (only when target is Base). */
+    /** Optional Solana source */
     solana?: SolanaSource;
-    /** Optional Stellar source — drawn from last (only when target is Base). */
+    /** Optional Stellar source */
     stellar?: {
       walletId: string;
       address: string;
       balance: number;
-      bridgeToBase: (amount: string, recipient: string, onStatus?: (status: string) => void) => Promise<void>;
+      bridgeToBase: (amount: string, recipient: string, onStatus?: (status: string) => void, destChain?: SupportedChain) => Promise<void>;
     };
   },
 ): Promise<void> {
-  const { targetChain, requiredAmount, balances, recipient, onStatus, solana, stellar } = params;
+  const { targetChain, requiredAmount, balances, recipient, stellarRecipient, solanaRecipient, onStatus, solana, stellar } = params;
   const required = parseFloat(requiredAmount) || 0;
-  const have = balances[targetChain] ?? 0;
+  const have = balances[targetChain as keyof typeof balances] ?? 0;
   let remaining = (required - have) * 1.01; // 1% buffer for CCTP fees
   if (remaining <= 0) return;
 
@@ -852,25 +899,27 @@ export async function consolidateFundsToChain(
 
   const allSources: UnifiedSource[] = [];
 
-  // Add EVM sources (excluding target chain)
+  // Add EVM sources (excluding target chain if target is EVM)
   for (const c of EVM_CHAINS) {
     if (c !== targetChain && (balances[c] ?? 0) > 0) {
       allSources.push({ type: 'evm', chain: c, balance: balances[c]! });
     }
   }
 
-  // Add Solana source (only if target is Base)
-  if (targetChain === 'base' && solana && solana.balance > 0) {
+  // Add Solana source (only if target is NOT Solana)
+  if (targetChain !== 'solana' && solana && solana.balance > 0) {
     allSources.push({ type: 'solana', chain: 'solana', balance: solana.balance });
   }
 
-  // Add Stellar source (only if target is Base)
-  if (targetChain === 'base' && stellar && stellar.balance > 0) {
+  // Add Stellar source (only if target is NOT Stellar)
+  if (targetChain !== 'stellar' && stellar && stellar.balance > 0) {
     allSources.push({ type: 'stellar', chain: 'stellar', balance: stellar.balance });
   }
 
   // Sort all sources descending by balance
   allSources.sort((a, b) => b.balance - a.balance);
+
+  const targetName = targetChain === 'stellar' ? 'Stellar' : targetChain === 'solana' ? 'Solana' : CHAIN_NAMES[targetChain as SupportedChain] ?? targetChain;
 
   for (const source of allSources) {
     if (remaining <= 0) break;
@@ -879,20 +928,26 @@ export async function consolidateFundsToChain(
 
     if (source.type === 'evm') {
       const evmChain = source.chain as SupportedChain;
-      onStatus?.(`Moving funds from ${CHAIN_NAMES[evmChain]} to ${CHAIN_NAMES[targetChain]}…`);
+      const destRecipient = targetChain === 'stellar'
+        ? (stellarRecipient || stellar?.address || recipient)
+        : targetChain === 'solana'
+          ? (solanaRecipient || recipient)
+          : recipient;
+
+      onStatus?.(`Moving funds from ${CHAIN_NAMES[evmChain]} to ${targetName}…`);
       await bridgeAndDeliver(embeddedWallet, {
         sourceChain: evmChain,
         destChain: targetChain,
         amountUSDC: take.toFixed(6),
-        recipient,
+        recipient: destRecipient,
         onStatus,
       });
     } else if (source.type === 'solana' && solana) {
-      onStatus?.(`Moving funds from Solana to ${CHAIN_NAMES[targetChain]}…`);
-      await solana.bridgeToBase(take.toFixed(6), recipient, onStatus);
+      onStatus?.(`Moving funds from Solana to ${targetName}…`);
+      await solana.bridgeToBase(take.toFixed(6), recipient, onStatus, targetChain as SupportedChain);
     } else if (source.type === 'stellar' && stellar) {
-      onStatus?.(`Moving funds from Stellar to ${CHAIN_NAMES[targetChain]}…`);
-      await stellar.bridgeToBase(take.toFixed(6), recipient, onStatus);
+      onStatus?.(`Moving funds from Stellar to ${targetName}…`);
+      await stellar.bridgeToBase(take.toFixed(6), recipient, onStatus, targetChain as SupportedChain);
     }
     remaining -= take;
   }

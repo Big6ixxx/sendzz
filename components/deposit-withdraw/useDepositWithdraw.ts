@@ -50,6 +50,7 @@ import {
 import { parseFriendlyError } from "@/components/transfer/useTransfer";
 import { ConnectedWallet } from "@privy-io/react-auth";
 import { calculatePaycrestBaseAmount } from "@/lib/paycrest/config";
+import { totalFromBase } from "@/lib/ramp/fees";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -233,7 +234,7 @@ export function useDepositWithdraw(
 
     // Fetch bank contacts
     if (userEmail) {
-      getUserBankContacts(userEmail).then(setBankContacts).catch(console.error);
+      getUserBankContacts().then(setBankContacts).catch(console.error);
 
       // Fetch security preferences
       fetch(`/api/user/preferences?email=${encodeURIComponent(userEmail)}`)
@@ -380,7 +381,14 @@ export function useDepositWithdraw(
         name = "VERIFIED ACCOUNT";
       }
       setBankDetails((prev) => ({ ...prev, accountName: name }));
-      toast.success("Bank account verified");
+
+      // Mobile money has no name enquiry, so the wording stays on what was actually checked
+      // — the number — without claiming we confirmed the recipient.
+      toast.success(
+        res.nameVerified === false
+          ? "Mobile money number accepted"
+          : "Bank account verified",
+      );
     } catch (err) {
       toast.error(parseFriendlyError(err));
       setBankDetails((prev) => ({ ...prev, accountName: "" }));
@@ -423,7 +431,7 @@ export function useDepositWithdraw(
     }
 
     // Check estimated USDC > 1 (after fees)
-    const baseAmount = calculatePaycrestBaseAmount(val);
+    const baseAmount = calculatePaycrestBaseAmount(val, feePercent);
     const estimatedUsdc = baseAmount / (rate || 1);
     if (estimatedUsdc <= 1) {
       toast.error("Estimated deposit must be greater than 1 USDC");
@@ -433,7 +441,7 @@ export function useDepositWithdraw(
     // Early KYC & Limit Pre-Check — block immediately at step 1
     try {
       const { checkKycLimitAction } = await import("@/lib/kyc/guard");
-      const guard = await checkKycLimitAction(estimatedUsdc, userEmail);
+      const guard = await checkKycLimitAction(estimatedUsdc);
       if (!guard.allowed) {
         toast.error(guard.message);
         return;
@@ -446,9 +454,7 @@ export function useDepositWithdraw(
     try {
       const res = await initiateOnRamp({
         amountFiat: val,
-        userId,
         userAddress,
-        userEmail,
         refundAccount: {
           institution: bankDetails.bankCode,
           accountIdentifier: bankDetails.accountNumber,
@@ -482,14 +488,14 @@ export function useDepositWithdraw(
       return;
     }
 
-    // Include the platform fee (provider-specific) in the balance check.
-    const feeRate = feePercent / 100;
-    const totalUsdcRequired = val * (1 + feeRate);
+    // Include the platform fee (provider-specific) in the balance check — the input is the
+    // base, so the fee is added on top of it.
+    const totalUsdcRequired = totalFromBase(val, feePercent);
 
     // Early KYC & Limit Pre-Check — block immediately at step 1 before bank details, 2FA, or signing
     try {
       const { checkKycLimitAction } = await import("@/lib/kyc/guard");
-      const guard = await checkKycLimitAction(totalUsdcRequired, userEmail);
+      const guard = await checkKycLimitAction(totalUsdcRequired);
       if (!guard.allowed) {
         toast.error(guard.message);
         return;
@@ -500,10 +506,13 @@ export function useDepositWithdraw(
 
     // A Paycrest order settles on one network, so we must source the whole amount from
     // a single Paycrest-supported chain. Route to one that holds enough.
-    const routeBalances: ChainBalances =
-      chainBalances && Object.keys(chainBalances).length > 0
+    const routeBalances: ChainBalances & { solana?: number; stellar?: number } = {
+      ...(chainBalances && Object.keys(chainBalances).length > 0
         ? chainBalances
-        : { base: parseFloat(balance) || 0 };
+        : { base: parseFloat(balance) || 0 }),
+      solana: solanaSource?.balance ?? 0,
+      stellar: stellarBalance ?? 0,
+    };
 
     const route = planWithdrawalRoute(totalUsdcRequired.toFixed(6), routeBalances, {
       supportedChains: rampNetworks,
@@ -567,9 +576,8 @@ export function useDepositWithdraw(
       route.needsConsolidation ||
       combinedAvailable + 1e-9 >= totalUsdcRequired
     ) {
-      // Funds are split (possibly partly on Solana) — bridge onto the settlement chain
-      // before withdrawing. Honour an explicit chain selection if the user made one.
-      setWithdrawChain((route.chain as RampNetwork) ?? "base");
+      const targetChain = route.chain ?? "base";
+      setWithdrawChain(targetChain as RampNetwork);
       setMustConsolidate(true);
       setConsolidateFrom(route.consolidateFrom ?? null);
     } else {
@@ -604,8 +612,7 @@ export function useDepositWithdraw(
     const amountUsdc = parseFloat(quoteUsdcAmount);
 
     // Total amount that will be deducted including the platform fee (provider-specific).
-    const feeRate = feePercent / 100;
-    const totalUsdcRequired = amountUsdc * (1 + feeRate);
+    const totalUsdcRequired = totalFromBase(amountUsdc, feePercent);
 
     if (totalUsdcRequired >= twoFaThreshold) {
       if (!twoFaEnabled) {
@@ -720,14 +727,23 @@ export function useDepositWithdraw(
       // Auto-consolidate onto the SETTLEMENT chain first when funds are split across chains.
       // Done before creating the off-ramp order so the order's transfer window starts fresh.
       if (mustConsolidate && embeddedProvider) {
-        const targetChain = withdrawChain as SupportedChain;
-        const targetName = CHAIN_NAMES[targetChain] ?? targetChain;
-        const required = (parseFloat(quoteUsdcAmount) * 1.003).toFixed(6);
+        const targetChain = withdrawChain as SupportedChain | "stellar" | "solana";
+        const targetName = targetChain === "stellar" ? "Stellar" : targetChain === "solana" ? "Solana" : (CHAIN_NAMES[targetChain as SupportedChain] ?? targetChain);
+        // Bring over base + fee — the fee is a second transfer out of the same chain, so
+        // consolidating only the base would strand the withdrawal one fee short.
+        const required = totalFromBase(
+          parseFloat(quoteUsdcAmount),
+          feePercent,
+        ).toFixed(6);
         // Honour the user's chosen networks (if any); otherwise pull from everything.
-        const allBalances = chainBalances ?? {};
-        const sourceBalances: ChainBalances = consolidateFrom
+        const allBalances: ChainBalances & { solana?: number; stellar?: number } = {
+          ...(chainBalances ?? {}),
+          solana: solanaSource?.balance ?? 0,
+          stellar: stellarBalance ?? 0,
+        };
+        const sourceBalances: ChainBalances & { solana?: number; stellar?: number } = consolidateFrom
           ? Object.fromEntries(
-              (Object.keys(allBalances) as (keyof ChainBalances)[])
+              (Object.keys(allBalances) as (keyof typeof allBalances)[])
                 .filter((c) => consolidateFrom.includes(c as SourceChainKey))
                 .map((c) => [c, allBalances[c]]),
             )
@@ -743,13 +759,14 @@ export function useDepositWithdraw(
               walletId: stellarWalletId,
               address: stellarAddress,
               balance: stellarBalance,
-              bridgeToBase: async (amount: string, recipient: string, onStatus?: (status: string) => void) => {
+              bridgeToBase: async (amount: string, recipient: string, onStatus?: (status: string) => void, destChain?: SupportedChain) => {
                 await bridgeStellarToBase({
                   walletId: stellarWalletId,
                   senderAddress: stellarAddress,
                   amount,
                   recipientEvm: recipient,
                   evmWallet: embeddedProvider,
+                  destChain,
                   onStatus,
                 });
               }
@@ -761,6 +778,7 @@ export function useDepositWithdraw(
           requiredAmount: required,
           balances: sourceBalances,
           recipient: userAddress,
+          stellarRecipient: stellarAddress,
           solana: includeSolana ? solanaSource : undefined,
           stellar: includeStellar ? stellarSource : undefined,
           onStatus: (s) => toast.loading(s, { id: "consolidate" }),
@@ -782,8 +800,6 @@ export function useDepositWithdraw(
           bankName: bankDetails.bankName || bankDetails.bankCode,
         },
         userRefundAddress: userAddress,
-        userEmail,
-        userId,
         fiatCurrency,
         network: withdrawChain,
         consolidated: mustConsolidate,
@@ -822,32 +838,60 @@ export function useDepositWithdraw(
         if (!solanaSource?.settleOffRamp) {
           throw new Error("Connect your Solana wallet to settle this withdrawal on Solana.");
         }
+        const bitnobFee = parseFloat(order.bitnobFee || "0");
+        const bitnobPayoutDeposit = baseAmount + bitnobFee;
         txHash = await solanaSource.settleOffRamp({
           payoutAddress: receiveAddress,
-          payoutAmount: baseAmount.toFixed(6),
+          payoutAmount: bitnobPayoutDeposit.toFixed(6),
           feeAddress: onchainFee?.address,
           feeAmount: onchainFee?.usdc,
           onStatus: (s) => toast.loading(s, { id: "wd-settle" }),
         });
+        toast.dismiss("wd-settle");
+      } else if (settlementChain === "stellar") {
+        // Settle directly on Stellar: fee-bumped payment — payout (+ fee) directly to Bitnob.
+        if (!stellarAddress || !stellarWalletId) {
+          throw new Error("Connect your Stellar wallet to settle this withdrawal on Stellar.");
+        }
+        const bitnobFee = parseFloat(order.bitnobFee || "0");
+        const bitnobPayoutDeposit = baseAmount + bitnobFee;
+        toast.loading("Submitting direct Stellar withdrawal transaction…", { id: "wd-settle" });
+
+        const res = await fetch("/api/stellar/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            walletId: stellarWalletId,
+            senderAddress: stellarAddress,
+            recipientAddress: receiveAddress,
+            amount: bitnobPayoutDeposit.toFixed(6),
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to submit Stellar withdrawal transaction.");
+        txHash = data.hash;
         toast.dismiss("wd-settle");
       } else {
         if (!embeddedProvider) return;
         const provider = await embeddedProvider.getEthereumProvider();
         const evmChain = settlementChain as SupportedChain;
 
+        const bitnobFee = parseFloat(order.bitnobFee || "0");
+        const bitnobPayoutDeposit = baseAmount + bitnobFee;
+
         if (onchainFee) {
-          // One gasless UserOp: payout to the provider + fee to our treasury.
+          // One gasless UserOp: payout to the provider (including Bitnob rail fee) + fee to our treasury.
           txHash = await executeCircleGaslessBatchTransfer(
             provider,
             [
-              { recipientAddress: receiveAddress, amountUSDC: baseAmount.toFixed(6) },
+              { recipientAddress: receiveAddress, amountUSDC: bitnobPayoutDeposit.toFixed(6) },
               { recipientAddress: onchainFee.address, amountUSDC: onchainFee.usdc },
             ],
             evmChain,
           );
         } else {
           // Provider-collected fee (or no fee): send base + fee to the single receive address.
-          const total = fee ? baseAmount + parseFloat(fee.usdc) : baseAmount;
+          const total = fee ? bitnobPayoutDeposit + parseFloat(fee.usdc) : bitnobPayoutDeposit;
           txHash = await executeCircleGaslessTransfer(
             provider,
             receiveAddress,
@@ -861,7 +905,13 @@ export function useDepositWithdraw(
       if (order.id && txHash) {
         saveWithdrawalTxHash(order.id, txHash).catch(console.error);
       }
-      toast.success("Transfer sent! Waiting for confirmation...");
+      if (order.provider === "bitnob" && order.providerRef) {
+        const ref = order.providerRef;
+        import("@/lib/actions/ramp").then(({ finalizeBitnobPayoutAction }) => {
+          finalizeBitnobPayoutAction(ref);
+        }).catch(console.error);
+      }
+      toast.success("Transfer sent! Waiting for payout confirmation...");
       queryClient.invalidateQueries({ queryKey: ["balance", userAddress] });
       setStep(4);
       startPolling();
@@ -977,7 +1027,7 @@ export function useDepositWithdraw(
 
   const refreshBankContacts = useCallback(async () => {
     if (userEmail) {
-      const contacts = await getUserBankContacts(userEmail).catch(() => []);
+      const contacts = await getUserBankContacts().catch(() => []);
       setBankContacts(contacts);
     }
   }, [userEmail]);
@@ -1045,7 +1095,6 @@ export function useDepositWithdraw(
     handleSaveBankContact: async () => {
       try {
         await addBankContact({
-          userEmail,
           bankName: bankDetails.bankName,
           bankCode: bankDetails.bankCode,
           accountNumber: bankDetails.accountNumber,
@@ -1053,7 +1102,7 @@ export function useDepositWithdraw(
         });
         toast.success("Bank account saved!");
         setShowSavePrompt(false);
-        getUserBankContacts(userEmail)
+        getUserBankContacts()
           .then(setBankContacts)
           .catch(console.error);
         if (type === "withdraw") {

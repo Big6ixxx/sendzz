@@ -1,5 +1,7 @@
 "use server";
 
+import { requireUserId } from "@/lib/auth/session";
+import { toUserSafeMessage } from "@/lib/errors/sanitize";
 import { Ramp } from "@/lib/ramp";
 import { isBridgeable } from "@/lib/circle/gateway";
 import { applyFee, getProviderFee, resolveFeeTreasury } from "@/lib/ramp/fees";
@@ -34,17 +36,15 @@ export async function getProviderFeePercent(
  */
 export async function initiateOnRamp({
   amountFiat,
-  userId,
   userAddress,
-  userEmail,
   refundAccount,
   fiatCurrency = "NGN",
   network = "base",
+  accessToken,
 }: {
   amountFiat: number;
-  userId: string;
   userAddress: string;
-  userEmail: string;
+  accessToken?: string;
   refundAccount: {
     institution: string;
     accountIdentifier: string;
@@ -55,6 +55,12 @@ export async function initiateOnRamp({
   network?: RampNetwork;
 }): Promise<RampOrderResponse> {
   try {
+    // Identity from the session — see the note in executeOffRamp. A caller-supplied id here
+    // would let a deposit (and its KYC-limit consumption) be booked to another account.
+    const session = await requireUserId(accessToken);
+    const userId = session.userId;
+    const userEmail = session.email;
+
     // KYC limit guard for on-ramps.
     // Convert fiat amount → USD equivalent using the live buy rate before
     // checking limits. USDC is pegged 1:1 to USD, so amountUsdc ≈ amountUsd.
@@ -250,15 +256,22 @@ export async function executeOffRamp(params: {
   inputMode: "fiat" | "usdc";
   bank: { accountNumber: string; accountName: string; bankName: string };
   userRefundAddress: string;
-  userEmail: string;
-  /** Authenticated user's Supabase ID — required for KYC/limit enforcement. */
-  userId: string;
   fiatCurrency: RampCurrency;
   network: RampNetwork;
   consolidated?: boolean;
+  accessToken?: string;
 }): Promise<{ order: RampOrderResponse; provider: RampProviderName }> {
+  // ── Identity ────────────────────────────────────────────────────────────
+  // Taken from the session, never from `params`. This action moves money and records it
+  // against an account, so a caller-supplied userId/userEmail would let someone charge a
+  // withdrawal to another account — and, because the KYC guard is keyed on that id, evade
+  // their own spending limit by naming a fresh one.
+  const session = await requireUserId(params.accessToken);
+  const userId = session.userId;
+  const userEmail = session.email;
+
   // ── KYC & Limit Guard ───────────────────────────────────────────────────
-  const guard = await kycGuard(params.userId, params.amountUsdc);
+  const guard = await kycGuard(userId, params.amountUsdc);
   if (!guard.allowed) {
     throw Object.assign(
       new Error(guard.message),
@@ -272,16 +285,33 @@ export async function executeOffRamp(params: {
       ? new Error(`No off-ramp provider can settle ${params.fiatCurrency} on ${params.network}`)
       : new Error("No off-ramp provider available");
 
+  const skipped: string[] = [];
+
   for (const provider of providersToTry) {
     try {
       // Fee config for this provider. For on-chain collection, resolve the treasury address
       // for the settlement chain BEFORE creating an order — fail-closed on a misconfig so we
       // never create a payout we can't take our fee on (this just moves to the next provider).
+      //
+      // This is the quietest way a provider drops out: with no treasury configured, the
+      // provider is skipped before an order exists, so nothing appears in the ledger and the
+      // only trace is this log line. Name it explicitly — an unconfigured treasury looks
+      // exactly like "the provider doesn't support this corridor" from the outside.
       const feeCfg = getProviderFee(provider);
-      const feeAddress =
-        feeCfg.collection === "onchain" && feeCfg.percent > 0
-          ? resolveFeeTreasury(provider, params.network)
-          : undefined;
+      let feeAddress: string | undefined;
+      if (feeCfg.collection === "onchain" && feeCfg.percent > 0) {
+        try {
+          feeAddress = resolveFeeTreasury(provider, params.network);
+        } catch (feeErr) {
+          const detail = feeErr instanceof Error ? feeErr.message : String(feeErr);
+          skipped.push(`${provider}: ${detail}`);
+          console.error(
+            `[Action] executeOffRamp: SKIPPING ${provider} — fee treasury not configured for ` +
+              `${params.network}. Set ${provider.toUpperCase()}_FEE_TREASURY_${params.network.toUpperCase()}. ${detail}`,
+          );
+          continue;
+        }
+      }
 
       const resolved = await Ramp.resolveBankCode(
         provider,
@@ -304,7 +334,7 @@ export async function executeOffRamp(params: {
           accountName: params.bank.accountName,
         },
         userRefundAddress: params.userRefundAddress,
-        userEmail: params.userEmail,
+        userEmail: userEmail,
         fiatCurrency: params.fiatCurrency,
         network: params.network,
       });
@@ -326,7 +356,7 @@ export async function executeOffRamp(params: {
 
       const { recordWithdrawal } = await import("@/lib/supabase/transactions");
       await recordWithdrawal({
-        userEmail: params.userEmail,
+        userEmail: userEmail,
         amountUsdc: finalAmountUsdc,
         fiatCurrency: params.fiatCurrency,
         fiatAmount: isFiat
@@ -354,11 +384,31 @@ export async function executeOffRamp(params: {
       console.error(`[Action] executeOffRamp: ${provider} failed, trying next:`, e);
     }
   }
-  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  // Every capable provider dropped out. Log why (config vs. genuine failure) so an
+  // unconfigured corridor is distinguishable from a provider outage.
+  if (skipped.length > 0) {
+    console.error(
+      `[Action] executeOffRamp: no provider could settle ${params.fiatCurrency} on ` +
+        `${params.network}. Skipped for configuration:\n` +
+        skipped.map((sk) => `  • ${sk}`).join("\n"),
+    );
+  }
+
+  const rawMessage = lastError instanceof Error ? lastError.message : String(lastError);
+  throw new Error(
+    toUserSafeMessage(rawMessage) ??
+      `Withdrawals to ${params.fiatCurrency} are unavailable right now. Please try again later.`,
+  );
 }
 
 /**
  * Verify a bank account (account number → account name).
+ *
+ * Providers are tried in the order that can actually serve this currency. The generic router
+ * fallback isn't currency-aware, so an RWF lookup was being sent to a provider that doesn't
+ * cover Rwanda, where it hung until the gateway timed out — and because that fallback's last
+ * call is unguarded, the error escaped and took the page down with a 500 instead of showing
+ * as a failed verification.
  */
 export async function verifyBankAccount(
   institution: string,
@@ -366,28 +416,46 @@ export async function verifyBankAccount(
   currency?: string,
   provider?: RampProviderName,
 ) {
-  console.log(
-    `[Action] verifyBankAccount: ${institution} / ${accountNumber} / ${currency ?? "NGN"} / ${provider ?? "auto"}`,
-  );
-  if (provider) {
+  const fiat = currency ?? "NGN";
+
+  // The caller's pinned provider first (the withdraw flow resolved the bank code against it),
+  // then everything else that supports this currency.
+  const ordered = await Ramp.offRampProviderOrder(fiat).catch(() => [] as RampProviderName[]);
+  const candidates = [
+    ...(provider ? [provider] : []),
+    ...ordered.filter((p) => p !== provider),
+  ];
+  if (candidates.length === 0) candidates.push("paycrest");
+
+  const failures: { provider: RampProviderName; message: string }[] = [];
+  for (const p of candidates) {
     try {
-      const result = await Ramp.verifyAccountFor(provider, institution, accountNumber, currency);
-      if (result && result.data && (typeof result.data === "string" || result.data?.accountName)) {
-        console.log(`[Action] verifyBankAccount result (${provider}):`, result);
-        return result;
-      }
+      const result = await Ramp.verifyAccountFor(p, institution, accountNumber, fiat);
+      const name =
+        typeof result?.data === "string" ? result.data : result?.data?.accountName;
+      if (name) return result;
+      failures.push({ provider: p, message: "no account name returned" });
     } catch (err) {
-      console.warn(`[Action] verifyBankAccount ${provider} failed, trying router fallback:`, err);
+      const message = err instanceof Error ? err.message : String(err);
+      failures.push({ provider: p, message });
     }
   }
-  try {
-    const fallbackResult = await Ramp.verifyAccount(institution, accountNumber, currency);
-    console.log(`[Action] verifyBankAccount result (fallback):`, fallbackResult);
-    return fallbackResult;
-  } catch (error) {
-    console.error(`[Action] verifyBankAccount failed:`, error);
-    throw error;
-  }
+
+  console.error(
+    `[Action] verifyBankAccount failed for ${fiat} / ${institution}:\n` +
+      failures.map((f) => `  • ${f.provider}: ${f.message}`).join("\n"),
+  );
+
+  // Prefer a specific failure over a vague one. "temporarily unavailable" is true but useless,
+  // and when it came from a provider tried *after* the right one it actively hid the answer.
+  const isVague = (m: string) =>
+    /temporarily unavailable|didn't respond|couldn't reach|unexpected response|try again shortly/i.test(m);
+  const chosen = failures.find((f) => !isVague(f.message)) ?? failures[0];
+
+  throw new Error(
+    toUserSafeMessage(chosen?.message) ??
+      "We couldn't verify this account. Check the details and try again.",
+  );
 }
 
 /**
@@ -454,3 +522,37 @@ export async function getRampNetworks(): Promise<string[]> {
     return FALLBACK;
   }
 }
+
+/**
+ * Finalize a Bitnob payout AFTER the on-chain deposit has been sent and confirmed.
+ * Retries with backoff if Bitnob's deposit indexer is still processing the block.
+ */
+export async function finalizeBitnobPayoutAction(quoteId: string): Promise<boolean> {
+  if (!quoteId) return false;
+  const { getBitnobClient } = await import("@/lib/bitnob/client");
+  const client = getBitnobClient();
+
+  // Poll Bitnob to verify that the on-chain deposit has landed before finalizing payout.
+  // Bitnob returns a 400 'cannot transition ... to pending' while the deposit is still pending on-chain.
+  // Once the on-chain deposit confirms, Bitnob accepts finalizePayout and dispatches the payout.
+  for (let attempt = 1; attempt <= 15; attempt++) {
+    try {
+      await client.finalizePayout(quoteId);
+      console.log(`[Action] finalizeBitnobPayoutAction: deposit confirmed & payout finalized for ${quoteId} on attempt ${attempt}`);
+      return true;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/pending_address_deposit|cannot transition/i.test(msg)) {
+        console.log(`[Action] finalizeBitnobPayoutAction: deposit pending confirmation on-chain for ${quoteId} (attempt ${attempt}/15)...`);
+        await new Promise((r) => setTimeout(r, 4000));
+        continue;
+      }
+      console.error(`[Action] finalizeBitnobPayoutAction failed for ${quoteId}:`, msg);
+      return false;
+    }
+  }
+  console.warn(`[Action] finalizeBitnobPayoutAction: deposit confirmation polling timed out for ${quoteId}`);
+  return false;
+}
+
+

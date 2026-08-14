@@ -1,29 +1,39 @@
 /**
  * Paycrest Configuration
- * 
+ *
  * Central place for fees and other settings.
+ *
+ * The fee percentage is REQUIRED, never defaulted. It comes from PAYCREST_FEE_PERCENT, which
+ * only the server can read — a default here would silently reinstate a compiled-in rate and
+ * let deposits charge something different from withdrawals. Callers pass the effective value:
+ *   • server → getProviderFee('paycrest').percent
+ *   • client → the value fetched via getProviderFeePercent()
  */
 
-// The partner fee percentage set in your Paycrest dashboard.
-// This is used to reverse-calculate the base amount so that the 
-// final bank transfer amount matches exactly what the user entered.
-export const PAYCREST_PARTNER_FEE_PERCENT = 0.3; // 0.3%
+import { baseFromTotal, totalFromBase } from "@/lib/ramp/fees";
 
 /**
- * Calculates the base amount to send to Paycrest so that after adding 
- * the partner fee, the total matches the target amount.
- * 
+ * Calculates the base amount to send to Paycrest so that after adding
+ * the platform fee, the total matches the target amount.
+ *
+ * Paycrest skims the fee itself (configured to the same percentage on their dashboard), so we
+ * send the reverse-calculated base and their skim lands the user on exactly what they entered.
+ *
  * Formula: target = base * (1 + fee)  =>  base = target / (1 + fee)
  */
-export function calculatePaycrestBaseAmount(targetTotal: number): number {
-  const feeRate = PAYCREST_PARTNER_FEE_PERCENT / 100;
-  return targetTotal / (1 + feeRate);
+export function calculatePaycrestBaseAmount(
+  targetTotal: number,
+  feePercent: number,
+): number {
+  return baseFromTotal(targetTotal, feePercent);
 }
 
 /**
- * Calculates the final transfer amount including the partner fee.
+ * Calculates the final transfer amount including the platform fee.
  */
-export function calculatePaycrestTotalAmount(baseAmount: number): number {
-  const feeRate = PAYCREST_PARTNER_FEE_PERCENT / 100;
-  return baseAmount * (1 + feeRate);
+export function calculatePaycrestTotalAmount(
+  baseAmount: number,
+  feePercent: number,
+): number {
+  return totalFromBase(baseAmount, feePercent);
 }

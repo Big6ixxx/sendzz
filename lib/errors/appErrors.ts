@@ -1,3 +1,5 @@
+import { GENERIC_ERROR_MESSAGE, toUserSafeMessage } from './sanitize';
+
 /**
  * Centralized app error classifier for Sendzz.
  *
@@ -79,6 +81,15 @@ export function classifyAppError(err: unknown): AppError {
   }
 
   if (
+    msg.includes('unauthorized') ||
+    msg.includes('autherror') ||
+    msg.includes('invalid access token') ||
+    msg.includes('jwt expired')
+  ) {
+    return { message: 'Your session expired. Please refresh the page to continue.', category: 'validation', isSilent: false, isAlreadyProcessed: false };
+  }
+
+  if (
     msg.includes('message expired') ||
     msg.includes('must be re-signed') ||
     msg.includes('signature expired')
@@ -89,7 +100,14 @@ export function classifyAppError(err: unknown): AppError {
   if (
     msg.includes('nonce already used') ||
     msg.includes('message already received') ||
-    msg.includes('message already processed')
+    msg.includes('message already processed') ||
+    // The Stellar claim route sanitises Soroban errors before they reach the browser, so the
+    // raw wordings above never survive the trip. Match its output and its error code too —
+    // otherwise an already-claimed transfer falls through to the generic "couldn't complete"
+    // branch below, and the user is told to retry something that can never succeed.
+    msg.includes('already been claimed') ||
+    msg.includes('already_claimed') ||
+    msg.includes('already arrived')
   ) {
     return { message: 'This transfer was already processed. Please refresh your balance.', category: 'already_processed', isSilent: false, isAlreadyProcessed: true };
   }
@@ -209,7 +227,14 @@ export function classifyAppError(err: unknown): AppError {
     return { message: rawMsg, category: 'unknown', isSilent: false, isAlreadyProcessed: false };
   }
 
-  return { message: `Something went wrong: ${rawMsg.slice(0, 200)}`, category: 'unknown', isSilent: false, isAlreadyProcessed: false };
+  // Only echo the original when it's clean — no provider names, no JSON, no request paths.
+  // The raw text is already in the console for whoever is debugging.
+  return {
+    message: toUserSafeMessage(rawMsg) ?? GENERIC_ERROR_MESSAGE,
+    category: 'unknown',
+    isSilent: false,
+    isAlreadyProcessed: false,
+  };
 }
 
 /** Shorthand: returns just the user-safe message string */

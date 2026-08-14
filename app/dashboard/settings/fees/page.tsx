@@ -19,6 +19,8 @@ import {
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
+import { usePlatformFee } from '@/lib/hooks/usePlatformFee';
+
 // ─── Data ────────────────────────────────────────────────────────────────────
 
 const HELP_FAQS = [
@@ -104,6 +106,7 @@ function HelpFaqItem({ faq }: { faq: (typeof HELP_FAQS)[number] }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function HelpCenterPage() {
+  const platformFee = usePlatformFee();
   const router = useRouter();
 
   return (
@@ -176,12 +179,12 @@ export default function HelpCenterPage() {
                 <div>
                   <p className="font-bold text-foreground">Platform Fee</p>
                   <p className="text-[11px] text-muted-foreground max-w-[260px] mt-1">
-                    Charged by our fiat payout partners to process the transfer to your local bank account.
+                    Our fee for moving money between your wallet and your local bank account. The same rate applies to deposits and withdrawals.
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="font-black text-xl text-accent">0.3%</p>
-                  <p className="text-[10px] uppercase font-bold text-muted-foreground">Of withdrawal amount</p>
+                  <p className="font-black text-xl text-accent">{platformFee ?? '—'}%</p>
+                  <p className="text-[10px] uppercase font-bold text-muted-foreground">Of deposit or withdrawal</p>
                 </div>
               </div>
 

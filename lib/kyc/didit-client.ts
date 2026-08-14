@@ -197,3 +197,26 @@ export function normalizeDiditStatus(
       return "pending";
   }
 }
+
+/**
+ * Deep link to one verification session in the Didit business console, for admin review.
+ *
+ * The console is a separate product from the verification API this module wraps, and its URL
+ * shape isn't part of the API contract, and the two path UUIDs are our organisation and
+ * project — so the whole thing is a template. Override it with `DIDIT_CONSOLE_SESSION_URL`
+ * (any string containing `{sessionId}`) to point a different environment at a different Didit
+ * workspace without a code change.
+ *
+ * Server-side only, like the rest of this module: the resolved URL is handed to the client by
+ * the admin server action, so nothing here reaches the browser.
+ */
+const DIDIT_CONSOLE_ORG_ID = "07e3f741-4d4f-4258-8f89-f3b17e96c9b2";
+const DIDIT_CONSOLE_PROJECT_ID = "df085f7d-9abb-4cc6-b7a5-076e4696742e";
+
+export function diditConsoleSessionUrl(sessionId: string): string {
+  const template =
+    process.env.DIDIT_CONSOLE_SESSION_URL ||
+    `https://business.didit.me/console/${DIDIT_CONSOLE_ORG_ID}/${DIDIT_CONSOLE_PROJECT_ID}` +
+      `/kyc/verifications?session-id={sessionId}#OVERVIEW`;
+  return template.replace("{sessionId}", encodeURIComponent(sessionId));
+}

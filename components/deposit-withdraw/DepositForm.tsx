@@ -13,10 +13,8 @@ import {
 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
-import {
-  calculatePaycrestBaseAmount,
-  PAYCREST_PARTNER_FEE_PERCENT,
-} from "@/lib/paycrest/config";
+import { calculatePaycrestBaseAmount } from "@/lib/paycrest/config";
+
 import { BankSelector } from "./BankSelector";
 import { DepositNetworkAccordion } from "./DepositNetworkAccordion";
 import { useDepositWithdraw } from "./useDepositWithdraw";
@@ -33,7 +31,7 @@ export function DepositForm({ hook }: DepositFormProps) {
   const estimatedUsdc =
     hook.rate && hook.amount
       ? (
-          calculatePaycrestBaseAmount(parseFloat(hook.amount)) / hook.rate
+          calculatePaycrestBaseAmount(parseFloat(hook.amount), hook.feePercent) / hook.rate
         ).toFixed(4)
       : null;
 
@@ -109,7 +107,7 @@ export function DepositForm({ hook }: DepositFormProps) {
             <div className="flex justify-between text-sm pt-2 border-t border-border">
               <span className="text-muted-foreground">Platform Fee</span>
               <span className="font-semibold text-foreground">
-                {PAYCREST_PARTNER_FEE_PERCENT}%
+                {hook.feePercent}%
               </span>
             </div>
           </div>
@@ -279,7 +277,7 @@ export function DepositForm({ hook }: DepositFormProps) {
       timestamp: new Date().toISOString(),
       amountUsdc:
         hook.rate && hook.amount
-          ? calculatePaycrestBaseAmount(parseFloat(hook.amount)) / hook.rate
+          ? calculatePaycrestBaseAmount(parseFloat(hook.amount), hook.feePercent) / hook.rate
           : 0,
       fiatAmount: parseFloat(hook.amount),
       fiatCurrency: hook.fiatCurrency,

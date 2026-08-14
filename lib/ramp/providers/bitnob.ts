@@ -17,6 +17,11 @@ import {
 } from "@/lib/bitnob/client";
 import { getCurrencySymbol } from "@/lib/currency-config";
 import { RampUnsupportedError, type RampProvider } from "../provider";
+import {
+  isMobileMoneyCode,
+  toInternationalMsisdn,
+  validateMobileMoneyNumber,
+} from "../msisdn";
 import type {
   CreateOffRampParams,
   LedgerRowRef,
@@ -116,10 +121,9 @@ const APP_EVM_CHAINS = new Set([
 ]);
 
 /**
- * Chains this app can settle an off-ramp on — the EVM chains plus Solana (direct SPL settle).
- * Stellar is coming soon (settle path not built yet), so it's intentionally excluded until then.
+ * Chains this app can settle an off-ramp on — EVM chains, Solana, and Stellar (direct settlement).
  */
-const APP_SETTLEMENT_CHAINS = new Set([...APP_EVM_CHAINS, "solana"]);
+const APP_SETTLEMENT_CHAINS = new Set([...APP_EVM_CHAINS, "solana", "stellar"]);
 
 let currencyNames: Intl.DisplayNames | null | undefined;
 function currencyName(code: string): string {
@@ -234,6 +238,7 @@ export class BitnobProvider implements RampProvider {
     destinationType: string,
     country: string,
     bank: CreateOffRampParams["bank"],
+    userEmail?: string,
   ): BitnobBeneficiary {
     const base = { destination_type: destinationType, country, account_name: bank.accountName };
     switch (destinationType) {
@@ -242,9 +247,32 @@ export class BitnobProvider implements RampProvider {
       case "mobile_money":
       case "paybill":
       case "paytill":
-        // Mobile-money rails: account_number carries the phone/till number, bank_code the
-        // provider. (Exact field names for these rails are unconfirmed against a live payload.)
-        return { ...base, account_number: bank.accountNumber, bank_code: bank.bankCode };
+        // Mobile-money rails require `network` and `sender` identity details.
+        // Sent as an international MSISDN — the settlement form — so the payout
+        // matches the number the format check normalised.
+        const code = (bank.bankCode || "").toUpperCase();
+        let network = "MTN";
+        if (code.includes("AIRT")) network = "AIRTEL";
+        else if (code.includes("VODA")) network = "VODAFONE";
+        else if (code.includes("SAFA") || code.includes("MPESA")) network = "SAFARICOM";
+        else if (code.includes("ORANGE")) network = "ORANGE";
+        else if (code.includes("WAVE")) network = "WAVE";
+        else if (code.includes("QMONEY")) network = "QMONEY";
+        else if (code.includes("AFRI")) network = "AFRIMONEY";
+
+        const senderName = userEmail ? userEmail.split("@")[0] : bank.accountName || "Sendzz User";
+        return {
+          ...base,
+          account_number:
+            toInternationalMsisdn(bank.accountNumber, country) ?? bank.accountNumber,
+          bank_code: bank.bankCode,
+          network,
+          sender: {
+            account_name: senderName,
+            country: country,
+            address: `${country} Region`,
+          },
+        };
       default:
         // swift/wire/ach/sepa/domestic_gbp need field schemas the app doesn't collect.
         throw new RampUnsupportedError(
@@ -282,16 +310,18 @@ export class BitnobProvider implements RampProvider {
     const bitnob = getBitnobClient();
     const reference = `offramp_${Date.now()}`;
 
-    // 1. Quote the USDC → fiat conversion.
+    // 1. Quote the USDC → fiat conversion for the exact target payout amount.
     const quote = await bitnob.createPayoutQuote({
       amount: String(params.amountUsdc),
       country,
       from_asset: "USDC",
       to_currency: params.fiatCurrency,
-      source: "onchain",
+      source: "offchain",
       chain: params.network,
       reference,
     });
+
+    const bitnobFee = quote.fees || "0";
 
     // 2. Generate the deposit address the user funds. It shares this payout's `reference`,
     // which is how Bitnob associates the incoming USDC with the payout (deposit.success
@@ -307,12 +337,8 @@ export class BitnobProvider implements RampProvider {
       quote_id: quote.quote_id,
       reference,
       payment_reason: "user_withdrawal",
-      beneficiary: this.buildBeneficiary(destinationType, country, params.bank),
+      beneficiary: this.buildBeneficiary(destinationType, country, params.bank, params.userEmail),
     });
-
-    // Finalize is NOT called here — the payout can only be finalized AFTER its on-chain
-    // deposit confirms (otherwise Bitnob 400s "cannot transition to pending"). It's driven
-    // from the deposit.success webhook instead.
 
     // Prefer an address returned by initialize (payout-bound); otherwise use the one above.
     const receiveAddress = depositAddressOf(initialized) ?? address.address;
@@ -332,6 +358,7 @@ export class BitnobProvider implements RampProvider {
       source: { type: "crypto", currency: "USDC", network: params.network },
       destination: { type: "fiat", currency: params.fiatCurrency },
       amount: String(params.amountUsdc),
+      bitnobFee,
       createdAt: quote.created_at ?? new Date().toISOString(),
     };
   }
@@ -390,13 +417,43 @@ export class BitnobProvider implements RampProvider {
         `No serviceable country for ${currency}`,
       );
     }
+    // Mobile money has no name enquiry to call.
+    //
+    // Bitnob's account-lookup is enabled for Nigerian BANK accounts only — confirmed against
+    // the live API, where every Rwandan operator code and every number format returned 400
+    // VALIDATION_ERROR. Calling it here produced a validation error the UI reported as a bad
+    // account number, when in fact the number was fine and the endpoint simply doesn't serve
+    // that rail. So don't call it: check the number's shape instead, and be explicit that the
+    // holder's name is not confirmed. Bitnob validates the wallet at payout and refunds if it
+    // can't be reached.
+    if (isMobileMoneyCode(institution)) {
+      const operatorName = getMobileMoneyOperators(country, currency).find(
+        (o) => o.code.toUpperCase() === institution.toUpperCase(),
+      )?.name;
+
+      const check = validateMobileMoneyNumber({
+        institutionCode: institution,
+        country,
+        accountNumber,
+        operatorName,
+      });
+      if (!check.ok) throw new Error(check.reason ?? "That mobile money number isn't valid.");
+
+      return {
+        status: "success",
+        message: "format_checked",
+        data: { accountName: operatorName ?? "Mobile Money" },
+        nameVerified: false,
+      };
+    }
+
     const r = await getBitnobClient().accountLookup(country, institution, accountNumber);
     if (!r.account_name || r.is_verified === false) {
       throw new Error(
         "Unable to verify bank details. Please check the bank and account information.",
       );
     }
-    return { status: "success", data: { accountName: r.account_name } };
+    return { status: "success", data: { accountName: r.account_name }, nameVerified: true };
   }
 
   async getInstitutions(currency: RampCurrency): Promise<{ data: RampInstitution[] }> {

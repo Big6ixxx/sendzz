@@ -1,3 +1,4 @@
+import { toUserSafeMessage } from '@/lib/errors/sanitize';
 import {
   PaycrestCurrencyDetail,
   PaycrestInstitution,
@@ -21,10 +22,10 @@ export class PaycrestClient {
     path: string,
     options: RequestInit = {},
   ): Promise<T> {
+    // Method and path only. The body of an off-ramp order carries the customer's bank
+    // account number and account name, and responses carry order + payout detail — none of
+    // which belongs in a server log. Statuses and errors below are enough to debug with.
     console.log(`[Paycrest] Request: ${options.method || 'GET'} ${path}`);
-    if (options.body) {
-      console.log(`[Paycrest] Body:`, options.body);
-    }
 
     const res = await fetch(`${this.baseUrl}${path}`, {
       ...options,
@@ -37,12 +38,26 @@ export class PaycrestClient {
 
     if (!res.ok) {
       const error = await res.text();
-      console.error(`[Paycrest] Error (${res.status}): ${error}`);
-      throw new Error(`Paycrest API Error (${res.status}): ${error}`);
+      // Gateway failures arrive as a full Cloudflare HTML page; never let that reach a toast.
+      console.error(`[Paycrest] Error (${res.status}) on ${path}: ${error.slice(0, 500)}`);
+      if (res.status >= 500) {
+        throw new Error('That service is temporarily unavailable. Please try again shortly.');
+      }
+      let detail = '';
+      try {
+        const parsed = JSON.parse(error) as { message?: string; detail?: string };
+        detail = (parsed.message || parsed.detail || '').trim();
+      } catch {
+        /* not JSON */
+      }
+      throw new Error(
+        toUserSafeMessage(detail) ??
+          "We couldn't complete that request. Please try again shortly.",
+      );
     }
 
     const data = await res.json();
-    console.log(`[Paycrest] Response:`, data);
+    console.log(`[Paycrest] Response: ${res.status} ${path}`);
     return data as T;
   }
 

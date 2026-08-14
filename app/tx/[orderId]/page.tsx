@@ -84,7 +84,7 @@ const STATUS_MAP: Record<
   },
   settling: {
     label: 'Settling Funds',
-    sub: 'Finalizing the transfer to your Base Mainnet address.',
+    sub: 'Finalizing the transfer to your destination address.',
     icon: Loader2,
     color: '#00e87a',
     progress: 90,
@@ -369,7 +369,7 @@ export default function TxStatusPage({
                       <div className="px-4 py-2 rounded-xl bg-accent/10 border border-accent/20 flex items-center gap-2">
                         <ShieldCheck className="w-4 h-4 text-accent" />
                         <span className="text-[11px] font-bold uppercase tracking-widest text-accent">
-                          Base Mainnet
+                          Multi-Chain Secured
                         </span>
                       </div>
                       <p className="text-[10px] font-bold opacity-30 uppercase tracking-widest">

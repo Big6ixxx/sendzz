@@ -6,9 +6,10 @@ import { Check } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { PAYCREST_PARTNER_FEE_PERCENT } from "@/lib/paycrest/config";
+import { usePlatformFee } from '@/lib/hooks/usePlatformFee';
 
 export default function PricingPage() {
+  const platformFee = usePlatformFee();
   const { authenticated, login } = usePrivy();
   const router = useRouter();
 
@@ -223,14 +224,14 @@ export default function PricingPage() {
                     },
                     {
                       s: "Fiat Deposit (On-ramp)",
-                      n: `${PAYCREST_PARTNER_FEE_PERCENT}%`,
-                      o: "Free",
+                      n: "$0.00",
+                      o: platformFee === null ? '—' : `${platformFee}%`,
                       st: "< 2 mins",
                     },
                     {
                       s: "Fiat Withdrawal (Off-ramp)",
-                      n: `${PAYCREST_PARTNER_FEE_PERCENT}%`,
-                      o: "Free",
+                      n: "$0.00",
+                      o: platformFee === null ? '—' : `${platformFee}%`,
                       st: "< 5 mins",
                     },
                     {

@@ -47,7 +47,6 @@ export function AddContactModal({
     setAddError('');
     try {
       await addContact({
-        userEmail: senderEmail,
         contactEmail: newContactEmail.trim(),
         contactName: newContactName.trim(),
       });

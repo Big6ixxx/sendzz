@@ -1,31 +1,23 @@
 'use server';
 
-import { AdminTransaction } from '@/types/admin';
+import type { AdminDateRange, AdminTransaction, AdminUserDetail } from '@/types/admin';
+import { getAdminSession, requireAdmin } from '@/lib/admin/auth';
+import { diditConsoleSessionUrl } from '@/lib/kyc/didit-client';
 import { supabaseAdmin } from './adminClient';
 
-async function verifyAdmin(email: string | undefined): Promise<boolean> {
-  if (!email) return false;
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('platform_admins')
-      .select('email')
-      .eq('email', email.toLowerCase())
-      .single();
-    if (data && !error) return true;
-  } catch (err) {
-    console.error('[Admin Auth] DB query failed, falling back to ENV:', err);
-  }
-  const serverAdmins =
-    process.env.ADMIN_EMAILS?.split(',').map((e) => e.trim().toLowerCase()) || [];
-  return serverAdmins.includes(email.toLowerCase());
+/**
+ * Every export below is a Server Action — a POST endpoint anyone can invoke. So each one opens
+ * with `requireAdmin()`, which derives the caller's identity from their session cookie. None of
+ * them accept an email to authorise against: a caller-supplied identity is not an identity.
+ */
+
+/** Is the *current session* an approved admin? Takes no argument, by design. */
+export async function checkIsAdmin(accessToken?: string): Promise<boolean> {
+  return (await getAdminSession(accessToken)) !== null;
 }
 
-export async function checkIsAdmin(email: string | undefined): Promise<boolean> {
-  return verifyAdmin(email);
-}
-
-export async function getAdminStats(adminEmail: string) {
-  if (!(await verifyAdmin(adminEmail))) throw new Error('Unauthorized');
+export async function getAdminStats(accessToken?: string) {
+  await requireAdmin(accessToken);
 
   const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
@@ -87,22 +79,25 @@ export async function getAdminStats(adminEmail: string) {
   };
 }
 
-export async function getAdminTransactions(
-  adminEmail: string,
-  filterType?: string,
-  dateRange?: '7d' | '30d' | '6m' | '1y' | 'all',
-): Promise<AdminTransaction[]> {
-  if (!(await verifyAdmin(adminEmail))) throw new Error('Unauthorized');
+/** Start of a reporting window, or undefined for 'all' (no lower bound). */
+function dateRangeStart(range: AdminDateRange | undefined): string | undefined {
+  if (!range || range === 'all') return undefined;
+  const now = new Date();
+  if (range === '7d') now.setDate(now.getDate() - 7);
+  else if (range === '30d') now.setDate(now.getDate() - 30);
+  else if (range === '6m') now.setMonth(now.getMonth() - 6);
+  else if (range === '1y') now.setFullYear(now.getFullYear() - 1);
+  return now.toISOString();
+}
 
-  let startDate: string | undefined;
-  if (dateRange && dateRange !== 'all') {
-    const now = new Date();
-    if (dateRange === '7d') now.setDate(now.getDate() - 7);
-    else if (dateRange === '30d') now.setDate(now.getDate() - 30);
-    else if (dateRange === '6m') now.setMonth(now.getMonth() - 6);
-    else if (dateRange === '1y') now.setFullYear(now.getFullYear() - 1);
-    startDate = now.toISOString();
-  }
+export async function getAdminTransactions(
+  filterType?: string,
+  dateRange?: AdminDateRange,
+  accessToken?: string,
+): Promise<AdminTransaction[]> {
+  await requireAdmin(accessToken);
+
+  const startDate = dateRangeStart(dateRange);
 
   const applyDateFilter = <T extends { gte: (col: string, val: string) => T }>(
     query: T,
@@ -126,8 +121,8 @@ export async function getAdminTransactions(
   return filterType ? all.filter((t) => t.tx_type === filterType) : all;
 }
 
-export async function getAdminUsers(adminEmail: string) {
-  if (!(await verifyAdmin(adminEmail))) throw new Error('Unauthorized');
+export async function getAdminUsers(accessToken?: string) {
+  await requireAdmin(accessToken);
 
   const { data: users, error } = await supabaseAdmin
     .from('users')
@@ -159,11 +154,120 @@ export async function getAdminUsers(adminEmail: string) {
   });
 }
 
+/**
+ * Everything the admin user-detail view needs for one account, in a single round-trip:
+ * profile, wallets, KYC state, lifetime totals, and the transactions inside `dateRange`.
+ *
+ * Totals are deliberately LIFETIME and independent of `dateRange` — they describe the account,
+ * so re-filtering the table shouldn't appear to change how much the user has ever moved. Only
+ * `transactions` narrows, and that's what the table and the export both read.
+ *
+ * Transfers are matched on id OR email because a transfer can predate the recipient having an
+ * account: `recipient_id` is null until they sign up, and the email is the only link back. The
+ * same rule is used by the user's own history, so admin and user see the same set.
+ */
+export async function getAdminUserDetail(
+  userId: string,
+  dateRange: AdminDateRange = '30d',
+  accessToken?: string,
+): Promise<AdminUserDetail> {
+  await requireAdmin(accessToken);
+
+  const { data: user, error: userError } = await supabaseAdmin
+    .from('users')
+    .select('*')
+    .eq('id', userId)
+    .single();
+
+  if (userError || !user) throw new Error('User not found');
+  const email = user.email.toLowerCase();
+
+  const startDate = dateRangeStart(dateRange);
+  const inRange = <T extends { gte: (col: string, val: string) => T }>(q: T): T =>
+    startDate ? q.gte('created_at', startDate) : q;
+
+  const [{ data: kyc }, { data: deposits }, { data: withdrawals }, { data: transfers }, { data: bridges }] =
+    await Promise.all([
+      supabaseAdmin
+        .from('kyc_verifications')
+        .select('status, didit_session_id, updated_at')
+        .eq('user_id', userId)
+        .maybeSingle(),
+      inRange(supabaseAdmin.from('deposits').select('*').eq('user_id', userId)),
+      inRange(supabaseAdmin.from('withdrawals').select('*').eq('user_id', userId)),
+      inRange(
+        supabaseAdmin
+          .from('transfers')
+          .select('*')
+          .or(
+            `sender_id.eq.${userId},recipient_id.eq.${userId},` +
+              `sender_email.eq.${email},recipient_email.eq.${email}`,
+          ),
+      ),
+      inRange(supabaseAdmin.from('bridge_transactions').select('*').eq('user_id', userId)),
+    ]);
+
+  const transactions: AdminTransaction[] = [
+    ...(transfers ?? []).map((t) => ({ ...t, tx_type: 'transfer' as const })),
+    ...(deposits ?? []).map((d) => ({ ...d, tx_type: 'deposit' as const, amount: d.amount_usdc || 0 })),
+    ...(withdrawals ?? []).map((w) => ({ ...w, tx_type: 'withdrawal' as const, amount: w.amount_usdc || 0 })),
+    ...(bridges ?? []).map((b) => ({ ...b, tx_type: 'bridge' as const, status: b.attestation_status })),
+  ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  // Lifetime totals — a separate, unfiltered pass. Only settled rows count, matching the
+  // definitions used by the directory and the platform stats so the numbers reconcile.
+  const [{ data: allD }, { data: allW }, { data: allT }, { data: allB }] = await Promise.all([
+    supabaseAdmin.from('deposits').select('amount_usdc, status').eq('user_id', userId),
+    supabaseAdmin.from('withdrawals').select('amount_usdc, status').eq('user_id', userId),
+    supabaseAdmin
+      .from('transfers')
+      .select('sender_id, sender_email, recipient_id, recipient_email, amount, status')
+      .or(
+        `sender_id.eq.${userId},recipient_id.eq.${userId},` +
+          `sender_email.eq.${email},recipient_email.eq.${email}`,
+      ),
+    supabaseAdmin.from('bridge_transactions').select('amount, attestation_status').eq('user_id', userId),
+  ]);
+
+  const sum = (rows: { amount?: unknown; amount_usdc?: unknown }[]) =>
+    rows.reduce((acc, r) => acc + (Number(r.amount ?? r.amount_usdc) || 0), 0);
+
+  const isSender = (t: { sender_id?: string | null; sender_email?: string | null }) =>
+    t.sender_id === userId || t.sender_email?.toLowerCase() === email;
+
+  const totalDeposits = sum((allD ?? []).filter((x) => x.status === 'confirmed'));
+  const totalWithdrawals = sum((allW ?? []).filter((x) => x.status === 'completed'));
+  const settledTransfers = (allT ?? []).filter((x) => x.status === 'completed');
+  const totalSent = sum(settledTransfers.filter(isSender));
+  const totalReceived = sum(settledTransfers.filter((t) => !isSender(t)));
+  const totalBridged = sum((allB ?? []).filter((x) => x.attestation_status === 'complete'));
+
+  return {
+    user,
+    kyc: {
+      status: kyc?.status ?? 'not_started',
+      diditSessionId: kyc?.didit_session_id ?? null,
+      updatedAt: kyc?.updated_at ?? null,
+      // Built server-side so the console template never has to reach the browser.
+      consoleUrl: kyc?.didit_session_id ? diditConsoleSessionUrl(kyc.didit_session_id) : null,
+    },
+    totals: {
+      deposits: totalDeposits,
+      withdrawals: totalWithdrawals,
+      sent: totalSent,
+      received: totalReceived,
+      bridged: totalBridged,
+      volume: totalDeposits + totalWithdrawals + totalSent + totalReceived + totalBridged,
+    },
+    transactions,
+  };
+}
+
 export async function getAdminAnalytics(
-  email: string | undefined,
   period: '7d' | '30d' | 'all' = '7d',
+  accessToken?: string,
 ) {
-  if (!email || !(await verifyAdmin(email))) throw new Error('Unauthorized');
+  await requireAdmin(accessToken);
 
   const days = period === 'all' ? 90 : period === '30d' ? 30 : 7;
   const startDate = new Date();
@@ -209,11 +313,8 @@ export async function getAdminAnalytics(
   return Object.values(chartData).sort((a, b) => a.date.localeCompare(b.date));
 }
 
-export async function getAdminLogs(
-  adminEmail: string,
-  type: 'webhooks' | 'audit',
-) {
-  if (!(await verifyAdmin(adminEmail))) throw new Error('Unauthorized');
+export async function getAdminLogs(type: 'webhooks' | 'audit', accessToken?: string) {
+  await requireAdmin(accessToken);
 
   if (type === 'webhooks') {
     const { data, error } = await supabaseAdmin.from('webhook_events').select('*').order('created_at', { ascending: false }).limit(100);

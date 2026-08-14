@@ -126,6 +126,8 @@ export interface RampOrderResponse {
     collection: "provider" | "onchain";
     address?: string;
   };
+  /** Bitnob corridor fee in USDC (e.g. "0.3" for RWF mobile money, "0" for NGN). */
+  bitnobFee?: string;
 }
 
 export interface RampRate {
@@ -145,6 +147,13 @@ export interface RampVerifyAccountResponse {
   status: "success" | "OK";
   message?: string;
   data: string | { accountName: string };
+  /**
+   * Did the provider confirm the account HOLDER, or only that the identifier is well-formed?
+   *
+   * False for mobile-money rails, where no name-enquiry endpoint exists — the UI must not
+   * present those as a verified account holder.
+   */
+  nameVerified?: boolean;
 }
 
 export interface CreateOnRampParams {

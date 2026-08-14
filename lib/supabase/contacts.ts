@@ -1,34 +1,29 @@
 'use server';
 
 import { Database } from '@/types/database';
+import { requireUserId } from '@/lib/auth/session';
 import { supabaseAdmin } from './adminClient';
 
 export type ContactRow = Database['public']['Tables']['contacts']['Row'];
 
-async function resolveUserId(userEmail: string): Promise<string> {
-  const { data: user } = await supabaseAdmin
-    .from('users')
-    .select('id')
-    .eq('email', userEmail.toLowerCase())
-    .single();
-  if (!user) throw new Error('User not found');
-  return user.id;
+/**
+ * The signed-in user's own id. Replaces a lookup that took an email from the caller — these
+ * are POST endpoints, so that let anyone read or edit another person's saved contacts (and,
+ * for bank contacts, their account numbers) by naming their address.
+ */
+async function resolveSelfId(accessToken?: string): Promise<string> {
+  const { userId } = await requireUserId(accessToken);
+  return userId;
 }
 
-export async function getUserContacts(userEmail: string): Promise<ContactRow[]> {
+export async function getUserContacts(accessToken?: string): Promise<ContactRow[]> {
   try {
-    const { data: user } = await supabaseAdmin
-      .from('users')
-      .select('id')
-      .eq('email', userEmail.toLowerCase())
-      .single();
-
-    if (!user) return [];
+    const userId = await resolveSelfId(accessToken);
 
     const { data, error } = await supabaseAdmin
       .from('contacts')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .order('name', { ascending: true });
 
     if (error) {
@@ -43,13 +38,13 @@ export async function getUserContacts(userEmail: string): Promise<ContactRow[]> 
 }
 
 export async function addContact(params: {
-  userEmail: string;
+  accessToken?: string;
   contactEmail: string;
   contactName: string;
   avatarUrl?: string;
 }): Promise<{ success: true }> {
   try {
-    const userId = await resolveUserId(params.userEmail);
+    const userId = await resolveSelfId(params.accessToken);
 
     const { error } = await supabaseAdmin.from('contacts').insert({
       user_id: userId,
@@ -71,11 +66,11 @@ export async function addContact(params: {
 }
 
 export async function deleteContact(
-  userEmail: string,
   contactId: string,
+  accessToken?: string,
 ): Promise<{ success: true }> {
   try {
-    const userId = await resolveUserId(userEmail);
+    const userId = await resolveSelfId(accessToken);
 
     const { error } = await supabaseAdmin
       .from('contacts')
@@ -92,13 +87,13 @@ export async function deleteContact(
 }
 
 export async function updateContact(params: {
-  userEmail: string;
+  accessToken?: string;
   contactId: string;
   contactEmail: string;
   contactName: string;
 }): Promise<{ success: true }> {
   try {
-    const userId = await resolveUserId(params.userEmail);
+    const userId = await resolveSelfId(params.accessToken);
 
     const { error } = await supabaseAdmin
       .from('contacts')
