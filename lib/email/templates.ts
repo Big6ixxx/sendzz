@@ -271,23 +271,47 @@ export function claimTransferTemplate(
     ? `<p style="font-style: italic; color: #64748b; margin-bottom: 24px;">"${note}"</p>`
     : '';
 
+  const displayAmount = amount.startsWith('$') ? amount : `$${amount}`;
+
   return baseTemplate(`
     <div style="text-align: center;">
-      <p style="font-size: 12px; font-weight: 700; color: #1F5E12; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 8px 0;">Payment Received</p>
-      <h1 style="font-size: 28px; font-weight: 800; color: #111111; margin: 0 0 24px 0;">You've received money! 🎉</h1>
+      <p style="font-size: 16px; line-height: 1.6; color: #404040; margin: 0 0 32px 0;">
+        Hi there, <a href="mailto:${senderEmail}" style="color: #006633; font-weight: 700; text-decoration: underline;">${senderEmail}</a> just sent you <strong>${displayAmount}</strong> using <span style="color: #1F5E12; font-weight: 900;">Sendzz</span>
+      </p>
       
-      <div style="background-color: #F2FBF1; border-radius: 16px; padding: 32px; margin: 0 0 24px 0;">
-        <div style="font-size: 48px; font-weight: 900; color: #1F5E12; letter-spacing: -1px;">${amount}</div>
-        <div style="font-size: 16px; color: #006633; font-weight: 700;">USDC</div>
+      <div style="font-size: 48px; font-weight: 900; color: #1F5E12; margin: 0 0 40px 0; letter-spacing: -1px;">${displayAmount} USDC</div>
+      
+      <div style="max-width: 440px; margin: 0 auto; text-align: left;">
+        <h2 style="font-size: 18px; font-weight: 800; color: #111111; margin: 0 0 10px 0;">What's next?</h2>
+        <p style="font-size: 16px; line-height: 1.6; color: #404040; margin: 0 0 20px 0;">Once you click the link and log in with your email, you can:</p>
+        
+        <table border="0" cellpadding="0" cellspacing="0" width="100%" style="margin-bottom: 24px;">
+          <tr>
+            <td width="20" valign="top" style="padding-top: 8px;"><div style="width: 6px; height: 6px; background-color: #404040; border-radius: 50%;"></div></td>
+            <td style="padding-bottom: 12px; font-size: 16px; line-height: 1.4; color: #404040;"><strong>Transfer to your bank:</strong> Send the funds directly to your local bank account.</td>
+          </tr>
+          <tr>
+            <td width="20" valign="top" style="padding-top: 8px;"><div style="width: 6px; height: 6px; background-color: #404040; border-radius: 50%;"></div></td>
+            <td style="padding-bottom: 12px; font-size: 16px; line-height: 1.4; color: #404040;"><strong>Keep it in your Sendzz account:</strong> Save it for later or use it to pay someone else.</td>
+          </tr>
+          <tr>
+            <td width="20" valign="top" style="padding-top: 8px;"><div style="width: 6px; height: 6px; background-color: #404040; border-radius: 50%;"></div></td>
+            <td style="padding-bottom: 12px; font-size: 16px; line-height: 1.4; color: #404040;"><strong>Send it to a friend:</strong> All you need is their email address to pass the money along.</td>
+          </tr>
+        </table>
       </div>
-      
-      <p style="font-size: 16px; line-height: 1.6; color: #404040; margin: 0 0 12px 0;">Sent by: <strong>${senderEmail}</strong></p>
+
       ${noteSection}
-      
-      <p style="font-size: 16px; line-height: 1.6; color: #404040; margin: 0 0 24px 0;">Click below to claim your funds:</p>
-      <a href="${claimUrl}" style="display: inline-block; background-color: #67ED0A; color: #004421 !important; padding: 14px 40px; border-radius: 12px; text-decoration: none; font-weight: 800; font-size: 18px;">Claim Your Funds</a>
-      
-      <p style="font-size: 13px; color: #94a3b8; margin-top: 24px;">This link expires in 7 days.</p>
+
+      <div style="margin-top: 32px;">
+        <table align="center" border="0" cellpadding="0" cellspacing="0" style="margin: 0 auto;">
+          <tr>
+            <td><img src="${APP_URL}/Group%20248.png" width="44" style="display: block; opacity: 0.9; margin-right: 14px;"></td>
+            <td><a href="${claimUrl}" style="display: inline-block; background-color: #67ED0A; color: #004421 !important; padding: 14px 36px; border-radius: 12px; text-decoration: none; font-weight: 800; font-size: 18px;">Access My Funds</a></td>
+            <td><img src="${APP_URL}/Group%20248.png" width="44" style="display: block; opacity: 0.9; margin-left: 14px;"></td>
+          </tr>
+        </table>
+      </div>
     </div>
   `);
 }
@@ -299,29 +323,55 @@ export function transferReceivedTemplate(
   amount: string,
   senderEmail: string,
   note?: string,
+  appUrl: string = process.env.NEXT_PUBLIC_APP_URL || 'https://sendzz.io',
+  actionUrl?: string,
 ): string {
   const noteSection = note
     ? `<div style="background-color: #F8FAFC; border-radius: 12px; padding: 16px; margin: 24px auto 0 auto; max-width: 440px; text-align: left; font-style: italic; color: #475569; font-size: 14px; border: 1px solid #E2E8F0;">"${note}"</div>`
     : '';
 
+  const targetUrl = actionUrl || `${appUrl}/dashboard`;
+  const displayAmount = amount.startsWith('$') ? amount : `$${amount}`;
+
   return baseTemplate(`
     <div style="text-align: center;">
-      <p style="font-size: 12px; font-weight: 700; color: #1F5E12; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 8px 0;">Payment Received</p>
-      <h1 style="font-size: 28px; font-weight: 800; color: #111111; margin: 0 0 24px 0;">USDC Received! 🎉</h1>
-
-      <p style="font-size: 16px; line-height: 1.6; color: #404040; margin: 0 0 24px 0;">
-        <strong>${senderEmail}</strong> just sent you USDC on Sendzz.
+      <p style="font-size: 16px; line-height: 1.6; color: #404040; margin: 0 0 32px 0;">
+        Hi there, <a href="mailto:${senderEmail}" style="color: #006633; font-weight: 700; text-decoration: underline;">${senderEmail}</a> just sent you <strong>${displayAmount}</strong> using <span style="color: #1F5E12; font-weight: 900;">Sendzz</span>
       </p>
       
-      <div style="background-color: #F2FBF1; border-radius: 16px; padding: 24px; margin: 0 auto 24px auto; text-align: center; max-width: 280px;">
-        <p style="font-size: 10px; font-weight: 700; color: #1F5E12; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 4px 0;">Received Amount</p>
-        <p style="font-size: 28px; font-weight: 950; color: #111111; margin: 0;">${amount} USDC</p>
-      </div>
+      <div style="font-size: 48px; font-weight: 900; color: #1F5E12; margin: 0 0 40px 0; letter-spacing: -1px;">${displayAmount} USDC</div>
       
-      <p style="font-size: 15px; line-height: 1.6; color: #404040; margin: 0;">
-        </p>
+      <div style="max-width: 440px; margin: 0 auto; text-align: left;">
+        <h2 style="font-size: 18px; font-weight: 800; color: #111111; margin: 0 0 10px 0;">What's next?</h2>
+        <p style="font-size: 16px; line-height: 1.6; color: #404040; margin: 0 0 20px 0;">Once you click the link and log in with your email, you can:</p>
+        
+        <table border="0" cellpadding="0" cellspacing="0" width="100%" style="margin-bottom: 24px;">
+          <tr>
+            <td width="20" valign="top" style="padding-top: 8px;"><div style="width: 6px; height: 6px; background-color: #404040; border-radius: 50%;"></div></td>
+            <td style="padding-bottom: 12px; font-size: 16px; line-height: 1.4; color: #404040;"><strong>Transfer to your bank:</strong> Send the funds directly to your local bank account.</td>
+          </tr>
+          <tr>
+            <td width="20" valign="top" style="padding-top: 8px;"><div style="width: 6px; height: 6px; background-color: #404040; border-radius: 50%;"></div></td>
+            <td style="padding-bottom: 12px; font-size: 16px; line-height: 1.4; color: #404040;"><strong>Keep it in your Sendzz account:</strong> Save it for later or use it to pay someone else.</td>
+          </tr>
+          <tr>
+            <td width="20" valign="top" style="padding-top: 8px;"><div style="width: 6px; height: 6px; background-color: #404040; border-radius: 50%;"></div></td>
+            <td style="padding-bottom: 12px; font-size: 16px; line-height: 1.4; color: #404040;"><strong>Send it to a friend:</strong> All you need is their email address to pass the money along.</td>
+          </tr>
+        </table>
+      </div>
 
       ${noteSection}
+
+      <div style="margin-top: 32px;">
+        <table align="center" border="0" cellpadding="0" cellspacing="0" style="margin: 0 auto;">
+          <tr>
+            <td><img src="${APP_URL}/Group%20248.png" width="44" style="display: block; opacity: 0.9; margin-right: 14px;"></td>
+            <td><a href="${targetUrl}" style="display: inline-block; background-color: #67ED0A; color: #004421 !important; padding: 14px 36px; border-radius: 12px; text-decoration: none; font-weight: 800; font-size: 18px;">Access My Funds</a></td>
+            <td><img src="${APP_URL}/Group%20248.png" width="44" style="display: block; opacity: 0.9; margin-left: 14px;"></td>
+          </tr>
+        </table>
+      </div>
     </div>
   `);
 }
@@ -419,28 +469,53 @@ export function withdrawalCompletedTemplate(
  */
 export function depositConfirmedTemplate(
   amountUsdc: string,
-  referenceId?: string,
-  txHash?: string,
-  chain?: string
+  userEmail?: string,
+  appUrl: string = process.env.NEXT_PUBLIC_APP_URL || 'https://sendzz.io',
 ): string {
-  const ref = referenceId || Math.random().toString(36).substring(2, 10).toUpperCase();
+  const displayAmount = amountUsdc.startsWith('$') ? amountUsdc : `$${amountUsdc}`;
+  const targetUrl = userEmail
+    ? `${appUrl}/?email=${encodeURIComponent(userEmail)}`
+    : `${appUrl}/dashboard`;
 
-  // Only an on-chain hash gets an explorer link. Provider order IDs used to be shown
-  // in the same slot, which would have produced links that 404.
-  const txRow: ReceiptRow = isPlaceholderHash(txHash)
-    ? { label: 'Transaction Receipt', value: `#${ref.substring(0, 8)}`, isMonospace: true }
-    : {
-        label: chain ? `Transaction · ${chain.toUpperCase()}` : 'Transaction Hash',
-        value: shortenHash(txHash!),
-        isMonospace: true,
-        href: explorerTxUrl(chain ?? HOME_CHAIN, txHash),
-      };
+  return baseTemplate(`
+    <div style="text-align: center;">
+      <p style="font-size: 16px; line-height: 1.6; color: #404040; margin: 0 0 32px 0;">
+        Hi there, a deposit of <strong>${displayAmount}</strong> has arrived in your <span style="color: #1F5E12; font-weight: 900;">Sendzz</span> account
+      </p>
+      
+      <div style="font-size: 48px; font-weight: 900; color: #1F5E12; margin: 0 0 40px 0; letter-spacing: -1px;">${displayAmount} USDC</div>
+      
+      <div style="max-width: 440px; margin: 0 auto; text-align: left;">
+        <h2 style="font-size: 18px; font-weight: 800; color: #111111; margin: 0 0 10px 0;">What's next?</h2>
+        <p style="font-size: 16px; line-height: 1.6; color: #404040; margin: 0 0 20px 0;">Once you click the link and log in with your email, you can:</p>
+        
+        <table border="0" cellpadding="0" cellspacing="0" width="100%" style="margin-bottom: 24px;">
+          <tr>
+            <td width="20" valign="top" style="padding-top: 8px;"><div style="width: 6px; height: 6px; background-color: #404040; border-radius: 50%;"></div></td>
+            <td style="padding-bottom: 12px; font-size: 16px; line-height: 1.4; color: #404040;"><strong>Transfer to your bank:</strong> Send the funds directly to your local bank account.</td>
+          </tr>
+          <tr>
+            <td width="20" valign="top" style="padding-top: 8px;"><div style="width: 6px; height: 6px; background-color: #404040; border-radius: 50%;"></div></td>
+            <td style="padding-bottom: 12px; font-size: 16px; line-height: 1.4; color: #404040;"><strong>Keep it in your Sendzz account:</strong> Save it for later or use it to pay someone else.</td>
+          </tr>
+          <tr>
+            <td width="20" valign="top" style="padding-top: 8px;"><div style="width: 6px; height: 6px; background-color: #404040; border-radius: 50%;"></div></td>
+            <td style="padding-bottom: 12px; font-size: 16px; line-height: 1.4; color: #404040;"><strong>Send it to a friend:</strong> All you need is their email address to pass the money along.</td>
+          </tr>
+        </table>
+      </div>
 
-  return baseReceiptTemplate(amountUsdc, [
-    { label: 'Reference ID', value: ref, isMonospace: true },
-    txRow,
-    { label: 'Type', value: 'DEPOSIT' }
-  ]);
+      <div style="margin-top: 32px;">
+        <table align="center" border="0" cellpadding="0" cellspacing="0" style="margin: 0 auto;">
+          <tr>
+            <td><img src="${APP_URL}/Group%20248.png" width="44" style="display: block; opacity: 0.9; margin-right: 14px;"></td>
+            <td><a href="${targetUrl}" style="display: inline-block; background-color: #67ED0A; color: #004421 !important; padding: 14px 36px; border-radius: 12px; text-decoration: none; font-weight: 800; font-size: 18px;">Access My Funds</a></td>
+            <td><img src="${APP_URL}/Group%20248.png" width="44" style="display: block; opacity: 0.9; margin-left: 14px;"></td>
+          </tr>
+        </table>
+      </div>
+    </div>
+  `);
 }
 
 export function bridgeCompletedTemplate(

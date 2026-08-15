@@ -127,11 +127,39 @@ async function insertDeposits(rows: DepositRow[]): Promise<number> {
   const { data, error } = await supabaseAdmin
     .from('deposits')
     .upsert(rows, { onConflict: 'user_id,tx_hash', ignoreDuplicates: true })
-    .select('id');
+    .select('id, user_id, amount_usdc, tx_hash, network');
+
   if (error) {
     console.error('[DepositScan] insert failed:', error.message);
     return 0;
   }
+
+  // Trigger deposit notification email for each newly inserted deposit
+  if (data && data.length > 0) {
+    for (const dep of data) {
+      try {
+        const { data: user } = await supabaseAdmin
+          .from('users')
+          .select('email')
+          .eq('id', dep.user_id)
+          .single();
+
+        if (user?.email) {
+          const { sendDepositEmail } = await import('@/lib/email/sendEmail');
+          await sendDepositEmail(
+            user.email,
+            Number(dep.amount_usdc).toFixed(2),
+            dep.id,
+            dep.tx_hash ?? undefined,
+            dep.network ?? undefined,
+          );
+        }
+      } catch (err) {
+        console.error('[DepositScan] Failed to send deposit email:', err);
+      }
+    }
+  }
+
   // Ignored duplicates aren't returned, so this counts rows that actually landed.
   return data?.length ?? 0;
 }

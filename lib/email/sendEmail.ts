@@ -89,13 +89,14 @@ export async function sendTransferEmail(
   let subject: string;
   let html: string;
 
+  const targetUrl = `${appUrl}/?email=${encodeURIComponent(recipientEmail)}`;
+
   if (options.isPendingClaim && options.rawToken) {
-    const claimUrl = `${appUrl}/claim?token=${options.rawToken}`;
     subject = `${senderEmail} sent you ${amountUSDC} USDC — claim it now`;
-    html = claimTransferTemplate(amountUSDC, senderEmail, claimUrl, options.note);
+    html = claimTransferTemplate(amountUSDC, senderEmail, targetUrl, options.note);
   } else {
     subject = `You received ${amountUSDC} USDC on Sendzz`;
-    html = transferReceivedTemplate(amountUSDC, senderEmail, options.note);
+    html = transferReceivedTemplate(amountUSDC, senderEmail, options.note, appUrl, targetUrl);
   }
 
   const result = await sendEmail({ to: recipientEmail, subject, html });
@@ -154,8 +155,10 @@ export async function sendDepositEmail(
       return;
     }
 
-    const subject = `Deposit Confirmed — ${amountUsdc} USDC Credited 💰`;
-    const html = depositConfirmedTemplate(amountUsdc, referenceId, txHash, chain);
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://sendzz.io';
+    const displayAmount = amountUsdc.startsWith('$') ? amountUsdc : `$${amountUsdc}`;
+    const subject = `Deposit Confirmed — ${displayAmount} USDC Credited 💰`;
+    const html = depositConfirmedTemplate(amountUsdc, recipientEmail, appUrl);
 
     const result = await sendEmail({ to: recipientEmail, subject, html });
     if (!result.success) {
