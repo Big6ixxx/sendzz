@@ -89,6 +89,8 @@ export function useActivities(userEmail: string, userId: string) {
             providerRef: meta?.quote_id ?? undefined,
             settlementNetwork: meta?.network ?? w.source_chain ?? undefined,
             updatedAt: w.updated_at ?? undefined,
+            // Memo/reference saved at withdrawal creation; surfaces in receipts as "Reference / Memo"
+            note: (w as { memo?: string | null }).memo ?? undefined,
           };
         }),
         ...(data.bridges || []).map((b) => {

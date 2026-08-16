@@ -358,6 +358,8 @@ export async function recordWithdrawal(params: {
   feeUsdc?: number;
   /** Platform fee percentage applied (for reporting). */
   feePercent?: number;
+  /** Optional payment reference / memo (e.g. required for M-PESA / Kenya). */
+  memo?: string;
 }): Promise<void> {
   try {
     const normalizedEmail = params.userEmail.toLowerCase();
@@ -380,6 +382,7 @@ export async function recordWithdrawal(params: {
       status: params.status,
       paycrest_order_id: params.paycrestOrderId || null,
       verification_status: "verified" as const,
+      memo: params.memo ?? null,
     };
 
     const extra: Record<string, unknown> = {};

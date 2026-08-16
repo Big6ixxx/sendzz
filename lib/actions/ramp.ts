@@ -197,13 +197,14 @@ export async function finalizeOffRamp(
   network: RampNetwork = "base",
   /** True when funds were spread across chains and auto-bridged onto `network` first. */
   consolidated: boolean = false,
+  memo?: string,
 ): Promise<RampOrderResponse> {
   try {
     const order = await Ramp.createOffRampOrder({
       amountUsdc,
       fiatAmount,
       inputMode,
-      bank: { accountNumber, bankCode, accountName },
+      bank: { accountNumber, bankCode, accountName, memo },
       userRefundAddress,
       userEmail,
       fiatCurrency: fiat,
@@ -230,6 +231,7 @@ export async function finalizeOffRamp(
       provider: order.provider,
       bitnobQuoteId: order.providerRef,
       bitnobDepositAddress: order.providerAccount?.receiveAddress,
+      memo,
     });
 
     return order;
@@ -376,6 +378,7 @@ export async function executeOffRamp(params: {
           created.provider === "bitnob" ? created.providerAccount?.receiveAddress : undefined,
         feeUsdc: feeCfg.percent > 0 ? fee : undefined,
         feePercent: feeCfg.percent > 0 ? feeCfg.percent : undefined,
+        memo: params.bank.memo || undefined,
       });
 
       console.log(`[Action] executeOffRamp: order ${created.id} created on ${provider}`);

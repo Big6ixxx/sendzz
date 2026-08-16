@@ -11,11 +11,12 @@ function isSuccess(status: string): boolean {
 
 function formatReceiptDate(iso: string): string {
   const dt = new Date(iso);
-  const day = dt.getDate();
-  const month = dt.toLocaleString('en-US', { month: 'short' });
-  const year = dt.getFullYear();
-  const hh = String(dt.getHours()).padStart(2, '0');
-  const mm = String(dt.getMinutes()).padStart(2, '0');
+  if (isNaN(dt.getTime())) return iso;
+  const day = dt.getUTCDate();
+  const month = dt.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
+  const year = dt.getUTCFullYear();
+  const hh = String(dt.getUTCHours()).padStart(2, '0');
+  const mm = String(dt.getUTCMinutes()).padStart(2, '0');
   return `${day} ${month} ${year} ${hh}:${mm}`;
 }
 
@@ -27,7 +28,6 @@ function buildRows(data: ReceiptData): [string, string][] {
   ];
   if (data.senderEmail) rows.push(['From', data.senderEmail]);
   if (data.recipientEmail) rows.push(['To', data.recipientEmail]);
-  if (data.note) rows.push(['Memo', data.note]);
   if (data.fiatAmount != null && data.fiatCurrency)
     rows.push(['Fiat Amount', `${data.fiatAmount.toLocaleString()} ${data.fiatCurrency}`]);
   if (data.fiatPayoutAmount != null && data.fiatCurrency)
@@ -53,6 +53,7 @@ function buildRows(data: ReceiptData): [string, string][] {
   }
   
   if (data.orderId) rows.push(['Order ID', data.orderId]);
+  if (data.note) rows.push(['Reference / Memo', data.note]);
   return rows;
 }
 
