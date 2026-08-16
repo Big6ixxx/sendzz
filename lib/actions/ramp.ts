@@ -181,6 +181,68 @@ export async function getOffRampQuote(amountUsdc: number, fiat: string = "NGN") 
 }
 
 /**
+ * OFF-RAMP EXECUTION — sell USDC for fiat. Returns the order (incl. receive address).
+ */
+export async function finalizeOffRamp(
+  amountUsdc: number,
+  accountNumber: string,
+  bankCode: string,
+  accountName: string,
+  userRefundAddress: string,
+  userEmail: string,
+  fiat: RampCurrency = "NGN",
+  fiatAmount?: number,
+  exchangeRate?: number,
+  inputMode: "fiat" | "usdc" = "usdc",
+  network: RampNetwork = "base",
+  /** True when funds were spread across chains and auto-bridged onto `network` first. */
+  consolidated: boolean = false,
+  memo?: string,
+): Promise<RampOrderResponse> {
+  try {
+    const order = await Ramp.createOffRampOrder({
+      amountUsdc,
+      fiatAmount,
+      inputMode,
+      bank: { accountNumber, bankCode, accountName, memo },
+      userRefundAddress,
+      userEmail,
+      fiatCurrency: fiat,
+      network,
+    });
+
+    const isFiat = inputMode === "fiat" && !!fiatAmount;
+    const finalAmountUsdc = isFiat ? Number(order.amount || amountUsdc) : amountUsdc;
+
+    // Record in internal ledger
+    const { recordWithdrawal } = await import("@/lib/supabase/transactions");
+    await recordWithdrawal({
+      userEmail,
+      amountUsdc: finalAmountUsdc,
+      fiatCurrency: fiat,
+      fiatAmount: isFiat ? fiatAmount : fiatAmount || amountUsdc * (exchangeRate || 1),
+      exchangeRate,
+      bankAccountMasked: accountNumber.replace(/.(?=.{4})/g, "*"),
+      institutionCode: bankCode,
+      status: "processing",
+      paycrestOrderId: order.id,
+      sourceChain: network,
+      consolidated,
+      provider: order.provider,
+      bitnobQuoteId: order.providerRef,
+      bitnobDepositAddress: order.providerAccount?.receiveAddress,
+      memo,
+    });
+
+    return order;
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error(`Error finalizing off-ramp for ${fiat}:`, err.message || error);
+    throw error;
+  }
+}
+
+/**
  * Create an off-ramp order using the pinned-provider model with canonical bank identity.
  *
  * Tries off-ramp providers in order; for each it RESOLVES that provider's bank_code from
