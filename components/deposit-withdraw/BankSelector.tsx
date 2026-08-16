@@ -151,7 +151,7 @@ export function BankSelector({
       {fiatCurrency === 'KES' && (
         <div className="relative">
           <label className="text-sm font-semibold mb-1.5 block text-muted-foreground">
-            Payment Reference / Memo <span className="text-accent text-xs">(Required for M-PESA/Kenya)</span>
+            Payment Reference / Memo
           </label>
           <input
             type="text"
