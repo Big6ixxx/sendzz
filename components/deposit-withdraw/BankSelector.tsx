@@ -147,23 +147,21 @@ export function BankSelector({
         />
       </div>
 
-      {/* Memo / Reference Field (Kenya KES withdrawals only) */}
-      {fiatCurrency === 'KES' && (
-        <div className="relative">
-          <label className="text-sm font-semibold mb-1.5 block text-muted-foreground">
-            Payment Reference / Memo
-          </label>
-          <input
-            type="text"
-            maxLength={60}
-            disabled={disabled}
-            placeholder="e.g. M-Pesa reference or note"
-            className="input-elegant"
-            value={memo || ''}
-            onChange={(e) => onMemoChange?.(e.target.value)}
-          />
-        </div>
-      )}
+      {/* Memo / Reference Field (Optional for all countries) */}
+      <div className="relative">
+        <label className="text-sm font-semibold mb-1.5 block text-muted-foreground">
+          Payment Reference / Memo <span className="text-xs text-muted-foreground/60">(Optional)</span>
+        </label>
+        <input
+          type="text"
+          maxLength={60}
+          disabled={disabled}
+          placeholder="Payment reference or note"
+          className="input-elegant"
+          value={memo || ''}
+          onChange={(e) => onMemoChange?.(e.target.value)}
+        />
+      </div>
 
       <AddBankContactModal
         isOpen={isAddingContact}
