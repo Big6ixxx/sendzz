@@ -12,7 +12,7 @@ import {
   type SolanaSource,
   type SourcePreference,
 } from "@/lib/web3/routing";
-import { CHAIN_NAMES } from "@/lib/circle/gateway";
+import { CHAIN_NAMES, type SupportedChain } from "@/lib/circle/gateway";
 import { sendTransferEmail } from "@/lib/email/sendEmail";
 import { type FiatCurrencyCode } from "@/lib/currency-config";
 import { ReceiptData } from "@/lib/receipt/types";
@@ -390,24 +390,46 @@ export function useTransfer({
           ? chainBalances
           : { base: parseFloat(balance) || 0 };
 
-      let plan = planTransferRoute(amountUsdc, balancesForRoute, {
-        homeChain: "base",
-        source: sourcePref,
-      });
-
-      // A manual single-chain choice that can't cover the amount: don't silently
-      // fall back to consolidation — tell the user.
-      if (sourcePref.mode === "single" && !plan.feasible) {
-        const label =
-          sourcePref.chain === "solana"
-            ? "Solana"
-            : sourcePref.chain === "stellar"
-              ? "Stellar"
-              : CHAIN_NAMES[sourcePref.chain];
-        toast.error(`${label} doesn't hold enough for this transfer.`);
-        setLoading(false);
-        setStatus("");
-        return;
+      let plan;
+      if (sourcePref.mode === "single") {
+        plan = planTransferRoute(amountUsdc, balancesForRoute, {
+          homeChain: sourcePref.chain as SupportedChain,
+          source: sourcePref,
+        });
+        if (!plan.feasible) {
+          const label =
+            sourcePref.chain === "solana"
+              ? "Solana"
+              : sourcePref.chain === "stellar"
+                ? "Stellar"
+                : CHAIN_NAMES[sourcePref.chain as SupportedChain] ?? sourcePref.chain;
+          toast.error(`${label} doesn't hold enough for this transfer.`);
+          setLoading(false);
+          setStatus("");
+          return;
+        }
+      } else {
+        // Default (AUTO) mode: Always send on a single chain (Base).
+        // Direct single-chain send if Base holds enough; consolidate to Base first if split across networks.
+        const baseBal = balancesForRoute.base ?? 0;
+        if (baseBal >= parseFloat(amountUsdc)) {
+          plan = {
+            feasible: true,
+            legs: [{ chain: "base" as SupportedChain, amount: amountUsdc }],
+            totalAvailable: baseBal,
+            requested: parseFloat(amountUsdc),
+            multiSource: false,
+          };
+        } else {
+          const evmTotal = Object.values(balancesForRoute).reduce((a, b) => a + (b || 0), 0);
+          plan = {
+            feasible: false,
+            legs: [],
+            totalAvailable: evmTotal,
+            requested: parseFloat(amountUsdc),
+            multiSource: false,
+          };
+        }
       }
 
       if (!plan.feasible) {
@@ -461,13 +483,13 @@ export function useTransfer({
       setStatus(
         plan.multiSource
           ? `Sending across ${plan.legs.length} networks...`
-          : `Sending on ${CHAIN_NAMES[plan.legs[0].chain]}...`,
+          : `Sending on ${CHAIN_NAMES[plan.legs[0].chain as SupportedChain] ?? plan.legs[0].chain}...`,
       );
 
       const txHashes = await executeRoutedTransfer(
         provider,
         recipientAddress as string,
-        plan.legs,
+        plan.legs as { chain: SupportedChain; amount: string }[],
       );
       const txHash = txHashes[0];
 

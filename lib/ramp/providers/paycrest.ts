@@ -172,6 +172,7 @@ export class PaycrestProvider implements RampProvider {
           institution: params.bank.bankCode,
           accountIdentifier: params.bank.accountNumber,
           accountName: params.bank.accountName,
+          memo: params.bank.memo,
         },
       },
       reference: `offramp_${Date.now()}`,

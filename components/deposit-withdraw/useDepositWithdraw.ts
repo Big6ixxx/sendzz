@@ -63,6 +63,7 @@ interface BankDetails {
   bankCode: string;
   accountName: string;
   bankName: string;
+  memo?: string;
 }
 
 export function useDepositWithdraw(
@@ -798,6 +799,7 @@ export function useDepositWithdraw(
           accountNumber: bankDetails.accountNumber,
           accountName: bankDetails.accountName,
           bankName: bankDetails.bankName || bankDetails.bankCode,
+          memo: bankDetails.memo,
         },
         userRefundAddress: userAddress,
         fiatCurrency,

@@ -61,7 +61,6 @@ export function OrderAdvancedDetails({
     : null;
 
   const rows: { label: string; value: string; copy?: string }[] = [];
-  if (provider) rows.push({ label: 'Settles via', value: PROVIDER_LABEL[provider] ?? provider });
   if (networkName)
     rows.push({ label: 'Network', value: consolidated ? `${networkName} (consolidated)` : networkName });
   if (status) rows.push({ label: 'Status', value: status });

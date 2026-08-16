@@ -180,6 +180,7 @@ export interface CreateOffRampParams {
     accountNumber: string;
     bankCode: string;
     accountName: string;
+    memo?: string;
   };
   userRefundAddress: string;
   userEmail: string;

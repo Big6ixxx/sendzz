@@ -403,6 +403,13 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
                 accountName: name,
               })
             }
+            memo={hook.bankDetails.memo}
+            onMemoChange={(val) =>
+              hook.setBankDetails({
+                ...hook.bankDetails,
+                memo: val,
+              })
+            }
             isVerifying={hook.verifyingBank}
             contacts={hook.bankContacts}
             userEmail={hook.userEmail}
