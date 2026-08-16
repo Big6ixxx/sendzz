@@ -26,6 +26,8 @@ interface BankSelectorProps {
   userEmail?: string;
   fiatCurrency?: string;
   onContactsChanged?: () => void;
+  memo?: string;
+  onMemoChange?: (value: string) => void;
 }
 
 export function BankSelector({
@@ -37,6 +39,8 @@ export function BankSelector({
   onAccountNumberChange,
   accountName,
   onAccountNameChange,
+  memo,
+  onMemoChange,
   isVerifying,
   label,
   disabled,
@@ -142,6 +146,24 @@ export function BankSelector({
           }}
         />
       </div>
+
+      {/* Memo / Reference Field (Kenya KES withdrawals only) */}
+      {fiatCurrency === 'KES' && (
+        <div className="relative">
+          <label className="text-sm font-semibold mb-1.5 block text-muted-foreground">
+            Payment Reference / Memo <span className="text-accent text-xs">(Required for M-PESA/Kenya)</span>
+          </label>
+          <input
+            type="text"
+            maxLength={60}
+            disabled={disabled}
+            placeholder="e.g. M-Pesa reference or note"
+            className="input-elegant"
+            value={memo || ''}
+            onChange={(e) => onMemoChange?.(e.target.value)}
+          />
+        </div>
+      )}
 
       <AddBankContactModal
         isOpen={isAddingContact}

@@ -336,7 +336,7 @@ export class BitnobProvider implements RampProvider {
     const initialized = await bitnob.initializePayout(quote.quote_id, {
       quote_id: quote.quote_id,
       reference,
-      payment_reason: "user_withdrawal",
+      payment_reason: params.bank.memo || "user_withdrawal",
       beneficiary: this.buildBeneficiary(destinationType, country, params.bank, params.userEmail),
     });
 

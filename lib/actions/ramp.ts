@@ -254,7 +254,7 @@ export async function executeOffRamp(params: {
   fiatAmount?: number;
   exchangeRate?: number;
   inputMode: "fiat" | "usdc";
-  bank: { accountNumber: string; accountName: string; bankName: string };
+  bank: { accountNumber: string; accountName: string; bankName: string; memo?: string };
   userRefundAddress: string;
   fiatCurrency: RampCurrency;
   network: RampNetwork;
@@ -332,6 +332,7 @@ export async function executeOffRamp(params: {
           accountNumber: params.bank.accountNumber,
           bankCode: resolved.code,
           accountName: params.bank.accountName,
+          memo: params.bank.memo,
         },
         userRefundAddress: params.userRefundAddress,
         userEmail: userEmail,
