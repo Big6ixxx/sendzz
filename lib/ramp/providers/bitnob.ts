@@ -16,6 +16,7 @@ import {
   type BitnobCountry,
 } from "@/lib/bitnob/client";
 import { getCurrencySymbol } from "@/lib/currency-config";
+import { getCorridorFee } from "../fees";
 import { RampUnsupportedError, type RampProvider } from "../provider";
 import {
   isMobileMoneyCode,
@@ -108,6 +109,17 @@ function getMobileMoneyOperators(country: string, currency: RampCurrency): RampI
     default:
       return [];
   }
+}
+
+/**
+ * How Bitnob funds the fiat leg: `onchain` backs the payout with the user's own deposit,
+ * `offchain` debits our pooled USDC balance and lets the deposit land separately.
+ *
+ * Env-overridable because it decides where real money comes from — reverting should take a
+ * restart, not a deploy.
+ */
+function payoutSource(): "onchain" | "offchain" {
+  return process.env.BITNOB_PAYOUT_SOURCE === "offchain" ? "offchain" : "onchain";
 }
 
 /** EVM chains this app can move USDC on (smart-account capable). */
@@ -316,16 +328,14 @@ export class BitnobProvider implements RampProvider {
       country,
       from_asset: "USDC",
       to_currency: params.fiatCurrency,
-      source: "offchain",
+      source: payoutSource(),
       chain: params.network,
       reference,
     });
 
-    const bitnobFee = quote.fees || "0";
-
-    // 2. Generate the deposit address the user funds. It shares this payout's `reference`,
-    // which is how Bitnob associates the incoming USDC with the payout (deposit.success
-    // fires against it). Kept BEFORE initialize to preserve the linkage that works.
+    // 2. Generate the deposit address the user funds. On Stellar this is NOT per-payout —
+    // Bitnob returns one static company account and discards our `reference`, so the deposit
+    // is traceable back to this order only via `metadata.address` / `metadata.tx_hash`.
     const address = await bitnob.createAddress(params.network, {
       customer_email: params.userEmail,
       label: "USDC-Offramp",
@@ -342,6 +352,18 @@ export class BitnobProvider implements RampProvider {
 
     // Prefer an address returned by initialize (payout-bound); otherwise use the one above.
     const receiveAddress = depositAddressOf(initialized) ?? address.address;
+
+    // Sent on top of the quote amount so Bitnob's deduction comes out of the user's deposit
+    // and not our float. Configured, not reported by the API — see `getCorridorFee`.
+    const corridorFee = getCorridorFee("bitnob", params.fiatCurrency);
+    const bitnobFee = String(corridorFee);
+
+    if (corridorFee > 0) {
+      console.log(
+        `[Bitnob] ${params.fiatCurrency}/${destinationType} corridor fee ${corridorFee} USDC ` +
+          `on top of ${params.amountUsdc}`,
+      );
+    }
 
     return {
       // Store OUR reference as the order id — that's what appears in webhooks and the

@@ -8,6 +8,7 @@ import {
   getOffRampRate,
   getOnRampRate,
   getOrderStatus,
+  getCorridorFeeAction,
   getProviderFeePercent,
   getRampNetworks,
   initiateOnRamp,
@@ -120,6 +121,8 @@ export function useDepositWithdraw(
   // Platform fee % for the pinned provider (drives the fee line + balance math). The actual
   // fee amount/treasury is resolved server-side and embedded in the order.
   const [feePercent, setFeePercent] = useState<number>(0);
+  // Flat per-corridor provider fee in USDC, on top of base + platform fee. Bitnob only.
+  const [corridorFee, setCorridorFee] = useState<number>(0);
 
   // Institutions & Rates
   const [institutions, setInstitutions] = useState<RampInstitution[]>([]);
@@ -193,6 +196,11 @@ export function useDepositWithdraw(
 
         setOffRampProvider(provider);
         getProviderFeePercent(provider).then(setFeePercent).catch(() => setFeePercent(0));
+        // Flat provider fee for this corridor (Bitnob only). Fetched alongside the provider so
+        // it is known before the amount is validated, not after the order exists.
+        getCorridorFeeAction(provider, fiatCurrency)
+          .then(setCorridorFee)
+          .catch(() => setCorridorFee(0));
         setInstitutions(instRes.data);
       } catch (err) {
         console.error("Failed to fetch banks", err);
@@ -491,7 +499,9 @@ export function useDepositWithdraw(
 
     // Include the platform fee (provider-specific) in the balance check — the input is the
     // base, so the fee is added on top of it.
-    const totalUsdcRequired = totalFromBase(val, feePercent);
+    // base + our platform fee + the provider's corridor fee — all three leave the user's
+    // wallet, so all three must be covered before we route or bridge anything.
+    const totalUsdcRequired = totalFromBase(val, feePercent) + corridorFee;
 
     // Early KYC & Limit Pre-Check — block immediately at step 1 before bank details, 2FA, or signing
     try {
@@ -613,7 +623,7 @@ export function useDepositWithdraw(
     const amountUsdc = parseFloat(quoteUsdcAmount);
 
     // Total amount that will be deducted including the platform fee (provider-specific).
-    const totalUsdcRequired = totalFromBase(amountUsdc, feePercent);
+    const totalUsdcRequired = totalFromBase(amountUsdc, feePercent) + corridorFee;
 
     if (totalUsdcRequired >= twoFaThreshold) {
       if (!twoFaEnabled) {
@@ -730,11 +740,11 @@ export function useDepositWithdraw(
       if (mustConsolidate && embeddedProvider) {
         const targetChain = withdrawChain as SupportedChain | "stellar" | "solana";
         const targetName = targetChain === "stellar" ? "Stellar" : targetChain === "solana" ? "Solana" : (CHAIN_NAMES[targetChain as SupportedChain] ?? targetChain);
-        // Bring over base + fee — the fee is a second transfer out of the same chain, so
-        // consolidating only the base would strand the withdrawal one fee short.
-        const required = totalFromBase(
-          parseFloat(quoteUsdcAmount),
-          feePercent,
+        // Bring over base + platform fee + corridor fee. Each is a separate outflow from this
+        // chain, so consolidating only the base strands the withdrawal a fee short — and after
+        // a CCTP bridge, which is slow and not worth repeating.
+        const required = (
+          totalFromBase(parseFloat(quoteUsdcAmount), feePercent) + corridorFee
         ).toFixed(6);
         // Honour the user's chosen networks (if any); otherwise pull from everything.
         const allBalances: ChainBalances & { solana?: number; stellar?: number } = {
@@ -831,6 +841,27 @@ export function useDepositWithdraw(
         ? { address: fee.address, usdc: fee.usdc }
         : null;
 
+    // Last balance check before any money moves. The earlier checks use our own corridor-fee
+    // config; this one uses the fee the order actually came back with, so a config drift can't
+    // leave an orphan payout parked in `pending_address_deposit` after a failed transfer.
+    const totalToSend =
+      parseFloat(baseAmount.toFixed(6)) +
+      parseFloat(order.bitnobFee || "0") +
+      (fee ? parseFloat(fee.usdc) : 0);
+
+    const availableOnChain =
+      settlementChain === "solana"
+        ? (solanaSource?.balance ?? 0)
+        : settlementChain === "stellar"
+          ? stellarBalance
+          : (chainBalances?.[settlementChain as SupportedChain] ?? (parseFloat(balance) || 0));
+
+    if (availableOnChain + 1e-9 < totalToSend) {
+      console.error("[Withdraw] insufficient balance — withdrawal not submitted");
+      toast.error("Not enough balance to complete this withdrawal.");
+      return;
+    }
+
     setTransferring(true);
     try {
       let txHash: string;
@@ -867,6 +898,9 @@ export function useDepositWithdraw(
             senderAddress: stellarAddress,
             recipientAddress: receiveAddress,
             amount: bitnobPayoutDeposit.toFixed(6),
+            // The order's fee, same as the EVM and Solana branches — without it the route
+            // prices this at the P2P transfer rate.
+            feeAmount: onchainFee?.usdc ?? "0",
           }),
         });
         const data = await res.json();
@@ -909,8 +943,15 @@ export function useDepositWithdraw(
       }
       if (order.provider === "bitnob" && order.providerRef) {
         const ref = order.providerRef;
+        // Pass what identifies OUR deposit so the action can confirm the money actually
+        // landed before releasing the payout — broadcasting a transfer is not receiving it.
+        const depositAmount = baseAmount + parseFloat(order.bitnobFee || "0");
         import("@/lib/actions/ramp").then(({ finalizeBitnobPayoutAction }) => {
-          finalizeBitnobPayoutAction(ref);
+          finalizeBitnobPayoutAction(ref, {
+            address: receiveAddress,
+            txHash,
+            amountUsdc: depositAmount,
+          });
         }).catch(console.error);
       }
       toast.success("Transfer sent! Waiting for payout confirmation...");

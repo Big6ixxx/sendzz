@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   applyFee,
   baseFromTotal,
   feeFromBase,
+  getCorridorFee,
   getProviderFee,
   totalFromBase,
 } from './fees';
@@ -98,5 +99,53 @@ describe('fee arithmetic', () => {
     } finally {
       process.env.BITNOB_FEE_PERCENT = prev;
     }
+  });
+});
+
+/**
+ * Corridor fees are configured by us because Bitnob does not report them: `fees` came back "0"
+ * on both the quote and the initialize response for NGN, KES, RWF and GHS, yet RWF mobile-money
+ * payouts debited 0.30 USDC more than the user had deposited — three times, out of our float.
+ */
+describe('getCorridorFee', () => {
+  const set = (k: string, v: string | undefined) => {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  };
+
+  afterEach(() => {
+    set('BITNOB_CORRIDOR_FEE_RWF', undefined);
+    set('BITNOB_CORRIDOR_FEE_NGN', undefined);
+  });
+
+  it('reads the configured amount for the currency', () => {
+    set('BITNOB_CORRIDOR_FEE_RWF', '0.3');
+    expect(getCorridorFee('bitnob', 'RWF')).toBe(0.3);
+  });
+
+  it('is case-insensitive on the currency', () => {
+    set('BITNOB_CORRIDOR_FEE_RWF', '0.3');
+    expect(getCorridorFee('bitnob', 'rwf')).toBe(0.3);
+  });
+
+  it('is 0 for an unconfigured corridor', () => {
+    expect(getCorridorFee('bitnob', 'UGX')).toBe(0);
+  });
+
+  it('is 0 for an explicitly free corridor', () => {
+    set('BITNOB_CORRIDOR_FEE_NGN', '0');
+    expect(getCorridorFee('bitnob', 'NGN')).toBe(0);
+  });
+
+  it('is always 0 for paycrest, which has no corridor fee', () => {
+    set('BITNOB_CORRIDOR_FEE_RWF', '0.3');
+    expect(getCorridorFee('paycrest', 'RWF')).toBe(0);
+  });
+
+  it('falls back to 0 rather than throwing on a malformed value', () => {
+    set('BITNOB_CORRIDOR_FEE_RWF', 'abc');
+    expect(getCorridorFee('bitnob', 'RWF')).toBe(0);
+    set('BITNOB_CORRIDOR_FEE_RWF', '-1');
+    expect(getCorridorFee('bitnob', 'RWF')).toBe(0);
   });
 });

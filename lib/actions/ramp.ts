@@ -4,7 +4,7 @@ import { requireUserId } from "@/lib/auth/session";
 import { toUserSafeMessage } from "@/lib/errors/sanitize";
 import { Ramp } from "@/lib/ramp";
 import { isBridgeable } from "@/lib/circle/gateway";
-import { applyFee, getProviderFee, resolveFeeTreasury } from "@/lib/ramp/fees";
+import { applyFee, getCorridorFee, getProviderFee, resolveFeeTreasury } from "@/lib/ramp/fees";
 import { kycGuard } from "@/lib/kyc/guard";
 import type {
   RampCurrency,
@@ -21,6 +21,19 @@ export async function getProviderFeePercent(
   provider: RampProviderName,
 ): Promise<number> {
   return getProviderFee(provider).percent;
+}
+
+/**
+ * The provider's per-corridor fee in USDC, added on top of the base amount. 0 for Paycrest.
+ *
+ * Needed client-side BEFORE the order exists — the balance check, route planner and
+ * consolidation amount all have to size on base + platform fee + corridor fee.
+ */
+export async function getCorridorFeeAction(
+  provider: RampProviderName,
+  currency: string,
+): Promise<number> {
+  return getCorridorFee(provider, currency);
 }
 
 /**
@@ -528,26 +541,70 @@ export async function getRampNetworks(): Promise<string[]> {
 }
 
 /**
- * Finalize a Bitnob payout AFTER the on-chain deposit has been sent and confirmed.
- * Retries with backoff if Bitnob's deposit indexer is still processing the block.
+ * Finalize a Bitnob payout, but ONLY once its on-chain deposit has actually settled.
+ *
+ * Bitnob accepts `finalize` as soon as a deposit is *detected*, so calling it on transaction
+ * broadcast released payouts before the money arrived. We verify settlement ourselves first.
+ *
+ * With no address or tx hash there is nothing to verify against, so we refuse rather than
+ * guess; the webhook and reconcile cron re-drive it later from `provider_metadata`.
  */
-export async function finalizeBitnobPayoutAction(quoteId: string): Promise<boolean> {
+export async function finalizeBitnobPayoutAction(
+  quoteId: string,
+  deposit?: {
+    address?: string;
+    txHash?: string;
+    /** What the payout will debit — base + Bitnob corridor fee. */
+    amountUsdc?: number;
+  },
+): Promise<boolean> {
   if (!quoteId) return false;
   const { getBitnobClient } = await import("@/lib/bitnob/client");
   const client = getBitnobClient();
 
-  // Poll Bitnob to verify that the on-chain deposit has landed before finalizing payout.
-  // Bitnob returns a 400 'cannot transition ... to pending' while the deposit is still pending on-chain.
-  // Once the on-chain deposit confirms, Bitnob accepts finalizePayout and dispatches the payout.
+  if (!deposit?.address && !deposit?.txHash) {
+    console.error(
+      `[Action] finalizeBitnobPayoutAction: REFUSING to finalize ${quoteId} — no deposit ` +
+        `address or tx hash to verify against. Payout stays pending_address_deposit; the ` +
+        `webhook/reconcile cron will re-drive it.`,
+    );
+    return false;
+  }
+
   for (let attempt = 1; attempt <= 15; attempt++) {
+    const settled = await client
+      .findSettledDeposit({
+        address: deposit.address,
+        txHash: deposit.txHash,
+        minAmountUsdc: deposit.amountUsdc,
+      })
+      .catch((e) => {
+        console.warn(`[Action] finalizeBitnobPayoutAction: deposit lookup failed:`, e);
+        return null;
+      });
+
+    if (!settled) {
+      console.log(
+        `[Action] finalizeBitnobPayoutAction: deposit for ${quoteId} not settled yet ` +
+          `(attempt ${attempt}/15) — holding payout.`,
+      );
+      await new Promise((r) => setTimeout(r, 4000));
+      continue;
+    }
+
+    console.log(
+      `[Action] finalizeBitnobPayoutAction: deposit ${settled.reference} settled ` +
+        `(${settled.amountUsdc} USDC) — finalizing ${quoteId}.`,
+    );
     try {
       await client.finalizePayout(quoteId);
-      console.log(`[Action] finalizeBitnobPayoutAction: deposit confirmed & payout finalized for ${quoteId} on attempt ${attempt}`);
+      console.log(`[Action] finalizeBitnobPayoutAction: payout finalized for ${quoteId}`);
       return true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (/pending_address_deposit|cannot transition/i.test(msg)) {
-        console.log(`[Action] finalizeBitnobPayoutAction: deposit pending confirmation on-chain for ${quoteId} (attempt ${attempt}/15)...`);
+        // Deposit is settled on our side but Bitnob hasn't opened the transition yet.
+        console.log(`[Action] finalizeBitnobPayoutAction: ${quoteId} not transitionable yet (attempt ${attempt}/15)...`);
         await new Promise((r) => setTimeout(r, 4000));
         continue;
       }
@@ -555,7 +612,10 @@ export async function finalizeBitnobPayoutAction(quoteId: string): Promise<boole
       return false;
     }
   }
-  console.warn(`[Action] finalizeBitnobPayoutAction: deposit confirmation polling timed out for ${quoteId}`);
+  console.warn(
+    `[Action] finalizeBitnobPayoutAction: gave up waiting on the deposit for ${quoteId} — ` +
+      `NOT finalized. Reconcile cron will retry.`,
+  );
   return false;
 }
 

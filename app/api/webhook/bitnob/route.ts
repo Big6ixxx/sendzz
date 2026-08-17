@@ -15,22 +15,47 @@ export const maxDuration = 300;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Finalize the payout once its deposit confirms. Bitnob keeps the payout in
- * `pending_address_deposit` until the on-chain USDC deposit CONFIRMS, and only emits
- * `deposit.success` (detection) — there is no confirmed event. `finalize` 400s with
- * "cannot transition ... to pending" until confirmation lands, so we retry with backoff
- * until it succeeds (or a non-transient error / the quote window closes).
+ * Finalize the payout once its deposit has SETTLED.
  *
- * NOTE: this runs within one serverless invocation. For reliability across restarts,
- * back it with a cron that re-drives un-finalized Bitnob payouts (Phase 2).
+ * `deposit.success` means detected, not received — Bitnob emits no confirmed event, and will
+ * accept `finalize` on detection alone. So we confirm settlement ourselves before releasing
+ * the payout, and retry with backoff while it is still pending.
+ *
+ * NOTE: this runs within one serverless invocation. The reconcile cron re-drives anything
+ * left un-finalized.
  */
-async function finalizeWithRetry(quoteId: string, tag: string): Promise<boolean> {
+async function finalizeWithRetry(
+  quoteId: string,
+  tag: string,
+  deposit: { address?: string; amountUsdc?: number },
+): Promise<boolean> {
   const { getBitnobClient } = await import('@/lib/bitnob/client');
   const client = getBitnobClient();
+
+  // Nothing to verify against — refuse rather than guess, and let the cron re-drive.
+  if (!deposit.address) {
+    console.error(
+      `[Bitnob Webhook] [${tag}] REFUSING to finalize ${quoteId} — no deposit address to verify against`,
+    );
+    return false;
+  }
+
   for (let attempt = 1; attempt <= 5; attempt++) {
+    const settled = await client
+      .findSettledDeposit({ address: deposit.address, minAmountUsdc: deposit.amountUsdc })
+      .catch(() => null);
+
+    if (!settled) {
+      console.log(`[Bitnob Webhook] [${tag}] ${quoteId}: deposit detected but not settled (attempt ${attempt}/5)`);
+      await sleep(5000);
+      continue;
+    }
+
     try {
       await client.finalizePayout(quoteId);
-      console.log(`[Bitnob Webhook] [${tag}] finalized ${quoteId} on attempt ${attempt}`);
+      console.log(
+        `[Bitnob Webhook] [${tag}] finalized ${quoteId} against settled deposit ${settled.reference} (${settled.amountUsdc} USDC)`,
+      );
       return true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -43,7 +68,7 @@ async function finalizeWithRetry(quoteId: string, tag: string): Promise<boolean>
       return false;
     }
   }
-  console.warn(`[Bitnob Webhook] [${tag}] finalize ${quoteId} gave up after retries`);
+  console.warn(`[Bitnob Webhook] [${tag}] finalize ${quoteId} gave up after retries — NOT finalized`);
   return false;
 }
 
@@ -197,30 +222,43 @@ export async function POST(req: Request) {
         .eq('provider', 'bitnob')
         .eq('event_id', eventLogId);
 
-    // ─── USDC deposit detected → retry finalize until it confirms ─────────────
-    // `deposit.success` is detection; the payout stays `pending_address_deposit` until the
-    // deposit CONFIRMS (no confirmed event), so finalize is retried in the background.
-    // Matched to the withdrawal by the payout-bound deposit address, falling back to the
-    // quote_id/reference carried on the deposit event.
+    // ─── USDC deposit detected → finalize once it settles ─────────────────────
     if (/deposit/i.test(eventType) && isSuccess) {
-      const depositAddress = (data?.address as string | undefined) ?? undefined;
-      let quoteId = (data?.quote_id as string | undefined) ?? undefined;
+      const eventAddress = (data?.address as string | undefined) ?? undefined;
+      const eventQuoteId = (data?.quote_id as string | undefined) ?? undefined;
 
-      if (!quoteId && depositAddress) {
-        const { data: w } = await supabaseAdmin
-          .from('withdrawals')
-          .select('id, provider_metadata')
-          .eq('provider', 'bitnob')
-          .eq('provider_metadata->>deposit_address', depositAddress)
-          .maybeSingle();
-        quoteId = (w?.provider_metadata as { quote_id?: string } | null)?.quote_id;
-      }
+      // The event may carry the address without the quote, or the quote without the address,
+      // so resolve both from our own record. Verification needs the address.
+      const filters = [
+        eventAddress ? `provider_metadata->>deposit_address.eq.${eventAddress}` : null,
+        eventQuoteId ? `provider_metadata->>quote_id.eq.${eventQuoteId}` : null,
+      ].filter((f): f is string => !!f);
+
+      const { data: w } = filters.length
+        ? await supabaseAdmin
+            .from('withdrawals')
+            .select('id, amount_usdc, provider_metadata')
+            .eq('provider', 'bitnob')
+            .or(filters.join(','))
+            .maybeSingle()
+        : { data: null };
+
+      const meta = (w?.provider_metadata ?? null) as
+        | { quote_id?: string; deposit_address?: string }
+        | null;
+      const quoteId = eventQuoteId ?? meta?.quote_id;
+      const depositAddress = eventAddress ?? meta?.deposit_address;
+      // Base amount — a lower bound, since the deposit also carries the corridor fee.
+      const expectedUsdc = w?.amount_usdc != null ? Number(w.amount_usdc) : undefined;
 
       console.log(
         `[Bitnob Webhook] [${requestId}] deposit detected at ${depositAddress} (${data?.amount} ${data?.currency}) — quote=${quoteId ?? 'unknown'}`,
       );
       if (quoteId) {
-        void finalizeWithRetry(quoteId, requestId);
+        void finalizeWithRetry(quoteId, requestId, {
+          address: depositAddress,
+          amountUsdc: expectedUsdc,
+        });
       } else {
         console.warn(
           `[Bitnob Webhook] [${requestId}] no bitnob withdrawal matched for deposit ${depositAddress}`,

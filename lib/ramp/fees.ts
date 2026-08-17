@@ -66,6 +66,31 @@ const FEE_COLLECTION: Record<RampProviderName, Pick<ProviderFee, "collection" | 
 };
 
 /**
+ * The provider's flat per-corridor fee in USDC, added on top of the base amount so the
+ * provider's deduction is covered by the user's own deposit rather than our float.
+ *
+ * Set `BITNOB_CORRIDOR_FEE_<CURRENCY>` per currency; unset means none. Configured rather than
+ * read from the API because Bitnob reports `fees: "0"` on both the quote and the initialize
+ * response for every corridor, yet still deducts on some (RWF mobile money took a flat 0.30 on
+ * both a 1.01 and a 10.00 payout). Bitnob only — Paycrest settles the quoted amount.
+ */
+export function getCorridorFee(provider: RampProviderName, currency: string): number {
+  if (provider !== "bitnob") return 0;
+
+  const envVar = `BITNOB_CORRIDOR_FEE_${(currency || "").toUpperCase()}`;
+  const raw = process.env[envVar];
+  if (raw == null || raw === "") return 0;
+
+  const fee = Number(raw);
+  if (!Number.isFinite(fee) || fee < 0) {
+    // Loud but not fatal — a typo in one corridor must not take withdrawals down.
+    console.error(`[Fees] ${envVar} is not a valid amount (got ${JSON.stringify(raw)}) — using 0.`);
+    return 0;
+  }
+  return fee;
+}
+
+/**
  * The fee for a provider, read from its environment variable.
  *
  * **Every rate comes from env — there is no hardcoded default.** A compiled-in fallback is
