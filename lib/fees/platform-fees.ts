@@ -81,6 +81,25 @@ export function getPlatformFeePercent(kind: PlatformFeeKind): number {
   );
 }
 
+/**
+ * The platform fee to charge for a payment, in USDC.
+ *
+ * A caller-supplied amount always wins: withdrawals price their fee once at order creation
+ * from the ramp provider's rate, and re-deriving it per settlement chain is how Stellar came
+ * to bill withdrawals at the transfer rate. Everything else falls back to `kind`'s percentage.
+ */
+export function resolvePlatformFee(
+  amount: number,
+  kind: PlatformFeeKind,
+  suppliedUsdc?: string | number | null,
+): number {
+  if (suppliedUsdc != null && suppliedUsdc !== '') {
+    const supplied = Number(suppliedUsdc);
+    if (Number.isFinite(supplied) && supplied >= 0) return supplied;
+  }
+  return amount * (getPlatformFeePercent(kind) / 100);
+}
+
 /** The fee-collection address for a settlement chain, or null when none is configured. */
 export function getFeeTreasury(chain: string): string | null {
   return FEE_TREASURY[(chain || '').toLowerCase()] ?? null;

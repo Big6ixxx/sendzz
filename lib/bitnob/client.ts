@@ -149,6 +149,34 @@ export interface BitnobAccountLookup {
   is_verified?: boolean;
 }
 
+/**
+ * A row from the company ledger (`/api/transactions`). Amounts are integer minor units as
+ * strings — USDC is 6dp, so "1050000" is 1.05 USDC — and are negative on the debit side.
+ */
+export interface BitnobLedgerTx {
+  currency: string;
+  /** DEPOSIT_CONFIRMED | PAYOUT | REVERSAL | … */
+  type: string;
+  /** SETTLED | FAILED | … */
+  state: string;
+  amount: string;
+  reference: string;
+  metadata?: {
+    /** Where the deposit landed, and the on-chain hash that put it there. */
+    address?: string;
+    tx_hash?: string;
+    [key: string]: unknown;
+  };
+}
+
+/** A deposit positively matched to one of our payouts. */
+export interface SettledDeposit {
+  reference: string;
+  amountUsdc: number;
+}
+
+const USDC_MINOR = 1_000_000;
+
 export class BitnobClient {
   private clientId: string;
   private clientSecret: string;
@@ -292,6 +320,64 @@ export class BitnobClient {
       `/api/transactions/${encodeURIComponent(idOrReference)}`,
     );
     return this.unwrap<BitnobTransaction>(res);
+  }
+
+  /** Recent rows from the company ledger, newest first. */
+  async listTransactions(limit = 50): Promise<BitnobLedgerTx[]> {
+    const res = await this.request<unknown>(`/api/transactions?limit=${limit}`);
+    const data = this.unwrap<{ transactions?: BitnobLedgerTx[] } | BitnobLedgerTx[]>(res);
+    return Array.isArray(data) ? data : data.transactions ?? [];
+  }
+
+  /**
+   * The SETTLED deposit backing a payout, or null if it hasn't landed yet — the check that
+   * stops us releasing a payout for money we haven't received.
+   *
+   * Bitnob is not a sufficient guard on its own: it accepts `finalize` as soon as a deposit is
+   * *detected*, which is why payouts used to settle ahead of their deposits.
+   *
+   * Matching prefers the tx hash and falls back to the address only when there is no hash.
+   * Address alone is not safe — Stellar returns one static company-wide account, so same-sized
+   * concurrent withdrawals would cross-match. The `reference` is useless here: deposits carry
+   * an auto-generated `RCV_USDC_*`, never the `offramp_*` we pass to `createAddress`.
+   */
+  async findSettledDeposit(opts: {
+    address?: string;
+    txHash?: string;
+    /** Reject a deposit smaller than what the payout will debit. */
+    minAmountUsdc?: number;
+  }): Promise<SettledDeposit | null> {
+    const address = opts.address?.trim().toLowerCase();
+    const txHash = opts.txHash?.trim().toLowerCase();
+    if (!address && !txHash) return null;
+
+    const rows = await this.listTransactions();
+
+    for (const tx of rows) {
+      if (tx.type !== "DEPOSIT_CONFIRMED") continue;
+      if ((tx.state || "").toUpperCase() !== "SETTLED") continue;
+
+      const rowAddress = tx.metadata?.address?.trim().toLowerCase();
+      const rowTxHash = tx.metadata?.tx_hash?.trim().toLowerCase();
+      // A supplied hash is authoritative — never widen to the address, which is shared.
+      const matches = txHash
+        ? !!rowTxHash && rowTxHash === txHash
+        : !!address && !!rowAddress && rowAddress === address;
+      if (!matches) continue;
+
+      // A deposit short of the payout still leaves us out of pocket for the difference.
+      const amountUsdc = Math.abs(Number(tx.amount) || 0) / USDC_MINOR;
+      if (opts.minAmountUsdc != null && amountUsdc + 1e-9 < opts.minAmountUsdc) {
+        console.warn(
+          `[Bitnob] deposit ${tx.reference} is ${amountUsdc} USDC but the payout needs ` +
+            `${opts.minAmountUsdc} — treating as not yet settled.`,
+        );
+        continue;
+      }
+
+      return { reference: tx.reference, amountUsdc };
+    }
+    return null;
   }
 
   /** Every country payouts are supported in, with its currency corridors. */

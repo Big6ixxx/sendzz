@@ -4,10 +4,13 @@
  * Sends USDC on Stellar from the authenticated user's Privy-managed wallet.
  * All transactions are fee-bumped by the sponsor — users never pay XLM fees.
  *
- * Body: { walletId, senderAddress, recipientAddress, amount, memo? }
+ * Body: { walletId, senderAddress, recipientAddress, amount, memo?, feeAmount? }
+ *
+ * `feeAmount` is for callers that have already priced their fee (withdrawals carry it on the
+ * order). Omitted for P2P sends, which are priced at the transfer rate.
  */
 
-import { getFeeTreasury, getPlatformFeePercent } from '@/lib/fees/platform-fees';
+import { getFeeTreasury, resolvePlatformFee } from '@/lib/fees/platform-fees';
 import {
   signStellarTransaction,
   submitStellarTransaction,
@@ -22,7 +25,7 @@ import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
   try {
-    const { walletId, senderAddress, recipientAddress, amount, memo } =
+    const { walletId, senderAddress, recipientAddress, amount, memo, feeAmount } =
       await req.json();
 
     if (!walletId || !senderAddress || !recipientAddress || !amount) {
@@ -64,12 +67,12 @@ export async function POST(req: Request) {
 
     console.log(`[Stellar/Send] ${senderAddress.slice(0, 6)} → ${recipientAddress.slice(0, 6)}, ${amount} USDC`);
 
-    // Platform fee, resolved server-side and paid in the same transaction. Fails closed: if
-    // Stellar has no treasury configured we refuse rather than send fee-free.
-    const feePercent = getPlatformFeePercent('transfer');
-    const feeAmount = parsedAmount * (feePercent / 100);
+    // Platform fee, paid in the same transaction. Fails closed: if Stellar has no treasury
+    // configured we refuse rather than send fee-free.
+    const platformFeeUsdc = resolvePlatformFee(parsedAmount, 'transfer', feeAmount);
+
     let platformFee: { usdc: string; treasury: string } | undefined;
-    if (feeAmount > 0) {
+    if (platformFeeUsdc > 0) {
       const treasury = getFeeTreasury('stellar');
       if (!treasury) {
         console.error('[Stellar/Send] No fee treasury configured — set BITNOB_FEE_TREASURY_STELLAR');
@@ -78,7 +81,14 @@ export async function POST(req: Request) {
           { status: 503 },
         );
       }
-      platformFee = { usdc: feeAmount.toFixed(7), treasury };
+      platformFee = { usdc: platformFeeUsdc.toFixed(7), treasury };
+    }
+
+    // The fee is a second operation out of the same balance, so the earlier check on `amount`
+    // alone is not enough to know the transaction will go through.
+    if (usdcBalance + 1e-9 < parsedAmount + platformFeeUsdc) {
+      console.error('[Stellar/Send] balance does not cover amount + platform fee');
+      return NextResponse.json({ error: 'Insufficient USDC balance.' }, { status: 400 });
     }
 
     // Build unsigned payment transaction

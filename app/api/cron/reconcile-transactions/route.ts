@@ -46,7 +46,7 @@ export async function GET(req: Request) {
 
   const { data: stuck, error } = await supabaseAdmin
     .from('withdrawals')
-    .select('id, provider_order_id, provider_metadata, created_at')
+    .select('id, provider_order_id, provider_metadata, amount_usdc, created_at')
     .eq('provider', 'bitnob')
     .eq('status', 'processing')
     .lt('created_at', olderThan)
@@ -61,7 +61,9 @@ export async function GET(req: Request) {
   const results: Array<{ id: string; action: string; detail?: string }> = [];
 
   for (const w of stuck ?? []) {
-    const meta = w.provider_metadata as { quote_id?: string } | null;
+    const meta = w.provider_metadata as
+      | { quote_id?: string; deposit_address?: string }
+      | null;
     const quoteId = meta?.quote_id;
     const orderId = w.provider_order_id;
     if (!quoteId) {
@@ -69,15 +71,31 @@ export async function GET(req: Request) {
       continue;
     }
 
-    // 1. Re-drive finalize. If the deposit still isn't confirmed we get the "cannot
-    // transition" error, which is transient — leave it for the next run. Any other error
-    // (incl. already-finalized) is non-fatal here; the status poll below is authoritative.
-    try {
-      await client.finalizePayout(quoteId);
-      results.push({ id: w.id, action: 'finalized' });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      results.push({ id: w.id, action: 'finalize-skipped', detail: msg.slice(0, 120) });
+    // 1. Re-drive finalize, but only against a deposit that has actually SETTLED. Bitnob opens
+    // the transition on detection, so its own error is not a sufficient guard.
+    const settled = meta?.deposit_address
+      ? await client
+          .findSettledDeposit({
+            address: meta.deposit_address,
+            minAmountUsdc: w.amount_usdc != null ? Number(w.amount_usdc) : undefined,
+          })
+          .catch(() => null)
+      : null;
+
+    if (!settled) {
+      results.push({
+        id: w.id,
+        action: 'finalize-held',
+        detail: meta?.deposit_address ? 'deposit not settled' : 'no deposit_address to verify',
+      });
+    } else {
+      try {
+        await client.finalizePayout(quoteId);
+        results.push({ id: w.id, action: 'finalized', detail: settled.reference });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        results.push({ id: w.id, action: 'finalize-skipped', detail: msg.slice(0, 120) });
+      }
     }
 
     // 2. Poll terminal state and reconcile the ledger in case the webhook was missed.
