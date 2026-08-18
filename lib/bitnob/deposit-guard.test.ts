@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BitnobClient, type BitnobLedgerTx } from './client';
+import { BitnobClient, hasSharedDepositAddress, type BitnobLedgerTx } from './client';
 
 /**
  * Guards `findSettledDeposit`, the check that stops a payout going out before its deposit
@@ -110,8 +110,49 @@ describe('findSettledDeposit', () => {
     expect(found).not.toBeNull();
   });
 
+  it('refuses a deposit that arrived on a different chain than the withdrawal settles on', async () => {
+    const found = await clientWith([settledDeposit]).findSettledDeposit({
+      txHash: TX_HASH,
+      chain: 'base',
+    });
+    expect(found).toBeNull();
+  });
+
+  it('accepts the deposit when the chain matches, and reports what it matched', async () => {
+    const found = await clientWith([settledDeposit]).findSettledDeposit({
+      txHash: TX_HASH,
+      chain: 'Stellar',
+    });
+    expect(found?.chain).toBe('stellar');
+    expect(found?.txHash).toBe(TX_HASH);
+  });
+
   it('refuses to guess when given nothing to match on', async () => {
     const found = await clientWith([settledDeposit]).findSettledDeposit({});
     expect(found).toBeNull();
+  });
+});
+
+/**
+ * Which chains hand back one company-wide deposit address. Getting this wrong is not cosmetic:
+ * on a shared address, verifying a payout by address alone can settle it against a different
+ * user's deposit, and treating a unique address as shared holds good payouts hostage to a hash.
+ */
+describe('hasSharedDepositAddress', () => {
+  it('flags Stellar, whose deposit address is one static company account', () => {
+    expect(hasSharedDepositAddress('stellar')).toBe(true);
+    expect(hasSharedDepositAddress('Stellar')).toBe(true);
+  });
+
+  it('does not flag chains that mint an address per payout', () => {
+    for (const chain of ['base', 'polygon', 'ethereum', 'arbitrum', 'optimism', 'solana']) {
+      expect(hasSharedDepositAddress(chain)).toBe(false);
+    }
+  });
+
+  it('treats a missing network as unshared rather than throwing', () => {
+    expect(hasSharedDepositAddress(undefined)).toBe(false);
+    expect(hasSharedDepositAddress(null)).toBe(false);
+    expect(hasSharedDepositAddress('')).toBe(false);
   });
 });

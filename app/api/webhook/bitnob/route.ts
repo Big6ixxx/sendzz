@@ -27,22 +27,29 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function finalizeWithRetry(
   quoteId: string,
   tag: string,
-  deposit: { address?: string; amountUsdc?: number },
+  deposit: { address?: string; txHash?: string; amountUsdc?: number },
 ): Promise<boolean> {
   const { getBitnobClient } = await import('@/lib/bitnob/client');
   const client = getBitnobClient();
 
   // Nothing to verify against — refuse rather than guess, and let the cron re-drive.
-  if (!deposit.address) {
+  if (!deposit.address && !deposit.txHash) {
     console.error(
-      `[Bitnob Webhook] [${tag}] REFUSING to finalize ${quoteId} — no deposit address to verify against`,
+      `[Bitnob Webhook] [${tag}] REFUSING to finalize ${quoteId} — no deposit address or tx hash to verify against`,
     );
     return false;
   }
 
   for (let attempt = 1; attempt <= 5; attempt++) {
+    // Prefer the hash Bitnob reported for THIS deposit. It is unique per deposit on every
+    // chain, where the address is shared on Stellar — matching on that let one payout settle
+    // against a different user's deposit of the same size.
     const settled = await client
-      .findSettledDeposit({ address: deposit.address, minAmountUsdc: deposit.amountUsdc })
+      .findSettledDeposit({
+        address: deposit.address,
+        txHash: deposit.txHash,
+        minAmountUsdc: deposit.amountUsdc,
+      })
       .catch(() => null);
 
     if (!settled) {
@@ -226,22 +233,42 @@ export async function POST(req: Request) {
     if (/deposit/i.test(eventType) && isSuccess) {
       const eventAddress = (data?.address as string | undefined) ?? undefined;
       const eventQuoteId = (data?.quote_id as string | undefined) ?? undefined;
+      // Bitnob's own hash for this deposit. Deposit events carry no quote_id, so on Stellar —
+      // where every payout shares one static deposit address — this is the ONLY field that says
+      // which withdrawal the money belongs to.
+      const eventHash = data?.hash ?? data?.txHash ?? undefined;
 
-      // The event may carry the address without the quote, or the quote without the address,
-      // so resolve both from our own record. Verification needs the address.
-      const filters = [
-        eventAddress ? `provider_metadata->>deposit_address.eq.${eventAddress}` : null,
-        eventQuoteId ? `provider_metadata->>quote_id.eq.${eventQuoteId}` : null,
-      ].filter((f): f is string => !!f);
+      // Resolve our record from most precise identifier to least. The address used to be
+      // matched with `.maybeSingle()`, which ERRORS when more than one row matches — so on
+      // Stellar, where 12 withdrawals share one address, it returned nothing and the payout was
+      // never finalized. It sat in pending_address_deposit until its quote expired.
+      const lookups: Array<[string, string]> = [];
+      if (eventQuoteId) lookups.push(['provider_metadata->>quote_id', eventQuoteId]);
+      if (eventHash) lookups.push(['tx_hash', eventHash]);
+      if (eventAddress) lookups.push(['provider_metadata->>deposit_address', eventAddress]);
 
-      const { data: w } = filters.length
-        ? await supabaseAdmin
-            .from('withdrawals')
-            .select('id, amount_usdc, provider_metadata')
-            .eq('provider', 'bitnob')
-            .or(filters.join(','))
-            .maybeSingle()
-        : { data: null };
+      type BitnobWithdrawalRow = {
+        id: string;
+        amount_usdc: number | null;
+        provider_metadata: Json;
+      };
+      let w: BitnobWithdrawalRow | null = null;
+      for (const [column, value] of lookups) {
+        // Newest first, capped at one row: a shared address narrows to the payout still waiting
+        // on its deposit rather than blowing up the query.
+        const { data: rows } = await supabaseAdmin
+          .from('withdrawals')
+          .select('id, amount_usdc, provider_metadata')
+          .eq('provider', 'bitnob')
+          .eq('status', 'processing')
+          .eq(column, value)
+          .order('created_at', { ascending: false })
+          .limit(1);
+        if (rows && rows.length > 0) {
+          w = rows[0] as BitnobWithdrawalRow;
+          break;
+        }
+      }
 
       const meta = (w?.provider_metadata ?? null) as
         | { quote_id?: string; deposit_address?: string }
@@ -257,6 +284,7 @@ export async function POST(req: Request) {
       if (quoteId) {
         void finalizeWithRetry(quoteId, requestId, {
           address: depositAddress,
+          txHash: eventHash,
           amountUsdc: expectedUsdc,
         });
       } else {

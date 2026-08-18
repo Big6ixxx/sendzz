@@ -128,6 +128,12 @@ export interface RampOrderResponse {
   };
   /** Bitnob corridor fee in USDC (e.g. "0.3" for RWF mobile money, "0" for NGN). */
   bitnobFee?: string;
+  /**
+   * True when the provider has a quote but no payout yet: the beneficiary is attached only
+   * after the user's deposit is verified. The client must call the deferred-settle action once
+   * its transfer confirms, or nothing will pay out.
+   */
+  deferredInitialize?: boolean;
 }
 
 export interface RampRate {

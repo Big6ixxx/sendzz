@@ -901,11 +901,17 @@ export function useDepositWithdraw(
             // The order's fee, same as the EVM and Solana branches — without it the route
             // prices this at the P2P transfer rate.
             feeAmount: onchainFee?.usdc ?? "0",
+            // Lets the route record the hash server-side, so the deposit stays attributable to
+            // this withdrawal even if this tab never comes back.
+            withdrawalOrderId: order.id,
           }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Failed to submit Stellar withdrawal transaction.");
-        txHash = data.hash;
+        // The route returns `txHash` (see app/api/stellar/send). Reading `hash` here left every
+        // Stellar withdrawal with no hash at all: none was persisted, and the finalize call fell
+        // back to matching on Bitnob's static Stellar address — which is shared by every payout.
+        txHash = data.txHash;
         toast.dismiss("wd-settle");
       } else {
         if (!embeddedProvider) return;
@@ -946,13 +952,46 @@ export function useDepositWithdraw(
         // Pass what identifies OUR deposit so the action can confirm the money actually
         // landed before releasing the payout — broadcasting a transfer is not receiving it.
         const depositAmount = baseAmount + parseFloat(order.bitnobFee || "0");
-        import("@/lib/actions/ramp").then(({ finalizeBitnobPayoutAction }) => {
-          finalizeBitnobPayoutAction(ref, {
-            address: receiveAddress,
-            txHash,
-            amountUsdc: depositAmount,
-          });
-        }).catch(console.error);
+
+        if (order.deferredInitialize) {
+          // On this chain no payout exists yet: the beneficiary is attached only once this
+          // deposit is verified, so this call is what creates it. If it fails, nothing pays
+          // out — say so rather than leaving the user watching a spinner.
+          import("@/lib/actions/ramp")
+            .then(({ settleDeferredBitnobPayoutAction }) =>
+              settleDeferredBitnobPayoutAction({
+                quoteId: ref,
+                orderId: order.id,
+                txHash,
+                requiredUsdc: depositAmount,
+                network: settlementChain,
+                fiatCurrency,
+                bank: {
+                  accountNumber: bankDetails.accountNumber,
+                  accountName: bankDetails.accountName,
+                  bankName: bankDetails.bankName || bankDetails.bankCode,
+                  memo: bankDetails.memo,
+                },
+              }),
+            )
+            .then((res) => {
+              if (!res?.ok) {
+                toast.error(
+                  `Your transfer arrived but the payout could not be created${res?.reason ? `: ${res.reason}` : ""}. Support can complete it.`,
+                  { duration: 10000 },
+                );
+              }
+            })
+            .catch(console.error);
+        } else {
+          import("@/lib/actions/ramp").then(({ finalizeBitnobPayoutAction }) => {
+            finalizeBitnobPayoutAction(ref, {
+              address: receiveAddress,
+              txHash,
+              amountUsdc: depositAmount,
+            });
+          }).catch(console.error);
+        }
       }
       toast.success("Transfer sent! Waiting for payout confirmation...");
       queryClient.invalidateQueries({ queryKey: ["balance", userAddress] });

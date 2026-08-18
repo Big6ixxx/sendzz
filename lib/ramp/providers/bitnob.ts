@@ -12,6 +12,7 @@
 import {
   depositAddressOf,
   getBitnobClient,
+  hasSharedDepositAddress,
   type BitnobBeneficiary,
   type BitnobCountry,
 } from "@/lib/bitnob/client";
@@ -115,10 +116,18 @@ function getMobileMoneyOperators(country: string, currency: RampCurrency): RampI
  * How Bitnob funds the fiat leg: `onchain` backs the payout with the user's own deposit,
  * `offchain` debits our pooled USDC balance and lets the deposit land separately.
  *
- * Env-overridable because it decides where real money comes from — reverting should take a
- * restart, not a deploy.
+ * `onchain` is the default because it is the only mode that does not cap a withdrawal at our own
+ * float — offchain 422s INSUFFICIENT_FUNDS the moment a user withdraws more than we hold. It
+ * cannot work on a shared-address chain, though (see `hasSharedDepositAddress`): Bitnob funds an
+ * onchain payout by watching that payout's own address, and there isn't one. Those chains use
+ * float funding, with the deposit verified and credited first — see `createOffRampOrder`.
+ *
+ * Env-overridable towards `offchain` because it decides where real money comes from — reverting
+ * should take a restart, not a deploy. It cannot force `onchain` onto a shared-address chain,
+ * since that combination simply does not settle.
  */
-function payoutSource(): "onchain" | "offchain" {
+export function payoutSource(network: string): "onchain" | "offchain" {
+  if (hasSharedDepositAddress(network)) return "offchain";
   return process.env.BITNOB_PAYOUT_SOURCE === "offchain" ? "offchain" : "onchain";
 }
 
@@ -328,7 +337,7 @@ export class BitnobProvider implements RampProvider {
       country,
       from_asset: "USDC",
       to_currency: params.fiatCurrency,
-      source: payoutSource(),
+      source: payoutSource(params.network),
       chain: params.network,
       reference,
     });
@@ -343,15 +352,24 @@ export class BitnobProvider implements RampProvider {
     });
 
     // 3. Attach the rail-specific beneficiary — the payout enters `pending_address_deposit`.
-    const initialized = await bitnob.initializePayout(quote.quote_id, {
-      quote_id: quote.quote_id,
-      reference,
-      payment_reason: params.bank.memo || "user_withdrawal",
-      beneficiary: this.buildBeneficiary(destinationType, country, params.bank, params.userEmail),
-    });
+    //
+    // DEFERRED on a shared-address chain: Bitnob checks our float at `initialize`, so attaching a
+    // beneficiary before the user's money arrives caps every withdrawal at what we happen to be
+    // holding. Letting the deposit land first makes the user's own USDC the funding, which is what
+    // backs the payout in substance anyway. `lib/ramp/deferred-settle` verifies it and initializes.
+    const deferInitialize = hasSharedDepositAddress(params.network);
 
-    // Prefer an address returned by initialize (payout-bound); otherwise use the one above.
-    const receiveAddress = depositAddressOf(initialized) ?? address.address;
+    let receiveAddress = address.address;
+    if (!deferInitialize) {
+      const initialized = await bitnob.initializePayout(quote.quote_id, {
+        quote_id: quote.quote_id,
+        reference,
+        payment_reason: params.bank.memo || "user_withdrawal",
+        beneficiary: this.buildBeneficiary(destinationType, country, params.bank, params.userEmail),
+      });
+      // Prefer an address returned by initialize (payout-bound); otherwise use the one above.
+      receiveAddress = depositAddressOf(initialized) ?? address.address;
+    }
 
     // Sent on top of the quote amount so Bitnob's deduction comes out of the user's deposit
     // and not our float. Configured, not reported by the API — see `getCorridorFee`.
@@ -381,8 +399,42 @@ export class BitnobProvider implements RampProvider {
       destination: { type: "fiat", currency: params.fiatCurrency },
       amount: String(params.amountUsdc),
       bitnobFee,
+      deferredInitialize: deferInitialize,
       createdAt: quote.created_at ?? new Date().toISOString(),
     };
+  }
+
+  /**
+   * Attach the beneficiary to a quote whose `initialize` was deferred, once its deposit has been
+   * verified. Rebuilds the beneficiary from the same inputs order creation used, so nothing
+   * about the destination has to be held anywhere in the meantime.
+   */
+  async initializeDeferredPayout(params: {
+    quoteId: string;
+    reference: string;
+    fiatCurrency: RampCurrency;
+    bank: CreateOffRampParams["bank"];
+    userEmail?: string;
+  }): Promise<void> {
+    const corridor = await this.resolveCorridor(params.fiatCurrency);
+    if (!corridor) {
+      throw new RampUnsupportedError(
+        "bitnob",
+        "offRamp",
+        `Bitnob has no serviceable corridor for ${params.fiatCurrency}`,
+      );
+    }
+    await getBitnobClient().initializePayout(params.quoteId, {
+      quote_id: params.quoteId,
+      reference: params.reference,
+      payment_reason: params.bank.memo || "user_withdrawal",
+      beneficiary: this.buildBeneficiary(
+        corridor.destinationType,
+        corridor.country,
+        params.bank,
+        params.userEmail,
+      ),
+    });
   }
 
   async getOrder(orderId: string): Promise<RampOrderResponse> {
