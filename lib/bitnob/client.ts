@@ -63,6 +63,14 @@ export interface BitnobPayout {
   id: string;
   quote_id: string;
   status: string;
+  /** Lifecycle timestamps. `initialized_at` is absent until a beneficiary is attached. */
+  trip?: {
+    quote_at?: string;
+    initialized_at?: string;
+    processing_start?: string;
+    completion_time?: string;
+  };
+  beneficiary?: unknown;
   from_asset?: string;
   to_currency?: string;
   amount?: string;
@@ -173,9 +181,33 @@ export interface BitnobLedgerTx {
 export interface SettledDeposit {
   reference: string;
   amountUsdc: number;
+  /** Chain the deposit arrived on, per the ledger row. */
+  chain?: string;
+  /** On-chain hash Bitnob recorded for it — what ties it to the user's transfer. */
+  txHash?: string;
+}
+
+/** One currency account on the company ledger. */
+export interface BitnobBalance {
+  account_id: string;
+  currency: string;
+  /** Minor units as a string — USDC is 6dp, so "67083686" is 67.083686 USDC. */
+  available_balance: string;
+  ledger_balance: string;
 }
 
 const USDC_MINOR = 1_000_000;
+
+/**
+ * Chains where Bitnob returns ONE static company deposit address rather than a per-payout one.
+ *
+ * On these the address identifies nothing — every payout we have ever made on Stellar shares
+ * `GDZDVVL4…` — so a deposit can only be tied to its payout by tx hash. Everywhere else the
+ * address is unique per payout and is a safe identifier on its own.
+ */
+export function hasSharedDepositAddress(network?: string | null): boolean {
+  return (network || "").toLowerCase() === "stellar";
+}
 
 export class BitnobClient {
   private clientId: string;
@@ -306,6 +338,21 @@ export class BitnobClient {
     return res.data?.payout ?? this.unwrap<BitnobPayout>(res);
   }
 
+  /**
+   * Read a quote back, including whether a payout was ever attached to it.
+   *
+   * `trip.initialized_at` is the authoritative "does a payout exist" flag: an uninitialized quote
+   * carries only `quote_at` and no beneficiary, and eventually reports EXPIRED. That difference is
+   * what lets the reconcile cron tell "deposit landed, payout never created — recoverable" apart
+   * from "payout exists, just waiting".
+   */
+  async getPayoutQuote(quoteId: string): Promise<BitnobPayout> {
+    const res = await this.request<{ data?: { payout: BitnobPayout } }>(
+      `/api/payouts/quotes/${encodeURIComponent(quoteId)}`,
+    );
+    return res.data?.payout ?? this.unwrap<BitnobPayout>(res);
+  }
+
   /** Generate a stablecoin deposit address on a chain for the user to send USDC to. */
   async createAddress(chain: string, opts?: { customer_email?: string; label?: string; reference?: string }): Promise<BitnobAddress> {
     const res = await this.request<unknown>(`/api/addresses`, {
@@ -346,6 +393,8 @@ export class BitnobClient {
     txHash?: string;
     /** Reject a deposit smaller than what the payout will debit. */
     minAmountUsdc?: number;
+    /** Reject a deposit that arrived on a different chain than the withdrawal settles on. */
+    chain?: string;
   }): Promise<SettledDeposit | null> {
     const address = opts.address?.trim().toLowerCase();
     const txHash = opts.txHash?.trim().toLowerCase();
@@ -375,9 +424,39 @@ export class BitnobClient {
         continue;
       }
 
-      return { reference: tx.reference, amountUsdc };
+      // A deposit that arrived on another chain is another payout's money.
+      const rowChain = (tx.metadata?.chain as string | undefined)?.toLowerCase();
+      if (opts.chain && rowChain && rowChain !== opts.chain.toLowerCase()) {
+        console.warn(
+          `[Bitnob] deposit ${tx.reference} arrived on ${rowChain}, not ${opts.chain} — skipping.`,
+        );
+        continue;
+      }
+
+      return { reference: tx.reference, amountUsdc, chain: rowChain, txHash: rowTxHash };
     }
     return null;
+  }
+
+  /**
+   * Company balances, per currency account.
+   *
+   * This is what an `offchain` payout is debited from — Bitnob checks it at `initialize` and
+   * 422s INSUFFICIENT_FUNDS when the payout exceeds it, which is why a withdrawal larger than
+   * our float used to fail outright.
+   */
+  async getBalances(): Promise<BitnobBalance[]> {
+    const res = await this.request<unknown>(`/api/balances`);
+    const data = this.unwrap<{ accounts?: BitnobBalance[] } | BitnobBalance[]>(res);
+    return Array.isArray(data) ? data : data.accounts ?? [];
+  }
+
+  /** Available USDC on the company ledger, in whole USDC. */
+  async getAvailableUsdc(): Promise<number> {
+    const accounts = await this.getBalances();
+    const usdc = accounts.find((a) => (a.currency || "").toUpperCase() === "USDC");
+    if (!usdc) return 0;
+    return (Number(usdc.available_balance) || 0) / USDC_MINOR;
   }
 
   /** Every country payouts are supported in, with its currency corridors. */

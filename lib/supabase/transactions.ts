@@ -360,6 +360,11 @@ export async function recordWithdrawal(params: {
   feePercent?: number;
   /** Optional payment reference / memo (e.g. required for M-PESA / Kenya). */
   memo?: string;
+  /**
+   * Sealed beneficiary for a payout whose `initialize` is deferred, so the reconcile cron can
+   * finish it if the user's browser drops after depositing. Scrubbed once initialized.
+   */
+  pendingBeneficiary?: string | null;
 }): Promise<void> {
   try {
     const normalizedEmail = params.userEmail.toLowerCase();
@@ -391,6 +396,7 @@ export async function recordWithdrawal(params: {
       extra.consolidated = params.consolidated ?? false;
     }
     if (params.provider) extra.provider = params.provider;
+    if (params.pendingBeneficiary) extra.pending_beneficiary = params.pendingBeneficiary;
     // Provider-agnostic: everything provider-specific lives in provider_metadata (JSONB).
     // paycrest_order_id is still dual-written (baseRow) ONLY for prod rollback safety and is
     // dropped in the final post-rollout migration.

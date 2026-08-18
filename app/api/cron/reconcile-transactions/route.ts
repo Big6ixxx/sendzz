@@ -1,5 +1,8 @@
 import { Database } from '@/types/database';
-import { getBitnobClient } from '@/lib/bitnob/client';
+import { getBitnobClient, hasSharedDepositAddress } from '@/lib/bitnob/client';
+import { openBeneficiary } from '@/lib/ramp/beneficiary-vault';
+import { completeDeferredPayout } from '@/lib/ramp/deferred-settle';
+import { getCorridorFee } from '@/lib/ramp/fees';
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { triggerWithdrawalNotifications } from '@/lib/supabase/transactions';
@@ -46,10 +49,14 @@ export async function GET(req: Request) {
 
   const { data: stuck, error } = await supabaseAdmin
     .from('withdrawals')
-    .select('id, provider_order_id, provider_metadata, amount_usdc, created_at')
+    .select('id, provider_order_id, provider_metadata, amount_usdc, created_at, tx_hash, fiat_currency, pending_beneficiary')
     .eq('provider', 'bitnob')
     .eq('status', 'processing')
-    .lt('created_at', olderThan)
+    // The 5-minute floor exists to let the webhook's own retry window pass first. It must not
+    // apply to a deferred payout still holding a sealed beneficiary: no payout exists there, so
+    // no webhook is driving it, and the quote dies in ~16 minutes. Waiting would burn a third of
+    // the only window in which the user's deposit can still be turned into a payout.
+    .or(`created_at.lt.${olderThan},pending_beneficiary.not.is.null`)
     .gt('created_at', within);
 
   if (error) {
@@ -62,7 +69,7 @@ export async function GET(req: Request) {
 
   for (const w of stuck ?? []) {
     const meta = w.provider_metadata as
-      | { quote_id?: string; deposit_address?: string }
+      | { quote_id?: string; deposit_address?: string; network?: string }
       | null;
     const quoteId = meta?.quote_id;
     const orderId = w.provider_order_id;
@@ -71,12 +78,90 @@ export async function GET(req: Request) {
       continue;
     }
 
+    // 0. Does a payout exist yet?
+    //
+    // On a shared-address chain the beneficiary is attached only after the deposit is verified,
+    // and the browser is normally what triggers that. If the user closed the tab or lost their
+    // connection in between, their money is credited and NOTHING else will ever finish the job —
+    // so this is where it gets finished. `trip.initialized_at` is the authoritative flag: an
+    // uninitialized quote carries no beneficiary and eventually reports EXPIRED.
+    const quote = await client.getPayoutQuote(quoteId).catch(() => null);
+    const hasPayout = !!quote?.trip?.initialized_at || !!quote?.beneficiary;
+
+    if (quote && !hasPayout) {
+      const expired =
+        (quote.status || '').toUpperCase() === 'EXPIRED' ||
+        (quote.expires_at ? Date.parse(quote.expires_at) < Date.now() : false);
+
+      if (expired) {
+        // Dead quote, no payout, and none can be created now. Without a terminal state this row
+        // would sit in `processing` forever, holding the user's balance and polling an order
+        // Bitnob has never heard of.
+        if (orderId) {
+          await supabaseAdmin.rpc('finalize_withdrawal_failed', { p_paycrest_order_id: orderId });
+          await triggerWithdrawalNotifications(orderId, 'failed');
+        }
+        results.push({
+          id: w.id,
+          action: 'failed-quote-expired',
+          detail: `quote ${quoteId} expired with no payout — deposit is a balance credit`,
+        });
+        continue;
+      }
+
+      // Still live: recover it. Same gates the browser path runs, including the hash claim.
+      const beneficiary = openBeneficiary(w.pending_beneficiary);
+      if (!beneficiary || !w.tx_hash) {
+        results.push({
+          id: w.id,
+          action: 'deferred-held',
+          detail: !w.tx_hash ? 'no tx_hash recorded yet' : 'no sealed beneficiary to finish with',
+        });
+        continue;
+      }
+
+      const base = w.amount_usdc != null ? Number(w.amount_usdc) : 0;
+      const recovered = await completeDeferredPayout(
+        {
+          rowId: w.id,
+          quoteId,
+          orderId: orderId ?? '',
+          txHash: w.tx_hash,
+          requiredUsdc: base + getCorridorFee('bitnob', w.fiat_currency),
+          network: meta?.network ?? 'stellar',
+          fiatCurrency: w.fiat_currency,
+          bank: beneficiary,
+          currentTxHash: w.tx_hash,
+          // The cron re-runs every 10 minutes, so it should not sit here holding an invocation.
+          maxAttempts: 3,
+        },
+        `[Reconcile] deferred ${orderId}:`,
+      );
+      results.push({
+        id: w.id,
+        action: recovered.ok ? 'deferred-recovered' : 'deferred-incomplete',
+        detail: recovered.reason,
+      });
+      continue;
+    }
+
     // 1. Re-drive finalize, but only against a deposit that has actually SETTLED. Bitnob opens
     // the transition on detection, so its own error is not a sufficient guard.
-    const settled = meta?.deposit_address
+    //
+    // What identifies the deposit depends on the chain: Stellar hands every payout the same
+    // static address, so only our own transfer hash can tie one to this row. Matching on the
+    // shared address there would settle this payout against whichever deposit happened to be
+    // large enough — including another user's.
+    const shared = hasSharedDepositAddress(meta?.network);
+    const verifyBy = shared
+      ? { txHash: w.tx_hash ?? undefined }
+      : { address: meta?.deposit_address };
+    const canVerify = shared ? !!w.tx_hash : !!meta?.deposit_address;
+
+    const settled = canVerify
       ? await client
           .findSettledDeposit({
-            address: meta.deposit_address,
+            ...verifyBy,
             minAmountUsdc: w.amount_usdc != null ? Number(w.amount_usdc) : undefined,
           })
           .catch(() => null)
@@ -86,7 +171,11 @@ export async function GET(req: Request) {
       results.push({
         id: w.id,
         action: 'finalize-held',
-        detail: meta?.deposit_address ? 'deposit not settled' : 'no deposit_address to verify',
+        detail: canVerify
+          ? 'deposit not settled'
+          : shared
+            ? 'no tx_hash to verify a shared-address deposit'
+            : 'no deposit_address to verify',
       });
     } else {
       try {

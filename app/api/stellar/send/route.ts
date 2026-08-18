@@ -25,8 +25,15 @@ import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
   try {
-    const { walletId, senderAddress, recipientAddress, amount, memo, feeAmount } =
-      await req.json();
+    const {
+      walletId,
+      senderAddress,
+      recipientAddress,
+      amount,
+      memo,
+      feeAmount,
+      withdrawalOrderId,
+    } = await req.json();
 
     if (!walletId || !senderAddress || !recipientAddress || !amount) {
       return NextResponse.json(
@@ -109,6 +116,22 @@ export async function POST(req: Request) {
 
     const result = await submitStellarTransaction(feeBumpXdr);
     console.log(`[Stellar/Send] Success: txHash=${result.hash}`);
+
+    // Record the hash against its withdrawal HERE, not from the browser.
+    //
+    // On this chain the deposit can only be tied to a payout by its hash, and the payout is
+    // created after the deposit clears. If the tab closes in between, a browser-written hash is
+    // lost and the deposit becomes unattributable — money in, nothing to finish it with. Writing
+    // it server-side, in the same call that broadcast the transfer, closes that window: the
+    // reconcile cron always has the hash it needs.
+    if (withdrawalOrderId && result.hash) {
+      try {
+        const { saveWithdrawalTxHash } = await import('@/lib/supabase/transactions');
+        await saveWithdrawalTxHash(withdrawalOrderId, result.hash);
+      } catch (e) {
+        console.error(`[Stellar/Send] Could not record tx hash for ${withdrawalOrderId}:`, e);
+      }
+    }
 
     return NextResponse.json({ success: true, txHash: result.hash, feeBumped: true });
   } catch (error) {

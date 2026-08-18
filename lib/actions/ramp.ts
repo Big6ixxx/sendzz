@@ -370,9 +370,23 @@ export async function executeOffRamp(params: {
         };
       }
 
+      // A deferred payout has no beneficiary attached yet, and the browser is normally what
+      // supplies it once the deposit clears. Seal a copy so a dropped connection cannot strand
+      // the user's money — see lib/ramp/beneficiary-vault.
+      const { sealBeneficiary } = await import("@/lib/ramp/beneficiary-vault");
+      const pendingBeneficiary = created.deferredInitialize
+        ? sealBeneficiary({
+            accountNumber: params.bank.accountNumber,
+            accountName: params.bank.accountName,
+            bankName: params.bank.bankName,
+            memo: params.bank.memo,
+          })
+        : null;
+
       const { recordWithdrawal } = await import("@/lib/supabase/transactions");
       await recordWithdrawal({
         userEmail: userEmail,
+        pendingBeneficiary,
         amountUsdc: finalAmountUsdc,
         fiatCurrency: params.fiatCurrency,
         fiatAmount: isFiat
@@ -618,5 +632,78 @@ export async function finalizeBitnobPayoutAction(
   );
   return false;
 }
+
+/**
+ * Settle an off-ramp whose `initialize` was deferred, once its deposit has landed.
+ *
+ * This is the browser-driven path. Its job is authorisation — proving the caller owns the
+ * withdrawal they are settling — after which `completeDeferredPayout` runs the verification
+ * gates and creates the payout. The reconcile cron calls the same helper when the browser
+ * never comes back.
+ */
+export async function settleDeferredBitnobPayoutAction(params: {
+  quoteId: string;
+  /** Our own order reference (`offramp_…`), which is also the withdrawal's provider_order_id. */
+  orderId: string;
+  /** Hash of the user's transfer to the deposit address. */
+  txHash: string;
+  /** What the payout debits: base + corridor fee. The deposit must cover it. */
+  requiredUsdc: number;
+  network: RampNetwork;
+  fiatCurrency: RampCurrency;
+  bank: { accountNumber: string; accountName: string; bankName: string; memo?: string };
+  accessToken?: string;
+}): Promise<{ ok: boolean; reason?: string }> {
+  const session = await requireUserId(params.accessToken);
+
+  if (!params.quoteId || !params.txHash) {
+    return { ok: false, reason: "missing quote or transfer hash" };
+  }
+
+  const { supabaseAdmin } = await import("@/lib/supabase/adminClient");
+  const { resolveSupabaseUserId } = await import("@/lib/kyc/guard");
+  // ── The withdrawal must be this user's ────────────────────────────────────
+  // Identity comes from the session, never the caller's payload: otherwise anyone could settle
+  // someone else's pending quote against a deposit they did not make.
+  const userId = await resolveSupabaseUserId(session.email ?? session.userId);
+  const { data: row } = await supabaseAdmin
+    .from("withdrawals")
+    .select("id, user_id, tx_hash")
+    .eq("provider", "bitnob")
+    .eq("provider_order_id", params.orderId)
+    .maybeSingle();
+
+  if (!row || (userId && row.user_id !== userId)) {
+    console.error(
+      `[Action] settleDeferredBitnobPayout: ${params.orderId} does not belong to the caller — refusing.`,
+    );
+    return { ok: false, reason: "withdrawal not found for this account" };
+  }
+
+  // Gates, initialize and finalize all live in lib/ramp/deferred-settle — shared with the
+  // reconcile cron, which recovers this exact flow when the browser never comes back.
+  const { completeDeferredPayout } = await import("@/lib/ramp/deferred-settle");
+  return completeDeferredPayout(
+    {
+      rowId: row.id,
+      quoteId: params.quoteId,
+      orderId: params.orderId,
+      txHash: params.txHash,
+      requiredUsdc: params.requiredUsdc,
+      network: params.network,
+      fiatCurrency: params.fiatCurrency,
+      bank: {
+        accountNumber: params.bank.accountNumber,
+        accountName: params.bank.accountName,
+        bankName: params.bank.bankName,
+        memo: params.bank.memo,
+      },
+      userEmail: session.email,
+      currentTxHash: row.tx_hash,
+    },
+    "[Action] settleDeferredBitnobPayout:",
+  );
+}
+
 
 

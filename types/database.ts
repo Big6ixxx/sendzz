@@ -298,6 +298,7 @@ export interface Database {
           user_id: string;
           paycrest_order_id: string | null;
           tx_hash: string | null;
+          pending_beneficiary: string | null;
           amount_usdc: number;
           fiat_amount: number | null;
           exchange_rate: number | null;
@@ -321,6 +322,7 @@ export interface Database {
           user_id: string;
           paycrest_order_id?: string | null;
           tx_hash?: string | null;
+          pending_beneficiary?: string | null;
           amount_usdc: number;
           fiat_amount?: number | null;
           exchange_rate?: number | null;
@@ -344,6 +346,7 @@ export interface Database {
           user_id?: string;
           paycrest_order_id?: string | null;
           tx_hash?: string | null;
+          pending_beneficiary?: string | null;
           amount_usdc?: number;
           fiat_amount?: number | null;
           exchange_rate?: number | null;
