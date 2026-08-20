@@ -5,6 +5,7 @@ import {
   getInstitutions,
   getOffRampProviderOrder,
   getOffRampQuote,
+  getOffRampQuoteForFiat,
   getOffRampRate,
   getOnRampRate,
   getOrderStatus,
@@ -20,6 +21,7 @@ import {
   updateDepositStatus,
   saveWithdrawalTxHash,
   saveDepositTxHash,
+  getLedgerOrderStatus,
   reconcileOrderStatus,
 } from "@/lib/supabase/transactions";
 import { type FiatCurrencyCode } from "@/lib/currency-config";
@@ -49,9 +51,10 @@ import {
   type SourcePreference,
 } from "@/lib/web3/routing";
 import { parseFriendlyError } from "@/components/transfer/useTransfer";
-import { ConnectedWallet } from "@privy-io/react-auth";
+import { ConnectedWallet, usePrivy } from "@privy-io/react-auth";
 import { calculatePaycrestBaseAmount } from "@/lib/paycrest/config";
-import { totalFromBase } from "@/lib/ramp/fees";
+import { getCurrencySymbol } from "@/lib/currency-config";
+import { FIAT_ROUTING_PAD, totalDeducted } from "@/lib/ramp/fees";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -141,11 +144,63 @@ export function useDepositWithdraw(
 
   // Order & Execution
   const [order, setOrder] = useState<RampOrderResponse | null>(null);
+  /**
+   * The payout quote in force. `payoutAmount` is what the beneficiary receives — after every
+   * fee, since fees are added ON TOP of the base rather than taken out of the payout.
+   *
+   * `binding` says whether it came from the provider's own payout quote (it will settle at this
+   * figure) or from the indicative rate (an estimate). Once the order exists, this is replaced
+   * by the order's own quoted figure, so the confirm screen, the payout and the receipt are all
+   * the same number.
+   */
   const [quote, setQuote] = useState<{
     rate: number;
     payoutAmount: number;
+    binding?: boolean;
+    quoteId?: string;
+    reference?: string;
+    /** Which provider priced it — a different one settling means a different price. */
+    provider?: RampProviderName;
   } | null>(null);
+  /**
+   * The binding quote behind the amount currently typed on step 1. Distinct from `quote`, which
+   * is the one the user has reviewed and committed to; this one changes as they type.
+   */
+  const [liveQuote, setLiveQuote] = useState<
+    | {
+        rate: number;
+        payoutAmount: number;
+        binding: boolean;
+        quoteId?: string;
+        reference?: string;
+        provider?: RampProviderName;
+        /** The USDC base it was struck for — stale once the input moves on. */
+        forAmountUsdc: number;
+      }
+    | null
+  >(null);
+  const [liveQuoteLoading, setLiveQuoteLoading] = useState(false);
   const [transferring, setTransferring] = useState(false);
+  /**
+   * Set when the payout figure moved between the review the user authorised and the order that
+   * was actually struck — a re-quoted rate, or a fallback provider pricing it differently.
+   *
+   * The withdrawal is authorised once and runs through, so this does not gate anything; it
+   * labels the change inline on the summary that stays on screen, and the summary already shows
+   * the new figure. Silently swapping a money amount is the one thing not to do.
+   */
+  const [payoutAdjusted, setPayoutAdjusted] = useState<
+    { from: number; reason: "rate" | "provider" } | null
+  >(null);
+  /**
+   * Why the transfer stopped, when it did.
+   *
+   * Without a second confirmation press there is no button left on the sending screen, so a
+   * rejected signature or a failed broadcast would otherwise spin forever. The order already
+   * exists at that point, so the recovery is to retry THIS order — creating another would
+   * orphan the first in `pending_address_deposit`.
+   */
+  const [transferError, setTransferError] = useState<string | null>(null);
   // Ramp-supported chain chosen by the router to source the off-ramp from.
   const [withdrawChain, setWithdrawChain] = useState<RampNetwork>("base");
   // Settlement networks the active off-ramp provider supports (fetched, not hardcoded).
@@ -158,6 +213,24 @@ export function useDepositWithdraw(
   const [sourcePref, setSourcePref] = useState<SourcePreference>(AUTO_SOURCE);
   // When consolidating, the specific chains to pull from (null = all funded).
   const [consolidateFrom, setConsolidateFrom] = useState<SourceChainKey[] | null>(null);
+  /**
+   * A CURRENT Privy access token for the server actions that authenticate the caller.
+   *
+   * Without one they fall back to the `privy-token` cookie, which goes stale while a tab sits
+   * open — and a stale cookie fails identity verification, surfacing as "Your session expired"
+   * on an action the user just triggered. `getAccessToken()` refreshes a token that is near
+   * expiry, so asking for it per call is what keeps a long-lived tab working. This is the same
+   * thing the transfer flow and the admin pages already do.
+   *
+   * Resolves to undefined if Privy can't be reached; the action then falls back to the cookie
+   * rather than being blocked outright.
+   */
+  const { getAccessToken } = usePrivy();
+  const freshToken = useCallback(
+    async () => (await getAccessToken().catch(() => null)) ?? undefined,
+    [getAccessToken],
+  );
+
   const [bankContacts, setBankContacts] = useState<BankContactRow[]>([]);
   const [showSavePrompt, setShowSavePrompt] = useState(false);
 
@@ -234,7 +307,7 @@ export function useDepositWithdraw(
       if (quoteUsdcAmount) {
         const val = parseFloat(quoteUsdcAmount);
         if (!isNaN(val) && val > 0) {
-          getOffRampQuote(val, fiatCurrency)
+          getOffRampQuote(val, fiatCurrency, withdrawChain)
             .then(setQuote)
             .catch(() => {});
         }
@@ -375,11 +448,15 @@ export function useDepositWithdraw(
 
     setVerifyingBank(true);
     try {
+      // Verified against the provider that will actually settle on THIS chain. Checking against
+      // a provider that cannot settle here is how a bank could pass verification and then be
+      // rejected at payout by whichever provider really handled it.
       const res = await verifyBankAccount(
         details.bankCode,
         details.accountNumber,
         fiatCurrency,
         offRampProvider,
+        withdrawChain,
       );
       let name =
         typeof res.data === "string" ? res.data : res.data?.accountName;
@@ -404,7 +481,7 @@ export function useDepositWithdraw(
     } finally {
       setVerifyingBank(false);
     }
-  }, [fiatCurrency, offRampProvider]);
+  }, [fiatCurrency, offRampProvider, withdrawChain]);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -450,7 +527,7 @@ export function useDepositWithdraw(
     // Early KYC & Limit Pre-Check — block immediately at step 1
     try {
       const { checkKycLimitAction } = await import("@/lib/kyc/guard");
-      const guard = await checkKycLimitAction(estimatedUsdc);
+      const guard = await checkKycLimitAction(estimatedUsdc, await freshToken());
       if (!guard.allowed) {
         toast.error(guard.message);
         return;
@@ -471,6 +548,7 @@ export function useDepositWithdraw(
         },
         fiatCurrency,
         network: depositNetwork,
+        accessToken: await freshToken(),
       });
       setOrder(res);
       setStep(2);
@@ -481,15 +559,75 @@ export function useDepositWithdraw(
     }
   };
 
+  /**
+   * Keep a binding quote in step with what the user has typed, so the payout shown while they
+   * choose an amount is the payout the summary shows next — and the payout that settles.
+   *
+   * Step 1 used to multiply by the indicative display rate, which runs a spread better than any
+   * payout: it advertised ₦5,557 on a withdrawal the summary then quoted at ₦5,547. Same number
+   * on both screens now, because it is the same quote — carried through, not re-struck.
+   *
+   * Debounced, because each call strikes a real provider quote; only fired for an amount that
+   * could actually be withdrawn.
+   */
+  useEffect(() => {
+    if (type !== "withdraw" || step !== 1) return;
+
+    const typed = parseFloat(amount);
+    if (!Number.isFinite(typed) || typed <= 0) {
+      setLiveQuote(null);
+      return;
+    }
+    // In USDC mode the input IS the base. In fiat mode the payout is the target the user typed,
+    // so there is nothing to estimate — `solveForFiatTarget` sizes the USDC at Get Quote time.
+    if (inputMode === "fiat") {
+      setLiveQuote(null);
+      return;
+    }
+    if (typed < 1) {
+      setLiveQuote(null);
+      return;
+    }
+
+    let cancelled = false;
+    setLiveQuoteLoading(true);
+    const id = setTimeout(() => {
+      getOffRampQuote(typed, fiatCurrency, withdrawChain)
+        .then((q) => {
+          if (!cancelled) setLiveQuote({ ...q, forAmountUsdc: typed });
+        })
+        .catch(() => {
+          if (!cancelled) setLiveQuote(null);
+        })
+        .finally(() => {
+          if (!cancelled) setLiveQuoteLoading(false);
+        });
+    }, 500);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(id);
+      setLiveQuoteLoading(false);
+    };
+  }, [type, step, amount, inputMode, fiatCurrency, withdrawChain]);
+
   const handleWithdrawQuote = async () => {
-    let val = parseFloat(amount);
+    const typed = parseFloat(amount);
+    let val = typed;
 
     if (inputMode === "fiat") {
       if (!rate) {
         toast.error("Exchange rate not available yet");
         return;
       }
-      val = val / rate; // base USDC needed
+      // Only to size the balance check and routing below. The real amount comes from solving
+      // against the provider's own quote once the settlement chain is known — dividing by this
+      // display rate is exactly what made a 5,000 request pay out less than 5,000.
+      //
+      // Padded, because the solved amount is almost always a little HIGHER than this estimate
+      // (the display rate is the optimistic one). Routing on the bare estimate could pick a
+      // chain — or bridge an amount — that the real figure then does not fit into.
+      val = (typed / rate) * FIAT_ROUTING_PAD;
     }
 
     if (isNaN(val) || val < 1) {
@@ -501,12 +639,12 @@ export function useDepositWithdraw(
     // base, so the fee is added on top of it.
     // base + our platform fee + the provider's corridor fee — all three leave the user's
     // wallet, so all three must be covered before we route or bridge anything.
-    const totalUsdcRequired = totalFromBase(val, feePercent) + corridorFee;
+    const totalUsdcRequired = totalDeducted(val, feePercent, corridorFee);
 
     // Early KYC & Limit Pre-Check — block immediately at step 1 before bank details, 2FA, or signing
     try {
       const { checkKycLimitAction } = await import("@/lib/kyc/guard");
-      const guard = await checkKycLimitAction(totalUsdcRequired);
+      const guard = await checkKycLimitAction(totalUsdcRequired, await freshToken());
       if (!guard.allowed) {
         toast.error(guard.message);
         return;
@@ -562,6 +700,11 @@ export function useDepositWithdraw(
       }
     }
 
+    // The chain this withdrawal will settle on. Tracked locally as well as in state because
+    // the quote below needs it in this same tick — `withdrawChain` does not update until the
+    // next render, and quoting the wrong chain quotes the wrong price.
+    let settlementChain: RampNetwork = withdrawChain;
+
     if (isSolanaSettlement) {
       // Settle on Solana — requires enough USDC already on Solana; no consolidation.
       const solBal = solanaSource?.balance ?? 0;
@@ -575,12 +718,14 @@ export function useDepositWithdraw(
         toast.error("Connect your Solana wallet to settle on Solana.");
         return;
       }
+      settlementChain = "solana";
       setWithdrawChain("solana");
       setMustConsolidate(false);
       setConsolidateFrom(null);
     } else if (route.feasible && route.chain) {
       // A single supported chain holds enough — source straight from it.
-      setWithdrawChain(route.chain as RampNetwork);
+      settlementChain = route.chain as RampNetwork;
+      setWithdrawChain(settlementChain);
       setMustConsolidate(false);
       setConsolidateFrom(null);
     } else if (
@@ -588,7 +733,8 @@ export function useDepositWithdraw(
       combinedAvailable + 1e-9 >= totalUsdcRequired
     ) {
       const targetChain = route.chain ?? "base";
-      setWithdrawChain(targetChain as RampNetwork);
+      settlementChain = targetChain as RampNetwork;
+      setWithdrawChain(settlementChain);
       setMustConsolidate(true);
       setConsolidateFrom(route.consolidateFrom ?? null);
     } else {
@@ -598,14 +744,38 @@ export function useDepositWithdraw(
       return;
     }
 
-    // Save the computed base USDC required for the next steps
-    // without overwriting the user's input amount
-    setQuoteUsdcAmount(val.toFixed(6));
-
     setLoading(true);
     try {
-      const res = await getOffRampQuote(val, fiatCurrency);
-      setQuote(res);
+      if (inputMode === "fiat") {
+        // The user named what the RECIPIENT must receive. Solve for the USDC that delivers it
+        // at the provider's own rate, rather than converting at the display rate and hoping.
+        const solved = await getOffRampQuoteForFiat(typed, fiatCurrency, settlementChain);
+        if (!solved) {
+          toast.error("Couldn't price that amount right now. Please try again.");
+          return;
+        }
+        if (!solved.meetsTarget) {
+          // Say so rather than quietly settling for less than was asked for.
+          toast.error(
+            `We can't reach ${getCurrencySymbol(fiatCurrency)}${typed.toLocaleString()} ` +
+              `${fiatCurrency} right now — the best available is ` +
+              `${getCurrencySymbol(fiatCurrency)}${solved.payoutAmount.toLocaleString(undefined, {
+                maximumFractionDigits: 2,
+              })}.`,
+          );
+        }
+        setQuoteUsdcAmount(solved.amountUsdc.toFixed(6));
+        setQuote(solved);
+        setStep(2);
+        return;
+      }
+
+      // USDC mode: the input is the base. Reuse the quote already struck for this exact amount
+      // on step 1 — that is what makes the two screens agree by construction, not coincidence.
+      setQuoteUsdcAmount(val.toFixed(6));
+      const reusable =
+        liveQuote && Math.abs(liveQuote.forAmountUsdc - val) < 1e-9 ? liveQuote : null;
+      setQuote(reusable ?? (await getOffRampQuote(val, fiatCurrency, settlementChain)));
       setStep(2);
     } catch (err) {
       toast.error(parseFriendlyError(err));
@@ -623,7 +793,7 @@ export function useDepositWithdraw(
     const amountUsdc = parseFloat(quoteUsdcAmount);
 
     // Total amount that will be deducted including the platform fee (provider-specific).
-    const totalUsdcRequired = totalFromBase(amountUsdc, feePercent) + corridorFee;
+    const totalUsdcRequired = totalDeducted(amountUsdc, feePercent, corridorFee);
 
     if (totalUsdcRequired >= twoFaThreshold) {
       if (!twoFaEnabled) {
@@ -744,7 +914,7 @@ export function useDepositWithdraw(
         // chain, so consolidating only the base strands the withdrawal a fee short — and after
         // a CCTP bridge, which is slow and not worth repeating.
         const required = (
-          totalFromBase(parseFloat(quoteUsdcAmount), feePercent) + corridorFee
+          totalDeducted(parseFloat(quoteUsdcAmount), feePercent, corridorFee)
         ).toFixed(6);
         // Honour the user's chosen networks (if any); otherwise pull from everything.
         const allBalances: ChainBalances & { solana?: number; stellar?: number } = {
@@ -815,9 +985,51 @@ export function useDepositWithdraw(
         fiatCurrency,
         network: withdrawChain,
         consolidated: mustConsolidate,
+        accessToken: await freshToken(),
+        // Settle on the quote the user just reviewed rather than a freshly struck one.
+        quoteId: quote?.quoteId,
+        quoteReference: quote?.reference,
+        quotedBy: quote?.provider,
       });
       setOrder(res);
+
+      // Adopt the order's own quoted payout as THE figure from here on. It is what the ledger
+      // just recorded and what the provider will pay, so the confirm screen and the receipt
+      // now show the same number the beneficiary receives. Normally identical to the reviewed
+      // quote (it is the same quote); it differs only when that quote had to be re-struck.
+      const quotedFiat = Number(res.fiatAmount);
+      const switchedProvider = !!quote?.provider && quote.provider !== res.provider;
+      if (res.fiatAmount != null && Number.isFinite(quotedFiat) && quotedFiat > 0) {
+        const previous = quote?.payoutAmount;
+        setQuote((q) => ({
+          ...(q ?? {}),
+          rate: res.fiatRate ?? q?.rate ?? quotedFiat / parseFloat(quoteUsdcAmount),
+          payoutAmount: quotedFiat,
+          binding: true,
+          provider: res.provider,
+        }));
+        // The figure moved — a re-struck quote, or a fallback provider with its own price. The
+        // summary on screen picks up the new number on this same render, so the user sees the
+        // real amount without another press; the note just says why it differs.
+        setPayoutAdjusted(
+          previous != null && Math.abs(previous - quotedFiat) > 0.01
+            ? { from: previous, reason: switchedProvider ? "provider" : "rate" }
+            : null,
+        );
+      } else if (switchedProvider) {
+        // A settling provider that states no payout figure: better to show nothing than the
+        // price of a provider that is not paying. The receipt fills in on settlement.
+        setQuote((q) => (q ? { ...q, binding: false, provider: res.provider } : q));
+        setPayoutAdjusted(null);
+      } else {
+        setPayoutAdjusted(null);
+      }
+
+      // Straight through to the transfer. The review screen is the single authorisation point,
+      // so there is no second confirmation here — the order is passed directly rather than read
+      // back from state, which would still be null on this tick.
       setStep(3);
+      await executeTransfer(res);
     } catch (err) {
       toast.dismiss("consolidate");
       toast.error(parseFriendlyError(err));
@@ -826,16 +1038,23 @@ export function useDepositWithdraw(
     }
   };
 
-  const executeTransfer = async () => {
-    const receiveAddress = order?.providerAccount?.receiveAddress;
-    if (!order || !receiveAddress) return;
+  /**
+   * Move the USDC. Takes the order directly so it can run in the SAME tick the order was
+   * created in — the withdrawal is authorised once, at review, and then carries through to the
+   * transfer without a second press. Falls back to the order in state when called with nothing.
+   */
+  const executeTransfer = async (orderOverride?: RampOrderResponse) => {
+    const activeOrder = orderOverride ?? order;
+    const receiveAddress = activeOrder?.providerAccount?.receiveAddress;
+    if (!activeOrder || !receiveAddress) return;
+    setTransferError(null);
 
-    const settlementChain = (order.providerAccount?.network ?? withdrawChain) as string;
+    const settlementChain = (activeOrder.providerAccount?.network ?? withdrawChain) as string;
     const baseAmount = parseFloat(quoteUsdcAmount);
     // Fee is resolved server-side and embedded in the order: `onchain` collection carries a
     // treasury address (we route the fee there ourselves); `provider` collection is skimmed by
     // the provider (we just send base + fee to its single receive address).
-    const fee = order.fee;
+    const fee = activeOrder.fee;
     const onchainFee =
       fee?.collection === "onchain" && fee.address && parseFloat(fee.usdc) > 0
         ? { address: fee.address, usdc: fee.usdc }
@@ -846,7 +1065,7 @@ export function useDepositWithdraw(
     // leave an orphan payout parked in `pending_address_deposit` after a failed transfer.
     const totalToSend =
       parseFloat(baseAmount.toFixed(6)) +
-      parseFloat(order.bitnobFee || "0") +
+      parseFloat(activeOrder.bitnobFee || "0") +
       (fee ? parseFloat(fee.usdc) : 0);
 
     const availableOnChain =
@@ -858,7 +1077,9 @@ export function useDepositWithdraw(
 
     if (availableOnChain + 1e-9 < totalToSend) {
       console.error("[Withdraw] insufficient balance — withdrawal not submitted");
-      toast.error("Not enough balance to complete this withdrawal.");
+      const msg = "Not enough balance to complete this withdrawal.";
+      toast.error(msg);
+      setTransferError(msg);
       return;
     }
 
@@ -871,7 +1092,7 @@ export function useDepositWithdraw(
         if (!solanaSource?.settleOffRamp) {
           throw new Error("Connect your Solana wallet to settle this withdrawal on Solana.");
         }
-        const bitnobFee = parseFloat(order.bitnobFee || "0");
+        const bitnobFee = parseFloat(activeOrder.bitnobFee || "0");
         const bitnobPayoutDeposit = baseAmount + bitnobFee;
         txHash = await solanaSource.settleOffRamp({
           payoutAddress: receiveAddress,
@@ -886,7 +1107,7 @@ export function useDepositWithdraw(
         if (!stellarAddress || !stellarWalletId) {
           throw new Error("Connect your Stellar wallet to settle this withdrawal on Stellar.");
         }
-        const bitnobFee = parseFloat(order.bitnobFee || "0");
+        const bitnobFee = parseFloat(activeOrder.bitnobFee || "0");
         const bitnobPayoutDeposit = baseAmount + bitnobFee;
         toast.loading("Submitting direct Stellar withdrawal transaction…", { id: "wd-settle" });
 
@@ -903,7 +1124,7 @@ export function useDepositWithdraw(
             feeAmount: onchainFee?.usdc ?? "0",
             // Lets the route record the hash server-side, so the deposit stays attributable to
             // this withdrawal even if this tab never comes back.
-            withdrawalOrderId: order.id,
+            withdrawalOrderId: activeOrder.id,
           }),
         });
         const data = await res.json();
@@ -918,7 +1139,7 @@ export function useDepositWithdraw(
         const provider = await embeddedProvider.getEthereumProvider();
         const evmChain = settlementChain as SupportedChain;
 
-        const bitnobFee = parseFloat(order.bitnobFee || "0");
+        const bitnobFee = parseFloat(activeOrder.bitnobFee || "0");
         const bitnobPayoutDeposit = baseAmount + bitnobFee;
 
         if (onchainFee) {
@@ -944,16 +1165,17 @@ export function useDepositWithdraw(
       }
 
       setWithdrawalTxHash(txHash);
-      if (order.id && txHash) {
-        saveWithdrawalTxHash(order.id, txHash).catch(console.error);
+      if (activeOrder.id && txHash) {
+        saveWithdrawalTxHash(activeOrder.id, txHash).catch(console.error);
       }
-      if (order.provider === "bitnob" && order.providerRef) {
-        const ref = order.providerRef;
+      if (activeOrder.provider === "bitnob" && activeOrder.providerRef) {
+        const ref = activeOrder.providerRef;
         // Pass what identifies OUR deposit so the action can confirm the money actually
         // landed before releasing the payout — broadcasting a transfer is not receiving it.
-        const depositAmount = baseAmount + parseFloat(order.bitnobFee || "0");
+        const depositAmount = baseAmount + parseFloat(activeOrder.bitnobFee || "0");
 
-        if (order.deferredInitialize) {
+        if (activeOrder.deferredInitialize) {
+          const deferredToken = await freshToken();
           // On this chain no payout exists yet: the beneficiary is attached only once this
           // deposit is verified, so this call is what creates it. If it fails, nothing pays
           // out — say so rather than leaving the user watching a spinner.
@@ -961,7 +1183,7 @@ export function useDepositWithdraw(
             .then(({ settleDeferredBitnobPayoutAction }) =>
               settleDeferredBitnobPayoutAction({
                 quoteId: ref,
-                orderId: order.id,
+                orderId: activeOrder.id,
                 txHash,
                 requiredUsdc: depositAmount,
                 network: settlementChain,
@@ -972,6 +1194,9 @@ export function useDepositWithdraw(
                   bankName: bankDetails.bankName || bankDetails.bankCode,
                   memo: bankDetails.memo,
                 },
+                // Fires after the transfer confirms, so the cookie has had the longest to go
+                // stale — and a failure here strands the user's deposit with no payout.
+                accessToken: deferredToken,
               }),
             )
             .then((res) => {
@@ -996,31 +1221,58 @@ export function useDepositWithdraw(
       toast.success("Transfer sent! Waiting for payout confirmation...");
       queryClient.invalidateQueries({ queryKey: ["balance", userAddress] });
       setStep(4);
-      startPolling();
+      // Pass the order straight through — state has not flushed on this tick, and polling that
+      // silently no-ops is what showed "Withdrawal Complete" the instant the transfer was sent.
+      startPolling(activeOrder);
     } catch (err) {
       toast.dismiss("wd-settle");
-      toast.error(parseFriendlyError(err));
+      const msg = parseFriendlyError(err);
+      toast.error(msg);
+      setTransferError(msg);
     } finally {
       setTransferring(false);
     }
   };
 
-  const startPolling = useCallback(() => {
-    if (!order?.id) return;
+  /**
+   * Watch the order through to a terminal state. Takes the order directly for the same reason
+   * `executeTransfer` does: it is started in the tick the order was created, when the `order`
+   * state has not flushed yet. Reading it from state there saw `null` and returned early —
+   * which never set `polling`, so the success screen rendered the moment the transfer was
+   * broadcast, telling the user their money had arrived when the payout had not even started.
+   */
+  const startPolling = useCallback(
+    (orderOverride?: RampOrderResponse) => {
+    const activeOrder = orderOverride ?? order;
+    if (!activeOrder?.id) return;
     setPolling(true);
+    const isWithdraw = type === "withdraw";
     const poll = async () => {
       try {
-        const result = await getOrderStatus(order.id, order.provider);
-        setTxStatus(result.status);
+        const result = await getOrderStatus(activeOrder.id, activeOrder.provider);
 
-        const isWithdraw = type === "withdraw";
-        const successStatuses = isWithdraw
-          ? ["settled", "completed", "validated", "deposited"]
-          : ["settled"];
+        // Our ledger is the second source of truth, and for Bitnob the ONLY one that turns
+        // terminal: the webhook writes it, while provider polling stays `pending` because the
+        // payout is not indexed under our order reference. Consulted alongside the provider so
+        // "completed" means the fiat actually landed, however we came to know it.
+        const ledger = isWithdraw
+          ? await getLedgerOrderStatus(activeOrder.id, "withdrawal").catch(() => null)
+          : null;
+
+        setTxStatus(ledger === "completed" ? "settled" : result.status);
+
+        // Completion ONLY. `deposited` and `validated` mean the user's USDC arrived and passed
+        // checks — the payout has not been made. Treating those as success is what told people
+        // their money had landed while the bank transfer had not yet started; they are a
+        // processing state and must keep the spinner up.
+        const successStatuses = ["settled"];
         const failureStatuses = ["refunded", "expired", "failed", "refunding"];
 
-        const isSuccess = successStatuses.includes(result.status);
-        const isFailure = failureStatuses.includes(result.status);
+        const isSuccess =
+          successStatuses.includes(result.status) || ledger === "completed";
+        const isFailure =
+          failureStatuses.includes(result.status) ||
+          (ledger != null && ["failed", "reversed"].includes(ledger));
 
         if (isSuccess || isFailure) {
           if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
@@ -1030,10 +1282,14 @@ export function useDepositWithdraw(
             if (isWithdraw) {
               // IMPORTANT: use reconcileOrderStatus (calls finalize_withdrawal_success RPC)
               // which atomically updates locked_balance. Do NOT call updateWithdrawalStatus() directly.
-              reconcileOrderStatus(order.id, result.status, 'withdrawal').catch(console.error);
+              // Skipped when the ledger is already terminal — the webhook ran that same RPC, and
+              // re-driving it with a still-`pending` provider status would be a no-op anyway.
+              if (ledger !== "completed") {
+                reconcileOrderStatus(activeOrder.id, result.status, 'withdrawal').catch(console.error);
+              }
               toast.success("Withdrawal completed!");
 
-              // Check if bank is already in contacts
+              // Offer to save the destination, unless it is already in their contacts.
               const exists = bankContacts.some(
                 (c) => c.account_number === bankDetails.accountNumber,
               );
@@ -1044,19 +1300,21 @@ export function useDepositWithdraw(
               queryClient.invalidateQueries({
                 queryKey: ["balance", userAddress],
               });
-              // Only close if not showing save prompt
-              if (exists) {
-                setTimeout(() => onClose?.(), 2000);
-              }
+
+              // The modal STAYS OPEN on completion. It used to close itself two seconds after a
+              // withdrawal to a bank already in contacts, which is the common case — so the
+              // success screen, the receipt and its download button flashed past and vanished
+              // before they could be read. Completion is the one moment the user most wants to
+              // look at: closing is now theirs to do, via the X or a click outside.
             } else {
-              updateDepositStatus(order.id, "confirmed");
+              updateDepositStatus(activeOrder.id, "confirmed");
               // Try to capture settlement tx hash from Paycrest order status
               const settlementTxHash =
                 result.txHash ||
                 result.settlementTxHash ||
                 result.transactionHash;
-              if (settlementTxHash && order.id) {
-                saveDepositTxHash(order.id, settlementTxHash).catch(
+              if (settlementTxHash && activeOrder.id) {
+                saveDepositTxHash(activeOrder.id, settlementTxHash).catch(
                   console.error,
                 );
               }
@@ -1079,9 +1337,9 @@ export function useDepositWithdraw(
             if (isWithdraw) {
               // IMPORTANT: use reconcileOrderStatus (calls finalize_withdrawal_failed RPC)
               // which atomically refunds locked_balance → available_balance.
-              reconcileOrderStatus(order.id, result.status, 'withdrawal').catch(console.error);
+              reconcileOrderStatus(activeOrder.id, result.status, 'withdrawal').catch(console.error);
             } else {
-              updateDepositStatus(order.id, "failed");
+              updateDepositStatus(activeOrder.id, "failed");
             }
             toast.error(`Transaction ${result.status}`);
           }
@@ -1091,14 +1349,13 @@ export function useDepositWithdraw(
     poll();
     pollIntervalRef.current = setInterval(poll, 8000);
   }, [
-    order?.id,
-    order?.provider,
+    // The whole order, since the callback now falls back to it when called with no argument.
+    order,
     type,
     bankContacts,
     queryClient,
     userAddress,
     bankDetails.accountNumber,
-    onClose,
   ]);
 
   useEffect(() => {
@@ -1143,6 +1400,12 @@ export function useDepositWithdraw(
     showSavePrompt,
     setShowSavePrompt,
     quoteUsdcAmount,
+    liveQuote,
+    liveQuoteLoading,
+    payoutAdjusted,
+    transferError,
+    /** Retry the transfer for the order that already exists — never create a second one. */
+    retryTransfer: () => executeTransfer(),
     withdrawChain,
     mustConsolidate,
     sourcePref,
@@ -1153,6 +1416,10 @@ export function useDepositWithdraw(
     rampNetworks,
     offRampProvider,
     feePercent,
+    // The provider's flat corridor fee in USDC. Exposed so the breakdown can show the SAME
+    // total the wallet is actually debited — it is a third outflow alongside base + platform
+    // fee, and leaving it out of "Total Deducted" understated every mobile-money withdrawal.
+    corridorFee,
     depositNetwork,
     setDepositNetwork,
     // On-ramp (Paycrest) lands USDC on these chains; default Base.
@@ -1187,9 +1454,8 @@ export function useDepositWithdraw(
         getUserBankContacts()
           .then(setBankContacts)
           .catch(console.error);
-        if (type === "withdraw") {
-          setTimeout(() => onClose?.(), 1000);
-        }
+        // Deliberately does NOT close on a withdrawal: saving the contact is a side errand, and
+        // closing would take the receipt with it before the user had a chance to download it.
       } catch (err) {
         toast.error(parseFriendlyError(err));
       }
@@ -1199,6 +1465,9 @@ export function useDepositWithdraw(
       setAmount("");
       setOrder(null);
       setQuote(null);
+      setLiveQuote(null);
+      setPayoutAdjusted(null);
+      setTransferError(null);
       setTxStatus(null);
       setPolling(false);
       setShowSavePrompt(false);

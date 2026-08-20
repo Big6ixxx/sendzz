@@ -110,6 +110,17 @@ export interface RampOrderResponse {
     currency: RampCurrency;
   };
   amount: string;
+  /**
+   * Fiat the beneficiary receives, per the provider quote this order was created from — the
+   * ONLY authoritative payout figure. The ledger records it and the receipt shows it, so what
+   * the user is promised, what the provider pays, and what the receipt says are one number.
+   *
+   * Absent when the provider does not report a destination amount (Paycrest settles the rate
+   * it quoted, so the caller's rate × amount stands in).
+   */
+  fiatAmount?: string;
+  /** Fiat per 1 USDC that `fiatAmount` was struck at. */
+  fiatRate?: number;
   createdAt: string;
   txHash?: string;
   settlementTxHash?: string;
@@ -193,6 +204,46 @@ export interface CreateOffRampParams {
   fiatCurrency: RampCurrency;
   /** Paycrest-style: the chain the user will send USDC from. */
   network: RampNetwork;
+  /**
+   * A quote already struck for this withdrawal (see `quoteOffRamp`), to settle at the exact
+   * rate the user was shown rather than re-quoting at whatever the rate has since moved to.
+   * Ignored — and a fresh quote taken — if it has expired or no longer matches the amount.
+   */
+  quoteId?: string;
+  /**
+   * The order reference that quote was created under. Reusing a quote MUST reuse its
+   * reference, or the payout is initialized under a reference the quote never carried.
+   */
+  quoteReference?: string;
+}
+
+/** Ask a provider what it will actually pay out, before any order exists. */
+export interface QuoteOffRampParams {
+  amountUsdc: number;
+  fiatCurrency: RampCurrency;
+  /** Chain the USDC will settle on — providers can price per chain. */
+  network: RampNetwork;
+}
+
+/**
+ * A provider's answer to "what does the beneficiary get for this much USDC".
+ *
+ * `binding: true` means it came from a real payout quote and is the figure that will settle.
+ * `binding: false` means it is an indicative mid-market rate — better than nothing for a
+ * provider with no quote endpoint, but it must never be presented as a guarantee.
+ */
+export interface RampPayoutQuote {
+  provider: RampProviderName;
+  /** Fiat per 1 USDC. */
+  rate: number;
+  /** Fiat the beneficiary receives for `amountUsdc`. */
+  payoutAmount: number;
+  binding: boolean;
+  /** Provider quote id, when the quote is a real one that order creation can reuse. */
+  quoteId?: string;
+  /** Order reference the quote was struck under — must travel with `quoteId`. */
+  reference?: string;
+  expiresAt?: string;
 }
 
 /**

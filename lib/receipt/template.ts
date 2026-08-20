@@ -20,6 +20,18 @@ function formatReceiptDate(iso: string): string {
   return `${day} ${month} ${year} ${hh}:${mm}`;
 }
 
+/**
+ * The canonical receipt rows for a transaction.
+ *
+ * Exported because there are three places a receipt is produced — the PDF, the in-app screen
+ * after a withdrawal, and the completion email — and they had each grown their own row list.
+ * The email showed six fields, the post-withdrawal PDF was missing the tx hash and memo, and
+ * only the history modal was complete. Same data in, same rows out, everywhere.
+ */
+export function buildReceiptRows(data: ReceiptData): [string, string][] {
+  return buildRows(data);
+}
+
 function buildRows(data: ReceiptData): [string, string][] {
   const shortId = '#' + data.id.slice(0, 8).toUpperCase();
   const rows: [string, string][] = [

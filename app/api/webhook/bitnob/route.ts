@@ -80,6 +80,46 @@ async function finalizeWithRetry(
 }
 
 /**
+ * The fiat actually settled, per the terminal payout event — the last word on what the
+ * beneficiary received.
+ *
+ * The row already holds the amount Bitnob QUOTED (recorded at order creation from the quote the
+ * user reviewed), which is normally exactly this. This closes the remaining gap: if Bitnob ever
+ * settles at something other than it quoted, the receipt follows the money rather than the
+ * promise.
+ *
+ * Read defensively across the keys Bitnob has used for a destination amount. A bare `amount` is
+ * only trusted when the event names the same currency as the row — on a payout event it is
+ * otherwise just as likely to be the USDC leg, and writing that into `fiat_amount` would turn a
+ * 58,000 NGN receipt into a 42 NGN one.
+ */
+function settledFiatAmount(
+  data: Record<string, unknown> | undefined,
+  rowCurrency: string | null,
+): number | null {
+  if (!data) return null;
+
+  const candidates: unknown[] = [
+    data.settlement_amount,
+    data.amount_to_receive,
+    data.receive_amount,
+    data.destination_amount,
+    data.to_amount,
+  ];
+  const eventCurrency = typeof data.currency === "string" ? data.currency : null;
+  if (rowCurrency && eventCurrency?.toUpperCase() === rowCurrency.toUpperCase()) {
+    candidates.push(data.amount);
+  }
+
+  for (const c of candidates) {
+    if (c == null || c === "") continue;
+    const n = Number(c);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
+}
+
+/**
  * Bitnob webhook. Verifies the HMAC-SHA512 signature, then drives the payout:
  *   deposit.success   → deposit detected → retry finalize until it confirms
  *   payout.processing  → settlement started (intermediate, no action)
@@ -311,10 +351,11 @@ export async function POST(req: Request) {
 
     // A payout terminal event may carry our order reference OR the quote_id — try both,
     // all against provider-agnostic columns.
+    const WITHDRAWAL_COLUMNS = 'id, provider_order_id, fiat_currency, fiat_amount, amount_usdc';
     let wd = (
       await supabaseAdmin
         .from('withdrawals')
-        .select('id, provider_order_id')
+        .select(WITHDRAWAL_COLUMNS)
         .eq('provider', 'bitnob')
         .eq('provider_order_id', orderId)
         .maybeSingle()
@@ -323,7 +364,7 @@ export async function POST(req: Request) {
       wd = (
         await supabaseAdmin
           .from('withdrawals')
-          .select('id, provider_order_id')
+          .select(WITHDRAWAL_COLUMNS)
           .eq('provider', 'bitnob')
           .eq('provider_metadata->>quote_id', orderId)
           .maybeSingle()
@@ -362,6 +403,34 @@ export async function POST(req: Request) {
       }
 
       if (isSuccess) {
+        // Follow the money: if the settled figure differs from the quoted one on record, the
+        // receipt takes the settled figure. Written before the finalize RPC so a receipt is
+        // never rendered from a superseded number.
+        const settledFiat = settledFiatAmount(data, wd.fiat_currency);
+        if (settledFiat != null && Math.abs(settledFiat - Number(wd.fiat_amount ?? 0)) > 0.01) {
+          const usdc = Number(wd.amount_usdc);
+          console.log(
+            `[Bitnob Webhook] [${requestId}] ${rpcOrderId} settled at ${settledFiat} ` +
+              `${wd.fiat_currency} (recorded ${wd.fiat_amount}) — updating the receipt.`,
+          );
+          const { error: reconcileError } = await supabaseAdmin
+            .from('withdrawals')
+            .update({
+              fiat_amount: settledFiat,
+              ...(Number.isFinite(usdc) && usdc > 0
+                ? { exchange_rate: settledFiat / usdc }
+                : {}),
+            })
+            .eq('id', wd.id);
+          // A stale amount is worth a loud log, but not worth failing the payout's finalize.
+          if (reconcileError) {
+            console.error(
+              `[Bitnob Webhook] [${requestId}] could not update fiat_amount for ${rpcOrderId}:`,
+              reconcileError.message,
+            );
+          }
+        }
+
         const { error } = await supabaseAdmin.rpc('finalize_withdrawal_success', {
           p_paycrest_order_id: rpcOrderId,
         });

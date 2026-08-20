@@ -11,6 +11,8 @@ import type { RampProvider } from "../provider";
 import type {
   CreateOffRampParams,
   CreateOnRampParams,
+  QuoteOffRampParams,
+  RampPayoutQuote,
   RampCapabilities,
   RampCurrency,
   RampCurrencyDetail,
@@ -41,6 +43,30 @@ function mapStatus(s: string): RampOrderStatus {
     default:
       return "pending";
   }
+}
+
+/**
+ * The fiat payout Paycrest states on an order, if it states one.
+ *
+ * Paycrest's documented contract is that it settles the amount it quoted, and its rate endpoint
+ * is amount-scoped — so the order need not restate the payout, and often doesn't. Read what is
+ * there rather than assuming a shape; the caller falls back to Paycrest's own rate for the
+ * amount when this returns null, so the figure recorded is always Paycrest's, never the
+ * provider the user happened to be quoted by first.
+ */
+function statedPayout(o: PaycrestOrderResponse): { amount?: number; rate?: number } {
+  const raw = o as unknown as Record<string, unknown>;
+  const pick = (...keys: string[]): number | undefined => {
+    for (const k of keys) {
+      const n = Number(raw[k]);
+      if (raw[k] != null && raw[k] !== "" && Number.isFinite(n) && n > 0) return n;
+    }
+    return undefined;
+  };
+  return {
+    amount: pick("settlementAmount", "amountInFiat", "fiatAmount", "receiveAmount"),
+    rate: pick("rate", "exchangeRate"),
+  };
 }
 
 function mapOrder(o: PaycrestOrderResponse): RampOrderResponse {
@@ -153,6 +179,43 @@ export class PaycrestProvider implements RampProvider {
     return mapOrder(order);
   }
 
+  /**
+   * What Paycrest will actually pay the beneficiary.
+   *
+   * Paycrest has no separate quote object to reserve — its rate endpoint is scoped to the
+   * amount and it settles the amount it quoted, so the rate IS the quote. That means there is
+   * no `quoteId` to carry into order creation; consistency comes instead from order creation
+   * pricing the payout the same way, off the same endpoint, for the same amount.
+   */
+  async quoteOffRamp(params: QuoteOffRampParams): Promise<RampPayoutQuote> {
+    const rate = await this.sellRateFor(params.amountUsdc, params.fiatCurrency, params.network);
+    if (rate == null) {
+      throw new Error(`Paycrest returned no ${params.fiatCurrency} sell rate`);
+    }
+    return {
+      provider: "paycrest",
+      rate,
+      payoutAmount: params.amountUsdc * rate,
+      binding: true,
+    };
+  }
+
+  /** Paycrest's sell rate for this exact size — amount-scoped, so it is a price, not an index. */
+  private async sellRateFor(
+    amountUsdc: number,
+    fiat: RampCurrency,
+    network: string,
+  ): Promise<number | null> {
+    const res = await getPaycrestClient()
+      .getRates(network, "USDC", amountUsdc, fiat)
+      .catch((e) => {
+        console.warn(`[Paycrest] rate lookup failed for ${fiat} on ${network}:`, e);
+        return null;
+      });
+    const rate = Number(res?.data?.sell?.rate);
+    return Number.isFinite(rate) && rate > 0 ? rate : null;
+  }
+
   async createOffRampOrder(params: CreateOffRampParams): Promise<RampOrderResponse> {
     const paycrest = getPaycrestClient();
     const isFiat = params.inputMode === "fiat" && !!params.fiatAmount;
@@ -177,7 +240,47 @@ export class PaycrestProvider implements RampProvider {
       },
       reference: `offramp_${Date.now()}`,
     });
-    return mapOrder(order);
+
+    const mapped = mapOrder(order);
+
+    // ── The payout figure, priced by Paycrest ───────────────────────────
+    // Attached here rather than left to the caller because the caller's estimate may have come
+    // from a DIFFERENT provider — this order can be a fallback after the primary went down, and
+    // recording the primary's price against a Paycrest payout is exactly the mismatch the whole
+    // quoting path exists to prevent.
+    const stated = statedPayout(order);
+    let fiatAmount = stated.amount;
+    let fiatRate = stated.rate;
+
+    if (fiatAmount == null) {
+      // In fiat mode the order was placed FOR a fiat target, so that target is the payout.
+      if (isFiat && params.fiatAmount) {
+        fiatAmount = params.fiatAmount;
+      } else {
+        fiatRate = fiatRate ?? (await this.sellRateFor(
+          params.amountUsdc,
+          params.fiatCurrency,
+          params.network,
+        )) ?? undefined;
+        if (fiatRate != null) fiatAmount = params.amountUsdc * fiatRate;
+      }
+    }
+
+    if (fiatAmount != null && fiatRate == null && params.amountUsdc > 0) {
+      fiatRate = fiatAmount / params.amountUsdc;
+    }
+    if (fiatAmount == null) {
+      console.warn(
+        `[Paycrest] order ${mapped.id} has no payout figure and no rate to derive one — the ` +
+          `receipt will fall back to the caller's estimate.`,
+      );
+    }
+
+    return {
+      ...mapped,
+      fiatAmount: fiatAmount != null ? String(fiatAmount) : undefined,
+      fiatRate,
+    };
   }
 
   async getOrder(orderId: string): Promise<RampOrderResponse> {

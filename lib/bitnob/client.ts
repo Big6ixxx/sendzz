@@ -37,12 +37,74 @@ export interface BitnobPayoutQuote {
   status: string;
   from_asset: string;
   to_currency: string;
+  /** The SOURCE amount — USDC being sold. Not what the beneficiary receives. */
   amount: string;
+  /** The DESTINATION amount — fiat the beneficiary receives. Read via `quotedSettlement`. */
   settlement_amount?: string;
   fees?: string;
   exchange_rate?: BitnobExchangeRate;
   expires_at?: string;
   created_at?: string;
+  /**
+   * Aliases seen for the destination amount / rate across Bitnob payout and quote payloads.
+   * Declared so `quotedSettlement` can read them without casting; it tries each in turn.
+   */
+  amount_to_receive?: string | number;
+  receive_amount?: string | number;
+  destination_amount?: string | number;
+  to_amount?: string | number;
+  rate?: string | number;
+}
+
+/** What a quote says the beneficiary will actually be paid. */
+export interface QuotedSettlement {
+  /** Fiat the beneficiary receives, in major units (e.g. 58063.12 NGN). */
+  amount: number;
+  /** Fiat per 1 USDC this quote settles at. */
+  rate: number;
+}
+
+function firstPositiveNumber(...candidates: unknown[]): number | null {
+  for (const c of candidates) {
+    if (c == null || c === "") continue;
+    const n = Number(c);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
+}
+
+/**
+ * The fiat payout a quote is binding for — the number the user must be shown and the number
+ * the receipt must record.
+ *
+ * Bitnob's indicative `/api/exchange-rates` rate is NOT this rate: it runs a spread or two
+ * better than the payout rate, so quoting from it promised a payout the payout never made
+ * (58,063 quoted, 57,958 paid). The quote's own settlement figure is the only authority.
+ *
+ * Read defensively — the destination amount has surfaced under several keys — and derive the
+ * missing half from `sourceUsdc` when only one of amount/rate is reported. Returns null when
+ * the payload says nothing usable, so callers fall back rather than invent a number.
+ */
+export function quotedSettlement(
+  quote: BitnobPayoutQuote | BitnobPayout,
+  sourceUsdc?: number,
+): QuotedSettlement | null {
+  const q = quote as BitnobPayoutQuote;
+  const amount = firstPositiveNumber(
+    q.settlement_amount,
+    q.amount_to_receive,
+    q.receive_amount,
+    q.destination_amount,
+    q.to_amount,
+  );
+  const rate = firstPositiveNumber(q.exchange_rate?.rate, q.rate);
+  // `quote.amount` is the USDC being sold; prefer the caller's figure but fall back to it.
+  const usdc = firstPositiveNumber(sourceUsdc, q.amount);
+
+  if (amount != null && rate != null) return { amount, rate };
+  if (amount != null && usdc != null) return { amount, rate: amount / usdc };
+  if (rate != null && usdc != null) return { amount: rate * usdc, rate };
+  return null;
 }
 
 /**

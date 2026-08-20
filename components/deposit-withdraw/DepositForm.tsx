@@ -261,7 +261,7 @@ export function DepositForm({ hook }: DepositFormProps) {
             </p>
           </div>
         ) : (
-          <button onClick={hook.startPolling} className="btn-primary w-full">
+          <button onClick={() => hook.startPolling()} className="btn-primary w-full">
             I Have Made the Transfer
           </button>
         )}

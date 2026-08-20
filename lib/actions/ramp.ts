@@ -5,6 +5,7 @@ import { toUserSafeMessage } from "@/lib/errors/sanitize";
 import { Ramp } from "@/lib/ramp";
 import { isBridgeable } from "@/lib/circle/gateway";
 import { applyFee, getCorridorFee, getProviderFee, resolveFeeTreasury } from "@/lib/ramp/fees";
+import { resolvePayoutFiat } from "@/lib/ramp/payout-figure";
 import { kycGuard } from "@/lib/kyc/guard";
 import type {
   RampCurrency,
@@ -175,22 +176,152 @@ export async function getOffRampRate(fiat: string = "NGN"): Promise<number> {
 }
 
 /**
- * OFF-RAMP QUOTE
+ * OFF-RAMP QUOTE — what the beneficiary will actually receive.
+ *
+ * Asks the provider that will serve the withdrawal for a REAL payout quote and returns its id,
+ * so `executeOffRamp` can settle on this same quote rather than re-striking the rate. That is
+ * the whole point: the figure reviewed, the figure paid out, and the figure on the receipt are
+ * one number, because they are one quote.
+ *
+ * The indicative `getRates` price is only a fallback, for a provider with no quote endpoint or
+ * a quote call that failed. It is priced a spread better than any payout settles at — quoting
+ * from it is what promised 58,063 NGN on a payout that paid 57,958 — so it comes back flagged
+ * `binding: false` and the UI must present it as an estimate.
  */
-export async function getOffRampQuote(amountUsdc: number, fiat: string = "NGN") {
+export async function getOffRampQuote(
+  amountUsdc: number,
+  fiat: string = "NGN",
+  network: RampNetwork = "base",
+): Promise<{
+  rate: number;
+  payoutAmount: number;
+  /**
+   * The provider this price belongs to. Sent back on execution as `quotedBy` so a DIFFERENT
+   * provider settling never inherits it — hence a real provider name, not the rate feed's own
+   * id, which names a liquidity source rather than a ramp and would never match.
+   */
+  provider?: RampProviderName;
+  /** Display label for where the price came from — free-form, never used to make a decision. */
+  priceSource: string;
+  binding: boolean;
+  quoteId?: string;
+  reference?: string;
+  expiresAt?: string;
+}> {
+  const [preferred] = await Ramp.offRampProviderOrder(fiat, network).catch(
+    () => [] as RampProviderName[],
+  );
+
+  if (preferred) {
+    const quote = await Ramp.quoteOffRampFor(preferred, {
+      amountUsdc,
+      fiatCurrency: fiat,
+      network,
+    });
+    if (quote) {
+      return {
+        rate: quote.rate,
+        payoutAmount: quote.payoutAmount,
+        provider: quote.provider,
+        priceSource: quote.provider,
+        binding: quote.binding,
+        quoteId: quote.quoteId,
+        reference: quote.reference,
+        expiresAt: quote.expiresAt,
+      };
+    }
+    console.warn(
+      `[Action] getOffRampQuote: ${preferred} gave no binding quote for ${fiat} on ` +
+        `${network} — falling back to the indicative rate.`,
+    );
+  }
+
   try {
     const rates = await Ramp.getRates(amountUsdc, fiat);
     const rate = rates.data.sell?.rate || 0;
     return {
       rate,
       payoutAmount: amountUsdc * rate,
-      provider: rates.data.sell?.provider_id || "ramp",
+      // Still the provider that will serve the withdrawal — only the PRICE is indicative. The
+      // ownership claim stays accurate so the fallback check downstream keeps working.
+      provider: preferred,
+      priceSource: rates.data.sell?.provider_id || "ramp",
+      binding: false,
     };
   } catch (error: unknown) {
     const err = error as Error;
     console.error(`Error fetching off-ramp rates for ${fiat}:`, err.message || error);
     throw error;
   }
+}
+
+/**
+ * OFF-RAMP QUOTE FOR A FIAT TARGET — "I want the recipient to get exactly 5,000".
+ *
+ * Returns the binding quote that delivers at least `targetFiat`, plus the USDC that funds it.
+ * The caller withdraws THAT amount; the recipient gets the amount asked for.
+ *
+ * Previously the client divided the target by the display rate and withdrew the result, which
+ * settled at the provider's real (worse) rate — so every fiat-target withdrawal paid out under
+ * the amount requested. The rate used to size the withdrawal is now the same one that settles it.
+ */
+export async function getOffRampQuoteForFiat(
+  targetFiat: number,
+  fiat: string = "NGN",
+  network: RampNetwork = "base",
+): Promise<{
+  rate: number;
+  payoutAmount: number;
+  amountUsdc: number;
+  /** False when the provider could not reach the target — the UI must not claim it did. */
+  meetsTarget: boolean;
+  provider?: RampProviderName;
+  priceSource: string;
+  binding: boolean;
+  quoteId?: string;
+  reference?: string;
+  expiresAt?: string;
+} | null> {
+  const [preferred] = await Ramp.offRampProviderOrder(fiat, network).catch(
+    () => [] as RampProviderName[],
+  );
+  if (!preferred) return null;
+
+  // Only the starting guess. The solver replaces it with the provider's own rate immediately.
+  let seedRate = 0;
+  try {
+    const rates = await Ramp.getRates(1, fiat);
+    seedRate = Number(rates.data.sell?.rate) || 0;
+  } catch {
+    seedRate = 0;
+  }
+  if (!(seedRate > 0)) return null;
+
+  const { solveForFiatTarget } = await import("@/lib/ramp/fiat-target");
+  const solved = await solveForFiatTarget(targetFiat, seedRate, (amountUsdc) =>
+    Ramp.quoteOffRampFor(preferred, { amountUsdc, fiatCurrency: fiat, network }),
+  );
+  if (!solved) return null;
+
+  if (!solved.meetsTarget) {
+    console.warn(
+      `[Action] getOffRampQuoteForFiat: ${preferred} could not reach ${targetFiat} ${fiat} ` +
+        `(best ${solved.quote.payoutAmount}). Reporting the shortfall rather than hiding it.`,
+    );
+  }
+
+  return {
+    rate: solved.quote.rate,
+    payoutAmount: solved.quote.payoutAmount,
+    amountUsdc: solved.amountUsdc,
+    meetsTarget: solved.meetsTarget,
+    provider: solved.quote.provider,
+    priceSource: solved.quote.provider,
+    binding: solved.quote.binding,
+    quoteId: solved.quote.quoteId,
+    reference: solved.quote.reference,
+    expiresAt: solved.quote.expiresAt,
+  };
 }
 
 /**
@@ -226,6 +357,14 @@ export async function finalizeOffRamp(
 
     const isFiat = inputMode === "fiat" && !!fiatAmount;
     const finalAmountUsdc = isFiat ? Number(order.amount || amountUsdc) : amountUsdc;
+    // Same rule as executeOffRamp: the settling provider's own payout wins over any estimate.
+    const settled = await resolvePayoutFiat(order, order.provider, {
+      amountUsdc: finalAmountUsdc,
+      fiatCurrency: fiat,
+      network,
+      fiatAmount,
+      exchangeRate,
+    });
 
     // Record in internal ledger
     const { recordWithdrawal } = await import("@/lib/supabase/transactions");
@@ -233,8 +372,8 @@ export async function finalizeOffRamp(
       userEmail,
       amountUsdc: finalAmountUsdc,
       fiatCurrency: fiat,
-      fiatAmount: isFiat ? fiatAmount : fiatAmount || amountUsdc * (exchangeRate || 1),
-      exchangeRate,
+      fiatAmount: settled.fiatAmount,
+      exchangeRate: settled.exchangeRate,
       bankAccountMasked: accountNumber.replace(/.(?=.{4})/g, "*"),
       institutionCode: bankCode,
       status: "processing",
@@ -275,6 +414,18 @@ export async function executeOffRamp(params: {
   network: RampNetwork;
   consolidated?: boolean;
   accessToken?: string;
+  /**
+   * The quote the user reviewed (`getOffRampQuote`). Passed through so the order settles on
+   * that exact quote instead of re-striking the rate behind the user's back. Both fields
+   * travel together — a quote id without its reference cannot be reused.
+   */
+  quoteId?: string;
+  quoteReference?: string;
+  /**
+   * Which provider struck that quote. If a different one ends up settling — the first was down,
+   * or could not serve the corridor — its price does not apply and must not be recorded.
+   */
+  quotedBy?: RampProviderName;
 }): Promise<{ order: RampOrderResponse; provider: RampProviderName }> {
   // ── Identity ────────────────────────────────────────────────────────────
   // Taken from the session, never from `params`. This action moves money and records it
@@ -301,6 +452,9 @@ export async function executeOffRamp(params: {
       : new Error("No off-ramp provider available");
 
   const skipped: string[] = [];
+  // The provider the reviewed quote was struck with — `getOffRampQuote` asks this same
+  // ordering, so it is the head of the list. Only it can reuse that quote.
+  const firstChoice = providersToTry[0];
 
   for (const provider of providersToTry) {
     try {
@@ -328,14 +482,28 @@ export async function executeOffRamp(params: {
         }
       }
 
+      // ── Pre-flight the beneficiary, BEFORE an order exists ──────────────
+      //
+      // A deferred payout attaches no beneficiary until after the user's deposit lands, so the
+      // provider's own validation happens too late to protect them: a bad code surfaces as
+      // "Invalid beneficiary bank_code" with the money already in and no payout to show for it.
+      //
+      // This resolve IS that pre-flight. `matchBank` only ever returns a code taken from this
+      // provider's own institution list, so a non-null result is proof the provider can address
+      // it; null means it cannot, and we move to the next provider with nothing deposited.
       const resolved = await Ramp.resolveBankCode(
         provider,
         params.bank.bankName,
         params.fiatCurrency,
       );
       if (!resolved) {
-        lastError = new Error(`${provider} has no bank matching "${params.bank.bankName}"`);
-        console.warn(`[Action] executeOffRamp: ${(lastError as Error).message}`);
+        const reason = `no bank matching "${params.bank.bankName}" for ${params.fiatCurrency}`;
+        lastError = new Error(`${provider} has ${reason}`);
+        skipped.push(`${provider}: ${reason}`);
+        console.warn(
+          `[Action] executeOffRamp: SKIPPING ${provider} — ${(lastError as Error).message}. ` +
+            `Refused before any order was created, so nothing can be deposited against it.`,
+        );
         continue;
       }
 
@@ -353,10 +521,34 @@ export async function executeOffRamp(params: {
         userEmail: userEmail,
         fiatCurrency: params.fiatCurrency,
         network: params.network,
+        // Only the provider the quote was struck with can reuse it; a fallback provider
+        // re-quotes from scratch, and the order carries whatever IT will pay out.
+        quoteId: firstChoice === provider ? params.quoteId : undefined,
+        quoteReference: firstChoice === provider ? params.quoteReference : undefined,
       });
 
       const isFiat = params.inputMode === "fiat" && !!params.fiatAmount;
       const finalAmountUsdc = isFiat ? Number(created.amount || params.amountUsdc) : params.amountUsdc;
+
+      // ── The one payout figure ────────────────────────────────────────────
+      // The provider that will PAY decides what the beneficiary receives, so that is what the
+      // receipt records. Anything computed here from a display rate is an estimate, and
+      // recording an estimate is exactly how the receipt came to disagree with the payout.
+      const settled = await resolvePayoutFiat(created, provider, {
+        amountUsdc: finalAmountUsdc,
+        fiatCurrency: params.fiatCurrency,
+        network: params.network,
+        quotedBy: params.quotedBy,
+        fiatAmount: params.fiatAmount,
+        exchangeRate: params.exchangeRate,
+      });
+
+      // The order carries the settling provider's own figure back to the browser, so the
+      // confirm screen shows what THIS provider pays even when it is not the one that quoted.
+      if (settled.fiatAmount != null) {
+        created.fiatAmount = String(settled.fiatAmount);
+        created.fiatRate = settled.exchangeRate;
+      }
 
       // Platform fee on the base amount (resolved server-side so the client can execute it
       // without reading secret env). Embedded in the order for the transfer step.
@@ -389,10 +581,8 @@ export async function executeOffRamp(params: {
         pendingBeneficiary,
         amountUsdc: finalAmountUsdc,
         fiatCurrency: params.fiatCurrency,
-        fiatAmount: isFiat
-          ? params.fiatAmount
-          : params.fiatAmount ?? params.amountUsdc * (params.exchangeRate ?? 1),
-        exchangeRate: params.exchangeRate,
+        fiatAmount: settled.fiatAmount,
+        exchangeRate: settled.exchangeRate,
         bankAccountMasked: params.bank.accountNumber.replace(/.(?=.{4})/g, "*"),
         institutionCode: resolved.code,
         status: "processing",
@@ -446,12 +636,20 @@ export async function verifyBankAccount(
   accountNumber: string,
   currency?: string,
   provider?: RampProviderName,
+  /**
+   * Settlement chain, when known. Constrains the candidates to providers that can ACTUALLY
+   * settle this withdrawal — verifying against one that cannot is how a user passed a bank
+   * check and then had the payout rejected by a different provider, after depositing.
+   */
+  network?: string,
 ) {
   const fiat = currency ?? "NGN";
 
   // The caller's pinned provider first (the withdraw flow resolved the bank code against it),
-  // then everything else that supports this currency.
-  const ordered = await Ramp.offRampProviderOrder(fiat).catch(() => [] as RampProviderName[]);
+  // then everything else that supports this currency ON THIS CHAIN.
+  const ordered = await Ramp.offRampProviderOrder(fiat, network).catch(
+    () => [] as RampProviderName[],
+  );
   const candidates = [
     ...(provider ? [provider] : []),
     ...ordered.filter((p) => p !== provider),

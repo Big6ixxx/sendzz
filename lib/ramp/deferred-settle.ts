@@ -115,9 +115,43 @@ export async function completeDeferredPayout(
   }
 
   // ── Attach the beneficiary, now that the money is provably here ──────────
-  const resolved = await Ramp.resolveBankCode("bitnob", input.bank.bankName, input.fiatCurrency);
-  if (!resolved) {
-    return { ok: false, reason: `no bank matching "${input.bank.bankName}"` };
+  //
+  // Use the code the ORDER was created with, recorded on the row as `institution_code`. It was
+  // resolved once, from the bank the user actually picked, and is the identifier this payout has
+  // been associated with all along.
+  //
+  // Re-deriving it here from a name was a second, independent resolution that could disagree
+  // with the first — and it ran against a name the client passes as
+  // `bankDetails.bankName || bankDetails.bankCode`, so a blank name silently sent the CODE in as
+  // the name to match. Matching is fuzzy (`matchBank` falls back to a substring hit), so that
+  // resolves to *some* bank rather than none: a valid-looking code for the wrong institution,
+  // which the provider rejects as an invalid beneficiary — after the user's money has arrived.
+  //
+  // A deferred payout attaches no beneficiary at order time, so nothing validated the code
+  // earlier; this is the first moment the provider sees it, and it must be the right one.
+  const { data: rowBank } = await supabaseAdmin
+    .from("withdrawals")
+    .select("institution_code")
+    .eq("id", input.rowId)
+    .maybeSingle();
+
+  let bankCode = rowBank?.institution_code ?? null;
+
+  if (!bankCode) {
+    // Only for rows that predate this, or a sealed beneficiary replayed without a row code.
+    const resolved = await Ramp.resolveBankCode(
+      "bitnob",
+      input.bank.bankName,
+      input.fiatCurrency,
+    );
+    if (!resolved) {
+      return { ok: false, reason: `no bank matching "${input.bank.bankName}"` };
+    }
+    console.warn(
+      `${tag} ${input.orderId} had no institution_code on the row — fell back to resolving ` +
+        `"${input.bank.bankName}" to ${resolved.code}.`,
+    );
+    bankCode = resolved.code;
   }
 
   const { BitnobProvider } = await import("./providers/bitnob");
@@ -128,7 +162,7 @@ export async function completeDeferredPayout(
       fiatCurrency: input.fiatCurrency,
       bank: {
         accountNumber: input.bank.accountNumber,
-        bankCode: resolved.code,
+        bankCode,
         accountName: input.bank.accountName,
         memo: input.bank.memo,
       },
@@ -137,7 +171,11 @@ export async function completeDeferredPayout(
     console.log(`${tag} ${input.quoteId} initialized against ${settled.reference}`);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error(`${tag} initialize failed for ${input.quoteId}:`, msg);
+    console.error(
+      `${tag} initialize failed for ${input.quoteId} — bank_code=${bankCode}, ` +
+        `bankName="${input.bank.bankName}", currency=${input.fiatCurrency}:`,
+      msg,
+    );
     return { ok: false, reason: toUserSafeMessage(msg) ?? "could not create the payout" };
   } finally {
     // The payout either exists or the quote is spent; either way the sealed copy is done.

@@ -190,3 +190,46 @@ export function resolveFeeTreasury(provider: RampProviderName, chain: string): s
   }
   return addr;
 }
+
+/**
+ * Everything that leaves the wallet to fund `base`: base + platform fee + the provider's flat
+ * corridor fee. The figure the UI shows as "Total Deducted" and the one a balance is checked
+ * against — `maxBaseFromBalance` is its exact inverse.
+ *
+ * It lives here for the same reason the rest of this file does: the expression was inlined at
+ * four call sites, and a formula with four copies is a formula that drifts.
+ */
+export function totalDeducted(base: number, percent: number, corridorFee = 0): number {
+  return totalFromBase(base, percent) + corridorFee;
+}
+
+/**
+ * The largest base amount whose FULL deduction fits inside `balance`.
+ *
+ * The exact inverse of `totalFromBase(base, percent) + corridorFee`, so a "withdraw everything"
+ * button means everything: the fees come out of the balance instead of being stacked on top of
+ * it. Inverting only the platform fee leaves the max short by the corridor fee, and the excess
+ * does not surface until the pre-transfer check — after the quote exists.
+ *
+ * Clamped at 0: a balance smaller than the corridor fee cannot fund any withdrawal.
+ */
+export function maxBaseFromBalance(
+  balance: number,
+  percent: number,
+  corridorFee = 0,
+): number {
+  if (!(balance > 0)) return 0;
+  return Math.max(0, baseFromTotal(balance - corridorFee, percent));
+}
+
+/**
+ * Headroom applied when a user types a FIAT target and we estimate the USDC behind it.
+ *
+ * The estimate uses the indicative display rate, which prices a spread better than any payout
+ * settles at, so the solved amount is almost always a little higher. Routing on the bare
+ * estimate could pick a chain that the real figure then does not fit into.
+ *
+ * It is exported because anything computing a MAX has to leave the same headroom — otherwise
+ * the padded figure exceeds the very balance the max was derived from.
+ */
+export const FIAT_ROUTING_PAD = 1.01;

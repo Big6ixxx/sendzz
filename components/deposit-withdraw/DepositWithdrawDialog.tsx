@@ -94,6 +94,28 @@ export function DepositWithdrawDialog({
     onClose();
   };
 
+  /**
+   * Undo a stuck pointer lock once nothing of ours is open.
+   *
+   * Radix sets `body { pointer-events: none }` for the duration of a modal dialog and clears it
+   * on close. This flow nests dialogs (the bank-contact modal opens inside this one), and a
+   * nested pair closing together can miss that restore — which leaves the whole page dead to
+   * clicks, this dialog's own X button included. That is exactly the "modal won't close"
+   * symptom: the click never reaches the button.
+   *
+   * Only clears when no dialog remains in the DOM, so it cannot unlock the page underneath a
+   * dialog that is legitimately still open. A no-op when Radix already cleaned up.
+   */
+  useEffect(() => {
+    if (isOpen) return;
+    const id = window.setTimeout(() => {
+      if (!document.querySelector('[role="dialog"],[data-slot="dialog-content"]')) {
+        document.body.style.pointerEvents = "";
+      }
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [isOpen]);
+
   // Reset on every open so a prior completed flow doesn't leave stale state behind.
   // (Programmatic auto-close after success doesn't trigger onOpenChange/handleClose,
   // so resetting on open is the reliable place to clear it.)
@@ -108,109 +130,128 @@ export function DepositWithdrawDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
+  // Money is in flight — the dialog must not be dismissable out from under a signature or a
+  // broadcast that is still resolving. Everything else, including the success screen, closes
+  // freely on outside-click, Escape, or the X.
+  const isBusy = withdrawHook.transferring || withdrawHook.loading;
+
   return (
     <>
-      {/* Only render Dialog when 2FA modal is NOT open to avoid backdrop blocking */}
-      {!withdrawHook.twoFaModalOpen && (
-        <Dialog open={isOpen} onOpenChange={(val) => !val && handleClose()}>
-          <DialogContent
-            showCloseButton={false}
-            onInteractOutside={(e) => e.preventDefault()}
-            className="sm:max-w-md p-0 overflow-hidden border-none rounded-4xl shadow-[0_32px_80px_rgba(0,0,0,0.5)] card-glass bg-brand-primary/90 backdrop-blur-3xl flex flex-col max-h-[90vh]"
-          >
-            <DialogHeader className="p-8 pb-0 flex flex-row items-center justify-between">
-              <div className="space-y-1.5">
-                <DialogTitle className="text-4xl font-display font-bold tracking-tight text-brand-secondary flex items-center gap-3">
-                  <div
+      {/* The dialog stays MOUNTED while the 2FA modal is up. It used to be unmounted outright
+          to stop its backdrop swallowing clicks, but tearing down a Radix dialog while it is
+          still open skips the cleanup that releases `body { pointer-events: none }` — leaving
+          the page unclickable afterwards. `modal={false}` drops the pointer lock and focus trap
+          instead, which is what made the backdrop block in the first place, without unmounting. */}
+      <Dialog
+        open={isOpen}
+        onOpenChange={(val) => !val && handleClose()}
+        modal={!withdrawHook.twoFaModalOpen}
+      >
+        <DialogContent
+          showCloseButton={false}
+          onInteractOutside={(e) => {
+            // While 2FA is up, a click on THAT modal reads as "outside" this one — closing
+            // here would take the withdrawal down mid-verification.
+            if (isBusy || withdrawHook.twoFaModalOpen) e.preventDefault();
+          }}
+          onEscapeKeyDown={(e) => {
+            if (isBusy || withdrawHook.twoFaModalOpen) e.preventDefault();
+          }}
+          className="sm:max-w-md p-0 overflow-hidden border-none rounded-4xl shadow-[0_32px_80px_rgba(0,0,0,0.5)] card-glass bg-brand-primary/90 backdrop-blur-3xl flex flex-col max-h-[90vh]"
+        >
+          <DialogHeader className="p-8 pb-0 flex flex-row items-center justify-between">
+            <div className="space-y-1.5">
+              <DialogTitle className="text-4xl font-display font-bold tracking-tight text-brand-secondary flex items-center gap-3">
+                <div
+                  className={cn(
+                    "w-12 h-12 rounded-2xl flex items-center justify-center shrink-0",
+                    type === "deposit"
+                      ? "bg-accent/10 text-accent border border-accent/20"
+                      : "bg-blue-400/10 text-blue-400 border border-blue-400/20",
+                  )}
+                >
+                  {type === "deposit" ? (
+                    <ArrowDownLeft className="w-6 h-6" />
+                  ) : (
+                    <ArrowUpRight className="w-6 h-6" />
+                  )}
+                </div>
+                {type === "deposit" ? "Deposit" : "Withdraw"}
+              </DialogTitle>
+              <DialogDescription className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
+                {type === "deposit"
+                  ? "Fund your digital wallet"
+                  : "Withdraw to your bank"}
+              </DialogDescription>
+            </div>
+            <button
+              onClick={handleClose}
+              className="p-3 bg-white/5 border border-white/8 rounded-xl transition-all hover:bg-white/10 group"
+            >
+              <X className="w-4 h-4 text-brand-secondary/40 group-hover:text-brand-secondary" />
+            </button>
+          </DialogHeader>
+
+          <div className="flex-1 flex flex-col min-h-0">
+            {type === "deposit" && (
+              <div className="px-8 pt-8 pb-4 shrink-0">
+                {/* Tab Switcher */}
+                <div className="flex bg-white/5 p-1 rounded-2xl border border-white/5">
+                  <button
+                    onClick={() => setDepositTab("fiat")}
                     className={cn(
-                      "w-12 h-12 rounded-2xl flex items-center justify-center shrink-0",
-                      type === "deposit"
-                        ? "bg-accent/10 text-accent border border-accent/20"
-                        : "bg-blue-400/10 text-blue-400 border border-blue-400/20",
+                      "flex-1 py-3 text-[10px] font-bold uppercase tracking-[0.2em] rounded-xl transition-all",
+                      depositTab === "fiat"
+                        ? "bg-accent text-[#07070a] shadow-lg"
+                        : "text-brand-secondary/40 hover:text-brand-secondary/60",
                     )}
                   >
-                    {type === "deposit" ? (
-                      <ArrowDownLeft className="w-6 h-6" />
-                    ) : (
-                      <ArrowUpRight className="w-6 h-6" />
+                    Local Bank
+                  </button>
+                  <button
+                    onClick={() => setDepositTab("usdc")}
+                    className={cn(
+                      "flex-1 py-3 text-[10px] font-bold uppercase tracking-[0.2em] rounded-xl transition-all",
+                      depositTab === "usdc"
+                        ? "bg-accent text-[#07070a] shadow-lg"
+                        : "text-brand-secondary/40 hover:text-brand-secondary/60",
                     )}
-                  </div>
-                  {type === "deposit" ? "Deposit" : "Withdraw"}
-                </DialogTitle>
-                <DialogDescription className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
-                  {type === "deposit"
-                    ? "Fund your digital wallet"
-                    : "Withdraw to your bank"}
-                </DialogDescription>
-              </div>
-              <button
-                onClick={handleClose}
-                className="p-3 bg-white/5 border border-white/8 rounded-xl transition-all hover:bg-white/10 group"
-              >
-                <X className="w-4 h-4 text-brand-secondary/40 group-hover:text-brand-secondary" />
-              </button>
-            </DialogHeader>
-
-            <div className="flex-1 flex flex-col min-h-0">
-              {type === "deposit" && (
-                <div className="px-8 pt-8 pb-4 shrink-0">
-                  {/* Tab Switcher */}
-                  <div className="flex bg-white/5 p-1 rounded-2xl border border-white/5">
-                    <button
-                      onClick={() => setDepositTab("fiat")}
-                      className={cn(
-                        "flex-1 py-3 text-[10px] font-bold uppercase tracking-[0.2em] rounded-xl transition-all",
-                        depositTab === "fiat"
-                          ? "bg-accent text-[#07070a] shadow-lg"
-                          : "text-brand-secondary/40 hover:text-brand-secondary/60",
-                      )}
-                    >
-                      Local Bank
-                    </button>
-                    <button
-                      onClick={() => setDepositTab("usdc")}
-                      className={cn(
-                        "flex-1 py-3 text-[10px] font-bold uppercase tracking-[0.2em] rounded-xl transition-all",
-                        depositTab === "usdc"
-                          ? "bg-accent text-[#07070a] shadow-lg"
-                          : "text-brand-secondary/40 hover:text-brand-secondary/60",
-                      )}
-                    >
-                      USDC Deposit
-                    </button>
-                  </div>
+                  >
+                    USDC Deposit
+                  </button>
                 </div>
-              )}
-
-              <div
-                className={cn(
-                  "px-8 pb-8 overflow-y-auto flex-1",
-                  type === "withdraw" && "pt-8",
-                )}
-              >
-                {type === "deposit" ? (
-                  depositTab === "fiat" ? (
-                    <DepositForm hook={depositHook} />
-                  ) : (
-                    <ReceiveCryptoFlow
-                      evmAddress={userAddress}
-                      solanaAddress={solanaAddress}
-                      stellarAddress={stellarAddress}
-                      stellarTrustlineReady={stellarTrustlineReady}
-                      userId={userId}
-                      userEmail={userEmail}
-                    />
-                  )
-                ) : (
-                  <WithdrawForm hook={withdrawHook} />
-                )}
               </div>
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
+            )}
 
-      {/* 2FA Modal - when open, Dialog is hidden to avoid backdrop blocking */}
+            <div
+              className={cn(
+                "px-8 pb-8 overflow-y-auto flex-1",
+                type === "withdraw" && "pt-8",
+              )}
+            >
+              {type === "deposit" ? (
+                depositTab === "fiat" ? (
+                  <DepositForm hook={depositHook} />
+                ) : (
+                  <ReceiveCryptoFlow
+                    evmAddress={userAddress}
+                    solanaAddress={solanaAddress}
+                    stellarAddress={stellarAddress}
+                    stellarTrustlineReady={stellarTrustlineReady}
+                    userId={userId}
+                    userEmail={userEmail}
+                  />
+                )
+              ) : (
+                <WithdrawForm hook={withdrawHook} />
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 2FA Modal — rendered above the dialog (its own portal at z-[9999]); the dialog drops
+          to non-modal while it is open so the pointer lock does not swallow these clicks. */}
       {type === "withdraw" && (
         <TwoFactorModal
           isOpen={withdrawHook.twoFaModalOpen}

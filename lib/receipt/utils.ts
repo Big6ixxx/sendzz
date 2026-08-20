@@ -37,10 +37,13 @@ export function activityToReceiptData(activity: Activity): ReceiptData {
       return {
         ...base,
         bankAccount: activity.details.replace('To: ', ''),
-        orderId: activity.txHash,
+        // The provider's order reference, NOT the on-chain hash. Falling back to `txHash` put
+        // the blockchain hash under "Order ID" — printed twice, and neither row correct.
+        orderId: activity.providerOrderId ?? activity.txHash,
         fiatCurrency: activity.fiatCurrency,
         fiatPayoutAmount: activity.fiatAmount,
         exchangeRate: activity.exchangeRate,
+        sourceChain: activity.settlementNetwork ?? activity.sourceChain,
       };
     case 'bridge':
       return {

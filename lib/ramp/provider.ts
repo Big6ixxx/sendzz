@@ -6,6 +6,8 @@ import type {
   CreateOffRampParams,
   CreateOnRampParams,
   LedgerRowRef,
+  QuoteOffRampParams,
+  RampPayoutQuote,
   RampCapabilities,
   RampCurrency,
   RampCurrencyDetail,
@@ -34,6 +36,15 @@ export interface RampProvider {
 
   /** Fiat → USDC. Returns the bank/virtual account the user funds. */
   createOnRampOrder(params: CreateOnRampParams): Promise<RampOrderResponse>;
+
+  /**
+   * Optional: what this provider will ACTUALLY pay the beneficiary, from a real payout quote.
+   *
+   * Distinct from `getRates`, which is indicative and priced better than any payout settles at.
+   * Providers that can strike a reusable quote return its id so order creation can settle at the
+   * exact figure the user was shown. Absent → the caller falls back to `getRates`.
+   */
+  quoteOffRamp?(params: QuoteOffRampParams): Promise<RampPayoutQuote>;
 
   /** USDC → fiat. Returns the address the user sends USDC to. */
   createOffRampOrder(params: CreateOffRampParams): Promise<RampOrderResponse>;

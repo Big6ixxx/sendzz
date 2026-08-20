@@ -13,8 +13,10 @@ import {
   depositAddressOf,
   getBitnobClient,
   hasSharedDepositAddress,
+  quotedSettlement,
   type BitnobBeneficiary,
   type BitnobCountry,
+  type BitnobPayoutQuote,
 } from "@/lib/bitnob/client";
 import { getCurrencySymbol } from "@/lib/currency-config";
 import { getCorridorFee } from "../fees";
@@ -27,6 +29,8 @@ import {
 import type {
   CreateOffRampParams,
   LedgerRowRef,
+  QuoteOffRampParams,
+  RampPayoutQuote,
   RampCapabilities,
   RampCurrency,
   RampCurrencyDetail,
@@ -181,6 +185,40 @@ function mapState(state: string): RampOrderStatus {
   }
 }
 
+/**
+ * How much of a quote's life must remain for order creation to reuse it.
+ *
+ * Reuse is what keeps the reviewed figure and the paid figure identical, but it spends quote
+ * life: minutes can pass between review and order while 2FA is entered and — the slow one — a
+ * CCTP consolidation bridges funds onto the settlement chain. The quote then has to outlive not
+ * just `initialize` but the user's transfer landing, since an expired payout cannot be finalized.
+ *
+ * So the margin is sized for that whole tail, not for the initialize call. Below it the quote is
+ * dropped and re-struck, which is simply the old behaviour — and the user is shown the fresh
+ * figure on the confirm screen before sending anything. A moved rate shown up front is fine; a
+ * payout that expires holding the user's USDC is not.
+ */
+const QUOTE_REUSE_MARGIN_MS = 3 * 60_000;
+
+/** Is `quote` still usable to settle `amountUsdc` of `currency`? */
+export function isQuoteReusable(
+  quote: BitnobPayoutQuote,
+  amountUsdc: number,
+  currency: string,
+): boolean {
+  // Already has a payout attached — reusing it would double-initialize.
+  if ((quote as { trip?: { initialized_at?: string } }).trip?.initialized_at) return false;
+  if (/expired|failed|cancel/i.test(quote.status ?? "")) return false;
+  if ((quote.to_currency ?? "").toUpperCase() !== currency.toUpperCase()) return false;
+  // Amounts must agree — a quote struck for a different size settles a different payout.
+  if (Math.abs(Number(quote.amount) - amountUsdc) > 1e-6) return false;
+  if (quote.expires_at) {
+    const expiry = Date.parse(quote.expires_at);
+    if (Number.isFinite(expiry) && expiry - Date.now() < QUOTE_REUSE_MARGIN_MS) return false;
+  }
+  return true;
+}
+
 export class BitnobProvider implements RampProvider {
   readonly name = "bitnob" as const;
   readonly capabilities: RampCapabilities = {
@@ -226,15 +264,26 @@ export class BitnobProvider implements RampProvider {
   }
 
   /**
-   * Resolve the (country, payout rail) to use for `currency`. Picks the first country
-   * offering a serviceable corridor, and within it the preferred rail
-   * (bank → mobile_money → paybill → paytill).
+   * Resolve the (country, payout rail) to use for `currency` and the institution the user chose.
+   *
+   * The rail MUST follow the institution, not a fixed preference. It used to always prefer
+   * `bank` where a corridor offered one — so a payout to M-PESA was built as a bank transfer
+   * carrying a mobile-money operator code, and the provider rejected it as an invalid
+   * beneficiary. On a deferred payout that rejection lands *after* the user's deposit has
+   * arrived, which is how a withdrawal ends up funded with no payout.
+   *
+   * `bankCode` is optional only so the currency-level callers (which have no institution yet)
+   * still work; when it is given, it decides the rail.
    */
   private async resolveCorridor(
     currency: RampCurrency,
+    bankCode?: string,
   ): Promise<{ country: string; destinationType: string } | null> {
     const code = currency.toUpperCase();
-    const prefer = ["bank", "mobile_money", "paybill", "paytill"];
+    // A mobile-money operator code can only be paid over a mobile-money rail, and vice versa.
+    const prefer = bankCode && isMobileMoneyCode(bankCode)
+      ? ["mobile_money", "paybill", "paytill"]
+      : ["bank", "mobile_money", "paybill", "paytill"];
     try {
       const { countries } = await this.countries();
       for (const c of countries) {
@@ -317,8 +366,60 @@ export class BitnobProvider implements RampProvider {
     throw new RampUnsupportedError("bitnob", "onRamp", "Bitnob fiat on-ramp not wired");
   }
 
-  async createOffRampOrder(params: CreateOffRampParams): Promise<RampOrderResponse> {
+  /**
+   * What Bitnob will actually pay the beneficiary — a real payout quote, not the indicative
+   * `/api/exchange-rates` figure.
+   *
+   * The quote is returned with its id and reference so `createOffRampOrder` can settle on this
+   * very quote: the number shown at review is then the number that pays out, with no rate
+   * re-strike in between. The quote is priced per chain and per funding source, so both are
+   * passed exactly as order creation will pass them.
+   */
+  async quoteOffRamp(params: QuoteOffRampParams): Promise<RampPayoutQuote> {
     const corridor = await this.resolveCorridor(params.fiatCurrency);
+    if (!corridor) {
+      throw new RampUnsupportedError(
+        "bitnob",
+        "offRamp",
+        `Bitnob has no serviceable corridor for ${params.fiatCurrency}`,
+      );
+    }
+
+    const reference = `offramp_${Date.now()}`;
+    const quote = await getBitnobClient().createPayoutQuote({
+      amount: String(params.amountUsdc),
+      country: corridor.country,
+      from_asset: "USDC",
+      to_currency: params.fiatCurrency,
+      source: payoutSource(params.network),
+      chain: params.network,
+      reference,
+    });
+
+    const settlement = quotedSettlement(quote, params.amountUsdc);
+    if (!settlement) {
+      // No settlement figure means we cannot say what the user gets. Refusing sends the caller
+      // to the indicative rate, clearly labelled — better than presenting a guess as a quote.
+      throw new RampUnsupportedError(
+        "bitnob",
+        "rates",
+        `Bitnob quote ${quote.quote_id} reported no settlement amount`,
+      );
+    }
+
+    return {
+      provider: "bitnob",
+      rate: settlement.rate,
+      payoutAmount: settlement.amount,
+      binding: true,
+      quoteId: quote.quote_id,
+      reference,
+      expiresAt: quote.expires_at,
+    };
+  }
+
+  async createOffRampOrder(params: CreateOffRampParams): Promise<RampOrderResponse> {
+    const corridor = await this.resolveCorridor(params.fiatCurrency, params.bank.bankCode);
     if (!corridor) {
       throw new RampUnsupportedError(
         "bitnob",
@@ -329,18 +430,45 @@ export class BitnobProvider implements RampProvider {
     const { country, destinationType } = corridor;
 
     const bitnob = getBitnobClient();
-    const reference = `offramp_${Date.now()}`;
 
-    // 1. Quote the USDC → fiat conversion for the exact target payout amount.
-    const quote = await bitnob.createPayoutQuote({
-      amount: String(params.amountUsdc),
-      country,
-      from_asset: "USDC",
-      to_currency: params.fiatCurrency,
-      source: payoutSource(params.network),
-      chain: params.network,
-      reference,
-    });
+    // 1. Settle on the quote the user was actually shown, when it is still good.
+    //
+    // Re-quoting here is what let the review screen and the payout disagree: the user approves
+    // one rate and the payout is struck at another moments later. Reusing the reviewed quote
+    // removes the gap entirely. Its reference travels with it — `initialize` must run under the
+    // reference the quote was created with, not a fresh one.
+    let quote: BitnobPayoutQuote | null = null;
+    let reference = params.quoteReference ?? `offramp_${Date.now()}`;
+
+    if (params.quoteId && params.quoteReference) {
+      const existing = await bitnob
+        .getPayoutQuote(params.quoteId)
+        .catch((e) => {
+          console.warn(`[Bitnob] could not read quote ${params.quoteId} for reuse:`, e);
+          return null;
+        });
+      if (existing && isQuoteReusable(existing as BitnobPayoutQuote, params.amountUsdc, params.fiatCurrency)) {
+        quote = existing as BitnobPayoutQuote;
+      } else {
+        console.log(
+          `[Bitnob] quote ${params.quoteId} no longer usable (expired, spent, or amount ` +
+            `changed) — re-quoting. The order carries the fresh payout figure.`,
+        );
+      }
+    }
+
+    if (!quote) {
+      reference = `offramp_${Date.now()}`;
+      quote = await bitnob.createPayoutQuote({
+        amount: String(params.amountUsdc),
+        country,
+        from_asset: "USDC",
+        to_currency: params.fiatCurrency,
+        source: payoutSource(params.network),
+        chain: params.network,
+        reference,
+      });
+    }
 
     // 2. Generate the deposit address the user funds. On Stellar this is NOT per-payout —
     // Bitnob returns one static company account and discards our `reference`, so the deposit
@@ -383,6 +511,16 @@ export class BitnobProvider implements RampProvider {
       );
     }
 
+    // What the beneficiary is actually getting, straight off the quote this order settles on.
+    // The ledger records it and the receipt shows it — one number for the whole withdrawal.
+    const settlement = quotedSettlement(quote, params.amountUsdc);
+    if (!settlement) {
+      console.warn(
+        `[Bitnob] quote ${quote.quote_id} reported no settlement amount — the receipt will ` +
+          `fall back to the caller's rate estimate.`,
+      );
+    }
+
     return {
       // Store OUR reference as the order id — that's what appears in webhooks and the
       // transactions endpoint (Bitnob's quote_id is only used internally for init/finalize).
@@ -398,6 +536,8 @@ export class BitnobProvider implements RampProvider {
       source: { type: "crypto", currency: "USDC", network: params.network },
       destination: { type: "fiat", currency: params.fiatCurrency },
       amount: String(params.amountUsdc),
+      fiatAmount: settlement ? String(settlement.amount) : undefined,
+      fiatRate: settlement?.rate,
       bitnobFee,
       deferredInitialize: deferInitialize,
       createdAt: quote.created_at ?? new Date().toISOString(),
@@ -416,7 +556,7 @@ export class BitnobProvider implements RampProvider {
     bank: CreateOffRampParams["bank"];
     userEmail?: string;
   }): Promise<void> {
-    const corridor = await this.resolveCorridor(params.fiatCurrency);
+    const corridor = await this.resolveCorridor(params.fiatCurrency, params.bank.bankCode);
     if (!corridor) {
       throw new RampUnsupportedError(
         "bitnob",
