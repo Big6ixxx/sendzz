@@ -60,3 +60,34 @@ export type WebhookLog = Database['public']['Tables']['webhook_events']['Row'];
 export type AuditLog = Database['public']['Tables']['audit_logs']['Row'];
 
 export type AdminLog = WebhookLog | AuditLog;
+
+/**
+ * A withdrawal whose money left the user's wallet but never reached their bank.
+ *
+ * These are debts, not history: each one is a real person who is out of pocket. The user's
+ * email rides along because the first thing an operator needs is to tell them what happened,
+ * and the destination address because the second thing is to send the USDC back.
+ */
+export interface AdminPendingRefund {
+  withdrawalId: string;
+  orderId: string | null;
+  userId: string;
+  /** Who to contact. Null only if the account was deleted. */
+  email: string | null;
+  /** Where to send it back — the wallet the deposit came from, per chain. */
+  refundAddress: string | null;
+  owedUsdc: number;
+  amountUsdc: number;
+  feeUsdc: number;
+  fiatAmount: number | null;
+  fiatCurrency: string;
+  chain: string | null;
+  /** The user's original transfer in — proof their money left. */
+  txHash: string | null;
+  provider: string | null;
+  status: string;
+  createdAt: string;
+  /** Set once paid; these drop out of the pending list. */
+  refundTxHash: string | null;
+  refundedAt: string | null;
+}

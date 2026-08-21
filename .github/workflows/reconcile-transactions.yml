@@ -1,19 +1,23 @@
 name: Reconcile transactions
 
-# The Vercel cron for /api/cron/reconcile-transactions can only run once/day on the Hobby
-# tier. This workflow is an optional higher-frequency backstop: it pings the same endpoint
-# every 10 minutes so that (a) a payout whose webhook was missed gets re-driven promptly, and
-# (b) on-chain USDC deposits for stale users keep getting indexed — instead of waiting up to a
-# day. (GitHub-scheduled runs can lag a few minutes under load — that's fine.)
+# A BACKSTOP for /api/cron/reconcile-transactions, not the primary schedule.
+#
+# The primary is a Coolify scheduled task running every 2 minutes. That cadence matters: a
+# payout quote lives about 16 minutes, so a job that runs less often can only ever record the
+# failure rather than prevent it. GitHub will not schedule faster than every 5 minutes, which
+# is why this cannot be the primary.
+#
+# It stays because it runs from outside the deployment: if the app host is wedged, this still
+# fires and the failure is visible in the Actions tab rather than silent.
 #
 # Setup (repo → Settings → Secrets and variables → Actions):
-#   • Secret  DEPLOY_URL   – your deployment origin, e.g. https://your-app.vercel.app
-#   • Secret  CRON_SECRET  – the SAME value as the CRON_SECRET env var in Vercel
-# Then this runs automatically. You can also trigger it manually from the Actions tab.
+#   • Secret  DEPLOY_URL   – your deployment origin, e.g. https://app.sendzz.io
+#   • Secret  CRON_SECRET  – the SAME value as the CRON_SECRET env var in Coolify
+# (GitHub-scheduled runs can lag a few minutes under load, which is expected.)
 
 on:
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:

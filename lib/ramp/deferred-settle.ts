@@ -14,6 +14,7 @@ import { supabaseAdmin } from "@/lib/supabase/adminClient";
 import { toUserSafeMessage } from "@/lib/errors/sanitize";
 import { Ramp } from "@/lib/ramp";
 import type { DeferredBeneficiary } from "./beneficiary-vault";
+import { isAlreadyInitialized } from "./settle-race";
 
 export interface CompleteDeferredPayoutInput {
   /** Withdrawal row id — what the hash is claimed against. */
@@ -115,9 +116,43 @@ export async function completeDeferredPayout(
   }
 
   // ── Attach the beneficiary, now that the money is provably here ──────────
-  const resolved = await Ramp.resolveBankCode("bitnob", input.bank.bankName, input.fiatCurrency);
-  if (!resolved) {
-    return { ok: false, reason: `no bank matching "${input.bank.bankName}"` };
+  //
+  // Use the code the ORDER was created with, recorded on the row as `institution_code`. It was
+  // resolved once, from the bank the user actually picked, and is the identifier this payout has
+  // been associated with all along.
+  //
+  // Re-deriving it here from a name was a second, independent resolution that could disagree
+  // with the first — and it ran against a name the client passes as
+  // `bankDetails.bankName || bankDetails.bankCode`, so a blank name silently sent the CODE in as
+  // the name to match. Matching is fuzzy (`matchBank` falls back to a substring hit), so that
+  // resolves to *some* bank rather than none: a valid-looking code for the wrong institution,
+  // which the provider rejects as an invalid beneficiary — after the user's money has arrived.
+  //
+  // A deferred payout attaches no beneficiary at order time, so nothing validated the code
+  // earlier; this is the first moment the provider sees it, and it must be the right one.
+  const { data: rowBank } = await supabaseAdmin
+    .from("withdrawals")
+    .select("institution_code")
+    .eq("id", input.rowId)
+    .maybeSingle();
+
+  let bankCode = rowBank?.institution_code ?? null;
+
+  if (!bankCode) {
+    // Only for rows that predate this, or a sealed beneficiary replayed without a row code.
+    const resolved = await Ramp.resolveBankCode(
+      "bitnob",
+      input.bank.bankName,
+      input.fiatCurrency,
+    );
+    if (!resolved) {
+      return { ok: false, reason: `no bank matching "${input.bank.bankName}"` };
+    }
+    console.warn(
+      `${tag} ${input.orderId} had no institution_code on the row — fell back to resolving ` +
+        `"${input.bank.bankName}" to ${resolved.code}.`,
+    );
+    bankCode = resolved.code;
   }
 
   const { BitnobProvider } = await import("./providers/bitnob");
@@ -128,7 +163,7 @@ export async function completeDeferredPayout(
       fiatCurrency: input.fiatCurrency,
       bank: {
         accountNumber: input.bank.accountNumber,
-        bankCode: resolved.code,
+        bankCode,
         accountName: input.bank.accountName,
         memo: input.bank.memo,
       },
@@ -137,15 +172,37 @@ export async function completeDeferredPayout(
     console.log(`${tag} ${input.quoteId} initialized against ${settled.reference}`);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error(`${tag} initialize failed for ${input.quoteId}:`, msg);
-    return { ok: false, reason: toUserSafeMessage(msg) ?? "could not create the payout" };
-  } finally {
-    // The payout either exists or the quote is spent; either way the sealed copy is done.
-    await supabaseAdmin
-      .from("withdrawals")
-      .update({ pending_beneficiary: null })
-      .eq("id", input.rowId);
+
+    // Three callers race for this: the browser, the deposit webhook and the reconcile cron.
+    // That race is deliberate — whoever reaches a landed deposit first should settle it — and
+    // it is safe because a Bitnob quote holds exactly one payout, so the provider itself is the
+    // mutex. What must NOT happen is the loser reporting failure and stranding a payout that
+    // actually exists: a quote already carrying a beneficiary is a WON race, not an error, so
+    // fall through to finalize.
+    if (isAlreadyInitialized(msg)) {
+      console.log(
+        `${tag} ${input.quoteId} already initialized (${msg.slice(0, 80)}) — another caller ` +
+          `won the race; continuing to finalize.`,
+      );
+    } else {
+      console.error(
+        `${tag} initialize failed for ${input.quoteId} — bank_code=${bankCode}, ` +
+          `bankName="${input.bank.bankName}", currency=${input.fiatCurrency}:`,
+        msg,
+      );
+      // Leave `pending_beneficiary` sealed on the row. It is the ONLY copy of where this money
+      // is going, and the cron's recovery path cannot run without it — clearing it here (which
+      // a `finally` used to do unconditionally) turned any transient initialize failure into a
+      // permanently unrecoverable withdrawal.
+      return { ok: false, reason: toUserSafeMessage(msg) ?? "could not create the payout" };
+    }
   }
+
+  // The payout now exists, so the sealed copy has done its job.
+  await supabaseAdmin
+    .from("withdrawals")
+    .update({ pending_beneficiary: null })
+    .eq("id", input.rowId);
 
   // ── Release it. The deposit is verified, so finalize needs no re-check ───
   for (let attempt = 1; attempt <= 15; attempt++) {

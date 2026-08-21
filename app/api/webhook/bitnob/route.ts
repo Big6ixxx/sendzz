@@ -80,8 +80,49 @@ async function finalizeWithRetry(
 }
 
 /**
+ * The fiat actually settled, per the terminal payout event — the last word on what the
+ * beneficiary received.
+ *
+ * The row already holds the amount Bitnob QUOTED (recorded at order creation from the quote the
+ * user reviewed), which is normally exactly this. This closes the remaining gap: if Bitnob ever
+ * settles at something other than it quoted, the receipt follows the money rather than the
+ * promise.
+ *
+ * Read defensively across the keys Bitnob has used for a destination amount. A bare `amount` is
+ * only trusted when the event names the same currency as the row — on a payout event it is
+ * otherwise just as likely to be the USDC leg, and writing that into `fiat_amount` would turn a
+ * 58,000 NGN receipt into a 42 NGN one.
+ */
+function settledFiatAmount(
+  data: Record<string, unknown> | undefined,
+  rowCurrency: string | null,
+): number | null {
+  if (!data) return null;
+
+  const candidates: unknown[] = [
+    data.settlement_amount,
+    data.amount_to_receive,
+    data.receive_amount,
+    data.destination_amount,
+    data.to_amount,
+  ];
+  const eventCurrency = typeof data.currency === "string" ? data.currency : null;
+  if (rowCurrency && eventCurrency?.toUpperCase() === rowCurrency.toUpperCase()) {
+    candidates.push(data.amount);
+  }
+
+  for (const c of candidates) {
+    if (c == null || c === "") continue;
+    const n = Number(c);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
+}
+
+/**
  * Bitnob webhook. Verifies the HMAC-SHA512 signature, then drives the payout:
- *   deposit.success   → deposit detected → retry finalize until it confirms
+ *   deposit.success   → deposit detected → deferred payouts initialize + finalize here
+ *                      (the beneficiary is sealed until the money lands); others finalize
  *   payout.processing  → settlement started (intermediate, no action)
  *   payout.completed   → fiat delivered → finalize_withdrawal_success
  *   payout.failed/…    → finalize_withdrawal_failed (refund)
@@ -251,6 +292,12 @@ export async function POST(req: Request) {
         id: string;
         amount_usdc: number | null;
         provider_metadata: Json;
+        // Present only while a deferred payout is still waiting for its deposit. Its presence
+        // is what says "this quote has no beneficiary yet", i.e. finalize alone cannot work.
+        pending_beneficiary: string | null;
+        provider_order_id: string | null;
+        fiat_currency: string;
+        tx_hash: string | null;
       };
       let w: BitnobWithdrawalRow | null = null;
       for (const [column, value] of lookups) {
@@ -258,7 +305,7 @@ export async function POST(req: Request) {
         // on its deposit rather than blowing up the query.
         const { data: rows } = await supabaseAdmin
           .from('withdrawals')
-          .select('id, amount_usdc, provider_metadata')
+          .select('id, amount_usdc, provider_metadata, pending_beneficiary, provider_order_id, fiat_currency, tx_hash')
           .eq('provider', 'bitnob')
           .eq('status', 'processing')
           .eq(column, value)
@@ -281,7 +328,59 @@ export async function POST(req: Request) {
       console.log(
         `[Bitnob Webhook] [${requestId}] deposit detected at ${depositAddress} (${data?.amount} ${data?.currency}) — quote=${quoteId ?? 'unknown'}`,
       );
-      if (quoteId) {
+      if (quoteId && w?.pending_beneficiary) {
+        // ── Deferred payout: the beneficiary is still sealed, so NO payout exists yet ──
+        //
+        // Finalizing here does nothing — there is nothing to finalize. The beneficiary has to be
+        // attached first, and this event is the earliest moment that is possible, because it is
+        // the first proof the deposit arrived.
+        //
+        // That step used to run only in the user's browser, with a once-a-day cron as the sole
+        // backstop. So a closed tab between "money sent" and "beneficiary attached" left the
+        // deposit with no payout to belong to, and on Stellar — one static address, our
+        // reference discarded — nothing on the provider's side could ever reattach it. The
+        // withdrawal failed with the user's USDC already gone.
+        //
+        // Settlement is the server's job. The browser is now only an optimisation.
+        const txHash = (eventHash as string | undefined) ?? w.tx_hash ?? undefined;
+        if (!txHash) {
+          console.error(
+            `[Bitnob Webhook] [${requestId}] deferred payout ${quoteId} has no tx_hash to ` +
+              `verify against — leaving it for the reconcile cron.`,
+          );
+        } else {
+          const { openBeneficiary } = await import('@/lib/ramp/beneficiary-vault');
+          const beneficiary = openBeneficiary(w.pending_beneficiary);
+          if (!beneficiary) {
+            console.error(
+              `[Bitnob Webhook] [${requestId}] could not open the sealed beneficiary for ` +
+                `${quoteId} — leaving it for the reconcile cron.`,
+            );
+          } else {
+            const { completeDeferredPayout } = await import('@/lib/ramp/deferred-settle');
+            const { getCorridorFee } = await import('@/lib/ramp/fees');
+            const meta2 = (w.provider_metadata ?? null) as { network?: string } | null;
+            const base = w.amount_usdc != null ? Number(w.amount_usdc) : 0;
+            void completeDeferredPayout(
+              {
+                rowId: w.id,
+                quoteId,
+                orderId: w.provider_order_id ?? '',
+                txHash,
+                requiredUsdc: base + getCorridorFee('bitnob', w.fiat_currency),
+                network: meta2?.network ?? 'stellar',
+                fiatCurrency: w.fiat_currency,
+                bank: beneficiary,
+                currentTxHash: w.tx_hash,
+                // The deposit is already confirmed enough for Bitnob to have emitted this event,
+                // so it should be visible almost immediately. The cron covers the rest.
+                maxAttempts: 5,
+              },
+              `[Bitnob Webhook] [${requestId}] deferred ${w.provider_order_id}:`,
+            );
+          }
+        }
+      } else if (quoteId) {
         void finalizeWithRetry(quoteId, requestId, {
           address: depositAddress,
           txHash: eventHash,
@@ -311,10 +410,11 @@ export async function POST(req: Request) {
 
     // A payout terminal event may carry our order reference OR the quote_id — try both,
     // all against provider-agnostic columns.
+    const WITHDRAWAL_COLUMNS = 'id, provider_order_id, fiat_currency, fiat_amount, amount_usdc';
     let wd = (
       await supabaseAdmin
         .from('withdrawals')
-        .select('id, provider_order_id')
+        .select(WITHDRAWAL_COLUMNS)
         .eq('provider', 'bitnob')
         .eq('provider_order_id', orderId)
         .maybeSingle()
@@ -323,7 +423,7 @@ export async function POST(req: Request) {
       wd = (
         await supabaseAdmin
           .from('withdrawals')
-          .select('id, provider_order_id')
+          .select(WITHDRAWAL_COLUMNS)
           .eq('provider', 'bitnob')
           .eq('provider_metadata->>quote_id', orderId)
           .maybeSingle()
@@ -362,6 +462,34 @@ export async function POST(req: Request) {
       }
 
       if (isSuccess) {
+        // Follow the money: if the settled figure differs from the quoted one on record, the
+        // receipt takes the settled figure. Written before the finalize RPC so a receipt is
+        // never rendered from a superseded number.
+        const settledFiat = settledFiatAmount(data, wd.fiat_currency);
+        if (settledFiat != null && Math.abs(settledFiat - Number(wd.fiat_amount ?? 0)) > 0.01) {
+          const usdc = Number(wd.amount_usdc);
+          console.log(
+            `[Bitnob Webhook] [${requestId}] ${rpcOrderId} settled at ${settledFiat} ` +
+              `${wd.fiat_currency} (recorded ${wd.fiat_amount}) — updating the receipt.`,
+          );
+          const { error: reconcileError } = await supabaseAdmin
+            .from('withdrawals')
+            .update({
+              fiat_amount: settledFiat,
+              ...(Number.isFinite(usdc) && usdc > 0
+                ? { exchange_rate: settledFiat / usdc }
+                : {}),
+            })
+            .eq('id', wd.id);
+          // A stale amount is worth a loud log, but not worth failing the payout's finalize.
+          if (reconcileError) {
+            console.error(
+              `[Bitnob Webhook] [${requestId}] could not update fiat_amount for ${rpcOrderId}:`,
+              reconcileError.message,
+            );
+          }
+        }
+
         const { error } = await supabaseAdmin.rpc('finalize_withdrawal_success', {
           p_paycrest_order_id: rpcOrderId,
         });

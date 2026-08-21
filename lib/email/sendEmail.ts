@@ -2,6 +2,7 @@
 
 import { Resend } from 'resend';
 import { redactEmail } from '@/lib/log';
+import type { ReceiptData } from '@/lib/receipt/types';
 import { claimTransferTemplate, transferReceivedTemplate, depositConfirmedTemplate, bridgeCompletedTemplate, withdrawalCompletedTemplate, securityAlertTemplate, transferSentTemplate } from './templates';
 import { userWantsEmail } from '@/lib/supabase/emailPrefs';
 
@@ -170,16 +171,15 @@ export async function sendDepositEmail(
 }
 
 /**
- * Send Withdrawal Completed Email if enabled by recipient
+ * Send Withdrawal Completed Email if enabled by recipient.
+ *
+ * Takes the full `ReceiptData` rather than a handful of loose strings so the email renders every
+ * field the in-app receipt does — hash, memo, bank, chain — instead of the subset that happened
+ * to fit the old positional argument list.
  */
 export async function sendWithdrawalEmail(
   recipientEmail: string,
-  amountUsdc: string,
-  fiatAmount: string,
-  currency: string,
-  bankMasked: string,
-  referenceId?: string,
-  orderId?: string
+  data: ReceiptData
 ): Promise<void> {
   try {
     const wantsEmail = await userWantsEmail(recipientEmail, 'email_notif_withdrawal');
@@ -188,8 +188,9 @@ export async function sendWithdrawalEmail(
       return;
     }
 
+    const amountUsdc = String(data.amountUsdc);
     const subject = `Withdrawal Completed — ${amountUsdc} USDC Payout Complete ✅`;
-    const html = withdrawalCompletedTemplate(amountUsdc, fiatAmount, currency, bankMasked, referenceId, orderId);
+    const html = withdrawalCompletedTemplate(data);
 
     const result = await sendEmail({ to: recipientEmail, subject, html });
     if (!result.success) {

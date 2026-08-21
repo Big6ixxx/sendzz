@@ -13,6 +13,7 @@ import {
   LogOut,
   Menu,
   ShieldAlert,
+  Undo2,
   User,
   Users,
   X,
@@ -26,6 +27,7 @@ const navItems = [
   { name: 'Overview', href: '/admin', icon: LayoutDashboard },
   { name: 'Transactions', href: '/admin/transactions', icon: ArrowLeftRight },
   { name: 'Users', href: '/admin/users', icon: Users },
+  { name: 'Refunds Owed', href: '/admin/refunds', icon: Undo2 },
   { name: 'System Logs', href: '/admin/logs', icon: ShieldAlert },
 ];
 

@@ -1,8 +1,14 @@
 'use server';
 
-import type { AdminDateRange, AdminTransaction, AdminUserDetail } from '@/types/admin';
+import type {
+  AdminDateRange,
+  AdminPendingRefund,
+  AdminTransaction,
+  AdminUserDetail,
+} from '@/types/admin';
 import { getAdminSession, requireAdmin } from '@/lib/admin/auth';
 import { diditConsoleSessionUrl } from '@/lib/kyc/didit-client';
+import { refundDestination } from '@/lib/ramp/refund';
 import { supabaseAdmin } from './adminClient';
 
 /**
@@ -325,4 +331,122 @@ export async function getAdminLogs(type: 'webhooks' | 'audit', accessToken?: str
     if (error) throw error;
     return data || [];
   }
+}
+
+/**
+ * Withdrawals that owe the user their USDC back.
+ *
+ * `refund_owed_usdc` is set only when a withdrawal failed AFTER the deposit landed — the user's
+ * money left their wallet and no payout was made. A null `refund_tx_hash` means we still owe it.
+ *
+ * These do not surface anywhere else. The one that prompted this was found because the user
+ * complained; the withdrawal itself read as "failed", which looks identical to a withdrawal
+ * where nothing was ever sent and nobody is owed anything.
+ */
+export async function getPendingRefunds(
+  accessToken?: string,
+): Promise<AdminPendingRefund[]> {
+  await requireAdmin(accessToken);
+
+  const { data: rows, error } = await supabaseAdmin
+    .from('withdrawals')
+    .select(
+      'id, user_id, provider_order_id, provider, provider_metadata, status, amount_usdc, refund_owed_usdc, refund_tx_hash, refunded_at, fiat_amount, fiat_currency, source_chain, tx_hash, created_at',
+    )
+    .not('refund_owed_usdc', 'is', null)
+    .is('refund_tx_hash', null)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('[Admin] getPendingRefunds failed:', error.message);
+    return [];
+  }
+  if (!rows || rows.length === 0) return [];
+
+  // Emails and refund destinations in one lookup rather than per row.
+  const userIds = Array.from(new Set(rows.map((r) => r.user_id)));
+  const { data: users } = await supabaseAdmin
+    .from('users')
+    .select('id, email, smart_account_address, solana_address, stellar_address')
+    .in('id', userIds);
+
+  const byId = new Map((users ?? []).map((u) => [u.id, u]));
+
+  return rows.map((r) => {
+    const u = byId.get(r.user_id);
+    const meta = (r.provider_metadata ?? null) as { fee_usdc?: number | string } | null;
+    const chain = r.source_chain;
+    const refundAddress = refundDestination(chain, u);
+
+    const amountUsdc = Number(r.amount_usdc ?? 0);
+    const owedUsdc = Number(r.refund_owed_usdc ?? 0);
+
+    return {
+      withdrawalId: r.id,
+      orderId: r.provider_order_id,
+      userId: r.user_id,
+      email: u?.email ?? null,
+      refundAddress,
+      owedUsdc,
+      amountUsdc,
+      // Derived rather than stored, so it always agrees with what was actually charged.
+      feeUsdc: Math.max(0, owedUsdc - amountUsdc) || Number(meta?.fee_usdc ?? 0),
+      fiatAmount: r.fiat_amount,
+      fiatCurrency: r.fiat_currency,
+      chain,
+      txHash: r.tx_hash,
+      provider: r.provider,
+      status: r.status,
+      createdAt: r.created_at,
+      refundTxHash: r.refund_tx_hash,
+      refundedAt: r.refunded_at,
+    } satisfies AdminPendingRefund;
+  });
+}
+
+/**
+ * Record that a refund has been paid.
+ *
+ * Takes the on-chain hash of the transfer that paid it — a refund with no evidence is not a
+ * refund. The database refuses a duplicate hash outright, and the RPC returns false rather than
+ * paying twice if the debt is already settled, so two operators acting at once cannot both
+ * succeed. Sets the withdrawal to `reversed`, the same state Paycrest reports for a refund.
+ */
+export async function markRefundPaid(
+  withdrawalId: string,
+  refundTxHash: string,
+  amountUsdc?: number,
+  accessToken?: string,
+): Promise<{ ok: boolean; reason?: string }> {
+  const session = await requireAdmin(accessToken);
+
+  const hash = (refundTxHash || '').trim();
+  if (!hash) return { ok: false, reason: 'Enter the transaction hash of the refund.' };
+
+  const { data, error } = await supabaseAdmin.rpc('finalize_withdrawal_refunded', {
+    p_withdrawal_id: withdrawalId,
+    p_refund_tx_hash: hash,
+    p_amount_usdc: amountUsdc ?? null,
+  });
+
+  if (error) {
+    // The unique index on refund_tx_hash rejects a hash already used for another refund.
+    const duplicate = /duplicate key|unique constraint/i.test(error.message);
+    console.error('[Admin] markRefundPaid failed:', error.message);
+    return {
+      ok: false,
+      reason: duplicate
+        ? 'That transaction has already been recorded as a refund for another withdrawal.'
+        : 'Could not record the refund.',
+    };
+  }
+
+  if (data === false) {
+    return { ok: false, reason: 'This refund was already recorded.' };
+  }
+
+  console.log(
+    `[Admin] refund recorded for withdrawal ${withdrawalId} (tx ${hash}) by ${session?.email ?? 'admin'}`,
+  );
+  return { ok: true };
 }

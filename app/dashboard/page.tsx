@@ -22,6 +22,7 @@ import { CHAIN_NAMES } from "@/lib/circle/gateway";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { useStellarWallet } from "@/hooks/useStellarWallet";
 import { PendingBridgeClaims } from "@/components/bridge/PendingBridgeClaims";
+import { SupportWidget } from "@/components/support/SupportWidget";
 import {
   ArrowDown,
   ArrowUp,
@@ -607,6 +608,9 @@ export default function Dashboard() {
           chainBalances={evmChainBalances}
           solanaSource={solanaSource}
         />
+
+        {/* FAQ bot with a Telegram handoff — reachable from anywhere in the app. */}
+        <SupportWidget />
       </div>
     </TooltipProvider>
   );

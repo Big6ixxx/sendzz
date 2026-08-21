@@ -15,6 +15,8 @@ import type {
   CreateOffRampParams,
   CreateOnRampParams,
   LedgerRowRef,
+  QuoteOffRampParams,
+  RampPayoutQuote,
   RampCapabilities,
   RampCurrency,
   RampCurrencyDetail,
@@ -150,14 +152,44 @@ function normalizeBankName(s: string): string {
 }
 
 /** Best-effort match a canonical bank name to a provider's institution → its bank_code. */
-function matchBank(
+/**
+ * Resolve what the user picked into the code a payout is addressed with.
+ *
+ * Exported for tests: this is the step that, when it guesses, addresses a payout to the wrong
+ * institution — and nothing catches that until the provider rejects it, with the money already
+ * deposited. Its refusals matter as much as its matches.
+ */
+export function matchBank(
   institutions: RampInstitution[],
   bankName: string,
 ): { code: string; name: string } | null {
+  const raw = (bankName || "").trim();
+  if (!raw) return null;
+
+  // Callers pass `bankName || bankCode`, so what arrives is sometimes a CODE. Recognise that
+  // first: a code is an exact identifier and matching it by name is both unnecessary and
+  // dangerous — see the fuzzy guard below.
+  const asCode = raw.toUpperCase();
+  const byCode = institutions.find(
+    (b) =>
+      b.code?.trim().toUpperCase() === asCode ||
+      b.institutionCode?.trim().toUpperCase() === asCode,
+  );
+  if (byCode) return { code: byCode.code, name: byCode.name };
+
   const target = normalizeBankName(bankName);
   if (!target) return null;
+
   const exact = institutions.find((b) => normalizeBankName(b.name) === target);
   if (exact) return { code: exact.code, name: exact.name };
+
+  // Fuzzy matching is for human spellings ("GTB" → "Guaranty Trust Bank"), not identifiers. An
+  // unrecognised code reaching here would substring-match *some* institution and hand back a
+  // plausible code for the wrong bank — which the provider only rejects at payout, once the
+  // user's money has already arrived. Refusing to guess turns that into a clean failure.
+  const looksLikeCode = /\d/.test(target) || !/[a-z]/.test(target);
+  if (looksLikeCode) return null;
+
   const partial = institutions.find((b) => {
     const n = normalizeBankName(b.name);
     return n.length > 2 && (n.includes(target) || target.includes(n));
@@ -221,9 +253,62 @@ export const Ramp = {
     return byName(provider).createOffRampOrder(params);
   },
 
+  /**
+   * A binding payout quote from `provider`, or null when it cannot strike one.
+   *
+   * Null is a real answer, not an error: the caller falls back to the indicative rate and says
+   * so. Silently substituting the rate here is what made an estimate look like a guarantee.
+   */
+  async quoteOffRampFor(
+    provider: RampProviderName,
+    params: QuoteOffRampParams,
+  ): Promise<RampPayoutQuote | null> {
+    const p = byName(provider);
+    if (!p.quoteOffRamp) return null;
+    try {
+      return await p.quoteOffRamp(params);
+    } catch (e) {
+      console.warn(`[Ramp] ${provider} could not quote ${params.fiatCurrency}:`, e);
+      return null;
+    }
+  },
+
   settlementNetworksFor(provider: RampProviderName): Promise<string[]> {
     return byName(provider).getSettlementNetworks();
   },
+
+  /**
+   * The reverse of `resolveBankCode`: a provider's bank_code back to the bank's display name.
+   *
+   * Receipts hold the code, because that is what a payout is addressed with — but "000013" tells
+   * a user nothing about where their money went. The name is derived here, from the provider's
+   * own institution list, rather than stored: the list is already fetched and cached for the
+   * withdraw form, and a stored copy would be one more thing to migrate and keep true.
+   *
+   * Returns null when the code is unknown, so callers fall back to showing the code rather than
+   * inventing a bank.
+   */
+  async resolveBankName(
+    provider: RampProviderName,
+    code: string,
+    currency: RampCurrency,
+  ): Promise<string | null> {
+    if (!code) return null;
+    const wanted = code.trim().toUpperCase();
+    try {
+      const { data } = await byName(provider).getInstitutions(currency);
+      const hit = data.find(
+        (i) =>
+          i.code?.trim().toUpperCase() === wanted ||
+          i.institutionCode?.trim().toUpperCase() === wanted,
+      );
+      return hit?.name?.trim() || null;
+    } catch (e) {
+      console.warn(`[Ramp] could not resolve bank name for ${code} (${currency}):`, e);
+      return null;
+    }
+  },
+
 
   /** Resolve a provider-specific bank_code from a canonical bank name (best match). */
   async resolveBankCode(

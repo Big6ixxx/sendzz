@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   Zap,
 } from 'lucide-react';
+import { SupportWidget } from '@/components/support/SupportWidget';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -510,7 +511,6 @@ export default function Landing() {
             { label: 'Features', href: '/features' },
             { label: 'Explore', href: '/explore' },
             { label: 'Security', href: '/security' },
-            { label: 'Pricing', href: '/pricing' },
           ].map((l) => (
             <Link
               key={l.label}
@@ -830,7 +830,6 @@ export default function Landing() {
 
           <div className="flex items-center gap-8">
             {[
-              { label: 'Documentation', href: '/documentation' },
               { label: 'Explore', href: '/explore' },
               { label: 'Security', href: '/security' },
               { label: 'Privacy', href: '/privacy' },
@@ -848,19 +847,35 @@ export default function Landing() {
                 {l.label}
               </Link>
             ))}
-            <div
-              className="flex items-center gap-2 text-[11px]"
+            <a
+              href="https://x.com/use_sendzz"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Sendzz on X"
+              className="transition-colors"
               style={{ color: 'rgba(248,248,246,0.3)' }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = '#f8f8f6')}
+              onMouseLeave={(e) =>
+                (e.currentTarget.style.color = 'rgba(248,248,246,0.3)')
+              }
             >
-              <span
-                className="w-1.5 h-1.5 rounded-full animate-beacon"
-                style={{ background: '#00e87a' }}
-              />
-              Network Live
-            </div>
+              {/* lucide has no X mark, so the wordmark path is inlined. */}
+              <svg
+                viewBox="0 0 24 24"
+                width="13"
+                height="13"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+              </svg>
+            </a>
           </div>
         </div>
       </footer>
+
+      {/* Curated answers plus a route to a person — same widget as the dashboard. */}
+      <SupportWidget />
     </div>
   );
 }

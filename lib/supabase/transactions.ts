@@ -448,20 +448,32 @@ export async function triggerWithdrawalNotifications(
   status: "completed" | "failed" | "reversed",
 ): Promise<void> {
   try {
+    // Everything the receipt renders. The email used to select six columns and print six rows,
+    // which is why it arrived thinner than the receipt in the app — the hash, memo, chain and
+    // bank were never fetched, let alone shown.
     interface WithdrawalNotificationData {
       id: string;
       amount_usdc: number;
       fiat_amount?: number | null;
       fiat_currency?: string | null;
+      exchange_rate?: number | null;
       bank_account_masked?: string | null;
+      institution_code?: string | null;
+      provider?: string | null;
       provider_order_id?: string | null;
+      tx_hash?: string | null;
+      source_chain?: string | null;
+      memo?: string | null;
+      created_at?: string | null;
       users?: { email: string } | null;
     }
 
     const { data: wData } = (await supabaseAdmin
       .from("withdrawals")
       .select(
-        "id, amount_usdc, fiat_amount, fiat_currency, bank_account_masked, provider_order_id, users (email)",
+        "id, amount_usdc, fiat_amount, fiat_currency, exchange_rate, bank_account_masked, " +
+          "institution_code, provider, provider_order_id, tx_hash, source_chain, memo, " +
+          "created_at, users (email)",
       )
       .eq("provider_order_id", paycrestOrderId)
       .maybeSingle()) as unknown as { data: WithdrawalNotificationData | null };
@@ -481,12 +493,45 @@ export async function triggerWithdrawalNotifications(
     const referenceId = wData.id;
     const orderId = wData.provider_order_id || paycrestOrderId;
 
+    // ── Notify once, however many things notice the withdrawal finished ──────
+    //
+    // Completion is detected from several independent places: the provider webhook, the
+    // browser's status polling, and the reconcile cron. Each guards on the row still being
+    // `processing`, but that is a read followed by a write — two of them can pass the check
+    // before either finalizes, and the user gets the same news twice.
+    //
+    // The in-app notification is the record of having told them, so it is also the lock. No new
+    // table or column: if a notification for this withdrawal and outcome already exists, the
+    // work was already done.
+    const notifTitle =
+      status === "completed" ? "Withdrawal Completed" : "Withdrawal Failed";
+
+    const { data: alreadyNotified } = await supabaseAdmin
+      .from("notifications")
+      .select("id")
+      .eq("type", "withdrawal")
+      .eq("title", notifTitle)
+      .eq("data->>transactionId", referenceId)
+      .limit(1);
+
+    if (alreadyNotified && alreadyNotified.length > 0) {
+      console.log(
+        `[Supabase] Withdrawal ${orderId} already notified as ${status} — skipping duplicate ` +
+          `notification and email.`,
+      );
+      return;
+    }
+
     const { createNotification } = await import("./notifications");
 
     if (status === "completed") {
-      const notifPromise = createNotification(
+      // Awaited BEFORE the email rather than raced alongside it: this row is what the guard
+      // above reads, so writing it first is what actually closes the window on a second caller
+      // arriving mid-send. The email is the slow half — starting it first would leave that
+      // window open for as long as the mail provider takes.
+      await createNotification(
         email,
-        "Withdrawal Completed",
+        notifTitle,
         `Your withdrawal of ${amount} USDC has been successfully processed to your bank account.`,
         "withdrawal",
         {
@@ -502,16 +547,80 @@ export async function triggerWithdrawalNotifications(
 
       const emailPromise = (async () => {
         try {
-          const { sendWithdrawalEmail } = await import("@/lib/email/sendEmail");
-          await sendWithdrawalEmail(
-            email,
-            amount.toString(),
-            fiatAmount.toString(),
-            fiatCurrency,
-            bankMasked,
-            referenceId,
-            orderId,
+          // The code is what the payout was addressed with; the NAME is what belongs on a
+          // receipt. Derived rather than stored, so there is nothing to migrate or keep in sync.
+          // Resolved inside the success path so a failed withdrawal does not pay for the lookup.
+          //
+          // Two sources, cheapest and most reliable first:
+          //   1. the user's own saved bank contacts — a plain DB read, and the name THEY know
+          //      the bank by;
+          //   2. the provider's institution list, which is an outbound API call and therefore
+          //      the thing that fails first — an unwhitelisted IP or a provider blip returns
+          //      nothing and the receipt silently fell back to printing "000013".
+          // The code remains the last resort, since a code beats an empty row.
+          const institutionCode = wData.institution_code ?? undefined;
+
+          let bankLabel: string | undefined = institutionCode;
+          if (institutionCode) {
+            const { data: contact } = await supabaseAdmin
+              .from("bank_contacts")
+              .select("bank_name")
+              .eq("bank_code", institutionCode)
+              .limit(1)
+              .maybeSingle();
+
+            if (contact?.bank_name) {
+              bankLabel = contact.bank_name;
+            } else {
+              const { Ramp } = await import("@/lib/ramp");
+              const resolved = await Ramp.resolveBankName(
+                (wData.provider as "bitnob" | "paycrest") || "bitnob",
+                institutionCode,
+                fiatCurrency,
+              ).catch(() => null);
+              if (resolved) bankLabel = resolved;
+            }
+          }
+
+          // The receipt template omits any row it has no value for, so a thin email is always a
+          // sparse ROW, never a template problem. Log which fields were missing so that is
+          // answerable from the logs instead of by inspecting an inbox.
+          const missing = (
+            [
+              ["fiat_amount", wData.fiat_amount],
+              ["exchange_rate", wData.exchange_rate],
+              ["institution_code", wData.institution_code],
+              ["source_chain", wData.source_chain],
+              ["tx_hash", wData.tx_hash],
+              ["memo", wData.memo],
+            ] as const
+          )
+            .filter(([, v]) => v == null || v === "")
+            .map(([k]) => k);
+          console.log(
+            `[Supabase] Withdrawal receipt email for ${orderId}: bank=${bankLabel ?? "unresolved"}` +
+              (missing.length ? `, missing ${missing.join(", ")}` : ", all fields present"),
           );
+
+          const { sendWithdrawalEmail } = await import("@/lib/email/sendEmail");
+          await sendWithdrawalEmail(email, {
+            id: referenceId,
+            type: "withdrawal",
+            status: "completed",
+            timestamp: wData.created_at ?? new Date().toISOString(),
+            amountUsdc: amount,
+            fiatCurrency,
+            // The payout, not the USDC — `fiatPayoutAmount` is the row the template labels
+            // "Payout Amount", which is what the recipient's bank actually received.
+            fiatPayoutAmount: wData.fiat_amount ?? undefined,
+            exchangeRate: wData.exchange_rate ?? undefined,
+            bankAccount: bankMasked,
+            bankName: bankLabel,
+            sourceChain: wData.source_chain ?? undefined,
+            txHash: wData.tx_hash ?? undefined,
+            note: wData.memo ?? undefined,
+            orderId,
+          });
         } catch (emailErr) {
           console.error(
             "[Supabase] Failed to send withdrawal email notification:",
@@ -520,12 +629,27 @@ export async function triggerWithdrawalNotifications(
         }
       })();
 
-      await Promise.all([notifPromise, emailPromise]);
+      await emailPromise;
     } else {
+      // Does this failure owe the user money? Only if their deposit actually landed — the RPC
+      // records that as `refund_owed_usdc` when it fails a withdrawal that already has a
+      // tx_hash. A failure before the deposit owes nothing: the user still holds their USDC.
+      const { data: refundRow } = await supabaseAdmin
+        .from("withdrawals")
+        .select("refund_owed_usdc, refund_tx_hash, source_chain, user_id")
+        .eq("id", referenceId)
+        .maybeSingle();
+
+      const owed = Number(refundRow?.refund_owed_usdc ?? 0);
+      const refundOwed = owed > 0 && !refundRow?.refund_tx_hash;
+
       await createNotification(
         email,
-        "Withdrawal Failed",
-        `Your withdrawal of ${amount} USDC has failed. Funds have been returned to your balance.`,
+        notifTitle,
+        refundOwed
+          ? `Your withdrawal of ${amount} USDC could not be completed. We are returning your ` +
+            `funds — you will receive ${owed} USDC back shortly.`
+          : `Your withdrawal of ${amount} USDC has failed. Your funds remain in your wallet.`,
         "withdrawal",
         {
           url: `/dashboard/activity/${referenceId}`,
@@ -537,6 +661,42 @@ export async function triggerWithdrawalNotifications(
       ).catch((err) => {
         console.error("[Supabase] Failed to create failed in-app notification:", err);
       });
+
+      // ── Tell the people who can fix it ────────────────────────────────────
+      //
+      // This is the alert that was missing. A refund-owed failure looks exactly like an
+      // ordinary one from the outside, so the first one was found only when the user complained
+      // — by which time their money had been gone for hours.
+      //
+      // Inside the notification guard above, so the webhook, the browser and the cron all
+      // noticing the same failure send one alert between them, not three.
+      if (refundOwed) {
+        const chain = refundRow?.source_chain ?? null;
+        const { data: u } = await supabaseAdmin
+          .from("users")
+          .select("smart_account_address, solana_address, stellar_address")
+          .eq("id", refundRow!.user_id)
+          .maybeSingle();
+
+        const { refundDestination } = await import("@/lib/ramp/refund");
+        const refundAddress = refundDestination(chain, u);
+
+        const { sendRefundOwedAlert } = await import("@/lib/email/admin-alerts");
+        await sendRefundOwedAlert({
+          withdrawalId: referenceId,
+          orderId,
+          userEmail: email,
+          owedUsdc: owed,
+          amountUsdc: amount,
+          feeUsdc: Math.max(0, owed - amount),
+          fiatAmount: wData.fiat_amount ?? null,
+          fiatCurrency,
+          chain,
+          txHash: wData.tx_hash ?? null,
+          refundAddress,
+          provider: wData.provider ?? null,
+        });
+      }
     }
   } catch (err) {
     console.error(
@@ -1342,6 +1502,35 @@ export async function getUserActivities(accessToken?: string) {
       withdrawals: [],
       bridges: [],
     };
+  }
+}
+
+/**
+ * Our own ledger's view of an order — what the WEBHOOK has recorded.
+ *
+ * Provider polling alone cannot see a Bitnob payout complete: we key orders by our `offramp_`
+ * reference, which Bitnob's transactions endpoint frequently has no row for, so `getOrder`
+ * reports `pending` and relies on the webhook for the terminal state (see BitnobProvider.
+ * getOrder). Without this, the UI would sit on "Processing" forever for a payout that had
+ * already landed — and, worse, tempt us back into calling a broadcast transfer a success.
+ *
+ * Read-only and keyed by the caller's own order id.
+ */
+export async function getLedgerOrderStatus(
+  orderId: string,
+  txType: "deposit" | "withdrawal",
+): Promise<string | null> {
+  if (!orderId) return null;
+  try {
+    const { data } = await supabaseAdmin
+      .from(txType === "withdrawal" ? "withdrawals" : "deposits")
+      .select("status")
+      .eq("provider_order_id", orderId)
+      .maybeSingle();
+    return data?.status ?? null;
+  } catch (e) {
+    console.error("[getLedgerOrderStatus] lookup failed:", e);
+    return null;
   }
 }
 

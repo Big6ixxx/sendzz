@@ -5,6 +5,8 @@
  * Using inline styles and robust table layouts for maximum compatibility.
  */
 import { explorerTxUrl, HOME_CHAIN, isPlaceholderHash, shortenHash } from '@/lib/explorers';
+import { buildReceiptRows } from '@/lib/receipt/template';
+import type { ReceiptData } from '@/lib/receipt/types';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || '';
 
@@ -440,28 +442,27 @@ function baseReceiptTemplate(
 /**
  * Withdrawal Completed Template
  */
-export function withdrawalCompletedTemplate(
-  amountUsdc: string,
-  fiatAmount: string,
-  currency: string,
-  bankMasked: string,
-  referenceId?: string,
-  orderId?: string
-): string {
-  const ref = referenceId || Math.random().toString(36).substring(2, 10).toUpperCase();
-  const ord = orderId || ref;
-  const cleanAmt = parseFloat(amountUsdc) || 0;
-  const cleanFiat = parseFloat(fiatAmount) || 0;
-  const rate = cleanAmt > 0 ? (cleanFiat / cleanAmt).toFixed(2) : '1,392.61';
+/**
+ * The emailed withdrawal receipt.
+ *
+ * Rows come from `buildReceiptRows` — the same builder the downloadable PDF uses — so the email
+ * and the PDF cannot show different fields. The hand-written six-row list this replaced omitted
+ * the blockchain hash, the memo, the bank name and the settlement chain, which made the email
+ * look like a different, thinner receipt than the one in the app.
+ *
+ * It also derived the exchange rate from the amounts and, when it could not, fell back to a
+ * hardcoded `1,392.61` — a made-up rate printed on a real receipt. The rate is now whatever the
+ * ledger recorded, and is simply absent when unknown.
+ */
+export function withdrawalCompletedTemplate(data: ReceiptData): string {
+  const MONO = new Set(['Reference ID', 'Transaction Receipt', 'Order ID', 'Blockchain TX']);
+  const rows: ReceiptRow[] = buildReceiptRows(data).map(([label, value]) => ({
+    label,
+    value,
+    isMonospace: MONO.has(label),
+  }));
 
-  return baseReceiptTemplate(amountUsdc, [
-    { label: 'Reference ID', value: ref, isMonospace: true },
-    { label: 'Transaction Receipt', value: `#${ref.substring(0, 8)}`, isMonospace: true },
-    { label: 'Fiat Amount', value: `${cleanFiat.toLocaleString()} ${currency}` },
-    { label: 'Exchange Rate', value: `1 USDC = ${rate} ${currency}` },
-    { label: 'Sent To', value: bankMasked },
-    { label: 'Order ID', value: ord, isMonospace: true }
-  ]);
+  return baseReceiptTemplate(String(data.amountUsdc), rows);
 }
 
 /**
