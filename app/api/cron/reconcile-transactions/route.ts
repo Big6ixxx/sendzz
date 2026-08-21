@@ -31,9 +31,12 @@ const DEPOSIT_SCAN_BUDGET_MS = 200_000;
  * rotating batch of least-recently-scanned users so backfills still progress for people who
  * don't open the app often. Both are cheap after the first (cursor-based) scan.
  *
- * Triggered by Vercel Cron (a GET request; see vercel.json). On the Hobby tier crons run at most
- * once/day, so pair it with the GitHub Actions workflow for a higher cadence. Vercel auto-injects
- * `Authorization: Bearer $CRON_SECRET` when CRON_SECRET is set.
+ * A GET request, authorised with `Authorization: Bearer $CRON_SECRET`. Scheduled from Coolify
+ * every 2 minutes, with .github/workflows/reconcile-transactions.yml as an outside-the-host
+ * backstop. The cadence is not cosmetic: a payout quote lives about 16 minutes, so anything
+ * slower can only record a failure rather than prevent one.
+ *
+ * If CRON_SECRET is unset the endpoint is OPEN — set it in both places or neither is protected.
  */
 export async function GET(req: Request) {
   const authHeader = req.headers.get('authorization');
@@ -132,7 +135,7 @@ export async function GET(req: Request) {
           fiatCurrency: w.fiat_currency,
           bank: beneficiary,
           currentTxHash: w.tx_hash,
-          // The cron re-runs every 10 minutes, so it should not sit here holding an invocation.
+          // The cron re-runs every 2 minutes, so it should not sit here holding an invocation.
           maxAttempts: 3,
         },
         `[Reconcile] deferred ${orderId}:`,
@@ -218,7 +221,51 @@ export async function GET(req: Request) {
   // ── On-chain deposit indexing for a rotating batch of stale users ───────────
   const deposits = await scanStaleUsers();
 
-  return NextResponse.json({ checked: stuck?.length ?? 0, results, deposits });
+  // ── Money we owe, and money with nowhere to go ─────────────────────────────
+  //
+  // Both of these are states a user feels before we do. An outstanding refund means someone's
+  // USDC left their wallet and has not come back; a failed row still holding a sealed
+  // beneficiary means a deposit landed with no payout to belong to. Neither resolves itself,
+  // and the only reason the last one was found at all is that the user complained.
+  //
+  // Surfaced on every run so they show up in logs rather than waiting for a support message.
+  const { data: owed } = await supabaseAdmin
+    .from('withdrawals')
+    .select('id, provider_order_id, refund_owed_usdc, tx_hash, source_chain, created_at')
+    .not('refund_owed_usdc', 'is', null)
+    .is('refund_tx_hash', null)
+    .order('created_at', { ascending: false })
+    .limit(50);
+
+  const { data: stranded } = await supabaseAdmin
+    .from('withdrawals')
+    .select('id, provider_order_id, amount_usdc, tx_hash')
+    .eq('status', 'failed')
+    .not('pending_beneficiary', 'is', null)
+    .not('tx_hash', 'is', null)
+    .limit(50);
+
+  const owedTotal = (owed ?? []).reduce((t, w) => t + Number(w.refund_owed_usdc ?? 0), 0);
+  if (owed && owed.length > 0) {
+    console.error(
+      `[Reconcile] ⚠ ${owed.length} REFUND(S) OUTSTANDING totalling ${owedTotal.toFixed(6)} USDC — ` +
+        owed.map((w) => `${w.provider_order_id}(${w.refund_owed_usdc})`).join(', '),
+    );
+  }
+  if (stranded && stranded.length > 0) {
+    console.error(
+      `[Reconcile] ⚠ ${stranded.length} DEPOSIT(S) STRANDED — funded withdrawals with no payout: ` +
+        stranded.map((w) => w.provider_order_id).join(', '),
+    );
+  }
+
+  return NextResponse.json({
+    checked: stuck?.length ?? 0,
+    results,
+    deposits,
+    refundsOutstanding: { count: owed?.length ?? 0, totalUsdc: owedTotal },
+    stranded: stranded?.length ?? 0,
+  });
 }
 
 /** Scan the least-recently-scanned users for new on-chain USDC deposits, within a time budget. */

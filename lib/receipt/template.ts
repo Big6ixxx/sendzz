@@ -1,3 +1,4 @@
+import { formatFiat } from '@/lib/currency-config';
 import type { ReceiptData } from './types';
 
 export const PAGE_BG = '#EFF8E9';
@@ -81,8 +82,37 @@ export function receiptBodyMarkup(data: ReceiptData, logoSrc: string): string {
   // Solid filled badge: green for success, amber for pending, red for failed
   const badgeBg = ok ? '#00e87a' : (data.status.toLowerCase() === 'failed' || data.status.toLowerCase() === 'expired' ? '#991b1b' : '#92400e');
   const dateStr = formatReceiptDate(data.timestamp);
-  const rows = buildRows(data);
-  const amountStr = data.amountUsdc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+
+  /*
+   * The headline figure on the DOWNLOADABLE receipt.
+   *
+   * For a withdrawal, the number that matters to the person holding this receipt is what
+   * landed in their bank account, in their own currency — not the USDC that funded it. So the
+   * payout leads, and the "Payout Amount" row comes out of the list below rather than stating
+   * the same figure twice on one page.
+   *
+   * Only this receipt changes. `buildRows` stays untouched, so the email and the in-app view
+   * keep rendering exactly as before.
+   *
+   * Anything without a fiat payout — a transfer, a bridge — still leads with the USDC amount,
+   * since that is the only amount those have.
+   */
+  const showsFiatHeadline = data.fiatPayoutAmount != null && !!data.fiatCurrency;
+
+  const headlineAmount = showsFiatHeadline
+    ? // The headline always carries both decimals: a receipt showing "57,958" where the bank
+      // credited 57,958.00 invites a question that a receipt exists to prevent.
+      formatFiat(data.fiatPayoutAmount!, data.fiatCurrency!, {
+        minimumFractionDigits: 2,
+      })
+    : `$${data.amountUsdc.toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 6,
+      })} USDC`;
+
+  const rows = showsFiatHeadline
+    ? buildRows(data).filter(([label]) => label !== 'Payout Amount')
+    : buildRows(data);
 
   const rowsHtml = rows
     .map(([label, value], i) => {
@@ -116,8 +146,8 @@ export function receiptBodyMarkup(data: ReceiptData, logoSrc: string): string {
     </div>
 
     <div style="padding:8px 28px 32px;text-align:center;">
-      <div style="font-size:48px;font-weight:700;letter-spacing:-0.04em;color:#111111;line-height:1.05;font-family:'Kollektif',sans-serif;">
-        $${amountStr} USDC
+      <div style="font-size:${showsFiatHeadline ? '40px' : '48px'};font-weight:700;letter-spacing:-0.04em;color:#111111;line-height:1.05;font-family:'Kollektif',sans-serif;">
+        ${headlineAmount}
       </div>
       <div style="font-size:13px;color:#999999;margin-top:10px;font-weight:500;font-family:'Geist',sans-serif;">on ${dateStr}</div>
     </div>

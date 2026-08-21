@@ -1,7 +1,7 @@
 "use client";
 
 import { CurrencySelector } from "@/components/CurrencySelector";
-import { getCurrencySymbol, getCurrencyFlag } from "@/lib/currency-config";
+import { formatFiat, getCurrencySymbol } from "@/lib/currency-config";
 import {
   CheckCircle2,
   Loader2,
@@ -291,12 +291,10 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
                     <>
                       {/* No "≈" once the quote is binding — it is the figure that pays out. */}
                       {quotedPayout != null ? "" : "≈ "}
-                      {fiatSymbol}
-                      {(quotedPayout ?? fiatOut).toLocaleString(undefined, {
+                      {formatFiat(quotedPayout ?? fiatOut, hook.fiatCurrency, {
                         maximumFractionDigits: quotedPayout != null ? 2 : 0,
                       })}{" "}
-                      {hook.fiatCurrency} payout · {usdcTotal.toFixed(2)} USDC
-                      deducted
+                      payout · {usdcTotal.toFixed(2)} USDC deducted
                       {hook.liveQuoteLoading && (
                         <Loader2 className="w-3 h-3 animate-spin" />
                       )}
@@ -305,12 +303,8 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
                     <>
                       {/* Fiat mode: the payout is the target, so it is stated, not estimated —
                           the USDC needed to reach it is what has to be approximated here. */}
-                      {fiatSymbol}
-                      {parsedAmount.toLocaleString(undefined, {
-                        maximumFractionDigits: 2,
-                      })}{" "}
-                      {hook.fiatCurrency} payout · ≈ {usdcTotal.toFixed(2)} USDC
-                      deducted
+                      {formatFiat(parsedAmount, hook.fiatCurrency)} payout · ≈{" "}
+                      {usdcTotal.toFixed(2)} USDC deducted
                     </>
                   )
                 ) : (
@@ -389,11 +383,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
               {hook.quote.binding === false ? "You Receive (est.)" : "You Receive"}
             </span>
             <span className="font-bold text-foreground">
-              {getCurrencySymbol(hook.fiatCurrency)}
-              {hook.quote.payoutAmount.toLocaleString(undefined, {
-                maximumFractionDigits: 2,
-              })}{" "}
-              {hook.fiatCurrency}
+              {formatFiat(hook.quote.payoutAmount, hook.fiatCurrency)}
             </span>
           </div>
           {hook.quote.binding === false && (
@@ -551,10 +541,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
           {hook.loading ? (
             <Loader2 className="w-5 h-5 animate-spin" />
           ) : (
-            `Send ${getCurrencySymbol(hook.fiatCurrency)}${hook.quote.payoutAmount.toLocaleString(
-              undefined,
-              { maximumFractionDigits: 2 },
-            )} ${hook.fiatCurrency}`
+            `Send ${formatFiat(hook.quote.payoutAmount, hook.fiatCurrency)}`
           )}
         </button>
       </div>
@@ -601,9 +588,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
                   {hook.bankDetails.accountName || "Recipient"} receives
                 </span>
                 <span className="text-lg font-black tracking-tight tabular-nums">
-                  {getCurrencySymbol(hook.fiatCurrency)}
-                  {payout.toLocaleString(undefined, { maximumFractionDigits: 2 })}{" "}
-                  {hook.fiatCurrency}
+                  {formatFiat(payout, hook.fiatCurrency)}
                 </span>
               </div>
               {/* The amount moved after the review was authorised. It is already updated above
@@ -614,10 +599,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
                     ? "Routed via another provider"
                     : "Rate refreshed"}{" "}
                   — updated from{" "}
-                  {getCurrencySymbol(hook.fiatCurrency)}
-                  {hook.payoutAdjusted.from.toLocaleString(undefined, {
-                    maximumFractionDigits: 2,
-                  })}
+                  {formatFiat(hook.payoutAdjusted.from, hook.fiatCurrency)}
                 </p>
               )}
             </div>
@@ -736,11 +718,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
                     {hook.bankDetails.accountName || "Recipient"} receives
                   </span>
                   <span className="text-lg font-black tracking-tight tabular-nums">
-                    {getCurrencySymbol(hook.fiatCurrency)}
-                    {hook.quote.payoutAmount.toLocaleString(undefined, {
-                      maximumFractionDigits: 2,
-                    })}{" "}
-                    {hook.fiatCurrency}
+                    {formatFiat(hook.quote.payoutAmount, hook.fiatCurrency)}
                   </span>
                 </div>
               </div>
@@ -753,6 +731,51 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
                 receiveAddress={hook.order.providerAccount?.receiveAddress}
                 consolidated={hook.mustConsolidate}
                 status={hook.txStatus || "Pending"}
+              />
+            )}
+          </>
+        ) : hook.txFailed ? (
+          /*
+           * A withdrawal that did not go through.
+           *
+           * This branch did not exist: the view was `polling ? Processing : Complete`, so the
+           * instant polling stopped — however it ended — a failed withdrawal showed a green tick
+           * and "your funds have been sent to your bank account", contradicted only by a toast
+           * that had already faded.
+           *
+           * What they need to know is whether their money is coming back, and that depends on
+           * one thing: whether it ever left. If the transfer went out, we owe them a refund and
+           * say so; if it never did, their USDC is still theirs and saying "refund" would be
+           * just as wrong in the other direction.
+           */
+          <>
+            <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto bg-red-500/10 border border-red-500/20">
+              <AlertCircle className="w-9 h-9 text-red-400" />
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-2xl font-black uppercase tracking-tighter">
+                Withdrawal Failed
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                {hook.withdrawalTxHash
+                  ? "Your transfer went out but the payout could not be completed. We are returning your funds — you'll receive them back shortly, and we've alerted our team."
+                  : "Your withdrawal could not be completed. Your funds are still in your wallet — nothing was sent."}
+              </p>
+              {hook.txStatus && (
+                <p className="text-[10px] text-muted-foreground uppercase font-bold">
+                  Status: {hook.txStatus}
+                </p>
+              )}
+            </div>
+
+            {hook.order && (
+              <OrderAdvancedDetails
+                provider={hook.order.provider}
+                orderId={hook.order.id}
+                network={hook.order.providerAccount?.network ?? hook.withdrawChain}
+                receiveAddress={hook.order.providerAccount?.receiveAddress}
+                consolidated={hook.mustConsolidate}
+                status={hook.txStatus || "Failed"}
               />
             )}
           </>

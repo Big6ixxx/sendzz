@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildReceiptRows } from './template';
+import { buildReceiptRows, receiptBodyMarkup } from './template';
 import type { ReceiptData } from './types';
 
 /**
@@ -72,5 +72,87 @@ describe('buildReceiptRows — withdrawal', () => {
     expect(got).not.toContain('Reference / Memo');
     // The identifying rows always survive.
     expect(got).toEqual(['Reference ID', 'Transaction Receipt']);
+  });
+});
+
+/**
+ * The downloadable receipt leads with what actually landed in the bank.
+ *
+ * Its headline used to read "$42.00 USDC", which is the funding amount, not the thing the
+ * person holding the receipt cares about. It now leads with the payout in their own currency,
+ * and drops the "Payout Amount" row so one page does not state the same figure twice.
+ *
+ * This applies to the PDF ONLY. `buildReceiptRows` still carries the row, so the email and the
+ * in-app view are untouched.
+ */
+describe('receiptBodyMarkup — downloadable receipt headline', () => {
+  const html = (data: ReceiptData) => receiptBodyMarkup(data, 'logo.png');
+
+  it('leads with the fiat payout, not the USDC amount', () => {
+    const out = html(withdrawal);
+    expect(out).toContain('57,958.00 NGN');
+    expect(out).not.toContain('$42.00 USDC');
+  });
+
+  it('drops the Payout Amount row, since the headline already states it', () => {
+    expect(html(withdrawal)).not.toContain('Payout Amount');
+  });
+
+  it('leaves the shared rows alone, so the email still shows Payout Amount', () => {
+    // The regression to guard against: "fix the PDF" quietly stripping the row everywhere.
+    expect(labels(withdrawal)).toContain('Payout Amount');
+    expect(valueOf(withdrawal, 'Payout Amount')).toBe('57,958 NGN');
+  });
+
+  it('keeps every other row on the receipt', () => {
+    const out = html(withdrawal);
+    for (const label of ['Exchange Rate', 'Bank', 'Account', 'Source Chain', 'Reference ID']) {
+      expect(out, label).toContain(label);
+    }
+  });
+
+  it('still leads with USDC when there is no fiat payout', () => {
+    // Sends and bridges have no payout figure, so USDC is the only amount they have.
+    const transfer: ReceiptData = {
+      id: withdrawal.id,
+      type: 'sent',
+      status: 'completed',
+      timestamp: withdrawal.timestamp,
+      amountUsdc: 42,
+    };
+    expect(html(transfer)).toContain('$42.00 USDC');
+  });
+
+  it('prints no prefix for a currency we have no symbol for, just the code', () => {
+    // Falling back to the code would print it twice: "ZAR57,958.00 ZAR".
+    const out = html({ ...withdrawal, fiatCurrency: 'ZAR' });
+    expect(out).toContain('57,958.00 ZAR');
+    expect(out).not.toContain('ZAR57,958.00');
+  });
+
+  it('prints no prefix for letter abbreviations either', () => {
+    // "FRw14,222.21 RWF" reads as noise, not as a currency mark. The code alone is cleaner.
+    for (const [code, abbrev] of [
+      ['RWF', 'FRw'],
+      ['KES', 'KSh'],
+      ['UGX', 'USh'],
+      ['XOF', 'CFA'],
+      ['XAF', 'FCFA'],
+    ]) {
+      const out = html({ ...withdrawal, fiatCurrency: code });
+      expect(out, code).toContain(`57,958.00 ${code}`);
+      expect(out, code).not.toContain(`${abbrev}57,958.00`);
+    }
+  });
+
+  it('still prints a real symbol where one exists', () => {
+    expect(html(withdrawal)).toContain('₦57,958.00 NGN');
+    expect(html({ ...withdrawal, fiatCurrency: 'GHS' })).toContain('GH₵57,958.00 GHS');
+    expect(html({ ...withdrawal, fiatCurrency: 'BRL' })).toContain('R$57,958.00 BRL');
+  });
+
+  it('falls back to USDC when a currency is missing its amount', () => {
+    const partial: ReceiptData = { ...withdrawal, fiatPayoutAmount: undefined };
+    expect(html(partial)).toContain('$42.00 USDC');
   });
 });

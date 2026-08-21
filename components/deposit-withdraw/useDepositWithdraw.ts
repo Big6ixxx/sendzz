@@ -237,6 +237,15 @@ export function useDepositWithdraw(
   // Polling for deposit status
   const [polling, setPolling] = useState(false);
   const [txStatus, setTxStatus] = useState<string | null>(null);
+  /**
+   * Did this withdrawal end in failure?
+   *
+   * Needed because `polling` alone cannot say how it ended. The progress view read
+   * `polling ? "Processing" : "Withdrawal Complete!"`, so the moment polling stopped — for ANY
+   * reason — a failed withdrawal rendered a green tick and "your funds have been sent to your
+   * bank account", while the toast underneath said it had failed.
+   */
+  const [txFailed, setTxFailed] = useState(false);
   const [withdrawalTxHash, setWithdrawalTxHash] = useState<string | null>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -1245,6 +1254,8 @@ export function useDepositWithdraw(
     (orderOverride?: RampOrderResponse) => {
     const activeOrder = orderOverride ?? order;
     if (!activeOrder?.id) return;
+    // A retry starts clean: a stale failure flag would render the error view over a healthy run.
+    setTxFailed(false);
     setPolling(true);
     const isWithdraw = type === "withdraw";
     const poll = async () => {
@@ -1341,6 +1352,7 @@ export function useDepositWithdraw(
             } else {
               updateDepositStatus(activeOrder.id, "failed");
             }
+            setTxFailed(true);
             toast.error(`Transaction ${result.status}`);
           }
         }
@@ -1395,6 +1407,7 @@ export function useDepositWithdraw(
     transferring,
     polling,
     txStatus,
+    txFailed,
     withdrawalTxHash,
     bankContacts,
     showSavePrompt,

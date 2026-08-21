@@ -631,10 +631,25 @@ export async function triggerWithdrawalNotifications(
 
       await emailPromise;
     } else {
+      // Does this failure owe the user money? Only if their deposit actually landed — the RPC
+      // records that as `refund_owed_usdc` when it fails a withdrawal that already has a
+      // tx_hash. A failure before the deposit owes nothing: the user still holds their USDC.
+      const { data: refundRow } = await supabaseAdmin
+        .from("withdrawals")
+        .select("refund_owed_usdc, refund_tx_hash, source_chain, user_id")
+        .eq("id", referenceId)
+        .maybeSingle();
+
+      const owed = Number(refundRow?.refund_owed_usdc ?? 0);
+      const refundOwed = owed > 0 && !refundRow?.refund_tx_hash;
+
       await createNotification(
         email,
         notifTitle,
-        `Your withdrawal of ${amount} USDC has failed. Funds have been returned to your balance.`,
+        refundOwed
+          ? `Your withdrawal of ${amount} USDC could not be completed. We are returning your ` +
+            `funds — you will receive ${owed} USDC back shortly.`
+          : `Your withdrawal of ${amount} USDC has failed. Your funds remain in your wallet.`,
         "withdrawal",
         {
           url: `/dashboard/activity/${referenceId}`,
@@ -646,6 +661,42 @@ export async function triggerWithdrawalNotifications(
       ).catch((err) => {
         console.error("[Supabase] Failed to create failed in-app notification:", err);
       });
+
+      // ── Tell the people who can fix it ────────────────────────────────────
+      //
+      // This is the alert that was missing. A refund-owed failure looks exactly like an
+      // ordinary one from the outside, so the first one was found only when the user complained
+      // — by which time their money had been gone for hours.
+      //
+      // Inside the notification guard above, so the webhook, the browser and the cron all
+      // noticing the same failure send one alert between them, not three.
+      if (refundOwed) {
+        const chain = refundRow?.source_chain ?? null;
+        const { data: u } = await supabaseAdmin
+          .from("users")
+          .select("smart_account_address, solana_address, stellar_address")
+          .eq("id", refundRow!.user_id)
+          .maybeSingle();
+
+        const { refundDestination } = await import("@/lib/ramp/refund");
+        const refundAddress = refundDestination(chain, u);
+
+        const { sendRefundOwedAlert } = await import("@/lib/email/admin-alerts");
+        await sendRefundOwedAlert({
+          withdrawalId: referenceId,
+          orderId,
+          userEmail: email,
+          owedUsdc: owed,
+          amountUsdc: amount,
+          feeUsdc: Math.max(0, owed - amount),
+          fiatAmount: wData.fiat_amount ?? null,
+          fiatCurrency,
+          chain,
+          txHash: wData.tx_hash ?? null,
+          refundAddress,
+          provider: wData.provider ?? null,
+        });
+      }
     }
   } catch (err) {
     console.error(

@@ -14,6 +14,7 @@ import { supabaseAdmin } from "@/lib/supabase/adminClient";
 import { toUserSafeMessage } from "@/lib/errors/sanitize";
 import { Ramp } from "@/lib/ramp";
 import type { DeferredBeneficiary } from "./beneficiary-vault";
+import { isAlreadyInitialized } from "./settle-race";
 
 export interface CompleteDeferredPayoutInput {
   /** Withdrawal row id — what the hash is claimed against. */
@@ -171,19 +172,37 @@ export async function completeDeferredPayout(
     console.log(`${tag} ${input.quoteId} initialized against ${settled.reference}`);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error(
-      `${tag} initialize failed for ${input.quoteId} — bank_code=${bankCode}, ` +
-        `bankName="${input.bank.bankName}", currency=${input.fiatCurrency}:`,
-      msg,
-    );
-    return { ok: false, reason: toUserSafeMessage(msg) ?? "could not create the payout" };
-  } finally {
-    // The payout either exists or the quote is spent; either way the sealed copy is done.
-    await supabaseAdmin
-      .from("withdrawals")
-      .update({ pending_beneficiary: null })
-      .eq("id", input.rowId);
+
+    // Three callers race for this: the browser, the deposit webhook and the reconcile cron.
+    // That race is deliberate — whoever reaches a landed deposit first should settle it — and
+    // it is safe because a Bitnob quote holds exactly one payout, so the provider itself is the
+    // mutex. What must NOT happen is the loser reporting failure and stranding a payout that
+    // actually exists: a quote already carrying a beneficiary is a WON race, not an error, so
+    // fall through to finalize.
+    if (isAlreadyInitialized(msg)) {
+      console.log(
+        `${tag} ${input.quoteId} already initialized (${msg.slice(0, 80)}) — another caller ` +
+          `won the race; continuing to finalize.`,
+      );
+    } else {
+      console.error(
+        `${tag} initialize failed for ${input.quoteId} — bank_code=${bankCode}, ` +
+          `bankName="${input.bank.bankName}", currency=${input.fiatCurrency}:`,
+        msg,
+      );
+      // Leave `pending_beneficiary` sealed on the row. It is the ONLY copy of where this money
+      // is going, and the cron's recovery path cannot run without it — clearing it here (which
+      // a `finally` used to do unconditionally) turned any transient initialize failure into a
+      // permanently unrecoverable withdrawal.
+      return { ok: false, reason: toUserSafeMessage(msg) ?? "could not create the payout" };
+    }
   }
+
+  // The payout now exists, so the sealed copy has done its job.
+  await supabaseAdmin
+    .from("withdrawals")
+    .update({ pending_beneficiary: null })
+    .eq("id", input.rowId);
 
   // ── Release it. The deposit is verified, so finalize needs no re-check ───
   for (let attempt = 1; attempt <= 15; attempt++) {

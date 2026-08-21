@@ -314,6 +314,9 @@ export interface Database {
           provider: string | null;
           provider_order_id: string | null;
           provider_metadata: Json;
+          refund_owed_usdc: number | null;
+          refund_tx_hash: string | null;
+          refunded_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -824,6 +827,15 @@ export interface Database {
       };
       finalize_withdrawal_failed: {
         Args: { p_paycrest_order_id: string; p_reason?: string | null };
+        Returns: boolean;
+      };
+      /** Settles a refund debt. Returns false when it was already paid — the double-spend guard. */
+      finalize_withdrawal_refunded: {
+        Args: {
+          p_withdrawal_id: string;
+          p_refund_tx_hash: string;
+          p_amount_usdc?: number | null;
+        };
         Returns: boolean;
       };
       claim_transfer: {
