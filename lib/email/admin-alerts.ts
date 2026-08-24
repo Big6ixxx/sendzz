@@ -12,6 +12,7 @@
  * user complained, hours later.
  */
 import { explorerTxUrl } from "@/lib/explorers";
+import { baseTemplate } from "./templates";
 import { parseAdminRecipients } from "./admin-recipients";
 import { sendEmail } from "./sendEmail";
 
@@ -38,13 +39,6 @@ function esc(value: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
-}
-
-function row(label: string, value: string): string {
-  return `<tr>
-    <td style="padding:8px 0;color:#8a8a8a;font-size:13px;white-space:nowrap;">${esc(label)}</td>
-    <td style="padding:8px 0 8px 20px;color:#f8f8f6;font-size:13px;font-weight:600;word-break:break-all;">${value}</td>
-  </tr>`;
 }
 
 /**
@@ -78,56 +72,88 @@ export async function sendRefundOwedAlert(alert: RefundOwedAlert): Promise<void>
         ? `${alert.fiatAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${alert.fiatCurrency}`
         : "—";
 
-    const html = `<!doctype html>
-<html><body style="margin:0;padding:24px;background:#0a0a0b;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-  <div style="max-width:560px;margin:0 auto;background:#121214;border:1px solid rgba(255,255,255,0.08);border-radius:16px;overflow:hidden;">
-    <div style="padding:20px 24px;background:rgba(239,68,68,0.1);border-bottom:1px solid rgba(239,68,68,0.2);">
-      <p style="margin:0;color:#ef4444;font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;">Action required</p>
-      <h1 style="margin:6px 0 0;color:#f8f8f6;font-size:19px;font-weight:800;">Refund owed &mdash; ${esc(alert.owedUsdc.toFixed(6))} USDC</h1>
-    </div>
+    const rows: Array<[string, string]> = [
+      ['User', esc(alert.userEmail)],
+      ['Owed', `${esc(alert.owedUsdc.toFixed(6))} USDC`],
+      ['Payout + fee', `${esc(alert.amountUsdc.toFixed(6))} + ${esc(alert.feeUsdc.toFixed(6))}`],
+      ['Was to receive', esc(fiat)],
+      ['Chain', esc(alert.chain ?? '—')],
+      ['Provider', esc(alert.provider ?? '—')],
+      ['Order', esc(alert.orderId ?? '—')],
+      [
+        'Send back to',
+        alert.refundAddress
+          ? esc(alert.refundAddress)
+          : `no ${esc(alert.chain ?? '')} wallet on file — ask the user`,
+      ],
+    ];
+    if (alert.txHash) {
+      rows.push([
+        'Their deposit',
+        explorer
+          ? `<a href="${esc(explorer)}" target="_blank" rel="noopener noreferrer" style="color:#006633 !important;text-decoration:underline;">${esc(alert.txHash)}</a>`
+          : esc(alert.txHash),
+      ]);
+    }
 
-    <div style="padding:24px;">
-      <p style="margin:0 0 20px;color:#b4b4b4;font-size:13.5px;line-height:1.6;">
-        A withdrawal failed <strong style="color:#f8f8f6;">after</strong> the user's deposit landed.
-        Their USDC has left their wallet and no payout was made, so it has to be sent back manually.
-      </p>
+    const MONO = new Set(['Order', 'Send back to', 'Their deposit']);
+    const tableRows = rows
+      .map(
+        ([label, value]) => `
+      <tr>
+        <td style="padding: 14px 0; font-size: 11px; font-weight: 700; color: #707070; text-transform: uppercase; border-bottom: 1px dashed #E2E8E0;">${label}</td>
+        <td style="padding: 14px 0; text-align: right; font-size: 13px; font-weight: 700; color: #111111; border-bottom: 1px dashed #E2E8E0; word-break: break-all;${MONO.has(label) ? " font-family: 'Courier New', Courier, monospace;" : ''}">${value}</td>
+      </tr>`,
+      )
+      .join('');
 
-      <table style="width:100%;border-collapse:collapse;">
-        ${row("User", esc(alert.userEmail))}
-        ${row("Owed", `${esc(alert.owedUsdc.toFixed(6))} USDC <span style="color:#8a8a8a;font-weight:400;">(${esc(alert.amountUsdc.toFixed(6))} payout + ${esc(alert.feeUsdc.toFixed(6))} fee)</span>`)}
-        ${row("Was to receive", esc(fiat))}
-        ${row("Chain", esc(alert.chain ?? "—"))}
-        ${row("Provider", esc(alert.provider ?? "—"))}
-        ${row("Order", esc(alert.orderId ?? "—"))}
-        ${
-          alert.refundAddress
-            ? row("Send back to", `<code style="font-size:11.5px;">${esc(alert.refundAddress)}</code>`)
-            : row("Send back to", `<span style="color:#f59e0b;font-weight:400;">no ${esc(alert.chain ?? "")} wallet on file &mdash; ask the user</span>`)
-        }
-        ${
-          alert.txHash
-            ? row(
-                "Their deposit",
-                explorer
-                  ? `<a href="${esc(explorer)}" style="color:#00e87a;text-decoration:none;font-size:11.5px;">${esc(alert.txHash.slice(0, 24))}&hellip;</a>`
-                  : `<code style="font-size:11.5px;">${esc(alert.txHash)}</code>`,
-              )
-            : ""
-        }
+    // Rendered inside the same shell as every customer email, so an alert looks like it came
+    // from Sendzz rather than from a script. Only the badge and headline colour differ: this is
+    // the one email that means something is wrong.
+    const html = baseTemplate(`
+    <div>
+      <table width="100%" border="0" cellpadding="0" cellspacing="0" style="margin-bottom: 24px;">
+        <tr>
+          <td align="left" valign="middle">
+            <img src="${appUrl}/logo-black.svg" alt="Sendzz" width="90" style="display: block;">
+          </td>
+          <td align="right" valign="middle">
+            <span style="background-color: #B42318; color: #ffffff !important; padding: 6px 14px; border-radius: 20px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; display: inline-block;">Action required</span>
+          </td>
+        </tr>
       </table>
 
-      <a href="${esc(appUrl)}/admin/refunds"
-         style="display:block;margin-top:24px;padding:13px;background:#00e87a;color:#04120a;text-align:center;text-decoration:none;border-radius:11px;font-size:13.5px;font-weight:800;">
-        Open Refunds Owed
-      </a>
+      <div style="text-align: center; margin: 32px 0;">
+        <h1 style="font-size: 38px; font-weight: 950; color: #B42318; margin: 0; letter-spacing: -1.5px;">${esc(alert.owedUsdc.toFixed(6))} USDC</h1>
+        <p style="font-size: 13px; color: #707070; margin: 6px 0 0 0;">owed back to a user</p>
+      </div>
 
-      <p style="margin:18px 0 0;color:#6a6a6a;font-size:11.5px;line-height:1.6;">
-        Record the transfer hash on that page once you have sent it. The withdrawal then shows as
-        reversed, and it cannot be paid twice.
+      <p style="font-size: 14px; line-height: 1.7; color: #3f3f3f; margin: 0 0 8px 0;">
+        A withdrawal failed <strong>after</strong> the user's deposit landed. Their USDC has left
+        their wallet and no payout was made, so it has to be sent back manually.
+      </p>
+
+      <table width="100%" border="0" cellpadding="0" cellspacing="0" style="margin-top: 16px; margin-bottom: 8px;">
+        ${tableRows}
+      </table>
+
+      <table width="100%" border="0" cellpadding="0" cellspacing="0" style="margin-top: 28px;">
+        <tr>
+          <td align="center">
+            <a href="${appUrl}/admin/refunds" target="_blank" rel="noopener noreferrer"
+               style="background-color:#006633;color:#ffffff !important;padding:14px 32px;border-radius:12px;font-size:14px;font-weight:800;text-decoration:none;display:inline-block;">
+              Open Refunds Owed
+            </a>
+          </td>
+        </tr>
+      </table>
+
+      <p style="font-size: 12px; line-height: 1.7; color: #909090; margin: 20px 0 0 0; text-align: center;">
+        Record the transfer hash there once sent. The withdrawal then shows as reversed, and it
+        cannot be paid twice.
       </p>
     </div>
-  </div>
-</body></html>`;
+  `);
 
     const text = [
       `ACTION REQUIRED — refund owed: ${alert.owedUsdc.toFixed(6)} USDC`,

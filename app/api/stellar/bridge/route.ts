@@ -38,7 +38,16 @@ import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
   try {
-    const { walletId, senderAddress, recipientAddress, amount, destChain, userEmail, chargeFee = true } =
+    const {
+      walletId,
+      senderAddress,
+      recipientAddress,
+      amount,
+      destChain,
+      userEmail,
+      chargeFee = true,
+      consolidation = false,
+    } =
       await req.json() as {
         walletId: string;
         senderAddress: string;
@@ -52,6 +61,11 @@ export async function POST(req: Request) {
          * not passing a fee to executeSmartBridge.
          */
         chargeFee?: boolean;
+        /**
+         * True when this bridge funds a withdrawal rather than being one the user asked for.
+         * It decides where the burn is recorded: scratch table, not history.
+         */
+        consolidation?: boolean;
       };
 
     const finalDestChain = destChain || 'base';
@@ -190,17 +204,46 @@ export async function POST(req: Request) {
       }
     }
 
-    // Persist to Supabase database server-side so it appears in transaction history & pending claims
+    // Record the burn. WHERE it goes depends on why it happened.
+    //
+    // A bridge the user chose to make is history: it belongs in `bridge_transactions`, shows in
+    // their activity and counts towards totals. A bridge that is only a step inside a
+    // withdrawal is not — recording it there would report one withdrawal as two transactions
+    // and count its volume twice.
+    //
+    // Either way the burn is irreversible and must be known, so a consolidation goes to the
+    // scratch table instead, and is deleted the moment the funds are delivered.
     try {
-      const { recordBridgeTransaction } = await import('@/lib/supabase/transactions');
       if (userEmail) {
-        await recordBridgeTransaction({
-          userEmail,
-          sourceChain: 'stellar',
-          destChain: finalDestChain,
-          amountUsdc: parsedAmount,
-          burnTxHash: burnResult.hash,
-        });
+        if (consolidation) {
+          const { supabaseAdmin } = await import('@/lib/supabase/adminClient');
+          const { data: u } = await supabaseAdmin
+            .from('users')
+            .select('id')
+            .eq('email', userEmail.trim().toLowerCase())
+            .maybeSingle();
+          if (u?.id) {
+            await supabaseAdmin.from('consolidation_claims').upsert(
+              {
+                user_id: u.id,
+                burn_tx_hash: burnResult.hash,
+                source_chain: 'stellar',
+                dest_chain: finalDestChain,
+                amount: parsedAmount,
+              },
+              { onConflict: 'burn_tx_hash' },
+            );
+          }
+        } else {
+          const { recordBridgeTransaction } = await import('@/lib/supabase/transactions');
+          await recordBridgeTransaction({
+            userEmail,
+            sourceChain: 'stellar',
+            destChain: finalDestChain,
+            amountUsdc: parsedAmount,
+            burnTxHash: burnResult.hash,
+          });
+        }
       }
     } catch (dbErr) {
       console.error('[Stellar/Bridge] Database recording failed (non-fatal):', dbErr);

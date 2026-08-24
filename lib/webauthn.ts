@@ -12,6 +12,36 @@ const RP_ID = process.env.WEBAUTHN_RP_ID || "localhost";
 const RP_NAME = "Sendzz";
 const ORIGIN = process.env.WEBAUTHN_ORIGIN || "http://localhost:3000";
 
+/**
+ * Which domain a passkey is being created for.
+ *
+ * The browser refuses outright if the RP ID is not the page's own domain, so a single
+ * configured value cannot serve both production and a developer on localhost: registration
+ * fails with `SecurityError` before the request ever reaches us, on every option offered.
+ *
+ * Only local development addresses are allowed to override the configured value. This is what
+ * keeps the pinning meaningful — a passkey is bound to its domain precisely so that a lookalike
+ * site cannot use it, and honouring an arbitrary caller's origin would hand that away.
+ */
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+export function resolveRp(requestOrigin?: string | null): {
+  rpID: string;
+  origin: string;
+} {
+  if (requestOrigin) {
+    try {
+      const url = new URL(requestOrigin);
+      if (LOCAL_HOSTS.has(url.hostname)) {
+        return { rpID: url.hostname, origin: url.origin };
+      }
+    } catch {
+      /* unparseable origin — fall through to the configured value */
+    }
+  }
+  return { rpID: RP_ID, origin: ORIGIN };
+}
+
 interface StoredCredential {
   credentialID: Buffer;
   credentialPublicKey: Buffer;
@@ -25,10 +55,11 @@ interface StoredCredential {
 export async function generatePasskeyRegistrationOptions(
   userEmail: string,
   userCredentials: StoredCredential[] = [],
+  requestOrigin?: string | null,
 ) {
   return generateRegistrationOptions({
     rpName: RP_NAME,
-    rpID: RP_ID,
+    rpID: resolveRp(requestOrigin).rpID,
     userID: Buffer.from(userEmail, "utf-8"),
     userName: userEmail,
     // Don't allow the user to register the same authenticator twice
@@ -66,9 +97,11 @@ export async function verifyPasskeyRegistration(
 /**
  * Generate WebAuthn authentication options for sign-in/verification
  */
-export async function generatePasskeyAuthenticationOptions() {
+export async function generatePasskeyAuthenticationOptions(
+  requestOrigin?: string | null,
+) {
   return generateAuthenticationOptions({
-    rpID: RP_ID,
+    rpID: resolveRp(requestOrigin).rpID,
     userVerification: "preferred",
     // Don't specify allowCredentials to let browser show all available passkeys
     // This helps the browser prioritize the right authenticator (Touch ID vs security key)

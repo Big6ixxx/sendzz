@@ -10,6 +10,7 @@
  */
 
 import { ChainLogo } from "@/components/deposit-withdraw/ChainLogo";
+import { recordBurn } from "@/lib/web3/record-burn";
 import { formatFeeSummary } from "@/lib/format-usdc";
 import { usePlatformFeePercent } from "@/lib/hooks/usePlatformFeePercent";
 import { quoteFee } from "@/lib/actions/fees";
@@ -482,17 +483,13 @@ export function ChainBridgeModule({
         burnTxHash = await txHashPromise;
       }
 
-      await fetch("/api/bridge/record", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userEmail,
-          sourceChain: source,
-          destChain: dest,
-          amountUsdc: amountNum,
-          burnTxHash,
-        }),
-      }).catch(console.error);
+      await recordBurn({
+        userEmail,
+        sourceChain: source,
+        destChain: dest,
+        amountUsdc: amountNum,
+        burnTxHash,
+      });
 
       setMonitor({ burnTxHash, sourceChain: source, destChain: dest });
       setPhase("monitoring");

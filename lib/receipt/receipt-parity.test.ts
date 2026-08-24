@@ -98,6 +98,16 @@ describe('receiptBodyMarkup — downloadable receipt headline', () => {
     expect(html(withdrawal)).not.toContain('Payout Amount');
   });
 
+  it('drops the Exchange Rate row too', () => {
+    expect(html(withdrawal)).not.toContain('Exchange Rate');
+  });
+
+  it('keeps both rows in the shared builder, for the email and in-app view', () => {
+    // The regression to guard against: trimming the PDF quietly trimming everything else.
+    expect(labels(withdrawal)).toContain('Payout Amount');
+    expect(labels(withdrawal)).toContain('Exchange Rate');
+  });
+
   it('leaves the shared rows alone, so the email still shows Payout Amount', () => {
     // The regression to guard against: "fix the PDF" quietly stripping the row everywhere.
     expect(labels(withdrawal)).toContain('Payout Amount');
@@ -106,7 +116,7 @@ describe('receiptBodyMarkup — downloadable receipt headline', () => {
 
   it('keeps every other row on the receipt', () => {
     const out = html(withdrawal);
-    for (const label of ['Exchange Rate', 'Bank', 'Account', 'Source Chain', 'Reference ID']) {
+    for (const label of ['Bank', 'Account', 'Source Chain', 'Reference ID']) {
       expect(out, label).toContain(label);
     }
   });

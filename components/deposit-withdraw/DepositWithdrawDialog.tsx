@@ -268,9 +268,10 @@ export function DepositWithdrawDialog({
                 : "email"
           }
           availableMethods={(() => {
-            const methods: ("email" | "totp" | "passkey")[] = ["email"];
+            const methods: ("email" | "totp" | "passkey" | "pin")[] = ["email"];
             if (withdrawHook.totpEnabled) methods.push("totp");
             if (withdrawHook.passkeyEnabled) methods.push("passkey");
+            if (withdrawHook.pinEnabled) methods.push("pin");
             return methods;
           })()}
           userEmail={userEmail}

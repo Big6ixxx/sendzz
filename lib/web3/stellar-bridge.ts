@@ -19,6 +19,12 @@ export async function bridgeStellarToBase(params: {
   destChain?: SupportedChain;
   onStatus?: (status: string) => void;
   timeoutMs?: number;
+  /**
+   * True when this bridge is a step inside a withdrawal rather than a transfer the user chose
+   * to make. Such a bridge must not become history: it is held in `consolidation_claims` until
+   * delivered and then deleted, so a withdrawal is recorded once and counted once.
+   */
+  consolidation?: boolean;
 }): Promise<{ burnTxHash: string; mintTxHash?: string }> {
   const { walletId, senderAddress, amount, recipientEvm, evmWallet, onStatus, destChain = "base" } =
     params;
@@ -34,6 +40,7 @@ export async function bridgeStellarToBase(params: {
       amount,
       destChain,
       chargeFee: true,
+      consolidation: params.consolidation === true,
     }),
   });
 

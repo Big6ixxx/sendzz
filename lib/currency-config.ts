@@ -69,10 +69,10 @@ export function formatFiat(
  * currency marks.
  *
  * So a symbol counts only if it contains a character that is not a letter: ₦, GH₵, R$, $, €, £
- * all qualify; FRw and CFA do not. Callers printing the code alongside should ask this first
- * and leave the prefix blank when it comes back false.
+ * all qualify; FRw and CFA do not. Internal to `formatFiat`, which is the one place that
+ * decides whether a prefix is printed.
  */
-export function hasCurrencySymbol(code: string): boolean {
+function hasCurrencySymbol(code: string): boolean {
   const symbol = CURRENCY_SYMBOL_CACHE[code];
   return !!symbol && /[^A-Za-z]/.test(symbol);
 }

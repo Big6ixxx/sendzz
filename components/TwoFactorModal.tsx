@@ -6,13 +6,14 @@ import {
   Smartphone,
   Mail,
   Fingerprint,
+  KeyRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createPortal } from "react-dom";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { toast } from "sonner";
 
-export type VerificationMethod = "email" | "totp" | "passkey";
+export type VerificationMethod = "email" | "totp" | "passkey" | "pin";
 
 interface TwoFactorModalProps {
   isOpen: boolean;
@@ -104,6 +105,10 @@ export function TwoFactorModal({
       startCountdown();
     }
   };
+
+  // A PIN is 4 digits; email and authenticator codes are 6. The boxes and the submit gate
+  // both follow this, so switching method mid-flow cannot leave a 6-box grid asking for a PIN.
+  const codeLength = currentMethod === "pin" ? 4 : 6;
 
   const handleSubmit = () => {
     onSubmit(code, currentMethod);
@@ -206,6 +211,8 @@ export function TwoFactorModal({
               <Smartphone className="w-10 h-10 text-accent" />
             ) : currentMethod === "passkey" ? (
               <Fingerprint className="w-10 h-10 text-accent" />
+            ) : currentMethod === "pin" ? (
+              <KeyRound className="w-10 h-10 text-accent" />
             ) : (
               <Mail className="w-10 h-10 text-accent" />
             )}
@@ -219,7 +226,9 @@ export function TwoFactorModal({
                 ? "Enter the 6-digit code from your authenticator app"
                 : currentMethod === "passkey"
                   ? "Use your passkey to verify"
-                  : "Enter the 6-digit code sent to your email to complete this transaction"}
+                  : currentMethod === "pin"
+                    ? "Enter your 4-digit PIN"
+                    : "Enter the 6-digit code sent to your email to complete this transaction"}
             </p>
           </div>
         </div>
@@ -254,6 +263,20 @@ export function TwoFactorModal({
                 App
               </button>
             )}
+            {availableMethods.includes("pin") && (
+              <button
+                onClick={() => handleMethodChange("pin")}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors",
+                  currentMethod === "pin"
+                    ? "bg-accent text-black"
+                    : "bg-white/5 text-white/60 hover:bg-white/10",
+                )}
+              >
+                <KeyRound className="w-4 h-4" />
+                PIN
+              </button>
+            )}
             {availableMethods.includes("passkey") && (
               <button
                 onClick={() => handleMethodChange("passkey")}
@@ -276,7 +299,7 @@ export function TwoFactorModal({
             <>
               <div className="space-y-3">
                 <div className="flex gap-2 justify-center">
-                  {[0, 1, 2, 3, 4, 5].map((index) => (
+                  {Array.from({ length: codeLength }, (_, i) => i).map((index) => (
                     <input
                       key={index}
                       ref={(el) => {
@@ -309,7 +332,7 @@ export function TwoFactorModal({
                         const pastedData = e.clipboardData
                           .getData("text")
                           .replace(/[^0-9]/g, "")
-                          .slice(0, 6);
+                          .slice(0, codeLength);
                         if (pastedData) {
                           setCode(pastedData);
                           const nextIndex = Math.min(pastedData.length, 5);
@@ -338,7 +361,7 @@ export function TwoFactorModal({
           {currentMethod !== "passkey" && (
             <button
               onClick={handleSubmit}
-              disabled={loading || code.length < 6}
+              disabled={loading || code.length < codeLength}
               className="btn-primary w-full h-14 text-sm md:text-base font-bold tracking-wide"
             >
               {loading ? (

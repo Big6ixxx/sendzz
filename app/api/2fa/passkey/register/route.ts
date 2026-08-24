@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/adminClient";
 import {
   generatePasskeyRegistrationOptions,
+  resolveRp,
   verifyPasskeyRegistration,
 } from "@/lib/webauthn";
 
@@ -17,6 +18,9 @@ const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 
 export async function POST(req: Request) {
   try {
+    // The domain the browser actually created the passkey for. Registration and verification
+    // must agree on it, or a passkey made on one host is rejected when checked against another.
+    const rp = resolveRp(req.headers.get("origin"));
     const body = await req.json();
     const { email, action, credential } = body;
 
@@ -52,6 +56,7 @@ export async function POST(req: Request) {
       const options = await generatePasskeyRegistrationOptions(
         email,
         existingCredentials,
+        req.headers.get("origin"),
       );
 
       // Persist challenge in Supabase so it survives across serverless instances
@@ -132,6 +137,8 @@ export async function POST(req: Request) {
       const verification = await verifyPasskeyRegistration(
         credential,
         storedData.challenge,
+        rp.origin,
+        rp.rpID,
       );
 
       if (!verification.verified) {

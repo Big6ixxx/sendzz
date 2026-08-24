@@ -34,11 +34,11 @@ import {
   HelpCircle,
   Smartphone,
   Network,
+  KeyRound,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useBalanceVisibility } from "@/components/providers/BalanceVisibilityProvider";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -48,6 +48,11 @@ import {
 import { useRouter } from "next/navigation";
 import { TOTPSetupWizard } from "@/components/TOTPSetupWizard";
 import { PasskeySetupWizard } from "@/components/PasskeySetupWizard";
+import {
+  PinGate,
+  PinInput,
+  type PinGateRequest,
+} from "@/components/security/PinGate";
 import { Fingerprint } from "lucide-react";
 import { KycModal } from "@/components/kyc/KycModal";
 import { LimitsMeter } from "@/components/kyc/LimitsMeter";
@@ -85,6 +90,8 @@ function PremiumToggle({ checked, onChange, disabled, activeColor, activeBg }: T
   );
 }
 
+const NON_EVM_RAILS = ["Solana", "Stellar"] as const;
+
 export default function SettingsPage() {
   const { user, logout } = usePrivy();
   const router = useRouter();
@@ -116,12 +123,17 @@ export default function SettingsPage() {
   const [isUpdatingSecurity, setIsUpdatingSecurity] = useState(false);
   const [totpEnabled, setTotpEnabled] = useState(false);
   const [totpSetupOpen, setTotpSetupOpen] = useState(false);
-  const [totpDisableOpen, setTotpDisableOpen] = useState(false);
   const [thresholdModalOpen, setThresholdModalOpen] = useState(false);
   const [thresholdValue, setThresholdValue] = useState("500");
   const [passkeyEnabled, setPasskeyEnabled] = useState(false);
   const [passkeySetupOpen, setPasskeySetupOpen] = useState(false);
-  const [passkeyDisableOpen, setPasskeyDisableOpen] = useState(false);
+  // PIN is tracked separately from the passkey so each can be added or removed on its own.
+  const [pinEnabled, setPinEnabled] = useState(false);
+  const [pinSetupOpen, setPinSetupOpen] = useState(false);
+  const [pinRemoveOpen, setPinRemoveOpen] = useState(false);
+  const [pinConfirm, setPinConfirm] = useState("");
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [pinGate, setPinGate] = useState<PinGateRequest | null>(null);
 
   // Notification Preferences
   const [pushEnabled, setPushEnabled] = useState(false);
@@ -169,6 +181,8 @@ export default function SettingsPage() {
   }, [userEmail]);
 
   useEffect(() => { fetchKycStatus(); }, [fetchKycStatus]);
+  // Whether a PIN exists. Only ever a boolean — the hash never leaves the server.
+  useEffect(() => { void fetchPinStatus(); }, []);
   // ─────────────────────────────────────────────────────────────────────────
 
   // Fetch email notification preferences once the user email is known
@@ -277,8 +291,11 @@ export default function SettingsPage() {
     }
   };
 
-  const updateSecurityPrefs = async (enabled: boolean, threshold: string) => {
-    if (!userEmail) return;
+  const updateSecurityPrefs = async (
+    enabled: boolean,
+    threshold: string,
+  ): Promise<boolean> => {
+    if (!userEmail) return false;
     setIsUpdatingSecurity(true);
     try {
       const res = await fetch("/api/user/preferences", {
@@ -292,10 +309,12 @@ export default function SettingsPage() {
       });
       if (!res.ok) throw new Error("Failed to update");
       toast.success("Security preferences updated");
+      return true;
     } catch {
       toast.error("Failed to update security preferences");
       // revert on error
       fetchSecurityPrefs();
+      return false;
     } finally {
       setIsUpdatingSecurity(false);
     }
@@ -313,7 +332,6 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error("Failed to disable");
       toast.success("Authenticator app disabled");
       setTotpEnabled(false);
-      setTotpDisableOpen(false);
       // Security alert notification
       fetch("/api/notifications/security", {
         method: "POST",
@@ -327,25 +345,67 @@ export default function SettingsPage() {
     }
   };
 
+  /** Saving a threshold is the same write as the toggle, with the same revert on failure. */
   const handleThresholdUpdate = async () => {
-    if (!userEmail) return;
-    setIsUpdatingSecurity(true);
+    const previous = twoFaThreshold;
+    setTwoFaThreshold(thresholdValue);
+    setThresholdModalOpen(false);
+    const ok = await updateSecurityPrefs(twoFaEnabled, thresholdValue);
+    if (!ok) setTwoFaThreshold(previous);
+  };
+
+  /**
+   * Run `req.run()` only after the PIN is confirmed.
+   *
+   * The PIN is the key every other security control is locked behind, so it has to exist
+   * before there is anything to lock: without one, this sends the user to set it rather than
+   * letting them add a factor that nothing can protect.
+   */
+  const withPin = (req: PinGateRequest) => () => {
+    if (!pinEnabled) {
+      toast.error("Set your transaction PIN first — it protects every other change.");
+      setPinSetupOpen(true);
+      return;
+    }
+    setPinGate(req);
+  };
+
+  /** Re-read every security method at once, so one setup flow cannot leave another stale. */
+  const refreshSecurityStatus = () => {
+    fetchSecurityPrefs();
+    void fetchPinStatus();
+  };
+
+  const fetchPinStatus = async () => {
     try {
-      const res = await fetch("/api/user/preferences", {
+      const res = await fetch("/api/2fa/pin");
+      const data = await res.json();
+      setPinEnabled(!!data?.enabled);
+    } catch {
+      setPinEnabled(false);
+    }
+  };
+
+  const handleRemovePin = async () => {
+    setIsUpdatingSecurity(true);
+    setPinError(null);
+    try {
+      const res = await fetch("/api/2fa/pin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: userEmail,
-          two_fa_enabled: twoFaEnabled,
-          two_fa_threshold: parseFloat(thresholdValue || "0"),
-        }),
+        body: JSON.stringify({ action: "remove", currentPin: pinConfirm }),
       });
-      if (!res.ok) throw new Error("Failed to update");
-      setTwoFaThreshold(thresholdValue);
-      toast.success("2FA threshold updated");
-      setThresholdModalOpen(false);
+      const data = await res.json();
+      if (!res.ok) {
+        setPinError(data.error ?? "Could not remove your PIN.");
+        return;
+      }
+      setPinEnabled(false);
+      setPinRemoveOpen(false);
+      setPinConfirm("");
+      toast.success("PIN removed.");
     } catch {
-      toast.error("Failed to update threshold");
+      setPinError("Could not reach the server. Try again.");
     } finally {
       setIsUpdatingSecurity(false);
     }
@@ -363,7 +423,6 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error("Failed to disable passkey");
       setPasskeyEnabled(false);
       toast.success("Passkey disabled successfully");
-      setPasskeyDisableOpen(false);
       fetchSecurityPrefs();
       // Security alert notification
       fetch("/api/notifications/security", {
@@ -450,8 +509,11 @@ export default function SettingsPage() {
         { label: "Wallet", value: "Smart Account Active", icon: Shield },
         {
           label: "Networks",
-          // EVM chains share one smart-account address; Solana is a separate rail.
-          value: `Active on ${Object.keys(CHAIN_NAMES).length + 1} networks (EVM + Solana)`,
+          // EVM chains share one smart-account address; Solana and Stellar are each a
+          // separate rail with their own address. Counted from the same list the rest of
+          // the app routes on, plus the two non-EVM rails named explicitly — the count was
+          // hardcoded as "+ 1" and silently stopped including Stellar when it was added.
+          value: `Active on ${Object.keys(CHAIN_NAMES).length + NON_EVM_RAILS.length} networks (EVM + ${NON_EVM_RAILS.join(" + ")})`,
           icon: Network,
         },
       ],
@@ -679,11 +741,21 @@ export default function SettingsPage() {
                     </span>
                     <PremiumToggle
                       checked={twoFaEnabled}
-                      onChange={() => {
-                        const checked = !twoFaEnabled;
-                        setTwoFaEnabled(checked);
-                        updateSecurityPrefs(checked, twoFaThreshold);
-                      }}
+                      onChange={withPin({
+                        title: twoFaEnabled
+                          ? "Turn off verification"
+                          : "Turn on verification",
+                        description: twoFaEnabled
+                          ? "Large withdrawals will stop asking for a second check. Confirm with your PIN."
+                          : "Large withdrawals will ask for a second check. Confirm with your PIN.",
+                        confirmLabel: twoFaEnabled ? "Turn off" : "Turn on",
+                        destructive: twoFaEnabled,
+                        run: () => {
+                          const checked = !twoFaEnabled;
+                          setTwoFaEnabled(checked);
+                          updateSecurityPrefs(checked, twoFaThreshold);
+                        },
+                      })}
                       disabled={isUpdatingSecurity}
                       activeColor="bg-[#00e87a]"
                       activeBg="bg-[#00e87a]/15 border-[#00e87a]/40"
@@ -694,10 +766,17 @@ export default function SettingsPage() {
                 <div
                   className="p-6 flex items-center justify-between hover:bg-white/2 transition-colors cursor-pointer"
                   onClick={() => {
-                    if (twoFaEnabled) {
-                      setThresholdValue(twoFaThreshold);
-                      setThresholdModalOpen(true);
-                    }
+                    if (!twoFaEnabled) return;
+                    withPin({
+                      title: "Change verification threshold",
+                      description:
+                        "Raising the threshold means more can be withdrawn without a second check. Confirm with your PIN.",
+                      confirmLabel: "Continue",
+                      run: () => {
+                        setThresholdValue(twoFaThreshold);
+                        setThresholdModalOpen(true);
+                      },
+                    })();
                   }}
                 >
                   <div className="flex items-center gap-5">
@@ -739,14 +818,27 @@ export default function SettingsPage() {
                   </div>
                   {totpEnabled ? (
                     <button
-                      onClick={() => setTotpDisableOpen(true)}
+                      onClick={withPin({
+                        title: "Remove authenticator app",
+                        description:
+                          "Codes from your authenticator app will no longer be accepted. You can pair an app again at any time.",
+                        confirmLabel: "Remove app",
+                        destructive: true,
+                        run: handleDisableTotp,
+                      })}
                       className="text-xs font-bold uppercase tracking-widest text-red-400 hover:text-red-300 transition-colors"
                     >
-                      Disable
+                      Remove
                     </button>
                   ) : (
                     <button
-                      onClick={() => setTotpSetupOpen(true)}
+                      onClick={withPin({
+                        title: "Add authenticator app",
+                        description:
+                          "Confirm it is you before adding a new way to approve withdrawals.",
+                        confirmLabel: "Continue",
+                        run: () => setTotpSetupOpen(true),
+                      })}
                       className="text-xs font-bold uppercase tracking-widest text-accent hover:text-accent/80 transition-colors"
                     >
                       Set up
@@ -770,14 +862,60 @@ export default function SettingsPage() {
                   </div>
                   {passkeyEnabled ? (
                     <button
-                      onClick={() => setPasskeyDisableOpen(true)}
+                      onClick={withPin({
+                        title: "Remove passkey",
+                        description:
+                          "Every passkey on your account is removed. Withdrawals will fall back to your other methods.",
+                        confirmLabel: "Remove passkey",
+                        destructive: true,
+                        run: handleDisablePasskey,
+                      })}
                       className="text-xs font-bold uppercase tracking-widest text-red-400 hover:text-red-300 transition-colors"
                     >
-                      Disable
+                      Remove
                     </button>
                   ) : (
                     <button
-                      onClick={() => setPasskeySetupOpen(true)}
+                      onClick={withPin({
+                        title: "Add passkey",
+                        description:
+                          "Confirm it is you before adding a new way to approve withdrawals.",
+                        confirmLabel: "Continue",
+                        run: () => setPasskeySetupOpen(true),
+                      })}
+                      className="text-xs font-bold uppercase tracking-widest text-accent hover:text-accent/80 transition-colors"
+                    >
+                      Set up
+                    </button>
+                  )}
+                </div>
+
+                {/* Its own row, so a PIN can be added or removed without touching the
+                    passkey. Anything less means turning one off to reach the other. */}
+                <div className="p-6 flex items-center justify-between hover:bg-white/2 transition-colors">
+                  <div className="flex items-center gap-5">
+                    <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-brand-secondary/40 border border-white/8">
+                      <KeyRound className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
+                        Transaction PIN
+                      </p>
+                      <p className="font-bold text-brand-secondary">
+                        {pinEnabled ? "Enabled" : "Not set up"}
+                      </p>
+                    </div>
+                  </div>
+                  {pinEnabled ? (
+                    <button
+                      onClick={() => setPinRemoveOpen(true)}
+                      className="text-xs font-bold uppercase tracking-widest text-red-400 hover:text-red-300 transition-colors"
+                    >
+                      Remove
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setPinSetupOpen(true)}
                       className="text-xs font-bold uppercase tracking-widest text-accent hover:text-accent/80 transition-colors"
                     >
                       Set up
@@ -1024,153 +1162,143 @@ export default function SettingsPage() {
 
       {/* Threshold Modal */}
       <Dialog open={thresholdModalOpen} onOpenChange={setThresholdModalOpen}>
-        <DialogContent className="card-glass border-white/10">
-          <DialogHeader>
-            <DialogTitle className="text-brand-secondary">
-              Update 2FA Threshold
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <p className="text-sm text-brand-secondary/70">
-              Transactions above this amount will require 2FA verification.
-              Maximum threshold is $500.
-            </p>
-            <div className="flex items-center gap-2">
-              <span className="text-2xl font-bold text-brand-secondary">$</span>
-              <input
-                type="number"
-                value={thresholdValue}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  if (val > 500) setThresholdValue("500");
-                  else if (val < 0) setThresholdValue("0");
-                  else setThresholdValue(e.target.value);
-                }}
-                max={500}
-                min={0}
-                className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-2xl font-bold text-brand-secondary focus:outline-none focus:border-accent"
-                placeholder="500"
-              />
-            </div>
-          </div>
-          <div className="flex gap-3 pt-4">
-            <Button
-              variant="outline"
-              onClick={() => setThresholdModalOpen(false)}
-              className="flex-1 border-white/10 text-brand-secondary hover:bg-white/5"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleThresholdUpdate}
-              disabled={isUpdatingSecurity}
-              className="flex-1"
-            >
-              {isUpdatingSecurity ? "Updating..." : "Update"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* TOTP Disable Modal */}
-      <Dialog open={totpDisableOpen} onOpenChange={setTotpDisableOpen}>
         <DialogContent className="card-glass border-white/10 max-w-md">
           <DialogHeader>
             <DialogTitle className="text-xl text-brand-secondary">
-              Disable Authenticator App
+              Verification threshold
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="flex items-start gap-3 p-4 rounded-lg bg-red-500/10 border border-red-500/20">
-              <Shield className="w-5 h-5 text-red-400 mt-0.5 shrink-0" />
-              <div>
-                <p className="text-sm text-brand-secondary/90 font-medium">
-                  Security Warning
-                </p>
-                <p className="text-sm text-brand-secondary/70 mt-1">
-                  Disabling 2FA will reduce your account security. Transactions
-                  above your threshold will still require verification via
-                  email.
-                </p>
-              </div>
-            </div>
-            <p className="text-sm text-brand-secondary/70">
-              Are you sure you want to disable your authenticator app?
+
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-brand-secondary/70 leading-relaxed">
+              Withdrawals above this amount ask for a second check. Anything below
+              goes straight through, so a lower figure is the safer one.
             </p>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
+                Amount in USDC
+              </label>
+              <div className="relative">
+                <span className="absolute left-5 top-1/2 -translate-y-1/2 text-lg font-bold text-brand-secondary/35 pointer-events-none">
+                  $
+                </span>
+                <input
+                  type="number"
+                  value={thresholdValue}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value);
+                    if (val > 500) setThresholdValue("500");
+                    else if (val < 0) setThresholdValue("0");
+                    else setThresholdValue(e.target.value);
+                  }}
+                  max={500}
+                  min={0}
+                  className="input-elegant w-full pl-10 text-lg font-bold tabular-nums"
+                  placeholder="500"
+                />
+              </div>
+              <p className="text-[12px] text-brand-secondary/40">
+                The most you can set is $500.
+              </p>
+            </div>
           </div>
-          <div className="flex gap-3 pt-4">
-            <Button
-              variant="outline"
-              onClick={() => setTotpDisableOpen(false)}
-              className="flex-1 border-white/10 text-brand-secondary hover:bg-white/5"
+
+          <div className="flex flex-col-reverse sm:flex-row gap-3 pt-4">
+            <button
+              onClick={() => setThresholdModalOpen(false)}
+              className="btn-secondary flex-1"
             >
-              Keep Enabled
-            </Button>
-            <Button
-              onClick={handleDisableTotp}
+              Cancel
+            </button>
+            <button
+              onClick={handleThresholdUpdate}
               disabled={isUpdatingSecurity}
-              variant="destructive"
-              className="flex-1"
+              className="btn-primary flex-1"
             >
-              {isUpdatingSecurity ? "Disabling..." : "Disable"}
-            </Button>
+              {isUpdatingSecurity ? "Saving..." : "Save threshold"}
+            </button>
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* Passkey Setup Wizard */}
+      {/* One dialog for every security change that needs the PIN. */}
+      <PinGate request={pinGate} onClose={() => setPinGate(null)} />
+
+      {/*
+        Both mounts refresh BOTH methods. The wizard offers to add the other once one is set,
+        so a PIN can be created from the passkey flow and vice versa — refreshing only the one
+        the row is named after would leave the other showing "Not set up" until a reload, and
+        the user would set it a second time.
+      */}
       <PasskeySetupWizard
         open={passkeySetupOpen}
         onOpenChange={setPasskeySetupOpen}
         email={userEmail}
-        onComplete={() => {
-          fetchSecurityPrefs();
-        }}
+        onComplete={refreshSecurityStatus}
       />
 
-      {/* Passkey Disable Modal */}
-      <Dialog open={passkeyDisableOpen} onOpenChange={setPasskeyDisableOpen}>
+      {/* Same wizard, opened straight on the PIN step from its own row. */}
+      <PasskeySetupWizard
+        open={pinSetupOpen}
+        onOpenChange={setPinSetupOpen}
+        email={userEmail}
+        initialMethod="pin"
+        onComplete={refreshSecurityStatus}
+      />
+
+      {/* PIN Remove Modal */}
+      <Dialog
+        open={pinRemoveOpen}
+        onOpenChange={(v) => {
+          setPinRemoveOpen(v);
+          if (!v) {
+            setPinConfirm("");
+            setPinError(null);
+          }
+        }}
+      >
         <DialogContent className="card-glass border-white/10 max-w-md">
           <DialogHeader>
             <DialogTitle className="text-xl text-brand-secondary">
-              Disable Passkey
+              Remove PIN
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="flex items-start gap-3 p-4 rounded-lg bg-orange-500/10 border border-orange-500/20">
-              <Fingerprint className="w-5 h-5 text-orange-400 mt-0.5 shrink-0" />
-              <div>
-                <p className="text-sm text-brand-secondary/90 font-medium">
-                  Clear Cached Passkeys
-                </p>
-                <p className="text-sm text-brand-secondary/70 mt-1">
-                  This will remove all passkeys from the database. Use this if
-                  you&apos;re experiencing issues with passkey verification due
-                  to cached credentials in your browser or device.
-                </p>
-              </div>
-            </div>
-            <p className="text-sm text-brand-secondary/70">
-              After disabling, you&apos;ll need to set up your passkey again.
-              This helps resolve issues where Windows Hello or other
-              authenticators use old cached credentials.
+
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-brand-secondary/70 leading-relaxed">
+              Withdrawals above your threshold will fall back to your other
+              methods. You can set a new PIN at any time.
             </p>
+
+            {/* Proving you know the current PIN is what stops anyone who reaches an
+                open session from quietly stripping the factor that protects it. */}
+            <PinInput
+              label="Current PIN"
+              value={pinConfirm}
+              onChange={(v) => {
+                setPinError(null);
+                setPinConfirm(v);
+              }}
+              onEnter={handleRemovePin}
+              error={pinError}
+            />
           </div>
-          <div className="flex gap-3 pt-4">
-            <Button
-              onClick={() => setPasskeyDisableOpen(false)}
-              variant="outline"
-              className="flex-1 border-white/10 text-brand-secondary hover:bg-white/5"
+
+          <div className="flex flex-col-reverse sm:flex-row gap-3 pt-4">
+            <button
+              onClick={() => setPinRemoveOpen(false)}
+              className="btn-secondary flex-1"
             >
-              Keep Enabled
-            </Button>
-            <Button
-              onClick={handleDisablePasskey}
-              disabled={isUpdatingSecurity}
-              className="flex-1 bg-orange-500 hover:bg-orange-600"
+              Keep it
+            </button>
+            <button
+              onClick={handleRemovePin}
+              disabled={isUpdatingSecurity || pinConfirm.length < 4}
+              className="btn-primary flex-1 !bg-red-500 !text-white hover:!bg-red-600"
             >
-              {isUpdatingSecurity ? "Disabling..." : "Disable"}
-            </Button>
+              {isUpdatingSecurity ? "Removing..." : "Remove PIN"}
+            </button>
           </div>
         </DialogContent>
       </Dialog>

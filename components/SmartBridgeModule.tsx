@@ -28,6 +28,7 @@ import { updateBridgeStatus } from "@/lib/supabase/transactions";
 import { executeSmartBridge } from "@/lib/web3/bridge-actions";
 import { prepareSolanaBurnTx } from "@/lib/web3/solana-bridge";
 import { PendingBridgeClaims } from "@/components/bridge/PendingBridgeClaims";
+import { recordBurn } from "@/lib/web3/record-burn";
 import { cn } from "@/lib/utils";
 import { useWallets, usePrivy } from "@privy-io/react-auth";
 import {
@@ -325,17 +326,13 @@ export function SmartBridgeModule({
         platformFee,
       );
       const burnTxHash = await txHashPromise;
-      await fetch("/api/bridge/record", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userEmail,
-          sourceChain: chain,
-          destChain: "base",
-          amountUsdc: parseFloat(amount),
-          burnTxHash,
-        }),
-      }).catch(console.error);
+      await recordBurn({
+        userEmail,
+        sourceChain: chain,
+        destChain: "base",
+        amountUsdc: parseFloat(amount),
+        burnTxHash,
+      });
       queryClient.invalidateQueries({ queryKey: ["history"] });
       setMonitoringTx({ hash: burnTxHash, chain });
       setMintTxHash(null);
@@ -385,17 +382,13 @@ export function SmartBridgeModule({
         lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
       }, "confirmed");
 
-      await fetch("/api/bridge/record", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userEmail,
-          sourceChain: "solana",
-          destChain: "base",
-          amountUsdc: parseFloat(amount),
-          burnTxHash: signature,
-        }),
-      }).catch(console.error);
+      await recordBurn({
+        userEmail,
+        sourceChain: "solana",
+        destChain: "base",
+        amountUsdc: parseFloat(amount),
+        burnTxHash: signature,
+      });
       queryClient.invalidateQueries({ queryKey: ["history"] });
       setMonitoringTx({ hash: signature, chain: "solana" });
       setMintTxHash(null);
@@ -435,17 +428,13 @@ export function SmartBridgeModule({
       if (!res.ok) throw new Error(data.error || "Stellar bridge failed");
 
       const burnTxHash = data.burnTxHash!;
-      await fetch("/api/bridge/record", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userEmail,
-          sourceChain: "stellar",
-          destChain: "base",
-          amountUsdc: parseFloat(amount),
-          burnTxHash,
-        }),
-      }).catch(console.error);
+      await recordBurn({
+        userEmail,
+        sourceChain: "stellar",
+        destChain: "base",
+        amountUsdc: parseFloat(amount),
+        burnTxHash,
+      });
       setMonitoringTx({ hash: burnTxHash, chain: "stellar" as ChainBalanceChain });
       setMintTxHash(null);
       toast.success("Stellar bridge submitted! Monitoring cross-chain attestation...");
