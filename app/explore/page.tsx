@@ -7,11 +7,11 @@ import { ExploreClient } from './ExploreClient';
 export const metadata: Metadata = {
   title: 'Explore · Live Transparency Dashboard',
   description:
-    'Browse every transaction on Sendzz in real time — volume, active users, system status, bridges, transfers, deposits and withdrawals. Fully public and privacy-preserving.',
+    'Browse every transaction on Sendzz in real time — volume, system status, bridges, transfers, deposits and withdrawals. Fully public and privacy-preserving.',
   openGraph: {
     title: 'Sendzz Explorer · Live Transparency Dashboard',
     description:
-      'Real-time, anonymized view of all activity on Sendzz — volume, users, and every transaction on-chain.',
+      'Real-time, anonymized view of all activity on Sendzz — volume and every transaction on-chain.',
   },
 };
 
