@@ -2,7 +2,7 @@
 
 import { cn } from '@/lib/utils';
 import type { PublicStats } from '@/types/public';
-import { Activity, TrendingUp, Users, Wallet } from 'lucide-react';
+import { TrendingUp, Wallet } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { formatUsdc } from '../shared';
 
@@ -56,7 +56,7 @@ export function StatsHero({ stats, loading }: StatsHeroProps) {
       <h2 id="stats-heading" className="sr-only">
         Platform statistics
       </h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
         <StatCard
           title="Total Volume"
           value={`$${formatUsdc(stats?.total_volume ?? 0)}`}
@@ -64,24 +64,6 @@ export function StatsHero({ stats, loading }: StatsHeroProps) {
           Icon={TrendingUp}
           color="text-[#00e87a]"
           bg="bg-[#00e87a]/10"
-          loading={loading}
-        />
-        <StatCard
-          title="Total Users"
-          value={(stats?.total_users ?? 0).toLocaleString()}
-          desc="Registered accounts"
-          Icon={Users}
-          color="text-blue-400"
-          bg="bg-blue-400/10"
-          loading={loading}
-        />
-        <StatCard
-          title="Active (24h)"
-          value={(stats?.active_users_24h ?? 0).toLocaleString()}
-          desc="Unique active users"
-          Icon={Activity}
-          color="text-purple-400"
-          bg="bg-purple-400/10"
           loading={loading}
         />
         <StatCard

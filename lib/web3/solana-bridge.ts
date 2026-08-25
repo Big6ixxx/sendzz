@@ -11,6 +11,7 @@
  */
 
 import { Buffer } from "buffer";
+import { recordConsolidationBurn } from "./record-burn";
 import { Connection, PublicKey, Transaction } from "@solana/web3.js";
 import {
   buildDepositForBurnTx,
@@ -137,6 +138,15 @@ export async function bridgeSolanaToBase(params: {
 
   onStatus?.("Confirming on Solana…");
   const burnTxHash = await signAndBroadcast(sponsoredTx);
+
+  // Irreversible from here. Nothing on this path recorded the burn at all before, so a Solana
+  // consolidation that failed to deliver left USDC burned with nothing pointing at it.
+  await recordConsolidationBurn({
+    burnTxHash,
+    sourceChain: "solana",
+    destChain: "base",
+    amountUsdc: params.amount,
+  });
 
   onStatus?.("Burn confirmed! Consolidating funds onto Base…");
   const deadline = Date.now() + (params.timeoutMs ?? 20_000); // 20-second max client wait

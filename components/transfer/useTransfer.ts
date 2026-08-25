@@ -269,7 +269,7 @@ export function useTransfer({
 
   const handleTwoFaSubmit = async (
     code: string,
-    method?: "email" | "totp" | "passkey",
+    method?: "email" | "totp" | "passkey" | "pin",
   ) => {
     setTwoFaLoading(true);
     setTwoFaError(null);

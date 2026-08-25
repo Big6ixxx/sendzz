@@ -177,7 +177,37 @@ export const FAQ_SECTIONS: FaqSection[] = [
         id: "split-balance",
         question: "My balance is split across networks",
         answer:
-          "That is normal if you have deposited on more than one. A withdrawal settles on a single network, so if no one network holds enough, the app offers to consolidate first. That step is a real transfer on chain and takes a little time before the withdrawal continues.",
+          "That is normal if you have deposited on more than one. A withdrawal settles on a single network, so if no one network holds enough, we move funds onto that network first. It is a real transfer on chain and takes a little time before the withdrawal continues.",
+      },
+      {
+        id: "pending-claim",
+        question: "What is a pending claim?",
+        answer:
+          "Moving USDC between networks happens in two halves: it leaves the first network, then it has to be collected on the second. Almost always both halves finish together. If the second one does not, the amount waits as a pending claim rather than being lost, and you finish it with one tap. You will find it on your dashboard and on the bridge screen.",
+      },
+      {
+        id: "closed-tab-mid-move",
+        question: "I closed the tab while my funds were moving",
+        answer:
+          "Nothing is lost. The move is recorded the moment it starts, so closing the tab, refreshing, losing signal or switching device does not affect it. Come back and open your dashboard: if anything still needs collecting it is waiting there as a pending claim. If it already completed on its own, nothing will be waiting and your balance is simply up to date.",
+      },
+      {
+        id: "how-to-claim",
+        question: "How do I claim funds that are waiting?",
+        answer:
+          "Open your dashboard or the bridge screen and look for Pending Claims. Tap Claim on the amount you want to collect and it lands in your wallet on the destination network. There is no deadline, so a claim can sit for days and still work, and it disappears from the list once the funds have arrived.",
+      },
+      {
+        id: "claim-failed",
+        question: "My claim did not work, can I try again?",
+        answer:
+          "Yes, as many times as you need. A claim that fails changes nothing: the amount stays waiting and stays yours. Failures are usually a busy network or a signature that was not completed, and trying again shortly afterwards normally works. If it keeps failing, message us on Telegram with the amount and the networks involved.",
+      },
+      {
+        id: "withdrawal-needed-move",
+        question: "My withdrawal said it was moving funds first",
+        answer:
+          "Your balance was on a different network from the one the withdrawal settles on, so we moved it across before paying out. You do not need to do anything and you are not charged extra for it. If the move does not finish, the withdrawal stops rather than continuing, and the amount waits as a pending claim you can collect.",
       },
     ],
   },

@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase/adminClient";
 import type { Json } from "@/types/database";
 import {
   generatePasskeyAuthenticationOptions,
+  resolveRp,
   verifyPasskeyAuthentication,
 } from "@/lib/webauthn";
 
@@ -47,7 +48,9 @@ export async function POST(req: Request) {
         );
       }
 
-      const options = await generatePasskeyAuthenticationOptions();
+      const options = await generatePasskeyAuthenticationOptions(
+        req.headers.get("origin"),
+      );
 
       // Persist challenge in Supabase so it survives across serverless instances
       const challengeId = crypto.randomUUID();
@@ -161,10 +164,13 @@ export async function POST(req: Request) {
             counter: cred.counter,
             transports: cred.transports,
           };
+          const rp = resolveRp(req.headers.get("origin"));
           const result = await verifyPasskeyAuthentication(
             credential,
             storedData.challenge,
             authenticatorData,
+            rp.origin,
+            rp.rpID,
           );
           if (result.verified) {
             verification = result;

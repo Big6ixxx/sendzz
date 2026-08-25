@@ -110,8 +110,11 @@ export function receiptBodyMarkup(data: ReceiptData, logoSrc: string): string {
         maximumFractionDigits: 6,
       })} USDC`;
 
+  // Payout Amount is already the headline; the exchange rate is working-out, not the outcome.
+  // Both stay in `buildRows`, so the email and the in-app view are unaffected.
+  const HIDDEN_WHEN_FIAT_HEADLINE = new Set(['Payout Amount', 'Exchange Rate']);
   const rows = showsFiatHeadline
-    ? buildRows(data).filter(([label]) => label !== 'Payout Amount')
+    ? buildRows(data).filter(([label]) => !HIDDEN_WHEN_FIAT_HEADLINE.has(label))
     : buildRows(data);
 
   const rowsHtml = rows

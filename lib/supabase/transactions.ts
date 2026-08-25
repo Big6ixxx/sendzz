@@ -862,9 +862,22 @@ export async function updateBridgeStatus(
       `[updateBridgeStatus] burn=${burnTxHash.slice(0, 10)} existing=${JSON.stringify(existing)} mintTxHash=${mintTxHash?.slice(0, 10)}`,
     );
 
+    // A delivered burn no longer needs its scratch row, whether it came from the user's own
+    // bridge history or from a withdrawal consolidation. Cleared here rather than at each call
+    // site so no claim path can forget it and leave a card the user cannot dismiss.
+    if (status === "complete") {
+      await supabaseAdmin
+        .from("consolidation_claims")
+        .delete()
+        .eq("burn_tx_hash", burnTxHash);
+    }
+
     if (!existing) {
-      console.error(
-        `[updateBridgeStatus] No row found for burn_tx_hash=${burnTxHash} — recordBridgeTransaction may have failed`,
+      // Expected for a consolidation: those never get a `bridge_transactions` row, by design.
+      // The scratch row above is the whole record, and it has just been cleared.
+      console.log(
+        `[updateBridgeStatus] No bridge_transactions row for ${burnTxHash.slice(0, 10)} — ` +
+          `treating as a consolidation claim.`,
       );
       return;
     }
@@ -1070,20 +1083,46 @@ export async function getPendingBridgeClaims(
 
     if (!userRecord?.id) return [];
 
-    const { data: rows } = await supabaseAdmin
+    // Bridges the user made themselves, from their history.
+    const { data: userBridges } = await supabaseAdmin
       .from("bridge_transactions")
       .select("id, source_chain, dest_chain, amount, burn_tx_hash, mint_tx_hash, created_at")
       .eq("user_id", userRecord.id)
-      // Unfinished means BOTH: no mint hash recorded AND not already reconciled. Filtering on
-      // the hash alone stranded every transfer we confirmed as delivered but couldn't find a
-      // mint hash for — `updateBridgeStatus(hash, "complete")` writes a null hash, so the row
-      // matched `mint_tx_hash IS NULL` forever and the claim card never went away.
+      // Unfinished means one thing: no mint hash. A delivered transfer always records one —
+      // the real hash when we can recover it, PLACEHOLDER_TX_HASH when we can't — so a null
+      // here means the claim leg genuinely never landed.
+      //
+      // This used to also require `attestation_status != complete`, a workaround from before
+      // the placeholder existed, when a confirmed delivery wrote a null hash and the card
+      // never went away. It excluded the exact rows that need claiming: `complete` is what
+      // Circle reports once the ATTESTATION is ready, which is the moment a burn becomes
+      // claimable. So every burn that was ready to claim and never claimed — a closed tab, a
+      // refresh, a declined signature — was filtered out of the one screen built to recover it,
+      // and the USDC stayed burned and invisible.
+      //
+      // Whether the money actually arrived is decided per row below, against Circle and the
+      // destination chain, which is the only authority on it. A stored status is not.
       .is("mint_tx_hash", null)
-      .neq("attestation_status", "complete")
       .order("created_at", { ascending: false })
       .limit(20);
 
-    if (!rows || rows.length === 0) return [];
+    // Bridges that happened inside a withdrawal. These are NOT history — they live in a
+    // scratch table that is cleared on delivery, so a row here means a burn is still
+    // outstanding. Without them a consolidation that failed to deliver would be invisible
+    // everywhere, which is how a real 10.71 USDC burn went missing.
+    const { data: consolidations } = await supabaseAdmin
+      .from("consolidation_claims")
+      .select("id, source_chain, dest_chain, amount, burn_tx_hash, created_at")
+      .eq("user_id", userRecord.id)
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    const rows = [
+      ...(userBridges ?? []),
+      ...(consolidations ?? []).map((c) => ({ ...c, mint_tx_hash: null })),
+    ];
+
+    if (rows.length === 0) return [];
 
     const claims = await Promise.all(
       rows.map(async (row): Promise<PendingBridgeClaim | null> => {

@@ -256,6 +256,7 @@ export function useDepositWithdraw(
   const [twoFaError, setTwoFaError] = useState<string | null>(null);
   const [totpEnabled, setTotpEnabled] = useState(false);
   const [passkeyEnabled, setPasskeyEnabled] = useState(false);
+  const [pinEnabled, setPinEnabled] = useState(false);
 
   // Fetch institutions & rates when fiatCurrency changes
   useEffect(() => {
@@ -342,6 +343,13 @@ export function useDepositWithdraw(
           }
         })
         .catch(console.error);
+
+      // Whether a PIN exists. Read from its own endpoint, which returns only a boolean —
+      // the hash is never sent anywhere, not even to the account that owns it.
+      fetch("/api/2fa/pin")
+        .then((res) => res.json())
+        .then((data) => setPinEnabled(!!data?.enabled))
+        .catch(() => setPinEnabled(false));
     }
   }, [type, fiatCurrency, userEmail]);
 
@@ -822,7 +830,7 @@ export function useDepositWithdraw(
 
   const handleTwoFaSubmit = async (
     code: string,
-    method?: "email" | "totp" | "passkey",
+    method?: "email" | "totp" | "passkey" | "pin",
   ) => {
     setTwoFaLoading(true);
     setTwoFaError(null);
@@ -836,7 +844,19 @@ export function useDepositWithdraw(
         return;
       }
 
-      if (method === "totp") {
+      if (method === "pin") {
+        // Verified server-side against the stored scrypt hash, which also owns the attempt
+        // counter — a 4-digit secret is only defensible if guessing is rate limited there
+        // rather than here, where a caller could simply skip it.
+        res = await fetch("/api/2fa/pin", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${await freshToken()}`,
+          },
+          body: JSON.stringify({ action: "verify", pin: code }),
+        });
+      } else if (method === "totp") {
         // Use TOTP verification endpoint
         res = await fetch("/api/2fa/totp/verify", {
           method: "POST",
@@ -958,6 +978,10 @@ export function useDepositWithdraw(
                   evmWallet: embeddedProvider,
                   destChain,
                   onStatus,
+                  // Funding a withdrawal, not a bridge the user asked for: held in
+                  // `consolidation_claims` and cleared on delivery, so the withdrawal is the
+                  // only thing recorded.
+                  consolidation: true,
                 });
               }
             }
@@ -971,6 +995,19 @@ export function useDepositWithdraw(
           stellarRecipient: stellarAddress,
           solana: includeSolana ? solanaSource : undefined,
           stellar: includeStellar ? stellarSource : undefined,
+          // Where to DELIVER when the withdrawal settles on Stellar or Solana. Passed
+          // unconditionally: the source objects above are absent when that chain is the
+          // target, which is exactly when delivery needs them.
+          stellarWallet:
+            stellarWalletId && stellarAddress
+              ? { walletId: stellarWalletId, address: stellarAddress }
+              : null,
+          // Solana is not wired here: this hook never receives a Solana address, and
+          // `solanaRecipient` is likewise unset, so a consolidation TO Solana has nowhere to
+          // deliver. It now fails loudly in `bridgeAndDeliver` instead of reporting a move
+          // that did not happen. Solana withdrawals settle directly on Solana and do not take
+          // this path.
+          solanaWallet: null,
           onStatus: (s) => toast.loading(s, { id: "consolidate" }),
         });
         toast.success(`Funds secured & ready on ${targetName}.`, { id: "consolidate", duration: 5000 });
@@ -1454,6 +1491,7 @@ export function useDepositWithdraw(
     handleTwoFaResend,
     totpEnabled,
     passkeyEnabled,
+    pinEnabled,
     handleSaveBankContact: async () => {
       try {
         await addBankContact({

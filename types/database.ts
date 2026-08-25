@@ -126,6 +126,10 @@ export interface Database {
           totp_enabled: boolean;
           totp_verified_at: string | null;
           webauthn_credentials: Json;
+          pin_hash: string | null;
+          pin_set_at: string | null;
+          pin_failed_attempts: number;
+          pin_locked_until: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -142,6 +146,10 @@ export interface Database {
           totp_enabled?: boolean;
           totp_verified_at?: string | null;
           webauthn_credentials?: Json;
+          pin_hash?: string | null;
+          pin_set_at?: string | null;
+          pin_failed_attempts?: number;
+          pin_locked_until?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -158,6 +166,10 @@ export interface Database {
           totp_enabled?: boolean;
           totp_verified_at?: string | null;
           webauthn_credentials?: Json;
+          pin_hash?: string | null;
+          pin_set_at?: string | null;
+          pin_failed_attempts?: number;
+          pin_locked_until?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -289,6 +301,36 @@ export interface Database {
           provider_metadata?: Json;
           created_at?: string;
           updated_at?: string;
+        };
+        Relationships: [];
+      };
+      consolidation_claims: {
+        Row: {
+          id: string;
+          user_id: string;
+          burn_tx_hash: string;
+          source_chain: string;
+          dest_chain: string;
+          amount: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          burn_tx_hash: string;
+          source_chain: string;
+          dest_chain: string;
+          amount: number;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          burn_tx_hash?: string;
+          source_chain?: string;
+          dest_chain?: string;
+          amount?: number;
+          created_at?: string;
         };
         Relationships: [];
       };

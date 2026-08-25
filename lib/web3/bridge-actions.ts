@@ -5,6 +5,7 @@ import {
   http,
   type PublicClient
 } from 'viem';
+import { clearConsolidationBurn, recordConsolidationBurn } from './record-burn';
 import { type BundlerClient } from 'viem/account-abstraction';
 import { type ConnectedWallet } from '@privy-io/react-auth';
 import { VIEM_CHAINS } from './multichain';
@@ -773,6 +774,10 @@ export async function bridgeAndDeliver(
     recipient: string;
     onStatus?: (status: string) => void;
     timeoutMs?: number;
+    /** Required to deliver on Stellar — the server signs, this identifies the wallet. */
+    stellarWallet?: { walletId: string; address: string } | null;
+    /** Required to deliver on Solana — only the address; the server signs. */
+    solanaWallet?: { address: string } | null;
   },
 ): Promise<{ burnTxHash: string; mintTxHash?: string }> {
   const { sourceChain, destChain, amountUSDC, recipient, onStatus } = params;
@@ -787,6 +792,14 @@ export async function bridgeAndDeliver(
     destChain,
   );
   const burnTxHash = await txHashPromise;
+
+  // Irreversible from here, so make it known before anything else can fail.
+  await recordConsolidationBurn({
+    burnTxHash,
+    sourceChain,
+    destChain,
+    amountUsdc: amountUSDC,
+  });
 
   onStatus?.('Waiting for network confirmation…');
   let attestationData: AttestationResponse | null = null;
@@ -821,7 +834,33 @@ export async function bridgeAndDeliver(
   let mintTxHash: string | undefined = attestationData.mintTxHash;
   if (!mintTxHash && attestationData.attestation && attestationData.messageBytes) {
     if (destChain === 'stellar' || destChain === 'solana') {
-      mintTxHash = 'auto';
+      // Deliver it. This used to set `mintTxHash = 'auto'` on the assumption that Circle's
+      // relayer completes these routes by itself — it does not always, and nothing here
+      // checked. The burn had already happened, so the caller was told the funds had moved
+      // when they had not: the withdrawal then failed for insufficient balance while the USDC
+      // sat burned on the source chain, delivered nowhere and recorded nowhere.
+      //
+      // The claim needs no wallet signature (the server signs), so it is safe to run here and
+      // it survives the tab closing mid-claim.
+      onStatus?.(`Delivering on ${destChain === 'stellar' ? 'Stellar' : 'Solana'}…`);
+      const { claimBridgeOnDestination } = await import('./bridge-claim');
+      mintTxHash = await claimBridgeOnDestination({
+        destChain,
+        messageBytes: attestationData.messageBytes,
+        attestation: attestationData.attestation,
+        stellarWallet: params.stellarWallet ?? null,
+        solanaWallet: params.solanaWallet ?? null,
+        burnTxHash,
+        sourceChain,
+      });
+      if (!mintTxHash) {
+        // Do NOT report success. The caller sizes a withdrawal off this, and claiming that
+        // funds arrived when they have not is what produced a burned-but-missing balance.
+        throw new Error(
+          `Bridged funds have not arrived on ${destChain} yet. They are safe and claimable — ` +
+            `open Pending Claims to finish it.`,
+        );
+      }
     } else {
       const evmDest = destChain as SupportedChain;
       const standardRpcClient = createPublicClient({
@@ -852,6 +891,8 @@ export async function bridgeAndDeliver(
     }
   }
 
+  if (mintTxHash) await clearConsolidationBurn(burnTxHash);
+
   return { burnTxHash, mintTxHash };
 }
 
@@ -874,6 +915,15 @@ export async function consolidateFundsToChain(
     stellarRecipient?: string;
     solanaRecipient?: string;
     onStatus?: (status: string) => void;
+    /**
+     * The wallets to DELIVER into, when the target is Stellar or Solana.
+     *
+     * Distinct from `stellar`/`solana` below, which describe those chains as funding SOURCES
+     * and are absent whenever the chain is the target. Delivery needs the wallet precisely in
+     * that case, so it cannot be taken from them.
+     */
+    stellarWallet?: { walletId: string; address: string } | null;
+    solanaWallet?: { address: string } | null;
     /** Optional Solana source */
     solana?: SolanaSource;
     /** Optional Stellar source */
@@ -885,7 +935,7 @@ export async function consolidateFundsToChain(
     };
   },
 ): Promise<void> {
-  const { targetChain, requiredAmount, balances, recipient, stellarRecipient, solanaRecipient, onStatus, solana, stellar } = params;
+  const { targetChain, requiredAmount, balances, recipient, stellarRecipient, solanaRecipient, onStatus, solana, stellar, stellarWallet, solanaWallet } = params;
   const required = parseFloat(requiredAmount) || 0;
   const have = balances[targetChain as keyof typeof balances] ?? 0;
   let remaining = (required - have) * 1.01; // 1% buffer for CCTP fees
@@ -941,6 +991,8 @@ export async function consolidateFundsToChain(
         amountUSDC: take.toFixed(6),
         recipient: destRecipient,
         onStatus,
+        stellarWallet,
+        solanaWallet,
       });
     } else if (source.type === 'solana' && solana) {
       onStatus?.(`Moving funds from Solana to ${targetName}…`);

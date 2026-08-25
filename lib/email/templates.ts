@@ -13,7 +13,13 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL || '';
 /**
  * Base email wrapper template
  */
-function baseTemplate(content: string): string {
+/**
+ * The shared email shell: header, white content card, coil divider, footer.
+ *
+ * Exported so operational alerts can render inside the same frame instead of carrying a copy
+ * of it. Callers pass only the inner content; nothing about the shell changes.
+ */
+export function baseTemplate(content: string): string {
   return `
 <!DOCTYPE html>
 <html lang="en">
