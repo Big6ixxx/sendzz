@@ -23,8 +23,7 @@ import { executeReceiveMessage } from "@/lib/web3/bridge-actions";
 import { toast } from "sonner";
 import { CCTP_DOMAINS, type SupportedChain } from "@/lib/circle/gateway";
 import { classifyAppError } from "@/lib/errors/appErrors";
-import { explorerTxUrl, HOME_CHAIN } from "@/lib/explorers";
-
+import { explorerTxUrl, HOME_CHAIN, isPlaceholderHash } from "@/lib/explorers";
 import { Activity } from "./HistoryModule";
 import { ReceiptActions } from "./receipt/ReceiptActions";
 import { activityToReceiptData } from "@/lib/receipt/utils";
@@ -42,9 +41,6 @@ const ACTIVITY_LABELS: Record<string, string> = {
 
 const chainLabel = (chain: string) =>
   (CHAIN_META[chain.toLowerCase()]?.name ?? chain).toUpperCase();
-
-const isPlaceholder = (h: string | null | undefined) =>
-  !h || h.trim() === '' || h.toLowerCase() === 'n/a' || h === '0x0000000000000000000000000000000000000000000000000000000000000000';
 
 // Transfers don't persist their chain yet, so an unknown chain means the home chain.
 const explorerFor = (chain: string | undefined, hash: string | null | undefined) =>
@@ -572,7 +568,7 @@ export function ActivityDetailModal({
             <div className="flex gap-3">
               {activity.type === "bridge" ? (
                 <>
-                  {activity.txHash && !isPlaceholder(activity.txHash) && (
+                  {activity.txHash && !isPlaceholderHash(activity.txHash) && (
                     <a
                       href={explorerFor(activity.sourceChain, activity.txHash)}
                       target="_blank"
@@ -600,15 +596,15 @@ export function ActivityDetailModal({
                         </a>
                       );
                     }
+                    // Delivered, but with no transaction to link to: delivery was confirmed by
+                    // reading the destination chain rather than by watching our own claim land.
+                    // Explain that instead of showing nothing — a burn button with an empty
+                    // space beside it reads as a transfer that never finished.
                     if (activity.status === "complete") {
-                      return null;
-                    }
-                    if (activity.status === "complete" &&
-                      Date.now() - new Date(activity.timestamp).getTime() <
-                        10 * 60 * 1000) {
                       return (
-                        <div className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                          ✓ Completed
+                        <div className="flex-1 min-h-12 rounded-xl flex items-center justify-center text-center px-3 py-2 text-[11px] leading-snug font-medium bg-emerald-500/8 text-emerald-400/80 border border-emerald-500/20">
+                          Delivered on {chainLabel(activity.destChain ?? "base")}. No mint
+                          transaction id was recorded for this one.
                         </div>
                       );
                     }

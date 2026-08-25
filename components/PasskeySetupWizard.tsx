@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { PinInput } from "@/components/security/PinGate";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -459,9 +460,9 @@ function PinSetup({ onDone }: { onDone: () => void }) {
   const value = phase === "enter" ? first : second;
   const setValue = phase === "enter" ? setFirst : setSecond;
 
-  const onChange = (raw: string) => {
+  // PinInput hands back digits only, already capped at four.
+  const onChange = (digits: string) => {
     setError(null);
-    const digits = raw.replace(/\D/g, "").slice(0, 4);
     setValue(digits);
 
     if (digits.length === 4 && phase === "enter") {
@@ -514,44 +515,17 @@ function PinSetup({ onDone }: { onDone: () => void }) {
       </p>
 
       <div className="space-y-3">
-        {/* One real input, four painted boxes: keeps the mobile numeric keypad and paste
-            working, which a four-input grid usually breaks. */}
-        <label className="block relative">
-          <span className="sr-only">
-            {phase === "enter" ? "Choose your PIN" : "Confirm your PIN"}
-          </span>
-          <input
-            autoFocus
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            type="password"
-            disabled={saving}
-            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-          />
-          <span className="flex gap-2.5 justify-center pointer-events-none">
-            {[0, 1, 2, 3].map((i) => (
-              <span
-                key={i}
-                className={cn(
-                  "w-13 h-14 rounded-xl flex items-center justify-center",
-                  "border text-2xl font-bold text-brand-secondary",
-                  value.length === i
-                    ? "border-accent/60 bg-accent/5"
-                    : "border-white/10 bg-white/[0.03]",
-                )}
-                style={{ width: 52 }}
-              >
-                {value[i] ? "•" : ""}
-              </span>
-            ))}
-          </span>
-        </label>
+        <PinInput
+          value={value}
+          onChange={onChange}
+          error={error}
+          label={phase === "enter" ? "Choose your PIN" : "Confirm your PIN"}
+          srOnlyLabel
+          autoComplete="one-time-code"
+          disabled={saving}
+          autoFocus
+        />
 
-        {error && (
-          <p className="text-[12.5px] text-orange-400 text-center">{error}</p>
-        )}
         {saving && (
           <p className="text-[12.5px] text-brand-secondary/40 text-center flex items-center justify-center gap-2">
             <Loader2 className="w-3 h-3 animate-spin" />

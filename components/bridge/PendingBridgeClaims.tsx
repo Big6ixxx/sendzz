@@ -14,7 +14,10 @@
 
 import { claimBridgeOnDestination } from "@/lib/web3/bridge-claim";
 import { classifyAppError } from "@/lib/errors/appErrors";
-import { getPendingBridgeClaims } from "@/lib/supabase/transactions";
+import {
+  getPendingBridgeClaims,
+  verifyBridgeClaimSettled,
+} from "@/lib/supabase/transactions";
 import { CHAIN_NAMES } from "@/lib/circle/gateway";
 import { cn } from "@/lib/utils";
 import type { PendingBridgeClaim } from "@/types/bridge";
@@ -74,9 +77,31 @@ export function PendingBridgeClaims({
     refetchInterval: 20_000,
   });
 
+  /**
+   * Settle the card if the chain says this burn already arrived.
+   *
+   * Returns true when it did, in which case there is nothing left to claim and nothing to
+   * apologise for — the row is cleared and the user is told the money is already theirs.
+   */
+  const settleIfAlreadyArrived = async (claim: PendingBridgeClaim) => {
+    const { settled } = await verifyBridgeClaimSettled(claim.burnTxHash);
+    if (!settled) return false;
+    toast.success(
+      `Your ${claim.amount} USDC already arrived on ${label(claim.destChain)}.`,
+    );
+    await settle();
+    return true;
+  };
+
   const handleClaim = async (claim: PendingBridgeClaim) => {
     setClaimingId(claim.id);
     try {
+      // Ask the destination chain before spending a signature on it. A burn can only be
+      // claimed once, so if the mint already landed — a relayer got there first, another tab
+      // finished it, an earlier attempt confirmed after we stopped watching — this claim can
+      // only fail, and the failure would read as though the money were at risk.
+      if (await settleIfAlreadyArrived(claim)) return;
+
       // The server signer grant is owned by useStellarWallet and is already in place by
       // the time `stellarWallet` is populated — re-granting here would just make Privy
       // reject a duplicate. If it somehow isn't granted, the claim route says so.
@@ -93,24 +118,43 @@ export function PendingBridgeClaims({
 
       console.log(`[PendingBridgeClaims] 🎉 Mint transaction hash for claim (${claim.burnTxHash}):`, mintTxHash);
 
+      // No hash on a successful return means the destination reported the nonce as already
+      // consumed — Solana answers that way instead of raising. The funds are there either way,
+      // so say `delivered` and let the row be recorded rather than left looking unfinished.
       await fetch("/api/bridge/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ burnTxHash: claim.burnTxHash, mintTxHash }),
+        body: JSON.stringify({
+          burnTxHash: claim.burnTxHash,
+          mintTxHash,
+          delivered: true,
+        }),
       }).catch(console.error);
 
-      toast.success(`Claimed! ${claim.amount} USDC is now on ${label(claim.destChain)}.`);
+      toast.success(
+        mintTxHash
+          ? `Claimed! ${claim.amount} USDC is now on ${label(claim.destChain)}.`
+          : `Your ${claim.amount} USDC already arrived on ${label(claim.destChain)}.`,
+      );
       await settle();
     } catch (err) {
       const classified = classifyAppError(err);
+
+      // "Failed" covers more than a failure. A claim times out while its transaction is still
+      // confirming, a relayer races us to the nonce, a node rejects a message that was already
+      // consumed — all of which end with the USDC delivered and an error on screen. Ask the
+      // chain what actually happened before telling the user something went wrong.
+      if (await settleIfAlreadyArrived(claim)) return;
+
       if (classified.isAlreadyProcessed) {
-        // The mint landed elsewhere (relayer, another tab) — reconcile and move on.
+        // The chain could not confirm it — Solana has no delivery read — but the claim itself
+        // says the nonce is spent, which only happens once the mint has gone through. That is
+        // proof enough to record delivery; the reconciler upgrades the placeholder to a real
+        // hash later if the chain ever offers one.
         await fetch("/api/bridge/complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          // No hash to report — send none rather than a sentinel. The reconciler in
-          // getPendingBridgeClaims recovers the real one from the delivery log.
-          body: JSON.stringify({ burnTxHash: claim.burnTxHash }),
+          body: JSON.stringify({ burnTxHash: claim.burnTxHash, delivered: true }),
         }).catch(console.error);
         toast.success("This transfer has already arrived. Refreshing your balance...");
         await settle();

@@ -9,7 +9,6 @@ import { fetchStellarAttestation } from "@/lib/circle/stellar-gateway";
 import { requireUser } from "@/lib/auth/session";
 import type { PendingBridgeClaim } from "@/types/bridge";
 import { isPlaceholderHash, PLACEHOLDER_TX_HASH } from "@/lib/explorers";
-import { CLAIM_HANDOFF_MS } from "@/lib/web3/bridge-timing";
 
 type ExtendedChain = SupportedChain | "solana" | "stellar";
 
@@ -36,27 +35,15 @@ async function recoverMintTxHash(
   destChain: string,
   burnTxHash: string,
 ): Promise<string | undefined> {
-  const dest = destChain.toLowerCase();
-  if (!EVM_DEST_CHAINS.includes(dest)) return undefined;
-
   try {
     const attestation = await getAttestation(
       sourceChain as ExtendedChain,
       burnTxHash,
     );
     if (!attestation.messageBytes) return undefined;
-
-    const { createPublicClient } = await import("viem");
-    const { rpcTransport } = await import("@/lib/web3/rpc");
-    const { findMintTxHash } = await import("@/lib/web3/cctp-delivery");
-
-    const client = createPublicClient({ transport: rpcTransport(dest) });
-    return await findMintTxHash(client, attestation.messageBytes);
+    return await findEvmMintTxHash(destChain, attestation.messageBytes);
   } catch (err) {
-    console.error(
-      "[recoverMintTxHash] Lookup failed:",
-      (err as Error).message,
-    );
+    console.error("[recoverMintTxHash] Lookup failed:", (err as Error).message);
     return undefined;
   }
 }
@@ -1020,7 +1007,41 @@ export async function updateBridgeStatus(
 
 
 
-const EVM_DEST_CHAINS = [
+/**
+ * A viem client for an EVM chain.
+ *
+ * viem and the RPC config are imported lazily on purpose: this module is pulled into client
+ * components for its server actions, and a static import would drag the whole chain stack into
+ * the browser bundle.
+ */
+async function evmClient(chain: string) {
+  const { createPublicClient } = await import("viem");
+  const { rpcTransport } = await import("@/lib/web3/rpc");
+  return createPublicClient({ transport: rpcTransport(chain) });
+}
+
+/**
+ * The transaction that minted a CCTP message on an EVM destination, if it can be found.
+ *
+ * Best effort everywhere it is used: a missing hash costs a link, never a reconciliation.
+ */
+async function findEvmMintTxHash(
+  destChain: string,
+  messageBytes: string,
+): Promise<string | undefined> {
+  const dest = destChain.toLowerCase();
+  if (!EVM_CHAINS.includes(dest)) return undefined;
+
+  try {
+    const { findMintTxHash } = await import("@/lib/web3/cctp-delivery");
+    return await findMintTxHash(await evmClient(dest), messageBytes);
+  } catch (err) {
+    console.error("[findEvmMintTxHash] Lookup failed:", (err as Error).message);
+    return undefined;
+  }
+}
+
+const EVM_CHAINS = [
   "base",
   "arbitrum",
   "optimism",
@@ -1053,15 +1074,11 @@ async function isBurnDelivered(
     return isStellarBurnDelivered(messageBytes, attestation);
   }
 
-  if (!EVM_DEST_CHAINS.includes(dest)) return false;
+  if (!EVM_CHAINS.includes(dest)) return false;
 
   try {
-    const { createPublicClient } = await import("viem");
-    const { rpcTransport } = await import("@/lib/web3/rpc");
     const { isMessageDelivered } = await import("@/lib/web3/cctp-delivery");
-
-    const client = createPublicClient({ transport: rpcTransport(dest) });
-    return await isMessageDelivered(client, messageBytes);
+    return await isMessageDelivered(await evmClient(dest), messageBytes);
   } catch (err) {
     console.error(
       `[getPendingBridgeClaims] Delivery check failed on ${dest}:`,
@@ -1070,6 +1087,173 @@ async function isBurnDelivered(
     return false;
   }
 }
+
+type AttestationResult = Awaited<ReturnType<typeof getAttestation>>;
+
+/**
+ * How long a burn may go unattested before we stop assuming Circle is just slow.
+ *
+ * Attestation normally takes a minute or two. An hour is far past that, and comfortably past
+ * any chain reorg, so beyond it "Circle has never heard of this" is worth investigating rather
+ * than waiting on.
+ */
+const UNATTESTED_GRACE_MS = 60 * 60 * 1000;
+
+/**
+ * Does this burn transaction actually exist on its source chain?
+ *
+ * Returns null when we cannot tell — an unreadable chain, an RPC that is down. Only a definite
+ * "no receipt" answers false, because this decides whether a row is written off.
+ */
+async function burnExistsOnChain(
+  sourceChain: string,
+  txHash: string,
+): Promise<boolean | null> {
+  const chain = sourceChain.toLowerCase();
+  if (!EVM_CHAINS.includes(chain) || !txHash.startsWith("0x")) return null;
+
+  try {
+    const client = await evmClient(chain);
+    await client.getTransactionReceipt({ hash: txHash as `0x${string}` });
+    return true;
+  } catch (err) {
+    // viem raises the same error type for "mined but not found" and "no such transaction",
+    // and only the message distinguishes them. Anything else is an unknown, not an absence.
+    const message = (err as Error)?.message ?? "";
+    return message.includes("could not be found") ? false : null;
+  }
+}
+
+/**
+ * A burn that was recorded but never made it on-chain.
+ *
+ * The row is written when the transaction is submitted, not when it confirms, so a submission
+ * that is dropped or replaced leaves a row describing a burn that never happened. Circle has no
+ * message for it and never will, which used to mean a card sitting on "Verifying" forever with
+ * no way for the user to dismiss it. Nothing was burned, so nothing is owed: mark it and let it
+ * go. The row stays for the record rather than being deleted.
+ */
+async function markBridgeUnclaimable(burnTxHash: string): Promise<void> {
+  console.warn(
+    `[getPendingBridgeClaims] ${burnTxHash.slice(0, 12)} has no attestation and no receipt on ` +
+      `its source chain — the burn never landed. Marking it unclaimable.`,
+  );
+  await supabaseAdmin
+    .from("bridge_transactions")
+    .update({ attestation_status: "failed", updated_at: new Date().toISOString() })
+    .eq("burn_tx_hash", burnTxHash);
+}
+
+/**
+ * Has this burn already landed on its destination chain, and if so, record that it did.
+ *
+ * Circle only reports a mint hash for transfers its own relayer delivered, so a claim the user
+ * made themselves leaves Iris looking identical to one that never happened. The destination
+ * chain is the only authority on whether the money arrived, so ask it directly before insisting
+ * the funds are still owed.
+ *
+ * Returns the mint hash it settled on, or null when the burn genuinely has not been delivered.
+ * The hash is PLACEHOLDER_TX_HASH when the chain confirms delivery but the transaction itself
+ * cannot be recovered — delivery is the fact that matters, and refusing to record it without a
+ * hash is what used to leave a delivered transfer showing a Claim button that could only fail.
+ */
+async function settleIfDelivered(
+  burnTxHash: string,
+  destChain: string,
+  attested: AttestationResult,
+): Promise<string | null> {
+  if (attested.status !== "complete") return null;
+
+  // Circle's own relayer delivered it and told us exactly where.
+  if (attested.mintTxHash) {
+    await updateBridgeStatus(burnTxHash, "complete", attested.mintTxHash);
+    return attested.mintTxHash;
+  }
+
+  if (!attested.messageBytes) return null;
+
+  const delivered = await isBurnDelivered(
+    destChain,
+    attested.messageBytes,
+    attested.attestation ?? undefined,
+  );
+  if (!delivered) return null;
+
+  // Try for the real hash so history can link to an explorer, but do not require it.
+  const resolved =
+    (await findEvmMintTxHash(destChain, attested.messageBytes)) ?? PLACEHOLDER_TX_HASH;
+  await updateBridgeStatus(burnTxHash, "complete", resolved);
+  return resolved;
+}
+
+/**
+ * Ask the destination chain whether one specific burn has already been claimed.
+ *
+ * The Pending Claims list runs the same check on every refresh, but a claim that fails mid
+ * flight lands between two of those passes: the mint may already have gone through — a relayer
+ * beat us to it, another tab finished first, the transaction confirmed after our poll gave up —
+ * while the button reports a plain failure and the card stays put. Retrying then can only fail
+ * again, because the nonce is spent.
+ *
+ * So the claim button calls this before it starts and again if it fails. When this says the
+ * money arrived, the row is reconciled and cleared instead of a scary error being shown for
+ * funds that are already home.
+ *
+ * Scoped to the caller's own rows: a burn hash is public, and letting anyone settle a stranger's
+ * claim would hide money they are still owed.
+ */
+export async function verifyBridgeClaimSettled(
+  burnTxHash: string,
+  accessToken?: string,
+): Promise<{ settled: boolean; mintTxHash: string | null }> {
+  const unsettled = { settled: false, mintTxHash: null };
+  try {
+    const { email } = await requireUser(accessToken);
+    const { data: userRecord } = await supabaseAdmin
+      .from("users")
+      .select("id")
+      .eq("email", email)
+      .single();
+    if (!userRecord?.id) return unsettled;
+
+    const [{ data: bridge }, { data: scratch }] = await Promise.all([
+      supabaseAdmin
+        .from("bridge_transactions")
+        .select("source_chain, dest_chain")
+        .eq("burn_tx_hash", burnTxHash)
+        .eq("user_id", userRecord.id)
+        .maybeSingle(),
+      supabaseAdmin
+        .from("consolidation_claims")
+        .select("source_chain, dest_chain")
+        .eq("burn_tx_hash", burnTxHash)
+        .eq("user_id", userRecord.id)
+        .maybeSingle(),
+    ]);
+
+    const row = bridge ?? scratch;
+    if (!row) return unsettled;
+
+    const attested = await getAttestation(
+      row.source_chain as ExtendedChain,
+      burnTxHash,
+    );
+    const mintTxHash = await settleIfDelivered(burnTxHash, row.dest_chain, attested);
+
+    return mintTxHash
+      ? { settled: true, mintTxHash: isPlaceholderHash(mintTxHash) ? null : mintTxHash }
+      : unsettled;
+  } catch (err) {
+    // Unknown is not settled. Reporting a claim as delivered because a lookup failed would
+    // hide USDC the user still has to claim, which is the one outcome worth avoiding here.
+    console.error(
+      `[verifyBridgeClaimSettled] Could not verify ${burnTxHash.slice(0, 10)}:`,
+      (err as Error).message,
+    );
+    return unsettled;
+  }
+}
+
 export async function getPendingBridgeClaims(
   accessToken?: string,
 ): Promise<PendingBridgeClaim[]> {
@@ -1103,6 +1287,9 @@ export async function getPendingBridgeClaims(
       // Whether the money actually arrived is decided per row below, against Circle and the
       // destination chain, which is the only authority on it. A stored status is not.
       .is("mint_tx_hash", null)
+      // Written off: the burn never reached the chain, so there is nothing to claim. Matched
+      // with an explicit null check because `neq` alone drops rows whose status is null.
+      .or("attestation_status.is.null,attestation_status.neq.failed")
       .order("created_at", { ascending: false })
       .limit(20);
 
@@ -1132,43 +1319,17 @@ export async function getPendingBridgeClaims(
             row.burn_tx_hash,
           );
 
-          // Circle's relayer already delivered it — reconcile and drop from the list.
-          if (result.status === "complete" && result.mintTxHash) {
-            await updateBridgeStatus(row.burn_tx_hash, "complete", result.mintTxHash);
+          // Already landed? Then it is settled, recorded, and has no business on this list.
+          if (await settleIfDelivered(row.burn_tx_hash, row.dest_chain, result)) {
             return null;
           }
 
-          // Circle only reports a mint hash for transfers its own relayer delivered, so
-          // a claim the user made themselves leaves Iris looking identical to one that
-          // never happened. Ask the destination chain directly before insisting the
-          // funds are unclaimed — otherwise the banner outlives the transfer.
-          if (result.status === "complete" && result.messageBytes) {
-            const delivered = await isBurnDelivered(
-              row.dest_chain,
-              result.messageBytes,
-              result.attestation ?? undefined,
-            );
-            if (delivered) {
-              // Try for the real mint hash so history can link to an explorer.
-              let mintTx: string | undefined;
-              if (EVM_DEST_CHAINS.includes(row.dest_chain.toLowerCase())) {
-                const { createPublicClient } = await import("viem");
-                const { rpcTransport } = await import("@/lib/web3/rpc");
-                const { findMintTxHash } = await import("@/lib/web3/cctp-delivery");
-                const client = createPublicClient({ transport: rpcTransport(row.dest_chain) });
-                mintTx = await findMintTxHash(client, result.messageBytes).catch(() => undefined);
-              }
-
-              // Reconcile whether or not we found it. Delivery is the fact that matters — the
-              // money is already in the user's wallet. Previously a missing hash meant we
-              // skipped the update entirely, so a delivered transfer kept showing a Claim
-              // button that could only ever fail. The placeholder records "delivered, hash
-              // unknown"; isPlaceholderHash keeps the UI from rendering it as a dead link.
-              await updateBridgeStatus(
-                row.burn_tx_hash,
-                "complete",
-                mintTx ?? PLACEHOLDER_TX_HASH,
-              );
+          // Still unattested long after it should be. Either Circle is behind, or the burn
+          // never actually happened — and only the source chain can tell us which.
+          const ageMs = Date.now() - new Date(row.created_at).getTime();
+          if (result.status !== "complete" && ageMs > UNATTESTED_GRACE_MS) {
+            if ((await burnExistsOnChain(row.source_chain, row.burn_tx_hash)) === false) {
+              await markBridgeUnclaimable(row.burn_tx_hash);
               return null;
             }
           }

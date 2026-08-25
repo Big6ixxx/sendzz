@@ -18,6 +18,7 @@ import { Keypair, TransactionBuilder, Contract, xdr, Networks } from '@stellar/s
 import { rpc as SorobanRpc } from '@stellar/stellar-sdk';
 import { loadStellarAccount } from '@/lib/circle/stellar-gateway';
 import { ensureStellarUsdcReceivable } from '@/lib/stellar/privy-wallet';
+import { isAlreadyDeliveredError } from '@/lib/stellar/delivery';
 import { CCTP_DOMAINS } from '@/lib/circle/gateway';
 
 const STELLAR_RPC_URL = process.env.NEXT_PUBLIC_STELLAR_RPC_URL || 'https://soroban-rpc.mainnet.stellar.gateway.fm';
@@ -39,10 +40,13 @@ function safeClaimError(raw: string): { error: string; code: string } {
       code: 'trustline_missing',
     };
   }
-  const lower = raw.toLowerCase();
-  if (lower.includes('nonce already used') || lower.includes('already received') || lower.includes('already processed')) {
+  // Shared with the pending-claims panel: Soroban reports a spent nonce as a bare numeric
+  // contract error, so matching only on English text reported every already-claimed transfer
+  // as a generic failure and left its Claim button on screen forever.
+  if (isAlreadyDeliveredError(raw)) {
     return { error: 'This transfer has already been claimed.', code: 'already_claimed' };
   }
+  const lower = raw.toLowerCase();
   if (lower.includes('insufficient') || lower.includes('sponsor')) {
     return {
       error: 'Claims are temporarily unavailable. Your funds are safe — please try again shortly.',

@@ -26,8 +26,33 @@ const STELLAR_CCTP_FORWARDER =
   'CBZL2IH7F6BIDAA3WBNXYKIXSATJGMSW7K5P5MJ6STX5RXN47TZJDF5T';
 const STELLAR_NETWORK_PASSPHRASE = Networks.PUBLIC;
 
-/** Soroban surfaces "this message is spent" in several wordings depending on the layer. */
-function isAlreadyDeliveredError(raw: string): boolean {
+/**
+ * Contract error codes that mean "this message has already been consumed".
+ *
+ * Soroban does not return prose. A spent nonce comes back as `Error(Contract, #6908)` and
+ * nothing else — no wording to match, which is why a text-only test never fired and every
+ * already-claimed Stellar transfer looked like a fresh failure.
+ *
+ * 6908 was confirmed against the chain, not inferred: for burn 0x37f92ed9 (1 USDC, Base to
+ * Stellar) the simulation returns #6908 while Stellar transaction d99d0ca9…6f93 successfully
+ * consumed that exact CCTP nonce. Same for 0xdaf16029 (0.03 USDC) and da7ffe2c…5f90.
+ *
+ * Only codes verified that way belong here. An unrecognised code must stay unrecognised —
+ * guessing that some other failure means "delivered" would hide USDC the user still owns.
+ */
+const ALREADY_DELIVERED_CONTRACT_CODES = new Set([6908]);
+
+/**
+ * Does this simulation failure mean the message was already delivered?
+ *
+ * Shared with the claim route so the panel and the button can never disagree about what an
+ * error means — one saying "already claimed" while the other says "something went wrong" is
+ * how a delivered transfer kept its Claim button.
+ */
+export function isAlreadyDeliveredError(raw: string): boolean {
+  const code = raw.match(/Error\(Contract,\s*#(\d+)\)/);
+  if (code && ALREADY_DELIVERED_CONTRACT_CODES.has(Number(code[1]))) return true;
+
   const lower = raw.toLowerCase();
   return (
     lower.includes('nonce already used') ||

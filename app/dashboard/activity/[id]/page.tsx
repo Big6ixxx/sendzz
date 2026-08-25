@@ -26,17 +26,13 @@ import { toast } from 'sonner';
 import { useActivities } from '@/hooks/useActivities';
 import { useQueryClient } from '@tanstack/react-query';
 import { CHAIN_META } from '@/components/deposit-withdraw/deposit-shared';
-import { explorerTxUrl, HOME_CHAIN } from '@/lib/explorers';
+import { explorerTxUrl, HOME_CHAIN, isPlaceholderHash } from '@/lib/explorers';
 import { ReceiptActions } from '@/components/receipt/ReceiptActions';
 import { activityToReceiptData } from '@/lib/receipt/utils';
 import { getOffRampRate } from '@/lib/actions/ramp';
 import { executeReceiveMessage } from '@/lib/web3/bridge-actions';
 import type { ActivityType } from '@/components/HistoryModule';
-
-const isPlaceholder = (h: string | null | undefined) =>
-  !h || h.trim() === '' || h.toLowerCase() === 'n/a' || h === '0x0000000000000000000000000000000000000000000000000000000000000000';
 import { CCTP_DOMAINS, type SupportedChain } from '@/lib/circle/gateway';
-
 
 /** Middle-truncate long values (hashes / ids) for display; the full value is still copied. */
 function shorten(v: string, head = 10, tail = 8): string {
@@ -50,12 +46,15 @@ function AdvancedRow({
   display,
   copyable,
   href,
+  note,
 }: {
   label: string;
   value: string;
   display?: string;
   copyable?: boolean;
   href?: string;
+  /** Prose rather than an identifier: wraps, and drops the monospace treatment. */
+  note?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
@@ -69,7 +68,13 @@ function AdvancedRow({
         {label}
       </span>
       <span className="flex items-center gap-2 min-w-0">
-        <span className="text-xs font-medium text-brand-secondary/80 font-mono truncate">
+        <span
+          className={
+            note
+              ? "text-xs font-medium text-brand-secondary/50 text-right"
+              : "text-xs font-medium text-brand-secondary/80 font-mono truncate"
+          }
+        >
           {display ?? value}
         </span>
         {href && (
@@ -595,13 +600,13 @@ export default function ActivityDetailPage({
   }
 
   // ── Advanced details: provider refs, full hashes, rate, timestamps ───────────
-  const hasValidMint = !!activity.mintTxHash && !isPlaceholder(activity.mintTxHash);
+  const hasValidMint = !!activity.mintTxHash && !isPlaceholderHash(activity.mintTxHash);
   const mintExplorer = explorerTxUrl(
     activity.destChain ?? HOME_CHAIN,
     activity.mintTxHash,
   );
 
-  type AdvRow = { label: string; value: string; display?: string; copyable?: boolean; href?: string };
+  type AdvRow = { label: string; value: string; display?: string; copyable?: boolean; href?: string; note?: boolean };
   const advancedRows: AdvRow[] = [];
 
   if (activity.provider) {
@@ -636,6 +641,15 @@ export default function ActivityDetailPage({
   }
   if (hasValidMint) {
     advancedRows.push({ label: 'Mint tx', value: activity.mintTxHash!, display: shorten(activity.mintTxHash!), copyable: true, href: mintExplorer ?? undefined });
+  } else if (activity.type === 'bridge' && activity.status === 'complete') {
+    // Delivery was confirmed by reading the destination chain, not by watching our own claim
+    // land, so there is no transaction id to show. Say that plainly rather than inventing a
+    // hash or leaving the row out — a bridge with a burn tx and no mint tx reads as unfinished.
+    advancedRows.push({
+      label: 'Mint tx',
+      value: 'Confirmed on the destination chain. The transaction id was not recorded.',
+      note: true,
+    });
   }
   advancedRows.push({
     label: 'Created',
