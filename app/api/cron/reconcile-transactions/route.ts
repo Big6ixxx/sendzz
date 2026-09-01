@@ -52,7 +52,7 @@ export async function GET(req: Request) {
 
   const { data: stuck, error } = await supabaseAdmin
     .from('withdrawals')
-    .select('id, provider_order_id, provider_metadata, amount_usdc, created_at, tx_hash, fiat_currency, pending_beneficiary')
+    .select('id, provider_order_id, provider_metadata, amount_usdc, created_at, tx_hash, fiat_currency, pending_beneficiary, source_chain')
     .eq('provider', 'bitnob')
     .eq('status', 'processing')
     // The 5-minute floor exists to let the webhook's own retry window pass first. It must not
@@ -131,7 +131,11 @@ export async function GET(req: Request) {
           orderId: orderId ?? '',
           txHash: w.tx_hash,
           requiredUsdc: base + getCorridorFee('bitnob', w.fiat_currency),
-          network: meta?.network ?? 'stellar',
+          // No default to 'stellar' any more. Every chain defers now, so a missing network
+          // here would verify an EVM deposit against Stellar and never find it — the deposit
+          // lookup rejects a hash that arrived on another chain. Falling back to the row's own
+          // source_chain keeps the check on the chain the money actually moved on.
+          network: meta?.network ?? w.source_chain ?? 'base',
           fiatCurrency: w.fiat_currency,
           bank: beneficiary,
           currentTxHash: w.tx_hash,

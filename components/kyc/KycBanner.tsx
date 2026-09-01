@@ -5,11 +5,11 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ShieldAlert, X, ArrowRight, Clock } from "lucide-react";
 import { KycModal } from "./KycModal";
 
+import type { Allowance } from "./LimitsMeter";
+
 interface KycData {
   kyc: { status: string; updatedAt: string };
-  totals: { daily: number; weekly: number; monthly: number };
-  unverifiedLimits: { daily: number; weekly: number; monthly: number };
-  percentages: { daily: number; weekly: number; monthly: number };
+  allowance: Allowance | null;
 }
 
 interface KycBannerProps {
@@ -17,11 +17,15 @@ interface KycBannerProps {
 }
 
 /**
- * KycBanner — top-of-dashboard alert for users approaching or hitting limits.
+ * KycBanner — top-of-dashboard alert for users approaching or hitting their allowance.
  *
  * - Hidden for users who are KYC-approved.
- * - Shows a soft warning when >70% of any limit is used.
- * - Shows an urgent alert when a limit is reached or the user is blocked.
+ * - Shows a soft warning once half the withdrawal allowance is spent.
+ * - Shows an urgent alert once it is gone.
+ *
+ * Reads the allowance rather than the old rolling percentages. Those are permanently zero now
+ * that windows no longer bind an unverified account, so this banner had stopped appearing at
+ * all — the first a user heard of the limit was a refused withdrawal.
  */
 export function KycBanner({ userEmail }: KycBannerProps) {
   const [data, setData] = useState<KycData | null>(null);
@@ -63,32 +67,18 @@ export function KycBanner({ userEmail }: KycBannerProps) {
 
   if (!data) return null;
 
-  const { kyc, percentages, unverifiedLimits } = data;
+  const { kyc, allowance } = data;
 
-  // Nothing to show for approved users or those not yet near limits
-  if (kyc.status === "approved") return null;
+  // Nothing to show for approved users, who have no allowance to run down.
+  if (kyc.status === "approved" || !allowance) return null;
 
-  const maxPct = Math.max(percentages.daily, percentages.weekly, percentages.monthly);
-  const isAtLimit = maxPct >= 100;
+  const usedPct = allowance.percentage;
+  const isAtLimit = allowance.remaining <= 0;
   const isPending = kyc.status === "pending";
   const isInReview = kyc.status === "in_review";
 
-  if (maxPct < 50 && !isPending && !isInReview) return null;
+  if (usedPct < 50 && !isPending && !isInReview) return null;
   if (dismissed) return null;
-
-  // Which period is the most used
-  const bindingPeriodLabel =
-    percentages.daily >= 100
-      ? `daily ($${unverifiedLimits.daily})`
-      : percentages.weekly >= 100
-      ? `weekly ($${unverifiedLimits.weekly})`
-      : percentages.monthly >= 100
-      ? `monthly ($${unverifiedLimits.monthly})`
-      : percentages.daily >= percentages.weekly && percentages.daily >= percentages.monthly
-      ? `daily ($${unverifiedLimits.daily})`
-      : percentages.weekly >= percentages.monthly
-      ? `weekly ($${unverifiedLimits.weekly})`
-      : `monthly ($${unverifiedLimits.monthly})`;
 
   return (
     <>
@@ -168,8 +158,8 @@ export function KycBanner({ userEmail }: KycBannerProps) {
                       : isPending
                       ? "Identity verification in progress"
                       : isAtLimit
-                      ? "Transaction limit reached"
-                      : "Approaching transaction limit"}
+                      ? "Withdrawal allowance used"
+                      : "Approaching your withdrawal allowance"}
                   </p>
                   <p className="text-xs mt-1 leading-relaxed" style={{ color: "rgba(248,248,246,0.5)" }}>
                     {isInReview
@@ -177,8 +167,8 @@ export function KycBanner({ userEmail }: KycBannerProps) {
                       : isPending
                       ? "You've initiated identity verification. Complete your verification below."
                       : isAtLimit
-                      ? `You've reached your ${bindingPeriodLabel} limit. Verify your identity to continue transacting.`
-                      : `You've used ${maxPct.toFixed(0)}% of your ${bindingPeriodLabel} limit. Verify your identity to avoid disruption.`}
+                      ? `You've withdrawn your full $${allowance.total} allowance. Verify your identity to withdraw again — it does not reset.`
+                      : `You have $${allowance.remaining.toFixed(2)} of your $${allowance.total} withdrawal allowance left. Verify your identity to remove the limit.`}
                   </p>
                 </div>
               </div>

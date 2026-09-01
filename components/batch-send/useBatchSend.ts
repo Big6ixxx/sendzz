@@ -75,7 +75,7 @@ export function useBatchSend(
     if (totalAmount > 0) {
       try {
         const { checkKycLimitAction } = await import("@/lib/kyc/guard");
-        const guard = await checkKycLimitAction(totalAmount);
+        const guard = await checkKycLimitAction(totalAmount, undefined, "transfer");
         if (!guard.allowed) {
           toast.error(guard.message);
           return;

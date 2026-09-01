@@ -7,12 +7,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { explorerUrlFor, routeLabel, secondaryExplorerUrlFor } from '@/lib/chains';
+import { explorerUrlFor, routeLabel } from '@/lib/chains';
 import { cn } from '@/lib/utils';
 import type { PublicFeedRow } from '@/types/public';
-import { Check, Copy, ExternalLink, Loader2 } from 'lucide-react';
-import { useState } from 'react';
-import { toast } from 'sonner';
+import { ExternalLink, Loader2 } from 'lucide-react';
 import {
   formatFeedDate,
   formatStatus,
@@ -33,48 +31,6 @@ interface TxDetailModalProps {
   onClose: () => void;
 }
 
-function CopyButton({ value, label }: { value: string; label: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      type="button"
-      onClick={() => {
-        navigator.clipboard.writeText(value);
-        setCopied(true);
-        toast.success(`${label} copied`);
-        setTimeout(() => setCopied(false), 1500);
-      }}
-      className="shrink-0 rounded-md p-1.5 text-white/40 hover:text-accent hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:outline-none transition-colors"
-      aria-label={`Copy ${label.toLowerCase()}`}
-    >
-      {copied ? <Check className="w-4 h-4 text-accent" /> : <Copy className="w-4 h-4" />}
-    </button>
-  );
-}
-
-function HashRow({ label, hash, url }: { label: string; hash: string; url: string | null }) {
-  return (
-    <div className="space-y-1.5 min-w-0">
-      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/40">{label}</p>
-      <div className="flex items-center gap-2 rounded-xl bg-black/40 border border-white/8 px-3 py-2.5 min-w-0">
-        <code className="flex-1 min-w-0 truncate font-mono text-xs text-white/80">{hash}</code>
-        <CopyButton value={hash} label={label} />
-        {url && (
-          <a
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="shrink-0 rounded-md p-1.5 text-white/40 hover:text-accent hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:outline-none transition-colors"
-            aria-label={`View ${label.toLowerCase()} on block explorer`}
-          >
-            <ExternalLink className="w-4 h-4" />
-          </a>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function DetailField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1">
@@ -86,7 +42,6 @@ function DetailField({ label, children }: { label: string; children: React.React
 
 export function TxDetailModal({ row, open, loading, timeZone, timeMode, onClose }: TxDetailModalProps) {
   const primaryUrl = row ? explorerUrlFor(row) : null;
-  const secondaryUrl = row ? secondaryExplorerUrlFor(row) : null;
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -141,9 +96,6 @@ export function TxDetailModal({ row, open, loading, timeZone, timeMode, onClose 
                   <span className="text-amber-300">Multi-chain consolidated</span>
                 </DetailField>
               )}
-              {row.fiat_currency && (
-                <DetailField label="Fiat Corridor">{row.fiat_currency.toUpperCase()}</DetailField>
-              )}
               <DetailField
                 label={timeMode === 'relative' ? 'Date' : `Date (${timeZoneAbbrev(timeZone) || timeZone})`}
               >
@@ -151,23 +103,13 @@ export function TxDetailModal({ row, open, loading, timeZone, timeMode, onClose 
               </DetailField>
             </div>
 
-            {/* Hashes */}
-            <div className="space-y-4 min-w-0">
-              {row.tx_hash ? (
-                <HashRow
-                  label={row.tx_type === 'bridge' ? 'Burn Tx Hash' : 'Tx Hash'}
-                  hash={row.tx_hash}
-                  url={primaryUrl}
-                />
-              ) : (
-                <p className="text-xs text-white/40 rounded-xl bg-black/40 border border-white/8 px-3 py-2.5">
-                  No on-chain hash recorded for this transaction.
-                </p>
-              )}
-              {row.tx_type === 'bridge' && row.secondary_tx_hash && (
-                <HashRow label="Mint Tx Hash" hash={row.secondary_tx_hash} url={secondaryUrl} />
-              )}
-            </div>
+            {/* The explorer button below is the whole point of a hash here, so the raw string
+                and its copy control are gone. Only its absence still needs saying. */}
+            {!row.tx_hash && (
+              <p className="text-xs text-white/40 rounded-xl bg-black/40 border border-white/8 px-3 py-2.5">
+                No on-chain hash recorded for this transaction.
+              </p>
+            )}
 
             {primaryUrl && (
               <a

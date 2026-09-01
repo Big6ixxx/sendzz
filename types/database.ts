@@ -907,6 +907,13 @@ export interface Database {
         };
         Returns: Json;
       };
+      get_unverified_withdrawal_total: {
+        Args: {
+          p_user_id: string;
+          p_since: string;
+        };
+        Returns: number;
+      };
     };
     Enums: {
       asset_type: AssetType;

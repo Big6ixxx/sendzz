@@ -200,7 +200,7 @@ export function useTransfer({
     if (!isNaN(valUsdc) && valUsdc > 0) {
       try {
         const { checkKycLimitAction } = await import("@/lib/kyc/guard");
-        const guard = await checkKycLimitAction(valUsdc);
+        const guard = await checkKycLimitAction(valUsdc, undefined, "transfer");
         if (!guard.allowed) {
           toast.error(guard.message);
           setLoading(false);

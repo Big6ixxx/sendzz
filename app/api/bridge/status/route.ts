@@ -72,7 +72,16 @@ export async function GET(req: NextRequest) {
           const bundlerUrl = `${CIRCLE_SEND_URL}/${sourceChain}`;
           const transport = toModularTransport(bundlerUrl, CIRCLE_CLIENT_KEY);
           const bundler = createBundlerClient({ chain: VIEM_CHAINS[sourceChain as SupportedChain], transport });
-          const userOpReceipt = (await bundler.getUserOperationReceipt({ hash: txHash as `0x${string}` }).catch(() => null)) as any;
+          // Only the two places the on-chain hash can appear. The bundler's own return type
+          // varies by version and the shape we actually depend on is this small, so naming it
+          // is both narrower and more honest than casting the whole receipt away.
+          type UserOpReceiptShape = {
+            receipt?: { transactionHash?: string };
+            transactionHash?: string;
+          } | null;
+          const userOpReceipt = (await bundler
+            .getUserOperationReceipt({ hash: txHash as `0x${string}` })
+            .catch(() => null)) as UserOpReceiptShape;
           const resolvedHash = userOpReceipt?.receipt?.transactionHash || userOpReceipt?.transactionHash;
           if (resolvedHash && typeof resolvedHash === 'string' && resolvedHash.startsWith('0x')) {
             console.log(`[Bridge Status API] Resolved UserOpHash ${txHash} -> on-chain txHash: ${resolvedHash}`);

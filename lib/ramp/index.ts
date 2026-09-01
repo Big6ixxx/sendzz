@@ -220,8 +220,13 @@ export const Ramp = {
     const wanted = network?.toLowerCase();
     const out: RampProviderName[] = [];
 
-    // Bitnob is primary provider; Paycrest is secondary fallback provider
-    const sorted = [...allProviders()].sort((a, b) => (a.name === "bitnob" ? -1 : 1));
+    // Bitnob first, everything else after it in its existing order.
+    //
+    // Written as a rank rather than `a.name === "bitnob" ? -1 : 1`, which ignored `b` entirely
+    // and never returned 0 — so for any two non-Bitnob providers it claimed the first was
+    // greater, which is not a consistent ordering and is left to the engine to interpret.
+    const rank = (name: string) => (name === "bitnob" ? 0 : 1);
+    const sorted = [...allProviders()].sort((a, b) => rank(a.name) - rank(b.name));
 
     for (const p of sorted) {
       if (!p.capabilities.offRamp) continue;

@@ -117,7 +117,18 @@ export default function Dashboard() {
       portfolio?.byChain.find((c) => c.chain === "stellar")?.balance ?? "0",
     ) || 0;
 
-  const totalSpendable = (evmSpendable + solanaBalance + stellarBalance).toFixed(2);
+  /**
+   * The spendable total, rounded DOWN.
+   *
+   * `toFixed` rounds to nearest, so a real balance of 1.476738 became "1.48" — a figure the
+   * wallet cannot actually cover. This value is what the withdrawal screen validates against
+   * and what MAX fills in, so rounding up hands the user a couple of thousandths that do not
+   * exist and the transfer fails later against the true balance. Down is the only safe
+   * direction for a number that says "this much is available".
+   */
+  const totalSpendable = (
+    Math.floor((evmSpendable + solanaBalance + stellarBalance) * 100) / 100
+  ).toFixed(2);
 
   useEffect(() => {
     if (ready && !authenticated) router.push("/");

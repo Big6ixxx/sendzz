@@ -7,7 +7,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { PublicFeedRow } from '@/types/public';
-import { Eye, Share2 } from 'lucide-react';
+import { Eye } from 'lucide-react';
 
 interface RowActionsMenuProps {
   /** The row the menu currently targets, or null when closed. */
@@ -16,7 +16,6 @@ interface RowActionsMenuProps {
   anchorEl: HTMLElement | null;
   onOpenChange: (open: boolean) => void;
   onView: (row: PublicFeedRow) => void;
-  onShare: (row: PublicFeedRow) => void;
 }
 
 /**
@@ -24,7 +23,7 @@ interface RowActionsMenuProps {
  * anchor; this one instance repositions to it and its actions target the selected row — so we
  * never mount one menu per row. Anchored via a fixed, zero-size element at the kebab's position.
  */
-export function RowActionsMenu({ row, anchorEl, onOpenChange, onView, onShare }: RowActionsMenuProps) {
+export function RowActionsMenu({ row, anchorEl, onOpenChange, onView }: RowActionsMenuProps) {
   const open = !!row && !!anchorEl;
   const rect = anchorEl?.getBoundingClientRect();
 
@@ -57,12 +56,6 @@ export function RowActionsMenu({ row, anchorEl, onOpenChange, onView, onShare }:
           className="gap-2.5 rounded-lg px-3 py-2.5 text-xs font-bold uppercase tracking-widest text-white/80 focus:bg-white/5 focus:text-accent cursor-pointer"
         >
           <Eye className="w-4 h-4" /> View details
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => row && onShare(row)}
-          className="gap-2.5 rounded-lg px-3 py-2.5 text-xs font-bold uppercase tracking-widest text-white/80 focus:bg-white/5 focus:text-accent cursor-pointer"
-        >
-          <Share2 className="w-4 h-4" /> Share
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

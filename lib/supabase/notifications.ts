@@ -170,7 +170,13 @@ export async function createNotification(
       body,
       data: {
         url: data?.url || '/dashboard',
-        notificationId: inserted.id
+        notificationId: inserted.id,
+        // Carried so an open page can tell whether this push is about the thing it is
+        // currently watching. The service worker relays every push to open clients, and a
+        // withdrawal screen waiting on one order should not re-poll because an unrelated
+        // notification arrived. Not sensitive: it is the row id, and the push only ever goes
+        // to that user's own subscriptions.
+        transactionId: data?.transactionId ?? null,
       }
     });
 

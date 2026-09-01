@@ -22,8 +22,14 @@
  *   }
  */
 
-import { getKycStatusAndTotals } from "./supabase-kyc";
-import { KYC_LIMITS, getBindingPeriod } from "./limits";
+import { getKycStatusAndTotals, getWithdrawnAgainstAllowance } from "./supabase-kyc";
+import {
+  KYC_LIMITS,
+  UNVERIFIED_WITHDRAWAL_ALLOWANCE,
+  exceedsUnverifiedAllowance,
+  getBindingPeriod,
+  remainingUnverifiedAllowance,
+} from "./limits";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -43,6 +49,12 @@ export type KycGuardResult =
       periodTotal?: number;
       /** The limit that was exceeded. */
       periodLimit?: number;
+      /** Unverified withdrawal allowance: how much of it is already spent. */
+      allowanceUsed?: number;
+      /** Unverified withdrawal allowance: how much is left, in USD. */
+      allowanceRemaining?: number;
+      /** The allowance itself, so callers never restate the number. */
+      allowanceTotal?: number;
     };
 
 /**
@@ -73,14 +85,45 @@ export async function resolveSupabaseUserId(identifier: string): Promise<string 
 // ─── Main Guard ──────────────────────────────────────────────────────────────
 
 /**
+ * What kind of movement is being checked.
+ *
+ * Only a withdrawal spends the unverified allowance.
+ *
+ * A transfer to another Sendzz user does not take money off the platform — the recipient meets
+ * the same allowance when they cash out — so capping both would charge the same 100 twice and
+ * stop an unverified user paying a friend. A deposit is money arriving; charging a withdrawal
+ * allowance for it would mean topping up made it harder to take anything out.
+ *
+ * Defaults to "withdrawal" so a caller that forgets to say gets the stricter treatment.
+ */
+export type TransactionKind = "withdrawal" | "transfer" | "deposit";
+
+/** Wording for a user who has spent some, but not all, of their allowance. */
+function allowanceMessage(used: number, amount: number): string {
+  const left = remainingUnverifiedAllowance(used);
+  if (left <= 0) {
+    return (
+      `You have used your $${UNVERIFIED_WITHDRAWAL_ALLOWANCE} withdrawal allowance. ` +
+      `Verify your identity to withdraw any amount.`
+    );
+  }
+  return (
+    `This withdrawal of $${amount} would take you past your $${UNVERIFIED_WITHDRAWAL_ALLOWANCE} ` +
+    `allowance — you have $${left} left. Verify your identity to withdraw any amount.`
+  );
+}
+
+/**
  * Enforces KYC and transaction limits for a given user and transaction amount.
  *
  * @param userIdOrEmail - The authenticated user's Supabase UUID or email address
  * @param transactionAmountUsdc - The USDC amount of the proposed transaction
+ * @param kind - Whether this is a withdrawal (spends the allowance) or a transfer
  */
 export async function kycGuard(
   userIdOrEmail: string,
   transactionAmountUsdc: number,
+  kind: TransactionKind = "withdrawal",
 ): Promise<KycGuardResult> {
   if (transactionAmountUsdc <= 0) {
     return { allowed: true };
@@ -89,32 +132,55 @@ export async function kycGuard(
   const resolvedUserId = await resolveSupabaseUserId(userIdOrEmail);
 
   if (!resolvedUserId) {
-    // User has no record in users table yet — enforce default UNVERIFIED limits
-    const limits = KYC_LIMITS.UNVERIFIED;
-    const bindingPeriod = getBindingPeriod(
-      transactionAmountUsdc,
-      { daily: 0, weekly: 0, monthly: 0 },
-      limits,
-    );
-    if (bindingPeriod !== null) {
+    // No user record yet, so nothing has been withdrawn — the whole allowance is available and
+    // only an oversized first withdrawal can fail here.
+    if (
+      kind === "withdrawal" &&
+      exceedsUnverifiedAllowance(0, transactionAmountUsdc)
+    ) {
       return {
         allowed: false,
         reason: "kyc_required",
-        message:
-          `This transaction would exceed your ${bindingPeriod} limit of $${limits[bindingPeriod]} USD. ` +
-          `Complete identity verification to unlock higher limits.`,
-        bindingPeriod,
-        periodTotal: 0,
-        periodLimit: limits[bindingPeriod],
+        message: allowanceMessage(0, transactionAmountUsdc),
+        allowanceUsed: 0,
+        allowanceRemaining: UNVERIFIED_WITHDRAWAL_ALLOWANCE,
+        allowanceTotal: UNVERIFIED_WITHDRAWAL_ALLOWANCE,
       };
     }
     return { allowed: true };
   }
 
-  const { kyc, totals } = await getKycStatusAndTotals(resolvedUserId);
+  // Both reads at once. They are independent — one is the KYC row plus rolling totals, the
+  // other a single sum — and running them in series put two round trips on the critical path
+  // between tapping Get Quote and seeing the next screen.
+  const [{ kyc, totals }, withdrawnSoFar] = await Promise.all([
+    getKycStatusAndTotals(resolvedUserId),
+    kind === "withdrawal"
+      ? getWithdrawnAgainstAllowance(resolvedUserId)
+      : Promise.resolve(0),
+  ]);
 
   const isApproved = kyc.status === "approved";
   const limits = isApproved ? KYC_LIMITS.VERIFIED : KYC_LIMITS.UNVERIFIED;
+
+  // ── The unverified withdrawal allowance ──────────────────────────────────
+  //
+  // Checked before the rolling ceilings because it is the rule that actually binds, and
+  // because its message is the useful one: it tells the user how much they have left rather
+  // than naming a window they have never come close to.
+  if (!isApproved && kind === "withdrawal") {
+    const used = withdrawnSoFar;
+    if (exceedsUnverifiedAllowance(used, transactionAmountUsdc)) {
+      return {
+        allowed: false,
+        reason: "kyc_required",
+        message: allowanceMessage(used, transactionAmountUsdc),
+        allowanceUsed: used,
+        allowanceRemaining: remainingUnverifiedAllowance(used),
+        allowanceTotal: UNVERIFIED_WITHDRAWAL_ALLOWANCE,
+      };
+    }
+  }
 
   const bindingPeriod = getBindingPeriod(transactionAmountUsdc, totals, limits);
 
@@ -127,7 +193,8 @@ export async function kycGuard(
   const periodLimit = limits[bindingPeriod];
 
   if (!isApproved) {
-    // User is unverified and would exceed a limit
+    // Unreachable while UNVERIFIED is Infinity, and kept deliberately: it is the branch that
+    // takes effect the moment a window is ever given a number again.
     return {
       allowed: false,
       reason: "kyc_required",
@@ -171,11 +238,11 @@ export async function isKycApproved(userIdOrEmail: string): Promise<boolean> {
 export async function checkKycLimitAction(
   transactionAmountUsdc: number,
   accessToken?: string,
+  kind: TransactionKind = "withdrawal",
 ): Promise<KycGuardResult> {
   // Identity comes from the session. It used to accept an email, which meant a caller whose
   // own limit was exhausted could simply name a fresh account and be measured against theirs.
   const { requireUser } = await import("@/lib/auth/session");
   const { email } = await requireUser(accessToken);
-  return kycGuard(email, transactionAmountUsdc);
+  return kycGuard(email, transactionAmountUsdc, kind);
 }
-

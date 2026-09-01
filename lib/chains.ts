@@ -100,15 +100,26 @@ export function secondaryExplorerUrlFor(row: PublicFeedRow): string | null {
   return chainMeta(row.dest_chain).explorerTx(row.secondary_tx_hash);
 }
 
-/** Human-readable route label, e.g. "USDC → NGN" or "BASE → POLYGON". */
+/**
+ * Human-readable route label, e.g. "USDC → Fiat" or "BASE → POLYGON".
+ *
+ * The column says what KIND of movement a row is, not its particulars — so the fiat side is
+ * named generically. Naming the currency also cut against the rest of the feed being
+ * anonymised: on a thin corridor "USDC → RWF" plus an amount and a timestamp narrows a
+ * transaction to very few people. It is still shown in the detail modal, as one field rather
+ * than a scannable column.
+ */
 export function routeLabel(row: PublicFeedRow): string {
   switch (row.tx_type) {
     case 'bridge':
       return `${chainName(row.source_chain).toUpperCase()} → ${chainName(row.dest_chain).toUpperCase()}`;
     case 'deposit':
-      return `${row.fiat_currency ? row.fiat_currency.toUpperCase() : 'Fiat'} → USDC`;
+      // Only an on-ramp deposit is a route. An on-chain deposit is USDC arriving as USDC —
+      // labelling it "Fiat → USDC" described a conversion that never happened. `fiat_currency`
+      // is null for exactly those rows, since the scanner records no fiat side.
+      return row.fiat_currency ? 'Fiat → USDC' : 'USDC';
     case 'withdrawal':
-      return `USDC → ${row.fiat_currency ? row.fiat_currency.toUpperCase() : 'Fiat'}`;
+      return 'USDC → Fiat';
     default:
       return 'USDC Transfer';
   }

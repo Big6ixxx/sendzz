@@ -5,17 +5,17 @@ import { ShieldCheck, TrendingUp } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-interface PeriodMeter {
-  label: string;
+/** The unverified user's one-off withdrawal allowance, as /api/kyc/status reports it. */
+export interface Allowance {
+  total: number;
   used: number;
-  limit: number | null;
+  remaining: number;
   percentage: number;
 }
 
 interface LimitsMeterProps {
   totals: { daily: number; weekly: number; monthly: number };
-  limits: { daily: number | null; weekly: number | null; monthly: number | null };
-  percentages: { daily: number; weekly: number; monthly: number };
+  allowance: Allowance | null;
   isVerified?: boolean;
   compact?: boolean;
 }
@@ -62,13 +62,16 @@ function ProgressBar({
 /**
  * LimitsMeter
  *
- * Visual progress bars showing how much of each transaction limit
- * (daily / weekly / monthly) the user has consumed.
+ * For an unverified user: how much of their one-off withdrawal allowance is spent.
+ * For a verified user: their volume, with no limit attached to it.
+ *
+ * This used to render daily/weekly/monthly bars for everyone. Those windows no longer bind an
+ * unverified account — the allowance replaced them — so the bars sat at zero and told the user
+ * they had no limits at all, right up until a withdrawal was refused.
  */
 export function LimitsMeter({
   totals,
-  limits,
-  percentages,
+  allowance,
   isVerified = false,
   compact = false,
 }: LimitsMeterProps) {
@@ -138,63 +141,61 @@ export function LimitsMeter({
     );
   }
 
-  const periods: PeriodMeter[] = [
-    { label: "Daily", used: totals.daily, limit: limits.daily, percentage: percentages.daily },
-    { label: "Weekly", used: totals.weekly, limit: limits.weekly, percentage: percentages.weekly },
-    { label: "Monthly", used: totals.monthly, limit: limits.monthly, percentage: percentages.monthly },
-  ];
+  // Nothing to meter without an allowance, which only happens if the status call failed.
+  if (!allowance) return null;
+
+  const spent = allowance.used >= allowance.total;
 
   if (compact) {
-    const worst = periods.reduce((a, b) => (a.percentage > b.percentage ? a : b));
     return (
       <div className="flex items-center gap-3 flex-1 min-w-0">
         <span className="text-xs shrink-0" style={{ color: "rgba(248,248,246,0.4)" }}>
-          {worst.label} limit
+          Withdrawal allowance
         </span>
         <div className="flex-1">
-          <ProgressBar percentage={worst.percentage} isVerified={isVerified} />
+          <ProgressBar percentage={allowance.percentage} isVerified={isVerified} />
         </div>
         <span className="text-xs tabular-nums shrink-0" style={{ color: "rgba(248,248,246,0.4)" }}>
-          ${worst.used.toFixed(0)}
-          {worst.limit !== null ? ` / $${worst.limit}` : ""}
+          ${allowance.used.toFixed(0)} / ${allowance.total}
         </span>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-2 mb-1">
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-2">
         <TrendingUp className="w-4 h-4" style={{ color: "rgba(248,248,246,0.4)" }} />
         <span
           className="text-xs font-semibold uppercase tracking-widest"
           style={{ color: "rgba(248,248,246,0.4)" }}
         >
-          Transaction Usage
+          Withdrawal Allowance
         </span>
       </div>
 
-      {periods.map(({ label, used, limit, percentage }) => (
-        <div key={label} className="flex flex-col gap-1.5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium" style={{ color: "rgba(248,248,246,0.6)" }}>
-              {label}
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium" style={{ color: "rgba(248,248,246,0.6)" }}>
+            {spent ? "Fully used" : `$${allowance.remaining.toFixed(2)} left`}
+          </span>
+          <span className="text-xs tabular-nums" style={{ color: "rgba(248,248,246,0.4)" }}>
+            <span style={{ color: "rgba(248,248,246,0.8)" }}>
+              ${allowance.used.toFixed(2)}
             </span>
-            <span className="text-xs tabular-nums" style={{ color: "rgba(248,248,246,0.4)" }}>
-              <span style={{ color: "rgba(248,248,246,0.8)" }}>${used.toFixed(2)}</span>
-              {limit !== null && (
-                <span style={{ color: "rgba(248,248,246,0.3)" }}> / ${limit}</span>
-              )}
-            </span>
-          </div>
-          <ProgressBar percentage={percentage} isVerified={isVerified} />
-          {percentage >= 100 && (
-            <p className="text-[10px]" style={{ color: "#ef4444" }}>
-              Limit reached — verify your identity to continue
-            </p>
-          )}
+            <span style={{ color: "rgba(248,248,246,0.3)" }}> / ${allowance.total}</span>
+          </span>
         </div>
-      ))}
+        <ProgressBar percentage={allowance.percentage} isVerified={isVerified} />
+        <p
+          className="text-[10px] mt-0.5"
+          style={{ color: spent ? "#ef4444" : "rgba(248,248,246,0.35)" }}
+        >
+          {spent
+            ? "Allowance used — verify your identity to withdraw again"
+            : "A one-off allowance, in one withdrawal or several. It does not reset."}
+        </p>
+      </div>
     </div>
   );
 }

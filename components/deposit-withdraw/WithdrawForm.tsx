@@ -10,6 +10,7 @@ import {
   Plus,
   ArrowLeft,
 } from "lucide-react";
+import { balanceOfChain, type SourceChainKey } from "@/lib/web3/routing";
 import { BankSelector } from "./BankSelector";
 import { SourceSelector } from "@/components/SourceSelector";
 import { OrderAdvancedDetails } from "./OrderAdvancedDetails";
@@ -24,7 +25,10 @@ import { useDepositWithdraw } from "./useDepositWithdraw";
 import { ReceiptActions } from "@/components/receipt/ReceiptActions";
 import { ReceiptData } from "@/lib/receipt/types";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { KycRequiredModal } from "@/components/kyc/KycRequiredModal";
+import { SettlementCountdown } from "./SettlementCountdown";
+import { KycModal } from "@/components/kyc/KycModal";
 
 interface WithdrawFormProps {
   hook: ReturnType<typeof useDepositWithdraw>;
@@ -36,6 +40,8 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
   // Which withdrawal the user waved the save-contact offer away for. Keyed by order id so it
   // clears itself on the next withdrawal without needing a reset hook.
   const [saveDismissedFor, setSaveDismissedFor] = useState<string | null>(null);
+  // Verification opened from the limit modal, so the user never leaves the withdrawal to do it.
+  const [kycModalOpen, setKycModalOpen] = useState(false);
 
   const fiatSymbol = getCurrencySymbol(hook.fiatCurrency);
   const parsedAmount = parseFloat(hook.amount || "0");
@@ -142,6 +148,40 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
    * the pre-transfer check on step 3. Anything about the amount belongs where the amount is
    * typed, while it can still be corrected for free.
    */
+  /**
+   * Drop a manual source choice once the amount outgrows it.
+   *
+   * The source picker decides eligibility from the amount, but the CHOICE lives out here and
+   * was never rechecked. So picking "Pay from Base" at 5 USDC and then typing 50 left the
+   * preference pointing at a chain that no longer covers it — and Get Quote refused with
+   * "Base doesn't hold enough", while the money sat on other chains that together did.
+   *
+   * Falling back to Automatic is the honest resolution: the user asked for an amount, and the
+   * chain was a preference about how to fund it, not part of the request. It happens as they
+   * type, so the picker visibly reads "Automatic" before they press anything, rather than
+   * failing at the far end.
+   */
+  useEffect(() => {
+    if (hook.sourcePref.mode === "auto" || !usdcTotal) return;
+
+    const balOf = (c: SourceChainKey) =>
+      balanceOfChain(c, hook.chainBalances ?? {}, hook.solanaBalance, hook.stellarBalance);
+
+    const stillCovers =
+      hook.sourcePref.mode === "single"
+        ? balOf(hook.sourcePref.chain) + 1e-9 >= usdcTotal
+        : hook.sourcePref.from.reduce((sum, c) => sum + balOf(c), 0) + 1e-9 >= usdcTotal;
+
+    if (!stillCovers) hook.setSourcePref({ mode: "auto" });
+  }, [
+    usdcTotal,
+    hook.sourcePref,
+    hook.chainBalances,
+    hook.solanaBalance,
+    hook.stellarBalance,
+    hook,
+  ]);
+
   const amountError = (() => {
     if (!parsedAmount || !hook.rate) return null;
     if (usdcBase > 0 && usdcBase < 1) {
@@ -343,13 +383,28 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
           className="btn-primary w-full gap-2"
         >
           {hook.loading ? (
-            <Loader2 className="w-5 h-5 animate-spin" />
+            <>
+              <Loader2 className="w-5 h-5 animate-spin" />
+              Checking…
+            </>
           ) : isOverBalance ? (
             "Insufficient Balance"
           ) : (
             "Get Quote"
           )}
         </button>
+
+        {/* Refused for the allowance: explain it and offer the way out, in place. */}
+        <KycRequiredModal
+          block={hook.kycBlock}
+          onClose={hook.dismissKycBlock}
+          onVerify={() => setKycModalOpen(true)}
+        />
+        <KycModal
+          isOpen={kycModalOpen}
+          onClose={() => setKycModalOpen(false)}
+          userEmail={hook.userEmail}
+        />
       </div>
     );
   }
@@ -640,7 +695,6 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
         </div>
 
         <OrderAdvancedDetails
-          provider={hook.order.provider}
           orderId={hook.order.id}
           network={hook.order.providerAccount?.network ?? hook.withdrawChain}
           receiveAddress={hook.order.providerAccount?.receiveAddress}
@@ -695,16 +749,17 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
       <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 text-center">
         {hook.polling ? (
           <>
-            <div className="w-20 h-20 bg-muted rounded-full flex items-center justify-center mx-auto shadow-sm">
-              <Loader2 className="w-10 h-10 animate-spin text-foreground" />
-            </div>
+            {/*
+              The countdown replaces the spinner rather than sitting beside it. Two things
+              turning at once, one of them measuring nothing, is how a wait starts to look like
+              a stall. The ring carries the copy too, so the wording and the clock cannot drift
+              out of step once the two minutes pass.
+            */}
+            <SettlementCountdown />
             <div className="space-y-2">
               <h3 className="text-2xl font-black uppercase tracking-tighter">
                 Processing
               </h3>
-              <p className="text-sm text-muted-foreground">
-                Your withdrawal is being processed. This may take a few minutes.
-              </p>
               <p className="text-[10px] text-muted-foreground uppercase font-bold">
                 Status: {hook.txStatus || "Pending"}
               </p>
@@ -725,8 +780,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
             )}
             {hook.order && (
               <OrderAdvancedDetails
-                provider={hook.order.provider}
-                orderId={hook.order.id}
+                      orderId={hook.order.id}
                 network={hook.order.providerAccount?.network ?? hook.withdrawChain}
                 receiveAddress={hook.order.providerAccount?.receiveAddress}
                 consolidated={hook.mustConsolidate}
@@ -770,8 +824,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
 
             {hook.order && (
               <OrderAdvancedDetails
-                provider={hook.order.provider}
-                orderId={hook.order.id}
+                      orderId={hook.order.id}
                 network={hook.order.providerAccount?.network ?? hook.withdrawChain}
                 receiveAddress={hook.order.providerAccount?.receiveAddress}
                 consolidated={hook.mustConsolidate}

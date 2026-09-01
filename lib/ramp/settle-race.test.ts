@@ -46,3 +46,4 @@ describe('isAlreadyInitialized', () => {
     expect(isAlreadyInitialized(undefined as unknown as string)).toBe(false);
   });
 });
+

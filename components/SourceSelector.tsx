@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { ChainLogo } from '@/components/deposit-withdraw/ChainLogo';
 import { CHAIN_NAMES, type SupportedChain } from '@/lib/circle/gateway';
 import {
+  balanceOfChain,
   type ChainBalances,
   type SourceChainKey,
   type SourcePreference,
@@ -85,11 +86,8 @@ export function SourceSelector({
   const consolidateFrom =
     value.mode === 'consolidate' ? value.from : allConsolidatable;
 
-  const balOf = (c: SourceChainKey) => {
-    if (c === 'solana') return solanaBalance;
-    if (c === 'stellar') return stellarBalance;
-    return balances[c as SupportedChain] ?? 0;
-  };
+  const balOf = (c: SourceChainKey) =>
+    balanceOfChain(c, balances, solanaBalance, stellarBalance);
 
   const selectedSum = consolidateFrom.reduce((s, c) => s + balOf(c), 0);
 
