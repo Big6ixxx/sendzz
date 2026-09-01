@@ -1,7 +1,12 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import { getKycStatusAndTotals } from "@/lib/kyc";
-import { KYC_LIMITS } from "@/lib/kyc/limits";
+import { getWithdrawnAgainstAllowance } from "@/lib/kyc/supabase-kyc";
+import {
+  KYC_LIMITS,
+  UNVERIFIED_WITHDRAWAL_ALLOWANCE,
+  remainingUnverifiedAllowance,
+} from "@/lib/kyc/limits";
 
 export const runtime = "nodejs";
 
@@ -18,6 +23,7 @@ export const runtime = "nodejs";
  *   totals: { daily, weekly, monthly },
  *   limits: { daily, weekly, monthly },      // from central config
  *   percentages: { daily, weekly, monthly }, // 0-100 for progress bars
+ *   allowance: { total, used, remaining, percentage } | null,  // unverified users only
  * }
  */
 export async function GET(req: Request) {
@@ -99,6 +105,28 @@ export async function GET(req: Request) {
       monthly: pct(totals.monthly, activeLimits.monthly),
     };
 
+    // ── The rule that actually binds an unverified user ────────────────────
+    //
+    // A one-off withdrawal allowance, not a window, so it is reported as its own figure
+    // rather than squeezed into daily/weekly/monthly. Null for a verified user, who has
+    // no allowance to spend.
+    //
+    // This is what the settings meter and the dashboard banner read. Without it they were
+    // rendering rolling percentages that are now permanently zero, which showed an
+    // unverified user three empty bars and no limit at all — the opposite of the truth.
+    const used = isApproved
+      ? 0
+      : await getWithdrawnAgainstAllowance(userId);
+
+    const allowance = isApproved
+      ? null
+      : {
+          total: UNVERIFIED_WITHDRAWAL_ALLOWANCE,
+          used,
+          remaining: remainingUnverifiedAllowance(used),
+          percentage: clamp((used / UNVERIFIED_WITHDRAWAL_ALLOWANCE) * 100),
+        };
+
     return NextResponse.json({
       kyc: {
         status: kyc.status,
@@ -115,11 +143,7 @@ export async function GET(req: Request) {
         weekly: activeLimits.weekly === Infinity ? null : activeLimits.weekly,
         monthly: activeLimits.monthly === Infinity ? null : activeLimits.monthly,
       },
-      unverifiedLimits: {
-        daily: KYC_LIMITS.UNVERIFIED.daily,
-        weekly: KYC_LIMITS.UNVERIFIED.weekly,
-        monthly: KYC_LIMITS.UNVERIFIED.monthly,
-      },
+      allowance,
       percentages,
     });
   } catch (error) {

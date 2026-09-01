@@ -13,6 +13,22 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
+  {
+    rules: {
+      // A leading underscore is how the codebase already marks a parameter that is deliberately
+      // unused — one kept to hold a position in a signature, or accepted and ignored by design.
+      // Without this the convention is written but not honoured, so those reads as warnings and
+      // the real unused variables get lost among them.
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+        },
+      ],
+    },
+  },
 ]);
 
 export default eslintConfig;

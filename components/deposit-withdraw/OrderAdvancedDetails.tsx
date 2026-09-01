@@ -7,8 +7,6 @@ import { cn } from '@/lib/utils';
 import { CHAIN_NAMES, type SupportedChain } from '@/lib/circle/gateway';
 
 interface OrderAdvancedDetailsProps {
-  /** Ramp provider settling the order ('bitnob' | 'paycrest'). */
-  provider?: string;
   orderId?: string;
   /** Settlement chain the USDC is sent on. */
   network?: string;
@@ -23,22 +21,19 @@ interface OrderAdvancedDetailsProps {
   defaultOpen?: boolean;
 }
 
-const PROVIDER_LABEL: Record<string, string> = {
-  bitnob: 'Bitnob',
-  paycrest: 'Paycrest',
-};
-
 function shorten(s: string, head = 10, tail = 6) {
   return s.length > head + tail + 1 ? `${s.slice(0, head)}…${s.slice(-tail)}` : s;
 }
 
 /**
- * Collapsible technical breakdown of a created ramp order — shown on the "ready to send"
- * and "processing" screens so advanced users can see which provider settles it, the order
- * id, the settlement network, etc. Novices can ignore the collapsed accordion.
+ * Collapsible technical breakdown of a created ramp order — shown on the "ready to send" and
+ * "processing" screens so advanced users can see the order id, the settlement network and the
+ * receive address. Novices can ignore the collapsed accordion.
+ *
+ * No provider name. Sendzz settles the withdrawal as far as the user is concerned, and naming
+ * whoever moves the money underneath tells them nothing they can act on.
  */
 export function OrderAdvancedDetails({
-  provider,
   orderId,
   network,
   receiveAddress,

@@ -15,6 +15,18 @@ import {
 } from 'viem/chains';
 import { ReactNode, useState, useEffect } from 'react';
 import { BalanceVisibilityProvider } from '@/components/providers/BalanceVisibilityProvider';
+/*
+ * Imported for its side effect: registering the `beforeinstallprompt` listener at app boot.
+ *
+ * The event fires once, early, usually on the first page a user lands on. The hook registers
+ * its listener at module load — but the module only loaded when the Settings screen imported
+ * it, by which time the event had long since fired and been lost. So the Install button had
+ * nothing to fire and always fell through to the manual steps, even in Chrome where a real
+ * one-tap install was available.
+ *
+ * Loading it here, in a provider that mounts with the app, is what makes the capture reliable.
+ */
+import '@/hooks/usePwaInstall';
 
 export function Providers({ children }: { children: ReactNode }) {
   useEffect(() => {

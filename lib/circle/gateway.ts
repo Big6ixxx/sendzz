@@ -96,6 +96,22 @@ export const SOURCE_CHAINS: SupportedChain[] = [
  */
 export const BRIDGE_DISABLED_CHAINS: SupportedChain[] = ['ethereum'];
 
+/**
+ * Whether users are shown a Solana address to receive on.
+ *
+ * Off for now. Solana is not a `SupportedChain` above — it is its own rail with its own
+ * address — so it cannot go in BRIDGE_DISABLED_CHAINS, but the intent is the same: stop
+ * advertising a network before people put money on it.
+ *
+ * Deliberately narrow. This hides the receive tab and nothing else: balance scanning,
+ * spend routing, bridging and pending claims all keep working, so anyone who already
+ * holds USDC on Solana can still see it and still move it. Turning those off instead
+ * would strand real funds behind a flag.
+ *
+ * To bring Solana back, set this to true. It is the only switch.
+ */
+export const SOLANA_RECEIVE_ENABLED = false;
+
 export function isBridgeable(chain: string): boolean {
   return !(BRIDGE_DISABLED_CHAINS as string[]).includes(chain);
 }

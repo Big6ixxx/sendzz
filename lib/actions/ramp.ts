@@ -90,7 +90,7 @@ export async function initiateOnRamp({
       amountUsd = amountFiat;
     }
 
-    const guard = await kycGuard(userId, amountUsd);
+    const guard = await kycGuard(userId, amountUsd, "deposit");
     if (!guard.allowed) {
       throw Object.assign(
         new Error(guard.message),

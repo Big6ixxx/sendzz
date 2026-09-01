@@ -29,7 +29,12 @@ import { isAddress } from "viem";
 import { useStellarWallet } from "@/hooks/useStellarWallet";
 
 export interface CrossChainSendInfo {
-  sourceChain: SupportedChain;
+  /**
+   * Includes 'stellar': a send can be sourced straight from it when it alone holds the amount.
+   * This was typed as EVM-only and the two places that set or read a Stellar source cast their
+   * way past it, which is the kind of cast that hides a real mismatch rather than recording one.
+   */
+  sourceChain: SupportedChain | 'stellar';
   destChain: SupportedChain | 'stellar' | 'solana';
   amount: string;
   recipient: string;
@@ -265,7 +270,7 @@ export function useCryptoTransfer({
     if (!isNaN(valUsdc) && valUsdc > 0) {
       try {
         const { checkKycLimitAction } = await import("@/lib/kyc/guard");
-        const guard = await checkKycLimitAction(valUsdc);
+        const guard = await checkKycLimitAction(valUsdc, undefined, "transfer");
         if (!guard.allowed) {
           toast.error(guard.message);
           setLoading(false);
@@ -409,7 +414,7 @@ export function useCryptoTransfer({
       setLoading(false);
       setStatus("");
       setBridgeConfirm({
-        sourceChain: "stellar" as any,
+        sourceChain: "stellar",
         destChain: selectedChain,
         amount,
         recipient: recipientAddress,
@@ -803,7 +808,7 @@ export function useCryptoTransfer({
           });
           txHash = mintTxHash ?? burnTxHash;
         }
-      } else if (info.sourceChain === ("stellar" as any)) {
+      } else if (info.sourceChain === "stellar") {
         setStatus(`Bridging directly from Stellar to ${CHAIN_NAMES[info.destChain as SupportedChain]}…`);
         if (!stellarWallet?.address) throw new Error("Stellar wallet not connected.");
         const feePercent = transferFeePercent ?? 0;

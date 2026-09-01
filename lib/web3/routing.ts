@@ -61,6 +61,24 @@ export type SourcePreference =
 export const AUTO_SOURCE: SourcePreference = { mode: 'auto' };
 
 /**
+ * A chain's balance, whichever rail it is on.
+ *
+ * EVM balances arrive as a map; Solana and Stellar arrive as their own numbers. Every caller
+ * that reasons about "how much is on chain X" needs the same three-way lookup, so it lives
+ * here rather than being rewritten beside each one.
+ */
+export function balanceOfChain(
+  chain: SourceChainKey,
+  balances: ChainBalances,
+  solanaBalance = 0,
+  stellarBalance = 0,
+): number {
+  if (chain === 'solana') return solanaBalance;
+  if (chain === 'stellar') return stellarBalance;
+  return balances[chain] ?? 0;
+}
+
+/**
  * Solana as a spendable source. Solana can't be transacted on directly by the EVM
  * routing, so it's pulled in by bridging to Base; `bridgeToBase` performs that hop.
  */

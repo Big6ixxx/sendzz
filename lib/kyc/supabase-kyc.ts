@@ -9,6 +9,10 @@
 
 import { supabaseAdmin } from "@/lib/supabase/adminClient";
 import type { Database, Json } from "@/types/database";
+import {
+  UNVERIFIED_ALLOWANCE_START,
+  UNVERIFIED_WITHDRAWAL_ALLOWANCE,
+} from "./limits";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -88,6 +92,36 @@ export async function getKycStatusAndTotals(
       monthly: Number(row?.monthly_total ?? 0),
     },
   };
+}
+
+/**
+ * How much the user has already withdrawn against their unverified allowance.
+ *
+ * Separate from `getKycStatusAndTotals` on purpose: that one answers "how much has moved
+ * lately" across several tables and windows, which is a different question from "how much of a
+ * one-off allowance is spent". Sharing a query would have meant one of the two callers reading
+ * a number that does not mean what it says.
+ *
+ * Returns the allowance as fully spent if the lookup fails. Defaulting to zero would hand a
+ * fresh 100 to everyone the moment the database hiccuped, which is the one wrong answer here.
+ */
+export async function getWithdrawnAgainstAllowance(
+  userId: string,
+): Promise<number> {
+  const { data, error } = await supabaseAdmin.rpc(
+    "get_unverified_withdrawal_total",
+    { p_user_id: userId, p_since: UNVERIFIED_ALLOWANCE_START },
+  );
+
+  if (error) {
+    console.error(
+      "[KYC] Failed to read withdrawal total against allowance:",
+      error.message,
+    );
+    return UNVERIFIED_WITHDRAWAL_ALLOWANCE;
+  }
+
+  return Number(data ?? 0);
 }
 
 /**

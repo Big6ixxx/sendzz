@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { initiateDeveloperControlledWalletsClient } from '@circle-fin/developer-controlled-wallets';
-import { Transaction, VersionedTransaction, TransactionMessage, PublicKey } from '@solana/web3.js';
+import { Transaction, PublicKey } from '@solana/web3.js';
 import { Buffer } from 'buffer';
 
 export async function POST(req: NextRequest) {

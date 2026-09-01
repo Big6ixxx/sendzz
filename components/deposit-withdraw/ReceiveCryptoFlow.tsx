@@ -21,6 +21,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { ChainLogo } from './ChainLogo';
 import { useStellarSigner } from '@/hooks/useStellarSigner';
+import { SOLANA_RECEIVE_ENABLED } from '@/lib/circle/gateway';
 import { useQueryClient } from '@tanstack/react-query';
 
 type Rail = 'evm' | 'solana' | 'stellar';
@@ -29,6 +30,19 @@ type Rail = 'evm' | 'solana' | 'stellar';
 // Ethereum L1 commented out — see BRIDGE_DISABLED_CHAINS in lib/circle/gateway. Deposits
 // there would be tracked nowhere and movable by nothing, so we don't advertise the
 // network even though the address itself can still technically receive on it.
+/**
+ * The rails a user can be given an address on.
+ *
+ * Solana is behind SOLANA_RECEIVE_ENABLED (lib/circle/gateway) while it is being finished.
+ * Listed rather than hard-coded as three buttons so turning it back on is one flag, and so
+ * the tab, the address, the QR and the warning copy can never disagree about what is offered.
+ */
+const RAILS: { key: Rail; label: string }[] = [
+  { key: 'evm', label: 'EVM Networks' },
+  ...(SOLANA_RECEIVE_ENABLED ? [{ key: 'solana' as Rail, label: 'Solana' }] : []),
+  { key: 'stellar', label: 'Stellar' },
+];
+
 const EVM_NETWORKS: { key: string; name: string }[] = [
   { key: 'base', name: 'Base' },
   // { key: 'ethereum', name: 'Ethereum' },
@@ -114,39 +128,20 @@ export function ReceiveCryptoFlow({
     <div className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-400">
       {/* Rail switcher */}
       <div className="flex bg-white/5 p-1 rounded-2xl border border-white/5">
-        <button
-          onClick={() => setRail('evm')}
-          className={
-            'flex-1 py-2.5 text-[10px] font-bold uppercase tracking-[0.2em] rounded-xl transition-all ' +
-            (rail === 'evm'
-              ? 'bg-white/10 text-brand-secondary'
-              : 'text-brand-secondary/40 hover:text-brand-secondary/60')
-          }
-        >
-          EVM Networks
-        </button>
-        <button
-          onClick={() => setRail('solana')}
-          className={
-            'flex-1 py-2.5 text-[10px] font-bold uppercase tracking-[0.2em] rounded-xl transition-all ' +
-            (rail === 'solana'
-              ? 'bg-white/10 text-brand-secondary'
-              : 'text-brand-secondary/40 hover:text-brand-secondary/60')
-          }
-        >
-          Solana
-        </button>
-        <button
-          onClick={() => setRail('stellar')}
-          className={
-            'flex-1 py-2.5 text-[10px] font-bold uppercase tracking-[0.2em] rounded-xl transition-all ' +
-            (rail === 'stellar'
-              ? 'bg-white/10 text-brand-secondary'
-              : 'text-brand-secondary/40 hover:text-brand-secondary/60')
-          }
-        >
-          Stellar
-        </button>
+        {RAILS.map((r) => (
+          <button
+            key={r.key}
+            onClick={() => setRail(r.key)}
+            className={
+              'flex-1 py-2.5 text-[10px] font-bold uppercase tracking-[0.2em] rounded-xl transition-all ' +
+              (rail === r.key
+                ? 'bg-white/10 text-brand-secondary'
+                : 'text-brand-secondary/40 hover:text-brand-secondary/60')
+            }
+          >
+            {r.label}
+          </button>
+        ))}
       </div>
 
       {/* Instruction banner */}

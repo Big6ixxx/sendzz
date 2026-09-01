@@ -61,7 +61,7 @@ export const FAQ_SECTIONS: FaqSection[] = [
         id: "minimum",
         question: "Is there a minimum or maximum?",
         answer:
-          "The minimum is 1 USDC equivalent. Above 100 USDC you will need to have completed identity verification. If a limit affects you, the app says so before you confirm, not after.",
+          "The minimum is 1 USDC equivalent. You can withdraw 100 USDC in total before you need to complete identity verification, whether that is one withdrawal or several small ones. If a limit affects you, the app says so before you confirm, not after.",
       },
     ],
   },
@@ -218,13 +218,19 @@ export const FAQ_SECTIONS: FaqSection[] = [
         id: "kyc",
         question: "Do I need to verify my identity?",
         answer:
-          "Not for smaller amounts. You can withdraw up to 100 USDC without verifying. Above that we need you to complete a single identity check, which the regulations we operate under require. It normally takes a few minutes, and once it clears the limit no longer applies.",
+          "Not straight away. You can withdraw 100 USDC in total without verifying, and it is yours to spend however you like: one withdrawal of 100, or five of 20. Once that total is reached we need you to complete a single identity check, which the regulations we operate under require. It normally takes a few minutes, and once it clears the limit no longer applies.",
       },
       {
         id: "kyc-how-long",
         question: "How long does verification take?",
         answer:
           "Usually a few minutes. You will need a government ID and a selfie. Once it is approved, it is done for good. You will not be asked again, and any withdrawal you were holding back can go straight through.",
+      },
+      {
+        id: "install-app",
+        question: "How do I install Sendzz on my phone?",
+        answer:
+          "Go to Settings and tap Install Sendzz. It adds Sendzz to your home screen so it opens full screen, without the browser bar, and can send you notifications when a withdrawal lands. On iPhone the button shows you the two taps to do it from Safari's Share menu, since Apple does not allow apps to install themselves. Nothing about your account or your funds changes either way, and you can keep using Sendzz in the browser if you prefer.",
       },
       {
         id: "2fa",

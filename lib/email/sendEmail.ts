@@ -145,9 +145,14 @@ export async function sendBridgeEmail(
 export async function sendDepositEmail(
   recipientEmail: string,
   amountUsdc: string,
-  referenceId?: string,
-  txHash?: string,
-  chain?: string
+  // Accepted and not yet rendered. Both callers pass real values, but
+  // `depositConfirmedTemplate` takes only the amount — so the deposit email is the thin one
+  // `sendWithdrawalEmail` below was rebuilt to stop being. Kept in the signature rather than
+  // deleted so the call sites still say what the email ought to show; underscored so the gap
+  // reads as known rather than as an oversight.
+  _referenceId?: string,
+  _txHash?: string,
+  _chain?: string
 ): Promise<void> {
   try {
     const wantsEmail = await userWantsEmail(recipientEmail, 'email_notif_deposit');

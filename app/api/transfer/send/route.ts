@@ -32,7 +32,7 @@ export async function POST(req: Request) {
     const amountUsdc = parseFloat(amount);
 
     // 2. KYC & Limit Guard — enforced before any funds are touched
-    const guard = await kycGuard(user.id, amountUsdc);
+    const guard = await kycGuard(user.id, amountUsdc, "transfer");
     if (!guard.allowed) {
       console.warn(
         `[Transfer API] KYC guard blocked transfer for user ${user.id}: ` +

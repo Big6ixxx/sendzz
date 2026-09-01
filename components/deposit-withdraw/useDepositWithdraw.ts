@@ -55,9 +55,10 @@ import { ConnectedWallet, usePrivy } from "@privy-io/react-auth";
 import { calculatePaycrestBaseAmount } from "@/lib/paycrest/config";
 import { getCurrencySymbol } from "@/lib/currency-config";
 import { FIAT_ROUTING_PAD, totalDeducted } from "@/lib/ramp/fees";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import type { KycBlock } from "@/components/kyc/KycRequiredModal";
 import { useCurrencies } from "@/lib/hooks/useCurrencies";
 
 export type FlowType = "deposit" | "withdraw";
@@ -90,6 +91,9 @@ export function useDepositWithdraw(
   const [amount, setAmount] = useState("");
   const [inputMode, setInputMode] = useState<"usdc" | "fiat">("usdc");
   const [loading, setLoading] = useState(false);
+  // A refused withdrawal is a dead end unless we offer the way out, so the guard's result is
+  // held here and rendered as a modal rather than thrown away in a toast.
+  const [kycBlock, setKycBlock] = useState<KycBlock | null>(null);
   const [error] = useState<string | null>(null);
   const [fiatCurrency, setFiatCurrency] = useState<FiatCurrencyCode>("NGN");
   const [quoteUsdcAmount, setQuoteUsdcAmount] = useState<string>("");
@@ -100,12 +104,31 @@ export function useDepositWithdraw(
   const [twoFaEnabled, setTwoFaEnabled] = useState(false);
   const [twoFaThreshold, setTwoFaThreshold] = useState(500);
 
-  // Discover the off-ramp settlement networks from the active provider (once).
+  /**
+   * The chains the off-ramp provider can settle on. Drives withdrawal routing.
+   *
+   * Fetched through react-query rather than a once-only effect. It used to run once on mount
+   * with no retry, and `getRampNetworks` degrades to `["base", "polygon"]` when the provider
+   * call fails — so a single transient failure at mount pinned the whole session to those two
+   * chains. During the Bitnob outage that is exactly what happened: Arbitrum dropped out of the
+   * candidate list, so a wallet whose balance was mostly on Arbitrum could not settle there and
+   * bridged to Base instead, for every withdrawal until the page was reloaded.
+   *
+   * Retries, and refetches on reconnect, so recovering the provider recovers the routing
+   * without the user having to reload.
+   */
+  const { data: fetchedRampNetworks } = useQuery({
+    queryKey: ["ramp-networks"],
+    queryFn: () => getRampNetworks(),
+    staleTime: 5 * 60 * 1000,
+    retry: 3,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
+    refetchOnReconnect: true,
+  });
+
   useEffect(() => {
-    getRampNetworks()
-      .then((n) => setRampNetworks(n as SupportedChain[]))
-      .catch(() => setRampNetworks(undefined));
-  }, []);
+    if (fetchedRampNetworks) setRampNetworks(fetchedRampNetworks as SupportedChain[]);
+  }, [fetchedRampNetworks]);
 
   // Sync fiatCurrency with available currencies if current one is not supported
   useEffect(() => {
@@ -248,6 +271,8 @@ export function useDepositWithdraw(
   const [txFailed, setTxFailed] = useState(false);
   const [withdrawalTxHash, setWithdrawalTxHash] = useState<string | null>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  /** Detaches the service-worker listener that races the poll. */
+  const pushListenerRef = useRef<(() => void) | null>(null);
 
   // 2FA State
   const [twoFaModalOpen, setTwoFaModalOpen] = useState(false);
@@ -544,7 +569,7 @@ export function useDepositWithdraw(
     // Early KYC & Limit Pre-Check — block immediately at step 1
     try {
       const { checkKycLimitAction } = await import("@/lib/kyc/guard");
-      const guard = await checkKycLimitAction(estimatedUsdc, await freshToken());
+      const guard = await checkKycLimitAction(estimatedUsdc, await freshToken(), "deposit");
       if (!guard.allowed) {
         toast.error(guard.message);
         return;
@@ -658,111 +683,128 @@ export function useDepositWithdraw(
     // wallet, so all three must be covered before we route or bridge anything.
     const totalUsdcRequired = totalDeducted(val, feePercent, corridorFee);
 
-    // Early KYC & Limit Pre-Check — block immediately at step 1 before bank details, 2FA, or signing
-    try {
-      const { checkKycLimitAction } = await import("@/lib/kyc/guard");
-      const guard = await checkKycLimitAction(totalUsdcRequired, await freshToken());
-      if (!guard.allowed) {
-        toast.error(guard.message);
-        return;
-      }
-    } catch (err) {
-      console.error("[Withdraw] Early KYC check error:", err);
-    }
-
-    // A Paycrest order settles on one network, so we must source the whole amount from
-    // a single Paycrest-supported chain. Route to one that holds enough.
-    const routeBalances: ChainBalances & { solana?: number; stellar?: number } = {
-      ...(chainBalances && Object.keys(chainBalances).length > 0
-        ? chainBalances
-        : { base: parseFloat(balance) || 0 }),
-      solana: solanaSource?.balance ?? 0,
-      stellar: stellarBalance ?? 0,
-    };
-
-    const route = planWithdrawalRoute(totalUsdcRequired.toFixed(6), routeBalances, {
-      supportedChains: rampNetworks,
-      homeChain: "base",
-      source: sourcePref,
-    });
-
-    const combinedAvailable =
-      route.totalAvailable + (solanaSource?.balance ?? 0) + (stellarBalance ?? 0);
-
-    // Settling directly on Solana is a distinct path: funds must already be on Solana (no
-    // bridging TO Solana), and the payout is a Solana SPL transfer — not an EVM route.
-    const isSolanaSettlement = sourcePref.mode === "single" && sourcePref.chain === "solana";
-
-    // Validate a manual override before proceeding (Solana is validated separately below).
-    if (sourcePref.mode === "single" && !isSolanaSettlement && !route.feasible) {
-      toast.error(
-        `${sourcePref.chain} doesn't hold enough to withdraw ${totalUsdcRequired.toFixed(2)} USDC.`,
-      );
-      return;
-    }
-    if (sourcePref.mode === "consolidate") {
-      const selSum = sourcePref.from.reduce(
-        (s, c) => {
-          if (c === "solana") return s + (solanaSource?.balance ?? 0);
-          if (c === "stellar") return s + (stellarBalance ?? 0);
-          return s + (routeBalances[c] ?? 0);
-        },
-        0,
-      );
-      if (selSum + 1e-9 < totalUsdcRequired) {
-        toast.error(
-          `Selected networks hold $${selSum.toFixed(2)} — need ${totalUsdcRequired.toFixed(2)} USDC.`,
-        );
-        return;
-      }
-    }
-
-    // The chain this withdrawal will settle on. Tracked locally as well as in state because
-    // the quote below needs it in this same tick — `withdrawChain` does not update until the
-    // next render, and quoting the wrong chain quotes the wrong price.
-    let settlementChain: RampNetwork = withdrawChain;
-
-    if (isSolanaSettlement) {
-      // Settle on Solana — requires enough USDC already on Solana; no consolidation.
-      const solBal = solanaSource?.balance ?? 0;
-      if (solBal + 1e-9 < totalUsdcRequired) {
-        toast.error(
-          `Solana holds $${solBal.toFixed(2)} — need ${totalUsdcRequired.toFixed(2)} USDC.`,
-        );
-        return;
-      }
-      if (!solanaSource?.settleOffRamp) {
-        toast.error("Connect your Solana wallet to settle on Solana.");
-        return;
-      }
-      settlementChain = "solana";
-      setWithdrawChain("solana");
-      setMustConsolidate(false);
-      setConsolidateFrom(null);
-    } else if (route.feasible && route.chain) {
-      // A single supported chain holds enough — source straight from it.
-      settlementChain = route.chain as RampNetwork;
-      setWithdrawChain(settlementChain);
-      setMustConsolidate(false);
-      setConsolidateFrom(null);
-    } else if (
-      route.needsConsolidation ||
-      combinedAvailable + 1e-9 >= totalUsdcRequired
-    ) {
-      const targetChain = route.chain ?? "base";
-      settlementChain = targetChain as RampNetwork;
-      setWithdrawChain(settlementChain);
-      setMustConsolidate(true);
-      setConsolidateFrom(route.consolidateFrom ?? null);
-    } else {
-      toast.error(
-        `Insufficient balance. Requires ${totalUsdcRequired.toFixed(2)} USDC`,
-      );
-      return;
-    }
-
+    // The spinner starts here, before the first slow call.
+    //
+    // Everything above is synchronous validation. Everything below it — the KYC lookup, the
+    // balance reads, the quote — takes a round trip, and until now none of it moved the button.
+    // The user got no feedback for a second or more and reasonably concluded the tap had missed,
+    // so they tapped again. The `finally` is what makes this safe: every early return below
+    // (limit reached, insufficient balance, unpriceable amount) has to clear it.
     setLoading(true);
     try {
+      // Early KYC & Limit Pre-Check — block immediately at step 1 before bank details, 2FA, or signing.
+      //
+      // Checked on `val`, the amount the user asked to withdraw, NOT on totalUsdcRequired. The
+      // allowance counts `withdrawals.amount_usdc`, which is the base — fees are recorded
+      // separately. Passing the fee-inclusive figure would measure the request against a total it
+      // will never be added to, and refuse a withdrawal of exactly 100 because 100.60 > 100.
+      try {
+        const { checkKycLimitAction } = await import("@/lib/kyc/guard");
+        const guard = await checkKycLimitAction(val, await freshToken());
+        if (!guard.allowed) {
+          setKycBlock({
+            message: guard.message,
+            allowanceUsed: guard.allowanceUsed,
+            allowanceRemaining: guard.allowanceRemaining,
+            allowanceTotal: guard.allowanceTotal,
+          });
+          return;
+        }
+      } catch (err) {
+        console.error("[Withdraw] Early KYC check error:", err);
+      }
+
+      // A Paycrest order settles on one network, so we must source the whole amount from
+      // a single Paycrest-supported chain. Route to one that holds enough.
+      const routeBalances: ChainBalances & { solana?: number; stellar?: number } = {
+        ...(chainBalances && Object.keys(chainBalances).length > 0
+          ? chainBalances
+          : { base: parseFloat(balance) || 0 }),
+        solana: solanaSource?.balance ?? 0,
+        stellar: stellarBalance ?? 0,
+      };
+
+      const route = planWithdrawalRoute(totalUsdcRequired.toFixed(6), routeBalances, {
+        supportedChains: rampNetworks,
+        homeChain: "base",
+        source: sourcePref,
+      });
+
+      const combinedAvailable =
+        route.totalAvailable + (solanaSource?.balance ?? 0) + (stellarBalance ?? 0);
+
+      // Settling directly on Solana is a distinct path: funds must already be on Solana (no
+      // bridging TO Solana), and the payout is a Solana SPL transfer — not an EVM route.
+      const isSolanaSettlement = sourcePref.mode === "single" && sourcePref.chain === "solana";
+
+      // Validate a manual override before proceeding (Solana is validated separately below).
+      if (sourcePref.mode === "single" && !isSolanaSettlement && !route.feasible) {
+        toast.error(
+          `${sourcePref.chain} doesn't hold enough to withdraw ${totalUsdcRequired.toFixed(2)} USDC.`,
+        );
+        return;
+      }
+      if (sourcePref.mode === "consolidate") {
+        const selSum = sourcePref.from.reduce(
+          (s, c) => {
+            if (c === "solana") return s + (solanaSource?.balance ?? 0);
+            if (c === "stellar") return s + (stellarBalance ?? 0);
+            return s + (routeBalances[c] ?? 0);
+          },
+          0,
+        );
+        if (selSum + 1e-9 < totalUsdcRequired) {
+          toast.error(
+            `Selected networks hold $${selSum.toFixed(2)} — need ${totalUsdcRequired.toFixed(2)} USDC.`,
+          );
+          return;
+        }
+      }
+
+      // The chain this withdrawal will settle on. Tracked locally as well as in state because
+      // the quote below needs it in this same tick — `withdrawChain` does not update until the
+      // next render, and quoting the wrong chain quotes the wrong price.
+      let settlementChain: RampNetwork = withdrawChain;
+
+      if (isSolanaSettlement) {
+        // Settle on Solana — requires enough USDC already on Solana; no consolidation.
+        const solBal = solanaSource?.balance ?? 0;
+        if (solBal + 1e-9 < totalUsdcRequired) {
+          toast.error(
+            `Solana holds $${solBal.toFixed(2)} — need ${totalUsdcRequired.toFixed(2)} USDC.`,
+          );
+          return;
+        }
+        if (!solanaSource?.settleOffRamp) {
+          toast.error("Connect your Solana wallet to settle on Solana.");
+          return;
+        }
+        settlementChain = "solana";
+        setWithdrawChain("solana");
+        setMustConsolidate(false);
+        setConsolidateFrom(null);
+      } else if (route.feasible && route.chain) {
+        // A single supported chain holds enough — source straight from it.
+        settlementChain = route.chain as RampNetwork;
+        setWithdrawChain(settlementChain);
+        setMustConsolidate(false);
+        setConsolidateFrom(null);
+      } else if (
+        route.needsConsolidation ||
+        combinedAvailable + 1e-9 >= totalUsdcRequired
+      ) {
+        const targetChain = route.chain ?? "base";
+        settlementChain = targetChain as RampNetwork;
+        setWithdrawChain(settlementChain);
+        setMustConsolidate(true);
+        setConsolidateFrom(route.consolidateFrom ?? null);
+      } else {
+        toast.error(
+          `Insufficient balance. Requires ${totalUsdcRequired.toFixed(2)} USDC`,
+        );
+        return;
+      }
+
       if (inputMode === "fiat") {
         // The user named what the RECIPIENT must receive. Solve for the USDC that delivers it
         // at the provider's own rate, rather than converting at the display rate and hoping.
@@ -1089,6 +1131,45 @@ export function useDepositWithdraw(
    * created in — the withdrawal is authorised once, at review, and then carries through to the
    * transfer without a second press. Falls back to the order in state when called with nothing.
    */
+  /**
+   * The settlement chain's balance, read now rather than from the query cache.
+   *
+   * Only called on the path that is about to move money, so one extra round trip is worth it:
+   * the alternative is refusing a withdrawal because a cache has not caught up with a bridge
+   * that finished seconds ago.
+   */
+  const readSettlementBalance = async (
+    chain: string,
+    fallback: number,
+  ): Promise<number> => {
+    try {
+      // EVM only: Solana and Stellar balances come from sources that are already read live,
+      // so neither goes stale behind a bridge the way the EVM query cache does.
+      if (chain === "solana" || chain === "stellar") return fallback;
+
+      const params = new URLSearchParams({ address: userAddress });
+      if (stellarAddress) params.set("stellarAddress", stellarAddress);
+
+      const res = await fetch(`/api/balances/cross-chain?${params.toString()}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) return fallback;
+
+      const rows = (await res.json()) as { chain: string; balance: string }[];
+      const row = Array.isArray(rows)
+        ? rows.find((r) => r.chain?.toLowerCase() === chain.toLowerCase())
+        : undefined;
+      const live = row ? parseFloat(row.balance) : NaN;
+
+      if (!Number.isFinite(live)) return fallback;
+      // The higher of the two: a read that lags the chain should never veto a withdrawal the
+      // cached figure already supports.
+      return Math.max(live, fallback);
+    } catch {
+      return fallback;
+    }
+  };
+
   const executeTransfer = async (orderOverride?: RampOrderResponse) => {
     const activeOrder = orderOverride ?? order;
     const receiveAddress = activeOrder?.providerAccount?.receiveAddress;
@@ -1114,12 +1195,25 @@ export function useDepositWithdraw(
       parseFloat(activeOrder.bitnobFee || "0") +
       (fee ? parseFloat(fee.usdc) : 0);
 
-    const availableOnChain =
+    const cachedOnChain =
       settlementChain === "solana"
         ? (solanaSource?.balance ?? 0)
         : settlementChain === "stellar"
           ? stellarBalance
           : (chainBalances?.[settlementChain as SupportedChain] ?? (parseFloat(balance) || 0));
+
+    // Read the balance fresh rather than trusting the cached one.
+    //
+    // `chainBalances` is a prop, fed by a react-query cache that was populated before this
+    // withdrawal started. When the withdrawal consolidated first — bridging from other chains
+    // onto the settlement chain — that cache still holds the PRE-BRIDGE figure, so this check
+    // refuses a withdrawal whose funds have already arrived. That is the "Not enough balance"
+    // a user sees right after a bridge, and why pressing Try Again works: by then the cache has
+    // caught up.
+    //
+    // Falls back to the cached value if the read fails: a flaky balance endpoint must not block
+    // a withdrawal that would otherwise go through.
+    const availableOnChain = await readSettlementBalance(settlementChain, cachedOnChain);
 
     if (availableOnChain + 1e-9 < totalToSend) {
       console.error("[Withdraw] insufficient balance — withdrawal not submitted");
@@ -1297,15 +1391,22 @@ export function useDepositWithdraw(
     const isWithdraw = type === "withdraw";
     const poll = async () => {
       try {
-        const result = await getOrderStatus(activeOrder.id, activeOrder.provider);
-
         // Our ledger is the second source of truth, and for Bitnob the ONLY one that turns
         // terminal: the webhook writes it, while provider polling stays `pending` because the
         // payout is not indexed under our order reference. Consulted alongside the provider so
         // "completed" means the fiat actually landed, however we came to know it.
-        const ledger = isWithdraw
-          ? await getLedgerOrderStatus(activeOrder.id, "withdrawal").catch(() => null)
-          : null;
+        //
+        // Fetched together, not one after the other. The ledger read is the fast one AND the
+        // one that actually turns terminal for Bitnob, so making it queue behind a slow
+        // provider call added that call's latency to every tick — which is how a push
+        // notification (sent server-side the moment the webhook lands) beat this screen to the
+        // news.
+        const [result, ledger] = await Promise.all([
+          getOrderStatus(activeOrder.id, activeOrder.provider),
+          isWithdraw
+            ? getLedgerOrderStatus(activeOrder.id, "withdrawal").catch(() => null)
+            : Promise.resolve(null),
+        ]);
 
         setTxStatus(ledger === "completed" ? "settled" : result.status);
 
@@ -1323,7 +1424,12 @@ export function useDepositWithdraw(
           (ledger != null && ["failed", "reversed"].includes(ledger));
 
         if (isSuccess || isFailure) {
-          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+          if (pollIntervalRef.current) {
+            clearTimeout(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+          }
+          pushListenerRef.current?.();
+          pushListenerRef.current = null;
           setPolling(false);
 
           if (isSuccess) {
@@ -1395,8 +1501,58 @@ export function useDepositWithdraw(
         }
       } catch {}
     };
-    poll();
-    pollIntervalRef.current = setInterval(poll, 8000);
+    /**
+     * Interval by age, not a flat 8 seconds.
+     *
+     * Most withdrawals settle within two minutes, so the first stretch is where the answer
+     * almost always arrives — polling it every 8s meant up to 8 seconds of the user staring at
+     * a spinner after the money had already landed. Tight early, then backing off so a slow
+     * payout is not still being polled hard ten minutes later.
+     */
+    const startedAt = Date.now();
+    const nextDelay = () => {
+      const age = Date.now() - startedAt;
+      if (age < 60_000) return 2000;
+      if (age < 180_000) return 5000;
+      return 10_000;
+    };
+
+    // Self-scheduling rather than setInterval: the gap has to change as the wait grows, and a
+    // fixed interval can also stack calls when one poll outlives its own period.
+    const tick = async () => {
+      await poll();
+      if (pollIntervalRef.current) {
+        pollIntervalRef.current = setTimeout(tick, nextDelay());
+      }
+    };
+
+    // Non-null marks the loop as live; `poll` clears it on a terminal status, which is what
+    // stops `tick` rescheduling itself.
+    pollIntervalRef.current = setTimeout(tick, nextDelay());
+    void poll();
+
+    /**
+     * Second way to learn the same thing, racing the poll.
+     *
+     * The push is sent server-side the moment the provider webhook lands, so the device
+     * usually knows before this screen does — which is why the notification arrived first.
+     * The service worker relays it here (see public/sw.js) and we simply poll immediately
+     * rather than waiting out the timer.
+     *
+     * It only ever triggers a read; the ledger still decides. So a spoofed or mistimed message
+     * cannot mark a withdrawal complete, it can only make us ask sooner. Whichever source
+     * learns first wins, and neither can be wrong on its own.
+     */
+    const onPush = (event: MessageEvent) => {
+      if (event.data?.type !== "sendzz:push") return;
+      const txId = event.data?.payload?.data?.transactionId;
+      // A push about some other transaction is not news about this one.
+      if (txId && activeOrder.id && txId !== activeOrder.id) return;
+      if (pollIntervalRef.current) void poll();
+    };
+    navigator.serviceWorker?.addEventListener("message", onPush);
+    pushListenerRef.current = () =>
+      navigator.serviceWorker?.removeEventListener("message", onPush);
   }, [
     // The whole order, since the callback now falls back to it when called with no argument.
     order,
@@ -1409,7 +1565,12 @@ export function useDepositWithdraw(
 
   useEffect(() => {
     return () => {
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      if (pollIntervalRef.current) {
+        clearTimeout(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+      pushListenerRef.current?.();
+      pushListenerRef.current = null;
     };
   }, []);
 
@@ -1480,6 +1641,8 @@ export function useDepositWithdraw(
     refreshBankContacts,
     handleDepositInitiate,
     handleWithdrawQuote,
+    kycBlock,
+    dismissKycBlock: () => setKycBlock(null),
     handleWithdrawFinalize,
     executeTransfer,
     startPolling,
@@ -1533,7 +1696,12 @@ export function useDepositWithdraw(
         accountName: "",
         bankName: "",
       });
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      if (pollIntervalRef.current) {
+        clearTimeout(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+      pushListenerRef.current?.();
+      pushListenerRef.current = null;
     },
     goBack: () => {
       setStep((prev) => (prev > 1 ? prev - 1 : 1));

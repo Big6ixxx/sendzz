@@ -120,11 +120,15 @@ function getMobileMoneyOperators(country: string, currency: RampCurrency): RampI
  * How Bitnob funds the fiat leg: `onchain` backs the payout with the user's own deposit,
  * `offchain` debits our pooled USDC balance and lets the deposit land separately.
  *
- * `onchain` is the default because it is the only mode that does not cap a withdrawal at our own
- * float — offchain 422s INSUFFICIENT_FUNDS the moment a user withdraws more than we hold. It
- * cannot work on a shared-address chain, though (see `hasSharedDepositAddress`): Bitnob funds an
- * onchain payout by watching that payout's own address, and there isn't one. Those chains use
- * float funding, with the deposit verified and credited first — see `createOffRampOrder`.
+ * `onchain` is the default. It cannot work on a shared-address chain (see
+ * `hasSharedDepositAddress`): Bitnob funds an onchain payout by watching that payout's own
+ * address, and there isn't one.
+ *
+ * This used to say `onchain` was the mode that does not cap a withdrawal at our float.
+ * Production disproved it: a Base payout on `onchain` was refused 422 INSUFFICIENT_FUNDS
+ * against our `usdc` account (available 63.86, required 67.41), and the same user then pushed
+ * the same total through as two smaller withdrawals. What decides whether float binds is not
+ * this flag — it is WHEN `initialize` runs. See `createOffRampOrder`.
  *
  * Env-overridable towards `offchain` because it decides where real money comes from — reverting
  * should take a restart, not a deploy. It cannot force `onchain` onto a shared-address chain,
@@ -132,7 +136,40 @@ function getMobileMoneyOperators(country: string, currency: RampCurrency): RampI
  */
 export function payoutSource(network: string): "onchain" | "offchain" {
   if (hasSharedDepositAddress(network)) return "offchain";
+
+  // Deferring makes the funding offchain in fact, so it has to say so.
+  //
+  // Once `initialize` waits for the deposit, the money arrives at a deposit address, credits our
+  // pooled USDC balance, and the payout is then debited from that balance. That IS the offchain
+  // flow. Declaring `onchain` while running it describes something we are not doing, and asks
+  // Bitnob to fund from a payout-bound address that did not exist when the user sent their
+  // money — deposit first, payout second, so there was nothing to bind it to.
+  //
+  // Stellar has been offchain + deferred since it shipped, across 57 completed withdrawals.
+  // This is what puts every other chain on that same proven pairing rather than on a
+  // combination nothing has ever run.
+  if (defersInitialize()) return "offchain";
+
   return process.env.BITNOB_PAYOUT_SOURCE === "offchain" ? "offchain" : "onchain";
+}
+
+/**
+ * Does this chain wait for the user's deposit before `initialize` attaches a beneficiary?
+ *
+ * Every chain does. Bitnob validates a payout against our USDC account at `initialize`, so
+ * attaching a beneficiary before the deposit lands caps every withdrawal at our float: there is
+ * nothing yet for Bitnob to fund from, and it falls back to the pooled balance.
+ *
+ * This was once `hasSharedDepositAddress(network)`, on the belief that a per-payout address let
+ * Bitnob fund from the deposit instead. A real withdrawal disproved it — a 67.41 payout on Base
+ * refused against a 63.86 balance, then settled as 34.82 + 32.59 minutes later. Splitting only
+ * helps when a shared pot is what is being checked.
+ *
+ * Named rather than written as a bare `true` at the call site so the policy has something to
+ * grep for, and somewhere for a per-chain exception to go if one is ever needed.
+ */
+export function defersInitialize(): boolean {
+  return true;
 }
 
 /** EVM chains this app can move USDC on (smart-account capable). */
@@ -479,13 +516,17 @@ export class BitnobProvider implements RampProvider {
       reference,
     });
 
-    // 3. Attach the rail-specific beneficiary — the payout enters `pending_address_deposit`.
+    // 3. The beneficiary is attached later, once the deposit is provably here.
     //
-    // DEFERRED on a shared-address chain: Bitnob checks our float at `initialize`, so attaching a
-    // beneficiary before the user's money arrives caps every withdrawal at what we happen to be
-    // holding. Letting the deposit land first makes the user's own USDC the funding, which is what
-    // backs the payout in substance anyway. `lib/ramp/deferred-settle` verifies it and initializes.
-    const deferInitialize = hasSharedDepositAddress(params.network);
+    // Bitnob checks our float at `initialize`, so attaching a beneficiary before the money
+    // arrives caps every withdrawal at whatever we happen to be holding. Waiting makes the
+    // user's own USDC the funding — see `defersInitialize` for why this applies to every chain,
+    // and `lib/ramp/deferred-settle` for the verification that follows.
+    //
+    // The trade, accepted deliberately: a failure now lands AFTER the user's money has left, so
+    // it owes a refund rather than an apology. `finalize_withdrawal_failed` records that as
+    // `refund_owed_usdc` (migration 039) and the reconcile cron alerts on it as STRANDED.
+    const deferInitialize = defersInitialize();
 
     let receiveAddress = address.address;
     if (!deferInitialize) {

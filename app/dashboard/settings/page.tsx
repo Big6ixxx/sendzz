@@ -55,7 +55,8 @@ import {
 } from "@/components/security/PinGate";
 import { Fingerprint } from "lucide-react";
 import { KycModal } from "@/components/kyc/KycModal";
-import { LimitsMeter } from "@/components/kyc/LimitsMeter";
+import { InstallAppButton } from "@/components/pwa/InstallAppButton";
+import { LimitsMeter, type Allowance } from "@/components/kyc/LimitsMeter";
 
 interface ToggleProps {
   checked: boolean;
@@ -162,8 +163,7 @@ export default function SettingsPage() {
   const [kycData, setKycData] = useState<{
     kyc: { status: string; updatedAt: string };
     totals: { daily: number; weekly: number; monthly: number };
-    limits: { daily: number | null; weekly: number | null; monthly: number | null };
-    percentages: { daily: number; weekly: number; monthly: number };
+    allowance: Allowance | null;
   } | null>(null);
   const [isKycLoading, setIsKycLoading] = useState(true);
 
@@ -527,6 +527,15 @@ export default function SettingsPage() {
           icon: Bell,
           onClick: () => router.push("/dashboard/settings/notifications"),
         },
+        {
+          // Always offered while the app is not installed. The browser's own banner appears
+          // once, unbidden, and never returns once dismissed — so this is the only place a
+          // user who said "not now" can come back to.
+          label: "Install Sendzz",
+          value: "Add it to your home screen and open it like an app",
+          icon: Smartphone,
+          action: <InstallAppButton compact />,
+        },
         { label: "Language", value: "English (US)", icon: Globe },
         {
           label: "Hide Sensitive Data",
@@ -594,7 +603,8 @@ export default function SettingsPage() {
         ))}
 
         {/* ── Identity Verification Section ─────────────────────────────────── */}
-        <div className="space-y-4">
+        {/* Anchored: the limit modal links straight here rather than to the top of the page. */}
+        <div id="identity" className="space-y-4 scroll-mt-24">
           <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground px-1">
             Identity Verification
           </h3>
@@ -676,15 +686,16 @@ export default function SettingsPage() {
                 {kycData && (
                   <LimitsMeter
                     totals={kycData.totals}
-                    limits={kycData.limits}
-                    percentages={kycData.percentages}
+                    allowance={kycData.allowance}
                     isVerified={kycData.kyc.status === "approved"}
                   />
                 )}
 
                 {kycData?.kyc.status !== "approved" && (
                   <p className="text-xs" style={{ color: "rgba(248,248,246,0.3)" }}>
-                    Verify your identity to unlock higher transaction limits and ensure regulatory compliance.
+                    Verifying is a one-time check that takes a few minutes. It removes the
+                    withdrawal allowance entirely, and it is what the regulations we operate
+                    under require of us.
                   </p>
                 )}
               </>

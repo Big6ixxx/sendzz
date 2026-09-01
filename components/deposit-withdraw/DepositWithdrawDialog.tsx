@@ -184,11 +184,18 @@ export function DepositWithdrawDialog({
                   : "Withdraw to your bank"}
               </DialogDescription>
             </div>
+            {/*
+              Round, borderless and quiet. It was a bordered rounded-square panel, which reads as
+              a peer of the primary action rather than a way out of it — a filled box competing
+              with the header beside it. Circular with no border is the shape people already read
+              as "close", and it leaves the emphasis on the flow.
+            */}
             <button
               onClick={handleClose}
-              className="p-3 bg-white/5 border border-white/8 rounded-xl transition-all hover:bg-white/10 group"
+              aria-label="Close"
+              className="grid size-9 shrink-0 place-items-center rounded-full text-brand-secondary/35 transition-all hover:text-brand-secondary hover:bg-white/[0.07] active:scale-90 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent/50"
             >
-              <X className="w-4 h-4 text-brand-secondary/40 group-hover:text-brand-secondary" />
+              <X className="w-4 h-4" />
             </button>
           </DialogHeader>
 

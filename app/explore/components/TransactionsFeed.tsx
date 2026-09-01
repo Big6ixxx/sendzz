@@ -3,26 +3,10 @@
 import type { PublicFeedRow } from '@/types/public';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
-import { toast } from 'sonner';
 import { PAGE_SIZE } from '../constants';
 import type { TimeMode } from '../shared';
 import { RowActionsMenu } from './RowActionsMenu';
 import { TxCard, TxCardSkeleton, TxTableRow, TxTableRowSkeleton } from './TransactionRows';
-
-/** Share a transaction via the Web Share API, falling back to copying its deep link. */
-async function shareTransaction(row: PublicFeedRow) {
-  const url = `${window.location.origin}/explore?tx=${row.id}`;
-  try {
-    if (typeof navigator !== 'undefined' && navigator.share) {
-      await navigator.share({ title: 'Sendzz transaction', url });
-    } else {
-      await navigator.clipboard.writeText(url);
-      toast.success('Link copied to clipboard');
-    }
-  } catch {
-    // User dismissed the share sheet — nothing to do.
-  }
-}
 
 interface TransactionsFeedProps {
   rows: PublicFeedRow[];
@@ -177,10 +161,6 @@ export function TransactionsFeed({
         onView={(row) => {
           setActions(null);
           onOpenTx(row.id);
-        }}
-        onShare={(row) => {
-          setActions(null);
-          void shareTransaction(row);
         }}
       />
     </section>
