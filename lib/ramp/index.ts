@@ -197,6 +197,65 @@ export function matchBank(
   return partial ? { code: partial.code, name: partial.name } : null;
 }
 
+/**
+ * Corridors a provider must not be offered for, whatever its own API claims it supports.
+ *
+ * A provider's capability list says what it serves in general. This says what it is serving
+ * *correctly right now* — which is not the same thing, and only we can know it.
+ *
+ * KES/bitnob: Bitnob began rejecting `network: "SAFARICOM"` on `KE mobile_money` around
+ * 2026-08-29 with `Invalid beneficiary destination`. It fails at `initialize`, which under
+ * deferred settlement happens AFTER the user's USDC has left — so every attempt strands money
+ * rather than merely failing. Three withdrawals and 213 USDC were stranded before it was
+ * caught. Bitnob's API exposes no network enum to correct against (`/payouts/banks/KE` returns
+ * nothing), so there is no fix to make on our side until they answer.
+ *
+ * Overridable at runtime so a corridor can be restored, or another blocked, with a restart
+ * rather than a deploy: `RAMP_OFFRAMP_BLOCK="KES:bitnob,GHS:bitnob"`.
+ */
+const OFFRAMP_BLOCKED: Record<string, RampProviderName[]> = {
+  KES: ["bitnob"],
+};
+
+function blockedProviders(currency: string): Set<string> {
+  const fromEnv = process.env.RAMP_OFFRAMP_BLOCK;
+  const wanted = currency.toUpperCase();
+
+  // `!== undefined`, not truthy: an empty string is how an operator clears the list, and
+  // treating it as "unset" would silently reinstate the hardcoded default — leaving a corridor
+  // blocked after someone had explicitly unblocked it, with the logs insisting it was cleared.
+  const names =
+    fromEnv !== undefined
+      ? fromEnv
+          .split(",")
+          .map((pair) => pair.split(":").map((x) => x?.trim()))
+          .filter(([cur, provider]) => cur?.toUpperCase() === wanted && provider)
+          .map(([, provider]) => provider!)
+      : (OFFRAMP_BLOCKED[wanted] ?? []);
+
+  return new Set(names.map((n) => n.toLowerCase()));
+}
+
+/**
+ * A blocked corridor is worth saying once, not on every quote.
+ *
+ * `offRampProviderOrder` runs for each quote refresh, each order and each network lookup, so a
+ * warning inside the loop repeats several times a minute for as long as the block stands. Noise
+ * at that rate is how a real error goes unread — which is exactly how the KES failure sat in
+ * the logs unnoticed.
+ */
+const announcedBlocks = new Set<string>();
+
+function announceBlock(provider: string, currency: string) {
+  const key = `${currency}:${provider}`;
+  if (announcedBlocks.has(key)) return;
+  announcedBlocks.add(key);
+  console.warn(
+    `[Ramp] ${provider} is blocked for ${currency} and will not be offered. ` +
+      `See OFFRAMP_BLOCKED in lib/ramp/index.ts, or RAMP_OFFRAMP_BLOCK to change it.`,
+  );
+}
+
 export const Ramp = {
   createOnRampOrder(params: CreateOnRampParams): Promise<RampOrderResponse> {
     return withFallback("onRamp", (p) => p.createOnRampOrder(params));
@@ -228,8 +287,14 @@ export const Ramp = {
     const rank = (name: string) => (name === "bitnob" ? 0 : 1);
     const sorted = [...allProviders()].sort((a, b) => rank(a.name) - rank(b.name));
 
+    const blocked = blockedProviders(currency);
+
     for (const p of sorted) {
       if (!p.capabilities.offRamp) continue;
+      if (blocked.has(p.name.toLowerCase())) {
+        announceBlock(p.name, currency);
+        continue;
+      }
       const supportsCurrency = await p.supportsCurrency(currency).catch(() => true);
       if (!supportsCurrency) continue;
       if (wanted) {
@@ -280,6 +345,24 @@ export const Ramp = {
 
   settlementNetworksFor(provider: RampProviderName): Promise<string[]> {
     return byName(provider).getSettlementNetworks();
+  },
+
+  /**
+   * Chains a withdrawal in `currency` can actually settle on — the union across every provider
+   * still eligible for that corridor.
+   *
+   * Not the same as asking the primary provider what it supports. Once KES stopped routing to
+   * Bitnob, Bitnob's list still advertised Stellar and Solana, but the only provider left for
+   * KES settles on EVM alone. Offering Stellar would send a user's funds to a chain no provider
+   * could pay out from — failing at order creation if we are lucky, and stranding the deposit
+   * if we are not.
+   */
+  async settlementNetworksForCurrency(currency: RampCurrency): Promise<string[]> {
+    const names = await Ramp.offRampProviderOrder(currency);
+    const lists = await Promise.all(
+      names.map((n) => byName(n).getSettlementNetworks().catch(() => [] as string[])),
+    );
+    return [...new Set(lists.flat().map((n) => n.toLowerCase()))];
   },
 
   /**

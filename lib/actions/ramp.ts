@@ -735,17 +735,30 @@ export async function getCurrencies() {
 }
 
 /**
- * Chains the active off-ramp provider can settle USDC on. Drives withdrawal routing
- * dynamically instead of a hardcoded network list.
+ * Chains a withdrawal can settle USDC on. Drives withdrawal routing dynamically instead of a
+ * hardcoded network list.
  *
- * The provider's list states what *it* supports; the filter states what *we* enable.
+ * Given a currency, the answer comes from the providers that can still serve THAT corridor —
+ * not from whichever provider happens to be primary. Without a currency it falls back to the
+ * general list, which is what a caller with no corridor in mind should get.
+ *
+ * The providers' lists state what *they* support; the filter states what *we* enable.
  * Ethereum L1 is off (see BRIDGE_DISABLED_CHAINS in lib/circle/gateway), and since we
  * no longer track L1 balances it must not reach the withdrawal source picker either.
  */
-export async function getRampNetworks(): Promise<string[]> {
+export async function getRampNetworks(
+  currency?: RampCurrency,
+): Promise<string[]> {
   const FALLBACK = ["base", "polygon" /* , "ethereum" */];
   try {
-    const networks = (await Ramp.getSettlementNetworks()).filter(isBridgeable);
+    // Per currency when one is given: the chains depend on which providers can still serve
+    // that corridor, not on what the primary provider supports in general. Without this a
+    // KES withdrawal was offered Stellar — a chain no KES provider can settle on.
+    const networks = (
+      currency
+        ? await Ramp.settlementNetworksForCurrency(currency)
+        : await Ramp.getSettlementNetworks()
+    ).filter(isBridgeable);
     return networks.length > 0 ? networks : FALLBACK;
   } catch {
     return FALLBACK;

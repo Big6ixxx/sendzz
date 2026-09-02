@@ -118,8 +118,10 @@ export function useDepositWithdraw(
    * without the user having to reload.
    */
   const { data: fetchedRampNetworks } = useQuery({
-    queryKey: ["ramp-networks"],
-    queryFn: () => getRampNetworks(),
+    // Keyed by currency: the answer depends on which providers can still serve that corridor,
+    // so a cached list from another currency would offer chains nothing can settle on.
+    queryKey: ["ramp-networks", fiatCurrency],
+    queryFn: () => getRampNetworks(fiatCurrency),
     staleTime: 5 * 60 * 1000,
     retry: 3,
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
