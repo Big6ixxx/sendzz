@@ -137,39 +137,29 @@ function getMobileMoneyOperators(country: string, currency: RampCurrency): RampI
 export function payoutSource(network: string): "onchain" | "offchain" {
   if (hasSharedDepositAddress(network)) return "offchain";
 
-  // Deferring makes the funding offchain in fact, so it has to say so.
-  //
-  // Once `initialize` waits for the deposit, the money arrives at a deposit address, credits our
-  // pooled USDC balance, and the payout is then debited from that balance. That IS the offchain
-  // flow. Declaring `onchain` while running it describes something we are not doing, and asks
-  // Bitnob to fund from a payout-bound address that did not exist when the user sent their
-  // money — deposit first, payout second, so there was nothing to bind it to.
-  //
-  // Stellar has been offchain + deferred since it shipped, across 57 completed withdrawals.
-  // This is what puts every other chain on that same proven pairing rather than on a
-  // combination nothing has ever run.
-  if (defersInitialize()) return "offchain";
-
   return process.env.BITNOB_PAYOUT_SOURCE === "offchain" ? "offchain" : "onchain";
 }
 
 /**
  * Does this chain wait for the user's deposit before `initialize` attaches a beneficiary?
  *
- * Every chain does. Bitnob validates a payout against our USDC account at `initialize`, so
- * attaching a beneficiary before the deposit lands caps every withdrawal at our float: there is
- * nothing yet for Bitnob to fund from, and it falls back to the pooled balance.
+ * Only a shared-address chain does. Bitnob's own flow is quote → initialize → pay: `initialize`
+ * returns a `payment_address` bound to that payout, and the user funds THAT. Stellar cannot use
+ * it, because Bitnob hands back one static company account there with nothing tying a deposit
+ * to a payout, so Stellar alone waits for the deposit and initializes afterwards.
  *
- * This was once `hasSharedDepositAddress(network)`, on the belief that a per-payout address let
- * Bitnob fund from the deposit instead. A real withdrawal disproved it — a 67.41 payout on Base
- * refused against a 63.86 balance, then settled as 34.82 + 32.59 minutes later. Splitting only
- * helps when a shared pot is what is being checked.
+ * This briefly returned `true` for every chain, to work around a 422 INSUFFICIENT_FUNDS. That
+ * was the wrong diagnosis: the 422 came from `source: "offchain"`, which asks Bitnob to fund
+ * the payout from OUR balance. Verified against the live API — a 250 USDC payout against a
+ * 67.79 balance returns 422 on `offchain` and 200 with a payment address on `onchain`.
  *
- * Named rather than written as a bare `true` at the call site so the policy has something to
- * grep for, and somewhere for a per-chain exception to go if one is ever needed.
+ * The cost of getting it wrong was not the failures themselves but where they landed. With
+ * initialize first, a bad beneficiary fails before the user signs and costs nothing. Deferred,
+ * the same failure lands after their USDC has gone and owes a refund: 13 days of immediate
+ * initialize produced 1 stranded withdrawal, two days of deferring produced 9.
  */
-export function defersInitialize(): boolean {
-  return true;
+export function defersInitialize(network: string): boolean {
+  return hasSharedDepositAddress(network);
 }
 
 /** EVM chains this app can move USDC on (smart-account capable). */
@@ -357,15 +347,38 @@ export class BitnobProvider implements RampProvider {
         // Mobile-money rails require `network` and `sender` identity details.
         // Sent as an international MSISDN — the settlement form — so the payout
         // matches the number the format check normalised.
+        // Lowercase, and exactly the values Bitnob publishes.
+        //
+        // Read from `GET /api/payouts/supported-countries/{cc}`, whose `network` field is a
+        // select with an explicit option list. As of 2026-09-03:
+        //
+        //   KE  mobile_money | paybill | paytill   ["mpesa"]
+        //   GH  mobile_money                       ["mtn"]
+        //   UG  mobile_money                       ["mtn", "airtel"]
+        //   RW  mobile_money                       ["mtn", "airtel"]
+        //   CI  mobile_money                       ["orange", "mtn", "moov"]
+        //   CM  mobile_money                       ["mtn"]
+        //   GM  mobile_money                       ["afrimoney", "qmoney"]
+        //
+        // Kenya is why this changed: we sent "SAFARICOM", which is not in their list at all and
+        // has not been since around 2026-08-29. Every Kenyan withdrawal was refused at
+        // `initialize` with `Network has an invalid value`.
+        //
+        // The rest were sent uppercase and still worked, so Bitnob is currently lenient about
+        // case — but that is a tolerance, not a contract, and Kenya shows they change these
+        // without notice. Sending their exact published value depends on nothing.
+        //
+        // Still a mapping rather than a lookup: resolving it live would mean a request on the
+        // withdrawal path and a decision about what to do when it fails. Worth doing, but the
+        // table has to be right either way, and this is what their API says today.
         const code = (bank.bankCode || "").toUpperCase();
-        let network = "MTN";
-        if (code.includes("AIRT")) network = "AIRTEL";
-        else if (code.includes("VODA")) network = "VODAFONE";
-        else if (code.includes("SAFA") || code.includes("MPESA")) network = "SAFARICOM";
-        else if (code.includes("ORANGE")) network = "ORANGE";
-        else if (code.includes("WAVE")) network = "WAVE";
-        else if (code.includes("QMONEY")) network = "QMONEY";
-        else if (code.includes("AFRI")) network = "AFRIMONEY";
+        let network = "mtn";
+        if (code.includes("AIRT")) network = "airtel";
+        else if (code.includes("SAFA") || code.includes("MPESA")) network = "mpesa";
+        else if (code.includes("ORANGE")) network = "orange";
+        else if (code.includes("MOOV")) network = "moov";
+        else if (code.includes("QMONEY")) network = "qmoney";
+        else if (code.includes("AFRI")) network = "afrimoney";
 
         const senderName = userEmail ? userEmail.split("@")[0] : bank.accountName || "Sendzz User";
         return {
@@ -526,7 +539,7 @@ export class BitnobProvider implements RampProvider {
     // The trade, accepted deliberately: a failure now lands AFTER the user's money has left, so
     // it owes a refund rather than an apology. `finalize_withdrawal_failed` records that as
     // `refund_owed_usdc` (migration 039) and the reconcile cron alerts on it as STRANDED.
-    const deferInitialize = defersInitialize();
+    const deferInitialize = defersInitialize(params.network);
 
     let receiveAddress = address.address;
     if (!deferInitialize) {

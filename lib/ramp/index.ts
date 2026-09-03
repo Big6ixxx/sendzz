@@ -214,7 +214,9 @@ export function matchBank(
  * rather than a deploy: `RAMP_OFFRAMP_BLOCK="KES:bitnob,GHS:bitnob"`.
  */
 const OFFRAMP_BLOCKED: Record<string, RampProviderName[]> = {
-  KES: ["bitnob"],
+  // Empty. KES lived here from 2026-09-02 while Bitnob rejected `network: "SAFARICOM"` on
+  // Kenyan payouts; the value is now `mpesa`, taken from their published enum, and initialize
+  // runs before the user signs again — so a wrong value costs an error rather than a deposit.
 };
 
 function blockedProviders(currency: string): Set<string> {
