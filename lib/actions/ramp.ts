@@ -734,6 +734,19 @@ export async function getCurrencies() {
   return await Ramp.getCurrencies();
 }
 
+/** Currencies the deposit (on-ramp) form may offer — only corridors a provider can fulfil. */
+export async function getOnRampCurrencies() {
+  return await Ramp.getOnRampCurrencies();
+}
+
+/**
+ * Whether a deposit in this currency can be filled right now. Supported does not mean liquid —
+ * see Ramp.isOnRampAvailable.
+ */
+export async function isOnRampAvailable(currency: RampCurrency): Promise<boolean> {
+  return await Ramp.isOnRampAvailable(currency);
+}
+
 /**
  * Chains a withdrawal can settle USDC on. Drives withdrawal routing dynamically instead of a
  * hardcoded network list.

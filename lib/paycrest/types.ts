@@ -94,15 +94,24 @@ export interface PaycrestOrderResponse {
 }
 
 export interface PaycrestRate {
-  rate: number;
-  provider_id: string;
-  validUntil?: string;
+  /** Returned as a STRING, e.g. "1374.77". Coerce before doing arithmetic. */
+  rate: string | number;
+  /** The real field name, and it is a list — a corridor can have several liquidity providers. */
+  providerIds?: string[];
+  orderType?: string;
+  refundTimeoutMinutes?: number;
 }
 
 export interface PaycrestRateResponse {
   data: {
-    buy?: PaycrestRate; // Fiat -> Crypto
-    sell?: PaycrestRate; // Crypto -> Fiat
+    /**
+     * Fiat -> USDC. ABSENT when nobody is quoting that direction, which is how Paycrest signals
+     * that buying is unavailable for the corridor right now. Verified 2026-09-07: NGN and KES
+     * returned `buy`, TZS and UGX returned `sell` only.
+     */
+    buy?: PaycrestRate;
+    /** USDC -> fiat. */
+    sell?: PaycrestRate;
   };
 }
 

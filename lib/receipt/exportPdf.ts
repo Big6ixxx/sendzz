@@ -1,44 +1,47 @@
 'use client';
 
-import { AdminTransaction } from '@/types/admin';
-import { EXPLORER_TX_BASE } from '@/lib/explorers';
+import { AdminTransaction, ADMIN_DATE_RANGE_LABELS, type AdminDateRange } from '@/types/admin';
+import { explorerTxUrl, HOME_CHAIN } from '@/lib/explorers';
 import { format } from 'date-fns';
 import { PAGE_BG, FONT_STYLES } from './template';
-import { getTxHash, getChainInfo } from './txHelpers';
-
-type DateRange = '7d' | '30d' | '6m' | '1y' | 'all';
-
-const DATE_RANGE_LABELS: Record<DateRange, string> = {
-  '7d': '7 Days',
-  '30d': '1 Month',
-  '6m': '6 Months',
-  '1y': '1 Year',
-  all: 'All Time',
-};
+import { getTxHash, getChainInfoShareable } from './txHelpers';
 
 const LOGO_PATH = '/logo-black.svg';
 const ROWS_PER_PAGE = 22;
 
 // ─── Block explorers ──────────────────────────────────────────────────────────
-// Keyed by chain name (lowercase). Transfers have no chain so fall back to base.
 
-// Explorer bases come from lib/explorers — see EXPLORER_TX_BASE.
+/**
+ * The chain a row's primary hash settled on.
+ *
+ * Previously every non-bridge row was linked to Basescan on the assumption that "transfers,
+ * deposits and withdrawals all settle on Base". That stopped being true: 108 withdrawals and
+ * 92 deposits settled on Stellar, and those links pointed at a Base explorer that has never
+ * heard of the hash.
+ *
+ * Rows that predate multi-chain support carry no chain — those really are Base (HOME_CHAIN).
+ */
+function primaryChain(tx: AdminTransaction): string {
+  if (tx.tx_type === 'bridge') return tx.source_chain || HOME_CHAIN;
+  if (tx.tx_type === 'deposit') return tx.network || HOME_CHAIN;
+  if (tx.tx_type === 'withdrawal') return tx.source_chain || HOME_CHAIN;
+  return ('source_chain' in tx ? tx.source_chain : null) || HOME_CHAIN;
+}
 
 function explorerUrl(tx: AdminTransaction, hash: string): string {
   if (hash === '—' || !hash) return '';
-  // Bridge: burn hash lives on source_chain, mint hash on base (dest)
-  if (tx.tx_type === 'bridge') {
-    const chain = (tx.source_chain || 'base').toLowerCase();
-    return `${EXPLORER_TX_BASE[chain] ?? EXPLORER_TX_BASE.base}/${hash}`;
-  }
-  // Transfers, deposits, withdrawals all settle on Base
-  return `${EXPLORER_TX_BASE.base}/${hash}`;
+  return explorerTxUrl(primaryChain(tx), hash) ?? '';
 }
 
-function mintExplorerUrl(hash: string): string {
+/**
+ * A bridge's mint lands on the DESTINATION chain, not on Base. Hardcoding Base meant every
+ * bridge to Stellar, Arbitrum, Polygon, Optimism or Avalanche linked its mint hash to an
+ * explorer that could not resolve it.
+ */
+function mintExplorerUrl(tx: AdminTransaction, hash: string): string {
   if (!hash) return '';
-  // Mint always happens on Base (destination)
-  return `${EXPLORER_TX_BASE.base}/${hash}`;
+  const dest = tx.tx_type === 'bridge' ? tx.dest_chain : null;
+  return explorerTxUrl(dest || HOME_CHAIN, hash) ?? '';
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -74,13 +77,13 @@ function buildTablePage(
   rows: AdminTransaction[],
   pageIndex: number,
   logoSrc: string,
-  dateRange: DateRange,
+  dateRange: AdminDateRange,
   summary: { total: number; volume: number; byType: Record<string, number> },
   isFirstPage: boolean,
   subject?: string,
 ): { html: string; links: LinkMeta[] } {
   const generatedAt = format(new Date(), 'dd MMM yyyy, HH:mm') + ' UTC';
-  const rangeLabel = DATE_RANGE_LABELS[dateRange];
+  const rangeLabel = ADMIN_DATE_RANGE_LABELS[dateRange];
   const links: LinkMeta[] = [];
 
   const rowsHtml = rows
@@ -95,7 +98,7 @@ function buildTablePage(
       const mintId = `mint-${pageIndex}-${i}`;
 
       const burnUrl = explorerUrl(tx, hash);
-      const mintUrl = mintExplorerUrl(mintHash);
+      const mintUrl = mintExplorerUrl(tx, mintHash);
 
       if (burnUrl) links.push({ elementId: hashId, url: burnUrl });
       if (mintUrl && mintHash) links.push({ elementId: mintId, url: mintUrl });
@@ -115,7 +118,7 @@ function buildTablePage(
               </span>
             </div>` : ''}
           </td>
-          <td style="${tdBase}color:#555;font-size:9.5px;">${getChainInfo(tx)}</td>
+          <td style="${tdBase}color:#555;font-size:9.5px;">${getChainInfoShareable(tx)}</td>
           <td style="${tdBase}font-weight:700;font-size:11px;color:#1a1a1a;text-align:right;white-space:nowrap;">
             $${Number(tx.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
           </td>
@@ -199,7 +202,7 @@ function buildTablePage(
  */
 export async function exportTransactionsPDF(
   transactions: AdminTransaction[],
-  dateRange: DateRange,
+  dateRange: AdminDateRange,
   subject?: { label: string; slug?: string },
 ): Promise<void> {
   const settled = transactions.filter(isSettled);
@@ -212,7 +215,7 @@ export async function exportTransactionsPDF(
   document.head.appendChild(styleEl);
   if (document.fonts) await document.fonts.ready;
 
-  const { toPng } = await import('html-to-image');
+  const { toJpeg } = await import('html-to-image');
   const { jsPDF } = await import('jspdf');
 
   const summary = {
@@ -230,7 +233,7 @@ export async function exportTransactionsPDF(
   }
   if (pages.length === 0) pages.push([]);
 
-  const rangeLabel = DATE_RANGE_LABELS[dateRange].replace(' ', '_');
+  const rangeLabel = ADMIN_DATE_RANGE_LABELS[dateRange].replace(' ', '_');
   const generatedAt = format(new Date(), 'yyyy-MM-dd_HH-mm');
   const subjectSlug = subject
     ? `_${(subject.slug ?? subject.label).replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '')}`
@@ -281,9 +284,14 @@ export async function exportTransactionsPDF(
 
       const PIXEL_RATIO = 2;
 
-      const dataUrl = await toPng(pageEl, {
+      // JPEG, not PNG. A full-year export is ~40 pages, and a 2200x1550 PNG data URL runs
+      // 300-800KB each -- jsPDF holds every one until save(), so the tab ran out of memory and
+      // the download silently never happened. These pages are flat colour and text with no
+      // transparency, so JPEG at 0.92 is visually indistinguishable and roughly 8x smaller.
+      const dataUrl = await toJpeg(pageEl, {
         pixelRatio: PIXEL_RATIO,
         backgroundColor: PAGE_BG,
+        quality: 0.92,
         width: 1100,
       });
 
@@ -301,7 +309,7 @@ export async function exportTransactionsPDF(
         doc.addPage('a4', 'landscape');
       }
 
-      doc.addImage(dataUrl, 'PNG', 0, yOffset, imgW, imgH);
+      doc.addImage(dataUrl, 'JPEG', 0, yOffset, imgW, imgH);
 
       // Link coords are in CSS px (1x). Scale to mm accounting for pixelRatio.
       // img.naturalWidth = 1100 * PIXEL_RATIO, but imgW maps to PAGE_W_MM,
@@ -319,6 +327,10 @@ export async function exportTransactionsPDF(
     } finally {
       document.body.removeChild(container);
     }
+
+    // Hand the main thread back between pages. Without this a long export blocks rendering
+    // outright and the browser offers to kill the page.
+    await new Promise((r) => setTimeout(r, 0));
   }
 
   document.head.removeChild(styleEl);

@@ -2,7 +2,7 @@
 
 import { getAdminTransactions } from '@/lib/supabase/admin';
 import { cn } from '@/lib/utils';
-import { AdminTransaction } from '@/types/admin';
+import { AdminTransaction, ADMIN_DATE_RANGE_LABELS, type AdminDateRange } from '@/types/admin';
 import { exportTransactionsPDF } from '@/lib/receipt/exportPdf';
 import { getTxHash, getSecondaryHash, getChainInfo } from '@/lib/receipt/txHelpers';
 import { usePrivy } from '@privy-io/react-auth';
@@ -21,24 +21,14 @@ import {
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
-type DateRange = '7d' | '30d' | '6m' | '1y' | 'all';
-
 const ITEMS_PER_PAGE = 20;
-
-const DATE_RANGE_LABELS: Record<DateRange, string> = {
-  '7d': '7 Days',
-  '30d': '1 Month',
-  '6m': '6 Months',
-  '1y': '1 Year',
-  all: 'All Time',
-};
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function AdminTransactions() {
   const { user, getAccessToken } = usePrivy();
   const [filterType, setFilterType] = useState<string | null>(null);
-  const [dateRange, setDateRange] = useState<DateRange>('30d');
+  const [dateRange, setDateRange] = useState<AdminDateRange>('30d');
   const [search, setSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [exporting, setExporting] = useState(false);
@@ -123,7 +113,7 @@ export default function AdminTransactions() {
             Transactions
           </h1>
           <p className="text-white/40 mt-1 font-medium">
-            {filteredTransactions.length} transaction{filteredTransactions.length !== 1 ? 's' : ''} · {DATE_RANGE_LABELS[dateRange]}
+            {filteredTransactions.length} transaction{filteredTransactions.length !== 1 ? 's' : ''} · {ADMIN_DATE_RANGE_LABELS[dateRange]}
           </p>
         </div>
         <button
@@ -147,7 +137,7 @@ export default function AdminTransactions() {
       <div className="space-y-3">
         {/* Date range */}
         <div className="flex gap-2 overflow-x-auto pb-1">
-          {(Object.keys(DATE_RANGE_LABELS) as DateRange[]).map((range) => (
+          {(Object.keys(ADMIN_DATE_RANGE_LABELS) as AdminDateRange[]).map((range) => (
             <button
               key={range}
               onClick={() => { setDateRange(range); setCurrentPage(1); }}
@@ -158,7 +148,7 @@ export default function AdminTransactions() {
                   : 'bg-white/3 border-white/8 text-white/30 hover:border-white/15 hover:text-white/60',
               )}
             >
-              {DATE_RANGE_LABELS[range]}
+              {ADMIN_DATE_RANGE_LABELS[range]}
             </button>
           ))}
         </div>

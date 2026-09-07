@@ -529,16 +529,18 @@ export class BitnobProvider implements RampProvider {
       reference,
     });
 
-    // 3. The beneficiary is attached later, once the deposit is provably here.
+    // 3. Attach the beneficiary now, which is what creates the payout.
     //
-    // Bitnob checks our float at `initialize`, so attaching a beneficiary before the money
-    // arrives caps every withdrawal at whatever we happen to be holding. Waiting makes the
-    // user's own USDC the funding — see `defersInitialize` for why this applies to every chain,
-    // and `lib/ramp/deferred-settle` for the verification that follows.
+    // `initialize` returns a `payment_address` bound to this payout, and that is the address
+    // the user funds. Doing it here means a bad beneficiary — a wrong network value, an
+    // unverifiable account — is refused BEFORE the user signs anything, so it costs an error
+    // rather than a stranded deposit.
     //
-    // The trade, accepted deliberately: a failure now lands AFTER the user's money has left, so
-    // it owes a refund rather than an apology. `finalize_withdrawal_failed` records that as
-    // `refund_owed_usdc` (migration 039) and the reconcile cron alerts on it as STRANDED.
+    // Stellar is the exception (`defersInitialize`): Bitnob returns one static company account
+    // there, so nothing ties a deposit to a payout and the deposit has to land first. That path
+    // does accept the trade — a failure after the money has moved owes a refund, recorded as
+    // `refund_owed_usdc` (migration 039) and alerted on by the reconcile cron as STRANDED —
+    // which is why it is confined to the one chain that cannot avoid it.
     const deferInitialize = defersInitialize(params.network);
 
     let receiveAddress = address.address;

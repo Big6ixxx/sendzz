@@ -18,6 +18,7 @@ import { calculatePaycrestBaseAmount } from "@/lib/paycrest/config";
 import { BankSelector } from "./BankSelector";
 import { DepositNetworkAccordion } from "./DepositNetworkAccordion";
 import { useDepositWithdraw } from "./useDepositWithdraw";
+import { useOnRampAvailability } from "@/lib/hooks/useOnRampAvailability";
 import { ReceiptActions } from "@/components/receipt/ReceiptActions";
 import { ReceiptData } from "@/lib/receipt/types";
 
@@ -27,6 +28,8 @@ interface DepositFormProps {
 
 export function DepositForm({ hook }: DepositFormProps) {
   const [secondsLeft, setSecondsLeft] = React.useState<number | null>(null);
+  // A corridor can be supported for payouts yet have nobody selling USDC into it today.
+  const { unavailable: depositUnavailable } = useOnRampAvailability(hook.fiatCurrency);
 
   const estimatedUsdc =
     hook.rate && hook.amount
@@ -50,6 +53,23 @@ export function DepositForm({ hook }: DepositFormProps) {
   if (hook.step === 1) {
     return (
       <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        {depositUnavailable && (
+          <div className="card-glass p-4 border-amber-500/20 bg-amber-500/2 flex gap-3">
+            <div className="p-2 h-fit rounded-lg bg-amber-500/10">
+              <AlertCircle className="w-4 h-4 text-amber-400" />
+            </div>
+            <div className="space-y-1">
+              <h5 className="text-xs font-bold text-amber-400 uppercase tracking-widest">
+                Deposits Unavailable
+              </h5>
+              <p className="text-[11px] text-white/40 leading-relaxed font-medium">
+                {hook.fiatCurrency} deposits are paused right now. Try another currency or check
+                back shortly.
+              </p>
+            </div>
+          </div>
+        )}
+
         <div className="space-y-4">
           <div>
             <div className="flex items-center justify-between mb-1.5">
@@ -61,6 +81,10 @@ export function DepositForm({ hook }: DepositFormProps) {
                 onChange={hook.setFiatCurrency}
                 includeUsd={false}
                 size="sm"
+                /* Only corridors an on-ramp provider can actually fulfil. Without this the
+                   list came from Bitnob, which has no fiat on-ramp, so a user could pick a
+                   currency that only failed once they had entered an amount. */
+                scope="onramp"
               />
             </div>
             <div className="relative">
@@ -157,6 +181,7 @@ export function DepositForm({ hook }: DepositFormProps) {
           disabled={
             hook.loading ||
             hook.rateLoading ||
+            depositUnavailable ||
             !hook.amount ||
             !hook.bankDetails.accountName
           }

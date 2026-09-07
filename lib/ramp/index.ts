@@ -463,6 +463,45 @@ export const Ramp = {
     return withFallback("currencies", (p) => p.getCurrencies());
   },
 
+  /**
+   * Currencies a user can actually DEPOSIT from.
+   *
+   * Routed by the `onRamp` capability rather than `currencies`, which is the whole point: the
+   * general list comes from the primary provider (Bitnob) and is much longer, but Bitnob has no
+   * fiat on-ramp — `createOnRampOrder` throws RampUnsupportedError. Offering its full catalogue
+   * let people pick a corridor that could only fail at order time, after they had entered an
+   * amount. Asking by capability returns the list from the provider that would really serve the
+   * order.
+   */
+  getOnRampCurrencies(): Promise<{ data: RampCurrencyDetail[] }> {
+    return withFallback("onRamp", (p) => p.getCurrencies());
+  },
+
+  /**
+   * Can a user actually BUY USDC with this currency right now?
+   *
+   * Being a supported corridor is not the same as being a liquid one. Paycrest quotes each
+   * direction independently and simply omits `buy` when nobody is offering that side, so a
+   * corridor can accept withdrawals all day and take no deposits at all. Verified 2026-09-07:
+   * NGN and KES quoted `buy`; TZS and UGX returned `sell` only.
+   *
+   * This changes with liquidity, so it is a live check, not a static list. On a network error we
+   * return true: blocking a deposit because a rate lookup blipped is worse than letting the
+   * order attempt and fail with a real message.
+   */
+  async isOnRampAvailable(
+    currency: RampCurrency,
+    amount = 100,
+  ): Promise<boolean> {
+    try {
+      const rates = await withFallback("onRamp", (p) => p.getRates(amount, currency));
+      return rates.data.buy != null;
+    } catch (err) {
+      console.error(`[Ramp] buy-availability check failed for ${currency}:`, err);
+      return true;
+    }
+  },
+
   /** Chains the active off-ramp provider can settle on (drives withdrawal routing). */
   getSettlementNetworks(): Promise<string[]> {
     return withFallback("offRamp", (p) => p.getSettlementNetworks());

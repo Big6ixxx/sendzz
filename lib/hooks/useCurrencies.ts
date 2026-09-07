@@ -1,14 +1,20 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { getCurrencies } from '@/lib/actions/ramp';
+import { getCurrencies, getOnRampCurrencies } from '@/lib/actions/ramp';
 import { FiatCurrency, getCurrencyFlag } from '@/lib/currency-config';
 
-export function useCurrencies() {
+/**
+ * `'all'` is every corridor we quote. `'onramp'` is the shorter list a deposit can actually be
+ * fulfilled in — see Ramp.getOnRampCurrencies.
+ */
+export type CurrencyScope = 'all' | 'onramp';
+
+export function useCurrencies(scope: CurrencyScope = 'all') {
   return useQuery({
-    queryKey: ['currencies'],
+    queryKey: ['currencies', scope],
     queryFn: async () => {
-      const res = await getCurrencies();
+      const res = scope === 'onramp' ? await getOnRampCurrencies() : await getCurrencies();
       
       const formatted: FiatCurrency[] = res.data.map((c) => ({
         code: c.code,

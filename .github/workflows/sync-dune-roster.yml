@@ -1,0 +1,40 @@
+name: Sync Dune roster
+
+# Publishes our wallet addresses to Dune so the public dashboard can scope on-chain queries to
+# Sendzz users. See app/api/cron/sync-dune-roster/route.ts for why a roster is needed at all.
+#
+# Unlike the reconcile job, GitHub is the PRIMARY schedule here, not a backstop. Nothing about
+# this is time-critical: a new signup appearing within a day is fine, and there is no quote
+# expiring in the background. So there is no reason to also configure it in Coolify.
+#
+# Daily at 03:00 UTC — off-peak, and after any overnight signups.
+#
+# Setup: reuses the SAME two secrets the reconcile workflow already uses. Nothing new to add.
+#   • Secret  DEPLOY_URL   – deployment origin, e.g. https://app.sendzz.io
+#   • Secret  CRON_SECRET  – same value as the CRON_SECRET env var in Coolify
+#
+# The deployment also needs DUNE_API_KEY set (Coolify → env). Without it the route returns 503
+# and this job fails loudly, which is the intended behaviour: a silent skip would let the
+# published roster drift while looking healthy.
+#
+# NOTE: keeping the roster current does NOT by itself put new users on the dashboard. The EVM
+# queries carry their addresses inline for speed, so they need regenerating separately. See
+# dune/README.md — "The one maintenance task".
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish wallet roster to Dune
+        run: |
+          code=$(curl -sS -o /tmp/body -w '%{http_code}' \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.DEPLOY_URL }}/api/cron/sync-dune-roster")
+          echo "HTTP $code"
+          cat /tmp/body
+          test "$code" = "200"

@@ -11,7 +11,7 @@ import {
   type FiatCurrencyCode,
   getCurrencyFlag,
 } from '@/lib/currency-config';
-import { useCurrencies } from '@/lib/hooks/useCurrencies';
+import { useCurrencies, type CurrencyScope } from '@/lib/hooks/useCurrencies';
 import { ChevronDown, Loader2, Search } from 'lucide-react';
 import * as React from 'react';
 
@@ -22,6 +22,8 @@ type CurrencySelectorPropsWithUsd = {
   onChange: (currency: 'USD' | FiatCurrencyCode) => void;
   includeUsd?: true;
   size?: 'sm' | 'md';
+  /** `'onramp'` narrows the list to corridors a deposit can actually be fulfilled in. */
+  scope?: CurrencyScope;
 };
 
 type CurrencySelectorPropsWithoutUsd = {
@@ -29,6 +31,8 @@ type CurrencySelectorPropsWithoutUsd = {
   onChange: (currency: FiatCurrencyCode) => void;
   includeUsd: false;
   size?: 'sm' | 'md';
+  /** `'onramp'` narrows the list to corridors a deposit can actually be fulfilled in. */
+  scope?: CurrencyScope;
 };
 
 type CurrencySelectorProps =
@@ -40,8 +44,9 @@ export function CurrencySelector({
   onChange,
   includeUsd = true,
   size = 'sm',
+  scope = 'all',
 }: CurrencySelectorProps) {
-  const { data: currencies, isLoading } = useCurrencies();
+  const { data: currencies, isLoading } = useCurrencies(scope);
   const [search, setSearch] = React.useState('');
 
   const allOptions = [

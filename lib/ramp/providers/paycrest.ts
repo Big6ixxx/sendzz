@@ -6,7 +6,7 @@
 import { getPaycrestClient } from "@/lib/paycrest/client";
 import { calculatePaycrestBaseAmount } from "@/lib/paycrest/config";
 import { getProviderFee } from "../fees";
-import type { PaycrestNetwork, PaycrestOrderResponse } from "@/lib/paycrest/types";
+import type { PaycrestNetwork, PaycrestOrderResponse, PaycrestRate } from "@/lib/paycrest/types";
 import type { RampProvider } from "../provider";
 import type {
   CreateOffRampParams,
@@ -19,6 +19,7 @@ import type {
   RampInstitution,
   RampOrderResponse,
   RampOrderStatus,
+  RampRate,
   RampRateResponse,
   RampVerifyAccountResponse,
 } from "../types";
@@ -92,6 +93,12 @@ function mapOrder(o: PaycrestOrderResponse): RampOrderResponse {
     settlementTxHash: o.settlementTxHash,
     transactionHash: o.transactionHash,
   };
+}
+
+/** Paycrest's rate payload -> the provider-neutral shape. Undefined when the side is absent. */
+function toRampRate(r: PaycrestRate | undefined): RampRate | undefined {
+  if (!r) return undefined;
+  return { rate: Number(r.rate), provider_id: r.providerIds?.[0] ?? "paycrest" };
 }
 
 export class PaycrestProvider implements RampProvider {
@@ -291,7 +298,10 @@ export class PaycrestProvider implements RampProvider {
   async getRates(amount: number, fiat: RampCurrency): Promise<RampRateResponse> {
     const paycrest = getPaycrestClient();
     const res = await paycrest.getRates("base", "USDC", amount, fiat);
-    return { data: { buy: res.data.buy, sell: res.data.sell } };
+    // Map rather than pass through: Paycrest returns `rate` as a string and `providerIds` as an
+    // array, while RampRate wants a number and a single `provider_id`. The old spread silently
+    // produced `provider_id: undefined`, which is why priceSource always read "ramp".
+    return { data: { buy: toRampRate(res.data.buy), sell: toRampRate(res.data.sell) } };
   }
 
   async verifyAccount(
