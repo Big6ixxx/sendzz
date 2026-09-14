@@ -27,6 +27,20 @@ export const USDC_ADDRESSES: Record<SupportedChain, string> = {
   polygon: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
 };
 
+/**
+ * Every EVM chain we can read USDC movement on.
+ *
+ * Deliberately NOT the same as `EVM_CHAINS` in lib/web3/routing.ts, which is the narrower set we
+ * can transact on and excludes Ethereum L1. This one is derived from the USDC address map so the
+ * two cannot drift: if a chain has a USDC contract here, it is scannable and verifiable.
+ */
+export const EVM_USDC_CHAINS = Object.keys(USDC_ADDRESSES) as SupportedChain[];
+
+/** Can we read USDC transfers on this chain? Takes a plain string, so callers need no cast. */
+export function isEvmUsdcChain(chain: string): boolean {
+  return (EVM_USDC_CHAINS as readonly string[]).includes(chain.toLowerCase());
+}
+
 export const CHAIN_NAMES: Record<SupportedChain, string> = {
   ethereum: 'Ethereum',
   avalanche: 'Avalanche',
@@ -244,6 +258,16 @@ export interface AttestationResponse {
   messageBytes?: string;
   /** Returned when Circle's relayer has submitted the mint tx */
   mintTxHash?: string;
+  /**
+   * Destination block after which this signature is refused, or 0 when it never expires.
+   *
+   * Only fast transfers carry one. Circle charges a fee to attest before source finality, and
+   * bounds its own risk by making that attestation short-lived — so a fast transfer that is not
+   * claimed within the window becomes permanently unclaimable until it is re-attested.
+   */
+  expirationBlock?: number;
+  /** CCTP v2 event nonce. Identifies the message to `reattestMessage`. */
+  nonce?: string;
 }
 
 /**
@@ -272,6 +296,8 @@ export async function fetchAttestation(
         attestation?: string;
         message?: string;
         forwardTxHash?: string;
+        eventNonce?: string;
+        decodedMessage?: { decodedMessageBody?: { expirationBlock?: number | string } };
       }[];
     };
     const message = data.messages?.[0];
@@ -287,9 +313,56 @@ export async function fetchAttestation(
         ? (message.message.startsWith('0x') ? message.message : `0x${message.message}`)
         : undefined,
       mintTxHash: message.forwardTxHash,
+      expirationBlock: Number(
+        message.decodedMessage?.decodedMessageBody?.expirationBlock ?? 0,
+      ),
+      nonce: message.eventNonce,
     };
   } catch (err) {
     console.error('[Circle Gateway] fetchAttestation error:', err);
     return { status: 'pending' };
+  }
+}
+
+/**
+ * Ask Circle to sign an expired message again.
+ *
+ * A fast transfer's attestation is only valid until `expirationBlock`. Past it the signature is
+ * refused by MessageTransmitter forever — the USDC is already burned, so without this the funds
+ * are simply stranded. Re-attestation reissues the same message with `expirationBlock: 0`, which
+ * never expires, and leaves everything the user cares about untouched: same nonce, same amount,
+ * same recipient, all baked into the message Circle signs.
+ *
+ * Returns true only when Circle has actually agreed to reissue — the caller's signal that the
+ * signature in hand is stale and a replacement is coming.
+ *
+ * Calling this when there is nothing to reissue is harmless but NOT a no-op. Circle answers
+ * 400 "Message is already finalized" for one that has been consumed or already carries a
+ * non-expiring signature. That is a benign answer rather than a fault — the message needs
+ * nothing — so it is logged quietly and returns false, which reads correctly as "no reissue is
+ * pending". Verified against the live API; an earlier version of this comment claimed Circle
+ * no-ops on a repeat call, and it does not.
+ */
+export async function reattestMessage(nonce: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${IRIS_API_BASE}/reattest/${nonce}`, { method: 'POST' });
+    if (res.ok) {
+      console.log(`[Circle Gateway] re-attested expired message ${nonce}`);
+      return true;
+    }
+
+    const body = await res.text();
+
+    // Nothing to reissue. The claim is not broken, so this must not read as an error.
+    if (/already finalized|cannot re-attest/i.test(body)) {
+      console.log(`[Circle Gateway] ${nonce.slice(0, 14)} needs no re-attestation.`);
+      return false;
+    }
+
+    console.error(`[Circle Gateway] reattest ${nonce} refused: ${res.status} ${body}`);
+    return false;
+  } catch (err) {
+    console.error('[Circle Gateway] reattest error:', err);
+    return false;
   }
 }

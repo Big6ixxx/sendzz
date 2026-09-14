@@ -31,7 +31,7 @@
  */
 import { supabaseAdmin } from '@/lib/supabase/adminClient';
 import type { Json } from '@/types/database';
-import { USDC_ADDRESSES, type SupportedChain } from '@/lib/circle/gateway';
+import { EVM_USDC_CHAINS, USDC_ADDRESSES, type SupportedChain } from '@/lib/circle/gateway';
 import {
   Connection,
   PublicKey,
@@ -40,6 +40,7 @@ import {
   type PartiallyDecodedInstruction,
 } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
+import { STELLAR_HORIZON_URL, STELLAR_USDC_ISSUER } from '@/lib/stellar/config';
 
 /** Alchemy Transfers API subdomain per chain. */
 const ALCHEMY_SUBDOMAIN: Record<SupportedChain, string> = {
@@ -51,17 +52,12 @@ const ALCHEMY_SUBDOMAIN: Record<SupportedChain, string> = {
   base: 'base-mainnet',
 };
 
-const SCAN_CHAINS = Object.keys(USDC_ADDRESSES) as SupportedChain[];
 const SOLANA_USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 const SOLANA_RPC =
   process.env.SOLANA_RPC_URL ??
   process.env.NEXT_PUBLIC_SOLANA_RPC_URL ??
   'https://api.mainnet-beta.solana.com';
 
-const STELLAR_HORIZON_URL =
-  process.env.NEXT_PUBLIC_STELLAR_HORIZON_URL ?? 'https://horizon.stellar.org';
-/** Circle's USDC classic asset issuer on Stellar mainnet. */
-const STELLAR_USDC_ISSUER = 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
 /**
  * Soroban contracts that hand USDC to a user as part of a CCTP delivery, not a payment.
  * The forwarder is what `/api/stellar/claim` invokes; the token messenger covers a direct mint.
@@ -129,10 +125,10 @@ async function insertDeposits(rows: DepositRow[]): Promise<number> {
     .upsert(rows, { onConflict: 'user_id,tx_hash', ignoreDuplicates: true })
     .select('id, user_id, amount_usdc, tx_hash, network');
 
-  if (error) {
-    console.error('[DepositScan] insert failed:', error.message);
-    return 0;
-  }
+  // THROWS rather than returning 0: the caller must be able to tell a failure from "nothing
+  // new", because it withholds the cursor on failure. Returning 0 for both is what let the
+  // cursor advance past deposits that were never stored.
+  if (error) throw new Error(error.message);
 
   // Trigger deposit notification email for each newly inserted deposit
   if (data && data.length > 0) {
@@ -172,6 +168,18 @@ async function readCursors(userId: string): Promise<Map<string, string | null>> 
   const map = new Map<string, string | null>();
   for (const r of data ?? []) map.set(r.chain, r.cursor);
   return map;
+}
+
+/**
+ * What a chain scan produced: the rows to insert, and the cursor position those rows justify.
+ *
+ * `nextCursor` is DELIBERATELY not written by the scanner. It is handed back so the orchestrator
+ * can persist it only after the rows are safely in the database — see scanUsdcDeposits.
+ */
+interface ChainScan {
+  chain: string;
+  rows: DepositRow[];
+  nextCursor: string | null;
 }
 
 async function writeCursor(userId: string, chain: string, cursor: string): Promise<void> {
@@ -254,7 +262,7 @@ async function scanEvmChain(
   apiKey: string,
   cursor: string | null,
   known: Set<string>,
-): Promise<DepositRow[]> {
+): Promise<ChainScan> {
   // First scan of this chain → deep-backfill from genesis; otherwise resume at the cursor block.
   const fromBlockHex = cursor ? `0x${BigInt(cursor).toString(16)}` : '0x0';
   const transfers = await fetchIncomingUsdc(chain, address, fromBlockHex, apiKey);
@@ -284,10 +292,15 @@ async function scanEvmChain(
     });
   }
 
-  // Advance the cursor to the newest block we saw (decimal). Re-including that block next scan
-  // is fine — dedupe handles the overlap. On an empty range the cursor is unchanged.
-  if (transfers.length > 0) await writeCursor(userId, chain, maxBlock.toString());
-  return rows;
+  // The cursor is RETURNED, not written. Writing it here — before the rows were inserted — is
+  // how deposits were silently lost: the insert could fail, the caller only logged it, and the
+  // next scan started past blocks that had never been recorded. Re-reading the newest block on
+  // the following scan is harmless; dedupe handles the overlap.
+  return {
+    chain,
+    rows,
+    nextCursor: transfers.length > 0 ? maxBlock.toString() : null,
+  };
 }
 
 // ─── Solana ──────────────────────────────────────────────────────────────────
@@ -325,7 +338,7 @@ async function scanSolana(
   ownerAddress: string,
   cursor: string | null,
   known: Set<string>,
-): Promise<DepositRow[]> {
+): Promise<ChainScan> {
   const conn = new Connection(SOLANA_RPC, 'confirmed');
   const owner = new PublicKey(ownerAddress);
   const ata = getAssociatedTokenAddressSync(SOLANA_USDC_MINT, owner, true);
@@ -335,7 +348,7 @@ async function scanSolana(
     ...(cursor ? { until: cursor } : {}),
     limit: 1000,
   });
-  if (sigInfos.length === 0) return [];
+  if (sigInfos.length === 0) return { chain: 'solana', rows: [], nextCursor: null };
   const chronological = [...sigInfos].reverse();
   const batch = chronological.slice(0, SOL_MAX_TX); // chunk backfill across scans
 
@@ -375,9 +388,12 @@ async function scanSolana(
     }
   }
 
-  // Advance cursor to the newest signature we processed this batch (chronological last).
-  if (lastProcessed && lastProcessed !== cursor) await writeCursor(userId, 'solana', lastProcessed);
-  return rows;
+  // Returned, not written — persisted by the orchestrator once the rows are safely inserted.
+  return {
+    chain: 'solana',
+    rows,
+    nextCursor: lastProcessed && lastProcessed !== cursor ? lastProcessed : null,
+  };
 }
 
 // ─── Stellar ─────────────────────────────────────────────────────────────────
@@ -451,7 +467,7 @@ async function scanStellar(
   address: string,
   cursor: string | null,
   known: Set<string>,
-): Promise<DepositRow[]> {
+): Promise<ChainScan> {
   // Sum per transaction: several payment operations can share one hash, and `tx_hash` is
   // what history dedupes on, so they have to land as a single deposit rather than the first.
   const byHash = new Map<string, DepositRow>();
@@ -462,7 +478,8 @@ async function scanStellar(
       `${STELLAR_HORIZON_URL}/accounts/${address}/payments` +
       `?order=asc&limit=200&include_failed=false${pageCursor ? `&cursor=${pageCursor}` : ''}`;
     const res = await fetch(url);
-    if (res.status === 404) return []; // account not funded yet — nothing to scan
+    // account not funded yet — nothing to scan
+    if (res.status === 404) return { chain: 'stellar', rows: [], nextCursor: null };
     if (!res.ok) throw new Error(`Horizon payments ${res.status}`);
 
     const json = (await res.json()) as { _embedded?: { records?: HorizonPayment[] } };
@@ -498,8 +515,12 @@ async function scanStellar(
     if (records.length < 200) break; // caught up
   }
 
-  if (pageCursor && pageCursor !== cursor) await writeCursor(userId, 'stellar', pageCursor);
-  return [...byHash.values()];
+  // Returned, not written — persisted by the orchestrator once the rows are safely inserted.
+  return {
+    chain: 'stellar',
+    rows: [...byHash.values()],
+    nextCursor: pageCursor && pageCursor !== cursor ? pageCursor : null,
+  };
 }
 
 // ─── Orchestrator ─────────────────────────────────────────────────────────────
@@ -527,15 +548,17 @@ export async function scanUsdcDeposits(params: {
 
   const [cursors, known] = await Promise.all([readCursors(userId), knownHashes(userId)]);
 
-  const batches = await Promise.all([
+  const EMPTY = (chain: string): ChainScan => ({ chain, rows: [], nextCursor: null });
+
+  const scans = await Promise.all([
     // EVM chains (parallel, per-chain best-effort)
     ...(apiKey && address
-      ? SCAN_CHAINS.map(async (chain) => {
+      ? EVM_USDC_CHAINS.map(async (chain) => {
           try {
             return await scanEvmChain(userId, chain, address, apiKey, cursors.get(chain) ?? null, known);
           } catch (e) {
             console.error('[DepositScan]', e instanceof Error ? e.message : e);
-            return [] as DepositRow[];
+            return EMPTY(chain);
           }
         })
       : []),
@@ -546,10 +569,10 @@ export async function scanUsdcDeposits(params: {
             return await scanSolana(userId, params.solanaAddress!, cursors.get('solana') ?? null, known);
           } catch (e) {
             console.error('[DepositScan] solana:', e instanceof Error ? e.message : e);
-            return [] as DepositRow[];
+            return EMPTY('solana');
           }
         })()
-      : Promise.resolve([] as DepositRow[]),
+      : Promise.resolve(EMPTY('solana')),
     // Stellar
     params.stellarAddress
       ? (async () => {
@@ -557,21 +580,46 @@ export async function scanUsdcDeposits(params: {
             return await scanStellar(userId, params.stellarAddress!, cursors.get('stellar') ?? null, known);
           } catch (e) {
             console.error('[DepositScan] stellar:', e instanceof Error ? e.message : e);
-            return [] as DepositRow[];
+            return EMPTY('stellar');
           }
         })()
-      : Promise.resolve([] as DepositRow[]),
+      : Promise.resolve(EMPTY('stellar')),
   ]);
 
   // Dedupe across chains (same hash shouldn't appear twice) and insert.
   const seen = new Set<string>();
-  const rows = batches.flat().filter((r) => {
+  const rows = scans.flatMap((b) => b.rows).filter((r) => {
     if (seen.has(r.tx_hash)) return false;
     seen.add(r.tx_hash);
     return true;
   });
 
-  const inserted = await insertDeposits(rows);
+  // ── Insert FIRST, advance cursors only after ────────────────────────────────
+  //
+  // The cursor used to be written inside each chain scan, before these rows existed in the
+  // database. When the insert then failed the caller only logged it, and the next scan resumed
+  // past blocks that had never been recorded — the deposit was lost permanently and silently.
+  //
+  // Now a cursor is persisted only once its rows are durably stored. A failed insert leaves the
+  // cursor where it was, so the next scan re-reads the same window and tries again; the unique
+  // index on (user_id, tx_hash) makes that retry harmless.
+  let inserted = 0;
+  try {
+    inserted = await insertDeposits(rows);
+  } catch (e) {
+    console.error(
+      `[DepositScan] insert failed for ${userId} — cursors NOT advanced, ` +
+        `${rows.length} deposit(s) will be retried next scan:`,
+      e instanceof Error ? e.message : e,
+    );
+    return 0;
+  }
+
+  await Promise.all(
+    scans
+      .filter((b) => b.nextCursor)
+      .map((b) => writeCursor(userId, b.chain, b.nextCursor!)),
+  );
 
   // Mark this user scanned so the reconcile cron rotates fairly (least-recently-scanned first).
   await supabaseAdmin

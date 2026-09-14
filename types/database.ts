@@ -112,6 +112,78 @@ export interface Database {
         };
         Relationships: [];
       };
+      user_sessions: {
+        Row: {
+          id: string;
+          user_id: string;
+          session_id: string;
+          created_at: string;
+          last_active_at: string;
+          revoked_at: string | null;
+          user_agent: string | null;
+          ip: string | null;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          session_id: string;
+          created_at?: string;
+          last_active_at?: string;
+          revoked_at?: string | null;
+          user_agent?: string | null;
+          ip?: string | null;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          session_id?: string;
+          created_at?: string;
+          last_active_at?: string;
+          revoked_at?: string | null;
+          user_agent?: string | null;
+          ip?: string | null;
+        };
+        Relationships: [];
+      };
+      pending_sends: {
+        Row: {
+          id: string;
+          tx_hash: string;
+          user_id: string;
+          chain: string;
+          sender_email: string;
+          recipient: string;
+          amount: number;
+          note: string | null;
+          created_at: string;
+          expires_at: string;
+        };
+        Insert: {
+          id?: string;
+          tx_hash: string;
+          user_id: string;
+          chain: string;
+          sender_email: string;
+          recipient: string;
+          amount: number;
+          note?: string | null;
+          created_at?: string;
+          expires_at: string;
+        };
+        Update: {
+          id?: string;
+          tx_hash?: string;
+          user_id?: string;
+          chain?: string;
+          sender_email?: string;
+          recipient?: string;
+          amount?: number;
+          note?: string | null;
+          created_at?: string;
+          expires_at?: string;
+        };
+        Relationships: [];
+      };
       user_profiles: {
         Row: {
           id: string;
@@ -130,6 +202,16 @@ export interface Database {
           pin_set_at: string | null;
           pin_failed_attempts: number;
           pin_locked_until: string | null;
+          email_notif_transfer: boolean;
+          email_notif_deposit: boolean;
+          email_notif_withdrawal: boolean;
+          email_notif_bridge: boolean;
+          email_notif_security: boolean;
+          push_notif_transfer: boolean;
+          push_notif_deposit: boolean;
+          push_notif_withdrawal: boolean;
+          push_notif_bridge: boolean;
+          push_notif_security: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -150,6 +232,16 @@ export interface Database {
           pin_set_at?: string | null;
           pin_failed_attempts?: number;
           pin_locked_until?: string | null;
+          email_notif_transfer?: boolean;
+          email_notif_deposit?: boolean;
+          email_notif_withdrawal?: boolean;
+          email_notif_bridge?: boolean;
+          email_notif_security?: boolean;
+          push_notif_transfer?: boolean;
+          push_notif_deposit?: boolean;
+          push_notif_withdrawal?: boolean;
+          push_notif_bridge?: boolean;
+          push_notif_security?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -170,6 +262,16 @@ export interface Database {
           pin_set_at?: string | null;
           pin_failed_attempts?: number;
           pin_locked_until?: string | null;
+          email_notif_transfer?: boolean;
+          email_notif_deposit?: boolean;
+          email_notif_withdrawal?: boolean;
+          email_notif_bridge?: boolean;
+          email_notif_security?: boolean;
+          push_notif_transfer?: boolean;
+          push_notif_deposit?: boolean;
+          push_notif_withdrawal?: boolean;
+          push_notif_bridge?: boolean;
+          push_notif_security?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -815,6 +917,21 @@ export interface Database {
       };
     };
     Views: {
+      // Device sessions with idle time measured by Postgres (migration 048), so expiry is
+      // decided against one clock rather than the app server's.
+      user_sessions_state: {
+        Row: {
+          id: string;
+          user_id: string;
+          session_id: string;
+          created_at: string;
+          last_active_at: string;
+          revoked_at: string | null;
+          user_agent: string | null;
+          idle_seconds: number | null;
+        };
+        Relationships: [];
+      };
       // Anonymized, PII-free union of all transaction tables (migration 031).
       // Read-only source for the public /explore dashboard.
       public_transaction_feed: {
@@ -837,6 +954,11 @@ export interface Database {
       };
     };
     Functions: {
+      // Extends a device session using Postgres `now()` (migration 048).
+      touch_user_session: {
+        Args: { p_session_id: string };
+        Returns: undefined;
+      };
       // Public dashboard aggregates (migration 031). Return JSON blobs.
       get_public_stats: {
         Args: Record<string, never>;

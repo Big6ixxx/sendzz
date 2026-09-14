@@ -23,6 +23,7 @@ import { EVM_CHAINS } from "@/lib/web3/routing";
 import { executeSmartBridge } from "@/lib/web3/bridge-actions";
 import { prepareSolanaBurnTx } from "@/lib/web3/solana-bridge";
 import { claimBridgeOnDestination } from "@/lib/web3/bridge-claim";
+import { refreshExpiredBridgeClaim } from "@/lib/supabase/transactions";
 import { classifyAppError } from "@/lib/errors/appErrors";
 import { explorerTxUrl } from "@/lib/explorers";
 import { cn } from "@/lib/utils";
@@ -305,9 +306,17 @@ export function ChainBridgeModule({
                   return;
                 }
 
-                // The burn is already on-chain and the attestation never expires, so
-                // the claim is always safe to retry — the interval keeps trying. Warn
-                // the user once instead of once per five-second tick.
+                // An expired signature is the one failure retrying cannot fix: it reverts on
+                // every attempt until Circle signs the message again. Ask for that once, then
+                // let the loop carry on — the reissued attestation arrives within a minute and
+                // the next tick claims it normally.
+                if (classified.category === "attestation_expired") {
+                  await refreshExpiredBridgeClaim(monitor.burnTxHash);
+                }
+
+                // Every other failure here is safe to retry: the burn is on-chain and the money
+                // is owed regardless. The interval keeps trying. Warn the user once instead of
+                // once per five-second tick.
                 if (!classified.isSilent && !claimErrorNotifiedRef.current) {
                   claimErrorNotifiedRef.current = true;
                   toast.error(classified.message);

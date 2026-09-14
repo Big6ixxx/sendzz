@@ -528,6 +528,12 @@ export default function SettingsPage() {
           onClick: () => router.push("/dashboard/settings/notifications"),
         },
         {
+          label: "Devices",
+          value: "See where you are signed in and sign out a lost device",
+          icon: Smartphone,
+          onClick: () => router.push("/dashboard/settings/devices"),
+        },
+        {
           // Always offered while the app is not installed. The browser's own banner appears
           // once, unbidden, and never returns once dismissed — so this is the only place a
           // user who said "not now" can come back to.

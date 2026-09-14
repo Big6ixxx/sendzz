@@ -294,7 +294,7 @@ function RefundCard({
                 value={hashInput}
                 onChange={(e) => setHashInput(e.target.value)}
                 placeholder="Refund transaction hash"
-                className="flex-1 min-w-[220px] text-[11.5px] px-3 py-2.5 rounded-xl outline-none font-mono"
+                className="flex-1 min-w-[220px] text-base md:text-[11.5px] px-3 py-2.5 rounded-xl outline-none font-mono"
                 style={{
                   background: 'rgba(255,255,255,0.05)',
                   border: '1px solid rgba(255,255,255,0.08)',

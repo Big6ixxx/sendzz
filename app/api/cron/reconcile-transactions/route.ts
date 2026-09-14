@@ -1,4 +1,5 @@
 import { Database } from '@/types/database';
+import { rejectUnauthorizedCron } from '@/lib/auth/cron';
 import { getBitnobClient, hasSharedDepositAddress } from '@/lib/bitnob/client';
 import { openBeneficiary } from '@/lib/ramp/beneficiary-vault';
 import { completeDeferredPayout } from '@/lib/ramp/deferred-settle';
@@ -36,14 +37,12 @@ const DEPOSIT_SCAN_BUDGET_MS = 200_000;
  * backstop. The cadence is not cosmetic: a payout quote lives about 16 minutes, so anything
  * slower can only record a failure rather than prevent one.
  *
- * If CRON_SECRET is unset the endpoint is OPEN — set it in both places or neither is protected.
+ * If CRON_SECRET is unset this endpoint REFUSES to run — see lib/auth/cron.ts. It used to serve
+ * everyone in that case, which looked identical to a healthy deployment.
  */
 export async function GET(req: Request) {
-  const authHeader = req.headers.get('authorization');
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const unauthorized = rejectUnauthorizedCron(req);
+  if (unauthorized) return unauthorized;
 
   // Only touch payouts old enough that the webhook's own retry window (~5 min) has passed,
   // and young enough to still be settleable (quotes/payouts don't live forever).
@@ -222,6 +221,21 @@ export async function GET(req: Request) {
 
   console.log(`[Reconcile Bitnob] checked=${stuck?.length ?? 0}`, JSON.stringify(results));
 
+  // ── Sends that were broadcast but never confirmed back to us ───────────────
+  //
+  // Resolves each against the chain by a hash we wrote down before broadcasting, so a transfer
+  // is recorded only when that exact transaction is confirmed to have succeeded. See
+  // lib/supabase/pendingSends.ts — this cannot invent a transfer that did not happen.
+  const { reconcilePendingSends } = await import('@/lib/supabase/pendingSends');
+  const sends = await reconcilePendingSends();
+
+  // ── Housekeeping: drop sessions that have been dead for a month ────────────
+  //
+  // A new row per sign-in, never deleted, is a table that only grows. Removes nothing that is
+  // still usable — see pruneDeadSessions.
+  const { pruneDeadSessions } = await import('@/lib/auth/session');
+  const sessionsPruned = await pruneDeadSessions();
+
   // ── On-chain deposit indexing for a rotating batch of stale users ───────────
   const deposits = await scanStaleUsers();
 
@@ -267,6 +281,8 @@ export async function GET(req: Request) {
     checked: stuck?.length ?? 0,
     results,
     deposits,
+    sends,
+    sessionsPruned,
     refundsOutstanding: { count: owed?.length ?? 0, totalUsdc: owedTotal },
     stranded: stranded?.length ?? 0,
   });

@@ -1,12 +1,6 @@
+import { getVerifiedIdentity } from '@/lib/auth/session';
 import { createAdminClient } from '@/lib/supabase/server';
-import { PrivyClient } from '@privy-io/node';
-import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
-
-const privy = new PrivyClient({
-  appId: process.env.NEXT_PUBLIC_PRIVY_APP_ID || '',
-  appSecret: process.env.PRIVY_APP_SECRET || '',
-});
 
 /**
  * GET /api/transfer/check-recipient?email=<email>
@@ -25,30 +19,20 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'email is required' }, { status: 400 });
     }
 
-    // Authenticate the sender: try senderEmail param first, then fallback to Privy token
-    let senderEmail = searchParams.get('senderEmail')?.toLowerCase().trim();
-
-    if (!senderEmail) {
-      const cookieStore = await cookies();
-      const privyToken = cookieStore.get('privy-token')?.value;
-
-      if (privyToken) {
-        try {
-          const verifiedClaims = await privy.utils().auth().verifyAccessToken(privyToken);
-          const privyUser = await privy.users()._get(verifiedClaims.user_id);
-          const emailAccount = privyUser.linked_accounts.find(
-            (acc) => acc.type === 'email',
-          ) as { address?: string } | undefined;
-          senderEmail = (emailAccount?.address || '').toLowerCase().trim();
-        } catch (authError) {
-          console.error('[CheckRecipient API] Auth error:', authError);
-        }
-      }
+    // The caller is whoever the SESSION says, never a query parameter.
+    //
+    // This used to read `senderEmail` from the URL and only fall back to the token when it was
+    // absent — so supplying it skipped authentication entirely. That made this an open endpoint
+    // for two things worth having: checking whether any email address holds a Sendzz account,
+    // and reading how many times one arbitrary person had paid another.
+    //
+    // Callers still append `senderEmail`; it is ignored. Arguments say what to look up, only the
+    // session says who is asking.
+    const identity = await getVerifiedIdentity();
+    if (!identity) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-
-    if (!senderEmail) {
-      return NextResponse.json({ error: 'senderEmail is required' }, { status: 400 });
-    }
+    const senderEmail = identity.email;
 
     const adminSupabase = createAdminClient();
 

@@ -11,11 +11,15 @@
  */
 
 import { getFeeTreasury, resolvePlatformFee } from '@/lib/fees/platform-fees';
+import { getVerifiedIdentity } from '@/lib/auth/session';
 import {
   signStellarTransaction,
   submitStellarTransaction,
   buildFeeBumpTransaction,
+  stellarTxHash,
 } from '@/lib/stellar/privy-wallet';
+import { clearPendingSend, markSendPending } from '@/lib/supabase/pendingSends';
+import { supabaseAdmin } from '@/lib/supabase/adminClient';
 import {
   buildUsdcPaymentTx,
   getStellarUsdcBalance,
@@ -114,8 +118,81 @@ export async function POST(req: Request) {
     const feeBumpXdr = await buildFeeBumpTransaction(signedXdr);
     console.log('[Stellar/Send] Fee bump applied.');
 
+    // Write the intent down BEFORE broadcasting, against the hash this envelope will have.
+    //
+    // Everything after this line can fail — Horizon can time out, this request can be killed
+    // mid-flight, the user can close the tab — and the send is still recoverable, because the
+    // reconciler can ask the chain about a hash we already committed to. Withdrawals are skipped:
+    // they are recorded against their order, not as peer transfers.
+    //
+    // Only for P2P sends, and only when we know who is asking.
+    const plannedHash = stellarTxHash(feeBumpXdr);
+    if (!withdrawalOrderId) {
+      const identity = await getVerifiedIdentity();
+      if (identity) {
+        const { data: sender } = await supabaseAdmin
+          .from('users')
+          .select('id')
+          .eq('email', identity.email)
+          .maybeSingle();
+        if (sender?.id) {
+          await markSendPending({
+            userId: sender.id,
+            txHash: plannedHash,
+            chain: 'stellar',
+            senderEmail: identity.email,
+            recipient: recipientAddress,
+            amount: parsedAmount,
+            note: memo || 'Crypto transfer on Stellar',
+          });
+        }
+      }
+    }
+
     const result = await submitStellarTransaction(feeBumpXdr);
+
+    // Broadcast, but not yet in a ledger. The envelope stays valid for its full timebound, so
+    // this may still land and MUST NOT be reported as a failed send — that is precisely what
+    // made a real 39 USDC transfer vanish: the user was shown an error, saw the balance drop,
+    // and was one tap away from sending it twice.
+    //
+    // Nothing is recorded here on purpose. Only the chain knows whether this landed, so the
+    // reconciler records it once the chain says so, rather than writing a row for a payment
+    // that might never have happened.
+    if (result.status === 'unresolved') {
+      console.warn(`[Stellar/Send] Unresolved: txHash=${result.hash}`);
+      return NextResponse.json(
+        {
+          success: false,
+          pending: true,
+          txHash: result.hash,
+          error: 'Still confirming on Stellar. Your funds are safe — do not send again.',
+        },
+        { status: 202 },
+      );
+    }
+
+    // In a ledger and rejected there. The transfer definitively did not happen, so this is the
+    // one branch where telling the user it failed is the truth — and the intent is dropped,
+    // because there is nothing for the reconciler to recover.
+    if (!result.successful) {
+      console.error(`[Stellar/Send] Rejected on-chain: txHash=${result.hash}`);
+      await clearPendingSend(plannedHash);
+      return NextResponse.json(
+        { error: 'The network rejected this transfer. Nothing was sent.' },
+        { status: 400 },
+      );
+    }
+
     console.log(`[Stellar/Send] Success: txHash=${result.hash}`);
+
+    // The intent is deliberately NOT cleared here, even though the send succeeded.
+    //
+    // The browser still has to write the ledger row, and it can die before it does — a closed
+    // tab, a dropped connection. Leaving the intent means the reconciler covers that gap too:
+    // it finds the row already recorded and simply drops the intent, or records it if the
+    // browser never did. Clearing it now would reopen the window this whole mechanism exists
+    // to close. Cost of leaving it: one extra row for up to one cron cycle.
 
     // Record the hash against its withdrawal HERE, not from the browser.
     //

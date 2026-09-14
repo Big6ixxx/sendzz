@@ -1,6 +1,6 @@
 "use server";
 
-import { requireUserId } from "@/lib/auth/session";
+import { markSessionTransacted, requireUserId } from "@/lib/auth/session";
 import { toUserSafeMessage } from "@/lib/errors/sanitize";
 import { Ramp } from "@/lib/ramp";
 import { isBridgeable } from "@/lib/circle/gateway";
@@ -120,6 +120,9 @@ export async function initiateOnRamp({
       network,
       provider: order.provider,
     });
+
+    // A fiat on-ramp is something the user chose to do, so it extends THIS device's session.
+    await markSessionTransacted(accessToken);
 
     return order;
   } catch (error: unknown) {
@@ -597,6 +600,10 @@ export async function executeOffRamp(params: {
         feePercent: feeCfg.percent > 0 ? feeCfg.percent : undefined,
         memo: params.bank.memo || undefined,
       });
+
+      // A withdrawal is the clearest possible "the owner is here", so it extends THIS device's
+      // session — and only this one. Money arriving never does.
+      await markSessionTransacted(params.accessToken);
 
       console.log(`[Action] executeOffRamp: order ${created.id} created on ${provider}`);
       return { order: created, provider };

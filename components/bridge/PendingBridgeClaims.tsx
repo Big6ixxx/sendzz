@@ -8,14 +8,20 @@
  * that wasn't ready to receive — the USDC is real, already burned, and invisible in
  * every balance until someone finishes the second half.
  *
- * This panel is where those show up. CCTP attestations don't expire, so a claim
- * listed here stays valid indefinitely and can be retried as many times as needed.
+ * This panel is where those show up, and a claim listed here can be retried as often as needed.
+ *
+ * One exception, which cost a user a stranded transfer before it was understood: a FAST transfer
+ * is attested before its source chain is final, and Circle limits its own exposure by giving that
+ * signature an expiry block on the destination. Past it, every retry reverts forever. Those are
+ * re-attested automatically — on sight when the list is built, and again if a claim fails that
+ * way — so expiry costs a minute's wait rather than the money.
  */
 
 import { claimBridgeOnDestination } from "@/lib/web3/bridge-claim";
 import { classifyAppError } from "@/lib/errors/appErrors";
 import {
   getPendingBridgeClaims,
+  refreshExpiredBridgeClaim,
   verifyBridgeClaimSettled,
 } from "@/lib/supabase/transactions";
 import { CHAIN_NAMES } from "@/lib/circle/gateway";
@@ -93,6 +99,29 @@ export function PendingBridgeClaims({
     return true;
   };
 
+  /**
+   * Tell the server a claim finished, and return whether it confirmed delivery.
+   *
+   * The server verifies on-chain before recording anything, so its answer — not the fact that
+   * the claim call returned — decides what the user is told. A network failure reads as "not
+   * confirmed": the claim stays listed and the reconciler settles it once the chain agrees.
+   */
+  const reportClaim = async (burnTxHash: string, mintTxHash: string | undefined) => {
+    try {
+      const res = await fetch("/api/bridge/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ burnTxHash, mintTxHash, delivered: true }),
+      });
+      if (!res.ok) return false;
+      const body = (await res.json()) as { delivered?: boolean };
+      return body.delivered === true;
+    } catch (err) {
+      console.error("[PendingBridgeClaims] could not report claim", burnTxHash, err);
+      return false;
+    }
+  };
+
   const handleClaim = async (claim: PendingBridgeClaim) => {
     setClaimingId(claim.id);
     try {
@@ -118,24 +147,23 @@ export function PendingBridgeClaims({
 
       console.log(`[PendingBridgeClaims] 🎉 Mint transaction hash for claim (${claim.burnTxHash}):`, mintTxHash);
 
-      // No hash on a successful return means the destination reported the nonce as already
-      // consumed — Solana answers that way instead of raising. The funds are there either way,
-      // so say `delivered` and let the row be recorded rather than left looking unfinished.
-      await fetch("/api/bridge/complete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          burnTxHash: claim.burnTxHash,
-          mintTxHash,
-          delivered: true,
-        }),
-      }).catch(console.error);
+      // No hash on a successful return is ambiguous on EVM: the claim may be delivered, merely
+      // in flight in another tab, or sent and not yet confirmed. Report it, and let the server
+      // check the chain before anything is recorded — see /api/bridge/complete.
+      const delivered = await reportClaim(claim.burnTxHash, mintTxHash);
 
-      toast.success(
-        mintTxHash
-          ? `Claimed! ${claim.amount} USDC is now on ${label(claim.destChain)}.`
-          : `Your ${claim.amount} USDC already arrived on ${label(claim.destChain)}.`,
-      );
+      if (mintTxHash) {
+        toast.success(`Claimed! ${claim.amount} USDC is now on ${label(claim.destChain)}.`);
+      } else if (delivered) {
+        toast.success(`Your ${claim.amount} USDC already arrived on ${label(claim.destChain)}.`);
+      } else {
+        // Telling someone their money arrived when it did not is worse than any error: they
+        // stop looking. The claim stays on this list, so they can see it is still open.
+        toast.info(
+          `Your claim is still confirming on ${label(claim.destChain)}. Your funds are safe — ` +
+            `check back in a minute.`,
+        );
+      }
       await settle();
     } catch (err) {
       const classified = classifyAppError(err);
@@ -151,12 +179,29 @@ export function PendingBridgeClaims({
         // says the nonce is spent, which only happens once the mint has gone through. That is
         // proof enough to record delivery; the reconciler upgrades the placeholder to a real
         // hash later if the chain ever offers one.
-        await fetch("/api/bridge/complete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ burnTxHash: claim.burnTxHash, delivered: true }),
-        }).catch(console.error);
-        toast.success("This transfer has already arrived. Refreshing your balance...");
+        const delivered = await reportClaim(claim.burnTxHash, undefined);
+        if (delivered) {
+          toast.success("This transfer has already arrived. Refreshing your balance...");
+        } else {
+          toast.info("Your claim is still confirming. Your funds are safe — check back in a minute.");
+        }
+        await settle();
+      } else if (classified.category === "attestation_expired") {
+        // Retrying is hopeless until Circle signs the message again, so ask for that instead of
+        // leaving the user to press a button that reverts every time.
+        //
+        // Only promise a fresh signature when Circle actually agreed to issue one. It declines
+        // for a message that needs nothing — already consumed, or already carrying a
+        // non-expiring signature — and saying "we've requested one" there would be a promise
+        // nothing is going to keep. Either way `settle()` re-reads the list, and a claim that
+        // has in fact landed is dropped from it by the server.
+        const reissued = await refreshExpiredBridgeClaim(claim.burnTxHash);
+        toast.info(
+          reissued
+            ? classified.message
+            : `Your ${claim.amount} USDC is still being confirmed on ${label(claim.destChain)}. ` +
+                `Your funds are safe — this will clear on its own.`,
+        );
         await settle();
       } else if (!classified.isSilent) {
         toast.error(classified.message);

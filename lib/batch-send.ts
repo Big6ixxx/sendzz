@@ -2,6 +2,7 @@ import { sendTransferEmail } from '@/lib/email/sendEmail';
 import { redactEmail } from '@/lib/log';
 import { getUserAddressByEmail } from '@/lib/supabase/users';
 import { recordTransfer } from '@/lib/supabase/transactions';
+import { recordSendIntent } from '@/lib/actions/pendingSend';
 import { executeCircleGaslessBatchTransfer } from '@/lib/web3/circle-actions';
 import { consolidateFundsToChain } from '@/lib/web3/bridge-actions';
 import { planBatchRoute, type ChainBalances, type SolanaSource } from '@/lib/web3/routing';
@@ -168,6 +169,21 @@ export async function batchSend({
             amountUSDC: p.amountUSDC,
           })),
           group.chain,
+          // File an intent per recipient the moment the bundler accepts, so a batch whose
+          // confirmation times out is still recoverable. One intent each rather than one for the
+          // batch: `transfers` records a row per person, and the reconciler has to be able to
+          // write every one of them.
+          async (userOpHash) => {
+            for (const p of slice) {
+              await recordSendIntent({
+                userOpHash,
+                chain: group.chain,
+                recipient: p.email,
+                amount: parseFloat(p.amountUSDC),
+                note,
+              });
+            }
+          },
         );
       } catch (err) {
         console.error(`[BatchSend] Batch on ${group.chain} failed:`, err);
@@ -188,7 +204,6 @@ export async function batchSend({
       // Record + notify each recipient settled in this chain's batch.
       for (const p of slice) {
         await recordTransfer({
-          senderEmail,
           recipientEmail: p.email,
           amount: parseFloat(p.amountUSDC),
           status: p.isNewUser ? 'pending_claim' : 'completed',

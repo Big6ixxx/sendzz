@@ -11,7 +11,19 @@ import { VIEM_CHAINS } from './multichain';
 import { USDC_ADDRESSES, GAS_POLICY_IDS, type SupportedChain } from '../circle/gateway';
 import { type RouteLeg } from './routing';
 import { rpcTransport } from './rpc';
-import { sponsoredUserOpFees, sendWithAdaptiveVerificationGas } from './bridge-actions';
+import {
+  sponsoredUserOpFees,
+  sendWithAdaptiveVerificationGas,
+  resolveUserOpToTxHash,
+} from './bridge-actions';
+
+/**
+ * How long to wait for a UserOperation to be included before giving up on watching it.
+ *
+ * Five minutes, against viem's 120s default. The transfer is already irreversible by this point,
+ * so the only thing a short wait buys is an incorrect failure message.
+ */
+const USEROP_CONFIRM_MS = 300_000;
 
 const ERC20_ABI = parseAbi([
   'function transfer(address _to, uint256 _value) returns (bool)',
@@ -22,15 +34,25 @@ function getChainSlug(targetChain: SupportedChain): string {
   return targetChain;
 }
 
+/**
+ * Called the instant the bundler accepts the UserOperation — the point of no return.
+ *
+ * This is the only moment at which the operation is both committed AND identifiable: before it,
+ * there is no hash; after it, the wait may time out or the tab may close, and whatever we have
+ * not written down is unrecoverable. Anything this does must be non-fatal.
+ */
+export type OnBroadcast = (userOpHash: string) => void | Promise<void>;
+
 export async function executeCircleGaslessTransfer(
   provider: EIP1193Provider,
   recipientAddress: string,
   amountUSDC: string,
-  targetChain: SupportedChain = 'base'
+  targetChain: SupportedChain = 'base',
+  onBroadcast?: OnBroadcast,
 ) {
   return executeCircleGaslessBatchTransfer(provider, [
     { recipientAddress, amountUSDC },
-  ], targetChain);
+  ], targetChain, onBroadcast);
 }
 
 /**
@@ -45,6 +67,8 @@ export async function executeRoutedTransfer(
   provider: EIP1193Provider,
   recipientAddress: string,
   legs: RouteLeg[],
+  /** Called per leg as each is accepted by the bundler — legs settle independently. */
+  onBroadcast?: (userOpHash: string, leg: RouteLeg) => void | Promise<void>,
 ): Promise<string[]> {
   const txHashes: string[] = [];
   for (const leg of legs) {
@@ -53,6 +77,7 @@ export async function executeRoutedTransfer(
       recipientAddress,
       leg.amount,
       leg.chain,
+      onBroadcast ? (userOpHash) => onBroadcast(userOpHash, leg) : undefined,
     );
     txHashes.push(hash);
   }
@@ -62,7 +87,8 @@ export async function executeRoutedTransfer(
 export async function executeCircleGaslessBatchTransfer(
   provider: EIP1193Provider,
   transfers: { recipientAddress: string; amountUSDC: string }[],
-  targetChain: SupportedChain = 'base'
+  targetChain: SupportedChain = 'base',
+  onBroadcast?: OnBroadcast,
 ) {
   const selectedChain = VIEM_CHAINS[targetChain];
   const usdcContractAddress = USDC_ADDRESSES[targetChain];
@@ -137,11 +163,28 @@ export async function executeCircleGaslessBatchTransfer(
 
   console.log('[BatchTransfer] UserOp Hash:', userOpHash);
 
-  // 5. Wait for transaction
-  const receipt = await bundlerClient.waitForUserOperationReceipt({
-    hash: userOpHash,
-  });
+  // The bundler has it and will include it. Write the intent down NOW, while we still can —
+  // everything after this line is a wait that may not survive. Failures here are swallowed: a
+  // bookkeeping problem must never fail a transfer the user has already paid for.
+  if (onBroadcast) {
+    try {
+      await onBroadcast(userOpHash);
+    } catch (err) {
+      console.error('[BatchTransfer] onBroadcast failed (continuing):', err);
+    }
+  }
 
-  console.log('[BatchTransfer] Success:', receipt.receipt.transactionHash);
-  return receipt.receipt.transactionHash;
+  // 5. Wait for inclusion.
+  //
+  // `sendUserOperation` returning is the point of no return: the bundler has the UserOp and will
+  // include it. viem's own waitForUserOperationReceipt gives up after 120s and throws, which the
+  // caller could only read as a failed send — so a busy chain produced an error on screen, a
+  // reduced balance, and no ledger row, for a transfer that went through moments later.
+  //
+  // resolveUserOpToTxHash polls the bundler instead, for long enough to cover real congestion,
+  // and distinguishes "reverted on-chain" (a true failure) from "not confirmed yet".
+  const txHash = await resolveUserOpToTxHash(bundlerClient, userOpHash, USEROP_CONFIRM_MS);
+
+  console.log('[BatchTransfer] Success:', txHash);
+  return txHash;
 }

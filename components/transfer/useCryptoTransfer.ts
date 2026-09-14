@@ -17,6 +17,7 @@ import { bridgeStellarToBase } from "@/lib/web3/stellar-bridge";
 import { toast } from "sonner";
 import { parseFriendlyError } from "./useTransfer";
 import { SupportedChain, CHAIN_NAMES } from "@/lib/circle/gateway";
+import { recordSendIntent } from "@/lib/actions/pendingSend";
 import {
   planExternalSend,
   AUTO_SOURCE,
@@ -547,7 +548,6 @@ export function useCryptoTransfer({
   ) => {
     const { recordTransfer } = await import("@/lib/supabase/transactions");
     await recordTransfer({
-      senderEmail,
       recipientEmail: recipientAddress,
       amount: parseFloat(amount),
       status: "completed",
@@ -615,6 +615,21 @@ export function useCryptoTransfer({
           }),
         });
         const data = await res.json();
+
+        // Broadcast but not yet confirmed. The money may well be on its way, so the one thing
+        // this must not do is look like a failure the user should retry. Nothing is recorded —
+        // the reconciler writes the row if and when the chain confirms it.
+        if (data.pending) {
+          toast.info(
+            `Your ${amount} USDC is still confirming on Stellar. Your funds are safe — ` +
+              `please don't send it again; it will appear in your history shortly.`,
+          );
+          invalidateBalances();
+          setStatus("");
+          setLoading(false);
+          return;
+        }
+
         if (!res.ok) {
           throw new Error(data.error || "Stellar transfer failed");
         }
@@ -673,6 +688,19 @@ export function useCryptoTransfer({
         // Fee rides in the same gasless UserOp as the transfer, so the recipient's USDC and
         // ours move together or not at all.
         const fee = await resolveTransferFee(selectedChain, amount);
+
+        // File the intent the moment the bundler accepts, before the wait for inclusion. If that
+        // wait times out, or this tab closes, the reconciler can still finish the job — see
+        // lib/supabase/pendingSends.ts.
+        const onBroadcast = (userOpHash: string) =>
+          recordSendIntent({
+            userOpHash,
+            chain: selectedChain,
+            recipient: recipientAddress,
+            amount: parseFloat(amount),
+            note: `Crypto transfer on ${CHAIN_NAMES[selectedChain]}`,
+          });
+
         txHash = fee
           ? await executeCircleGaslessBatchTransfer(
               provider,
@@ -681,12 +709,14 @@ export function useCryptoTransfer({
                 { recipientAddress: fee.treasury, amountUSDC: fee.usdc },
               ],
               selectedChain,
+              onBroadcast,
             )
           : await executeCircleGaslessTransfer(
               provider,
               recipientAddress,
               amount,
               selectedChain,
+              onBroadcast,
             );
       }
 

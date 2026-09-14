@@ -15,6 +15,8 @@ import {
 } from 'viem/chains';
 import { ReactNode, useState, useEffect } from 'react';
 import { BalanceVisibilityProvider } from '@/components/providers/BalanceVisibilityProvider';
+import { useSessionActivity } from '@/hooks/useSessionActivity';
+import { useSessionEpoch } from '@/hooks/useSessionEpoch';
 /*
  * Imported for its side effect: registering the `beforeinstallprompt` listener at app boot.
  *
@@ -27,6 +29,19 @@ import { BalanceVisibilityProvider } from '@/components/providers/BalanceVisibil
  * Loading it here, in a provider that mounts with the app, is what makes the capture reliable.
  */
 import '@/hooks/usePwaInstall';
+
+/**
+ * Runs the inactivity logout. Separate component because the hook needs Privy's context, which
+ * only exists inside PrivyProvider — calling it in the component that renders the provider would
+ * read a context that is not mounted yet.
+ */
+function SessionActivityWatcher() {
+  useSessionActivity();
+  // The one-time global sign-out. Runs at most once per browser, then never again until
+  // SESSION_EPOCH changes — see hooks/useSessionEpoch.ts.
+  useSessionEpoch();
+  return null;
+}
 
 export function Providers({ children }: { children: ReactNode }) {
   useEffect(() => {
@@ -99,6 +114,7 @@ export function Providers({ children }: { children: ReactNode }) {
         }}
       >
         <BalanceVisibilityProvider>
+          <SessionActivityWatcher />
           {children}
           <Toaster
             position="top-right"

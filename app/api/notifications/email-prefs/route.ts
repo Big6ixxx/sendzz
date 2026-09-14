@@ -25,6 +25,8 @@ export async function POST(request: Request) {
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : 'Unknown error';
     console.error('[API email-prefs POST] Error:', err);
-    return NextResponse.json({ success: false, error: errorMessage }, { status: 200 });
+    // 500, not 200. Returning 200 here meant the client's `res.ok` check passed and it told the
+    // user "Preference updated" for a save that had failed.
+    return NextResponse.json({ success: false, error: errorMessage }, { status: 500 });
   }
 }

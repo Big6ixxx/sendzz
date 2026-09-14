@@ -2,6 +2,7 @@ import { supabaseAdmin } from './adminClient';
 import { redactEmail } from '@/lib/log';
 import type { Json } from '@/types/database';
 import webpush from 'web-push';
+import { userWantsEmail } from './emailPrefs';
 
 const db = supabaseAdmin;
 
@@ -126,6 +127,22 @@ export async function markNotificationsAsRead(email: string, ids?: string[]): Pr
 /**
  * Creates a notification record and pushes a web alert to active user devices.
  */
+/** Notification type -> the stored preference that governs it, for push and in-app alike. */
+const PUSH_PREF_FOR: Record<
+  NotificationPayload['type'],
+  'push_notif_transfer' | 'push_notif_deposit' | 'push_notif_withdrawal' | 'push_notif_bridge' | 'push_notif_security'
+> = {
+  transfer: 'push_notif_transfer',
+  deposit: 'push_notif_deposit',
+  withdrawal: 'push_notif_withdrawal',
+  bridge: 'push_notif_bridge',
+  security: 'push_notif_security',
+};
+
+async function userWantsNotification(email: string, type: NotificationPayload['type']): Promise<boolean> {
+  return userWantsEmail(email, PUSH_PREF_FOR[type]);
+}
+
 export async function createNotification(
   email: string,
   title: string,
@@ -136,6 +153,17 @@ export async function createNotification(
   try {
     const userId = await getUserByEmail(email);
     if (!userId) return;
+
+    // Respect the user's preference for this category. The settings column is labelled
+    // "Push / In-App", so it governs both the stored row and the push — suppressing only the
+    // push would leave the bell filling up with alerts the user asked not to receive.
+    //
+    // Nothing is lost by skipping the row: the transaction itself still appears in activity
+    // and history, which are separate views with their own queries.
+    if (!(await userWantsNotification(email, type))) {
+      console.log(`[Notifications] Suppressed by preference (${type}) for ${redactEmail(email)}.`);
+      return;
+    }
 
     // 1. Insert into supabase DB for in-app history
     const { data: inserted, error } = await db

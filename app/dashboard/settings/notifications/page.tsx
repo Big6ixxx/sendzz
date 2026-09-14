@@ -1,7 +1,7 @@
 'use client';
 
 import { DashboardPageHeader } from '@/components/layout/DashboardPageHeader';
-import { ArrowLeft, Mail, Smartphone, Wallet, Repeat, ShieldAlert, Send } from 'lucide-react';
+import { ArrowLeft, ArrowDownLeft, Mail, Smartphone, Wallet, Repeat, ShieldAlert, Send } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { usePrivy } from '@privy-io/react-auth';
 import { useEffect, useState } from 'react';
@@ -13,12 +13,11 @@ export interface EmailNotifPrefs {
   email_notif_withdrawal: boolean;
   email_notif_bridge: boolean;
   email_notif_security: boolean;
-  email_notif_system: boolean;
   push_notif_transfer: boolean;
-  push_notif_wallet: boolean;
+  push_notif_deposit: boolean;
+  push_notif_withdrawal: boolean;
   push_notif_bridge: boolean;
   push_notif_security: boolean;
-  push_notif_system: boolean;
 }
 
 export const DEFAULT_PREFS: EmailNotifPrefs = {
@@ -27,12 +26,11 @@ export const DEFAULT_PREFS: EmailNotifPrefs = {
   email_notif_withdrawal: true,
   email_notif_bridge: true,
   email_notif_security: true,
-  email_notif_system: true,
   push_notif_transfer: true,
-  push_notif_wallet: true,
+  push_notif_deposit: true,
+  push_notif_withdrawal: true,
   push_notif_bridge: true,
   push_notif_security: true,
-  push_notif_system: true,
 };
 
 interface ToggleProps {
@@ -78,17 +76,25 @@ interface CategoryConfig {
 
 const CATEGORIES: CategoryConfig[] = [
   {
-    id: 'wallet',
-    name: 'Wallet Activity',
-    desc: 'Deposits, withdrawals, and payouts',
-    icon: <Wallet className="w-5 h-5 text-blue-400" />,
-    pushKey: 'push_notif_wallet',
+    id: 'deposits',
+    name: 'Deposits',
+    desc: 'Money arriving in your wallet',
+    icon: <ArrowDownLeft className="w-5 h-5 text-blue-400" />,
+    pushKey: 'push_notif_deposit',
+    emailKey: 'email_notif_deposit',
+  },
+  {
+    id: 'withdrawals',
+    name: 'Withdrawals',
+    desc: 'Payouts to your bank or mobile money',
+    icon: <Wallet className="w-5 h-5 text-cyan-400" />,
+    pushKey: 'push_notif_withdrawal',
     emailKey: 'email_notif_withdrawal',
   },
   {
     id: 'transfers',
-    name: 'Transfers & Claims',
-    desc: 'Direct transfers, claim links, and funds received',
+    name: 'Transfers & Received Funds',
+    desc: 'Money sent to you by another Sendzz user',
     icon: <Send className="w-5 h-5 text-emerald-400" />,
     pushKey: 'push_notif_transfer',
     emailKey: 'email_notif_transfer',
@@ -104,7 +110,7 @@ const CATEGORIES: CategoryConfig[] = [
   {
     id: 'security',
     name: 'Security Alerts',
-    desc: '2FA updates, passkeys, and account security',
+    desc: 'Changes to 2FA and passkeys. Never your transaction codes.',
     icon: <ShieldAlert className="w-5 h-5 text-amber-400" />,
     pushKey: 'push_notif_security',
     emailKey: 'email_notif_security',
@@ -145,12 +151,11 @@ export default function NotificationsSettingsPage() {
   }, [userEmail]);
 
   const handleToggle = async (key: keyof EmailNotifPrefs) => {
-    if (isSaving || !prefs) return;
-    const currentVal = Boolean(prefs[key] ?? DEFAULT_PREFS[key]);
-    const nextVal = !currentVal;
-    const nextPrefs = { ...prefs, [key]: nextVal };
-    
-    setPrefs(nextPrefs);
+    if (!prefs) return;
+    const nextVal = !prefs[key];
+    const previous = prefs;
+
+    setPrefs({ ...prefs, [key]: nextVal });
     setIsSaving(true);
 
     try {
@@ -162,9 +167,13 @@ export default function NotificationsSettingsPage() {
       if (res.ok) {
         toast.success('Preference updated');
       } else {
+        // Put the switch back. Leaving it flipped after a failed save is how someone ends up
+        // believing notifications are off while they are still on.
+        setPrefs(previous);
         toast.error('Failed to save preference');
       }
     } catch {
+      setPrefs(previous);
       toast.error('Failed to save preference.');
     } finally {
       setIsSaving(false);

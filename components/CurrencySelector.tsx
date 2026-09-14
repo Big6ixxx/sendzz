@@ -119,7 +119,7 @@ export function CurrencySelector({
             placeholder="Search currencies..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full h-9 pl-8 pr-3 bg-white/5 border border-white/5 rounded-xl text-[11px] font-bold uppercase tracking-wider outline-none focus:border-white/10 transition-all"
+            className="w-full h-9 pl-8 pr-3 bg-white/5 border border-white/5 rounded-xl text-base md:text-[11px] font-bold uppercase tracking-wider outline-none focus:border-white/10 transition-all"
           />
         </div>
 

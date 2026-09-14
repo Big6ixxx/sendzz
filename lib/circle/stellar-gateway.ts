@@ -28,6 +28,7 @@ import {
 import { rpc as SorobanRpc } from '@stellar/stellar-sdk';
 import { type AttestationResponse, type AttestationStatus } from './gateway';
 import { solanaMintRecipientBytes32 } from './solana-gateway';
+import { STELLAR_HORIZON_URL, STELLAR_USDC_ISSUER as USDC_CLASSIC_ISSUER } from '@/lib/stellar/config';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -45,14 +46,11 @@ export const STELLAR_RPC_URL =
   process.env.NEXT_PUBLIC_STELLAR_RPC_URL ??
   'https://soroban-rpc.mainnet.stellar.gateway.fm';
 
-export const STELLAR_HORIZON_URL =
-  process.env.NEXT_PUBLIC_STELLAR_HORIZON_URL ?? 'https://horizon.stellar.org';
-
 export const STELLAR_NETWORK_PASSPHRASE =
   process.env.NEXT_PUBLIC_STELLAR_NETWORK_PASSPHRASE ?? Networks.PUBLIC;
 
 /** Circle's USDC classic asset issuer on Stellar mainnet */
-const USDC_CLASSIC_ISSUER = 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
+
 
 const IRIS_API_BASE = 'https://iris-api.circle.com/v2';
 

@@ -23,6 +23,7 @@ import {
   TransactionBuilder,
 } from '@stellar/stellar-sdk';
 import { PrivyClient } from '@privy-io/node';
+import { STELLAR_HORIZON_URL, STELLAR_USDC_ISSUER as USDC_CLASSIC_ISSUER } from '@/lib/stellar/config';
 
 // ── Privy client ─────────────────────────────────────────────────────────────
 
@@ -33,13 +34,10 @@ const privy = new PrivyClient({
 
 // ── Network constants ─────────────────────────────────────────────────────────
 
-export const STELLAR_HORIZON_URL =
-  process.env.NEXT_PUBLIC_STELLAR_HORIZON_URL ?? 'https://horizon.stellar.org';
-
 export const STELLAR_NETWORK_PASSPHRASE =
   process.env.NEXT_PUBLIC_STELLAR_NETWORK_PASSPHRASE ?? Networks.PUBLIC;
 
-const USDC_CLASSIC_ISSUER = 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
+
 const USDC_ASSET = new Asset('USDC', USDC_CLASSIC_ISSUER);
 
 /**
@@ -168,32 +166,103 @@ export async function checkTrustlineStatus(
 /**
  * Submit a signed XDR transaction to the Stellar Horizon network.
  */
+/**
+ * The hash a signed envelope WILL have once it reaches the ledger.
+ *
+ * Deterministic from the signed bytes, so it can be known before the transaction is submitted —
+ * which is what makes a submission timeout recoverable instead of fatal. Without it, a timeout
+ * leaves us with no way to ask "did that land?", and the transfer becomes invisible.
+ */
+export function stellarTxHash(signedXdr: string): string {
+  return TransactionBuilder.fromXDR(signedXdr, STELLAR_NETWORK_PASSPHRASE)
+    .hash()
+    .toString('hex');
+}
+
+/** Has this hash reached the ledger? `null` while Horizon still has never heard of it. */
+async function lookUpTransaction(hash: string): Promise<{ successful: boolean } | null> {
+  const res = await fetch(`${STELLAR_HORIZON_URL}/transactions/${hash}`);
+  if (res.status === 404) return null;
+  if (!res.ok) return null;
+  const tx = (await res.json()) as { successful?: boolean };
+  return { successful: tx.successful ?? false };
+}
+
+/** How long to keep asking after Horizon times out. Its own window is ~30s; ours is the grace. */
+const SUBMIT_POLL_MS = 40_000;
+const SUBMIT_POLL_EVERY_MS = 3_000;
+
+export type StellarSubmitResult =
+  /** In the ledger. `successful` is the on-chain result. */
+  | { status: 'confirmed'; hash: string; successful: boolean }
+  /**
+   * Broadcast, not yet in a ledger, and NOT known to have failed. The transaction stays valid
+   * for its full timebound (300s), so it may still land — it must never be reported as a failed
+   * send, and the amount must never be re-sent on the strength of it.
+   */
+  | { status: 'unresolved'; hash: string };
+
+/**
+ * Submit a signed envelope to Horizon.
+ *
+ * Horizon answers 504 when a transaction is not confirmed inside its own HTTP window (~30s).
+ * That is NOT a failure: the transaction stays in the network's queue and usually succeeds.
+ * Treating it as one is how a real 39 USDC send left an account and was recorded nowhere — the
+ * user saw an error, saw their balance drop, and nearly sent it a second time.
+ *
+ * So a timeout is resolved by asking the ledger about the hash we already know, and only a
+ * definite rejection from Horizon throws.
+ */
 export async function submitStellarTransaction(
   signedXdr: string,
-): Promise<{ hash: string; successful: boolean }> {
+): Promise<StellarSubmitResult> {
+  const hash = stellarTxHash(signedXdr);
+
   const res = await fetch(`${STELLAR_HORIZON_URL}/transactions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ tx: signedXdr }),
   });
 
-  const data = (await res.json()) as {
+  const data = (await res.json().catch(() => ({}))) as {
     hash?: string;
     successful?: boolean;
     title?: string;
     extras?: { result_codes?: { transaction?: string; operations?: string[] } };
   };
 
-  if (!res.ok) {
+  if (res.ok) {
+    return { status: 'confirmed', hash: data.hash ?? hash, successful: data.successful ?? true };
+  }
+
+  const txCode = data.extras?.result_codes?.transaction ?? '';
+  const timedOut = res.status === 504 || txCode === 'tx_too_late' || /timeout/i.test(data.title ?? '');
+
+  if (!timedOut) {
+    // A real rejection — bad sequence, no trustline, insufficient balance. Nothing was queued,
+    // so there is nothing to wait for and the caller should surface it.
     const opCodes = data.extras?.result_codes?.operations?.join(', ') ?? '';
-    const txCode = data.extras?.result_codes?.transaction ?? '';
     throw new Error(
-      `Horizon submission failed: ${data.title ?? res.statusText}. ` +
-      `tx=${txCode} ops=[${opCodes}]`,
+      `Horizon submission failed: ${data.title ?? res.statusText}. tx=${txCode} ops=[${opCodes}]`,
     );
   }
 
-  return { hash: data.hash ?? '', successful: data.successful ?? true };
+  console.warn(`[StellarPrivy] Horizon timed out on ${hash.slice(0, 12)} — polling the ledger.`);
+
+  const deadline = Date.now() + SUBMIT_POLL_MS;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, SUBMIT_POLL_EVERY_MS));
+    const found = await lookUpTransaction(hash);
+    if (found) {
+      console.log(`[StellarPrivy] ${hash.slice(0, 12)} landed after a timeout.`);
+      return { status: 'confirmed', hash, successful: found.successful };
+    }
+  }
+
+  // Still nothing. It may yet land — the envelope is valid for its full timebound — so this is
+  // reported as unresolved, never as a failure.
+  console.warn(`[StellarPrivy] ${hash.slice(0, 12)} still unconfirmed; leaving it to reconcile.`);
+  return { status: 'unresolved', hash };
 }
 
 /**

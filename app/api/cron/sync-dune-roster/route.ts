@@ -39,6 +39,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { rejectUnauthorizedCron } from '@/lib/auth/cron';
 import type { Database } from '@/types/database';
 
 const supabaseAdmin = createClient<Database>(
@@ -58,10 +59,8 @@ function csvCell(value: string): string {
 }
 
 export async function GET(req: Request) {
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && req.headers.get('authorization') !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const unauthorized = rejectUnauthorizedCron(req);
+  if (unauthorized) return unauthorized;
 
   const duneKey = process.env.DUNE_API_KEY;
   if (!duneKey) {

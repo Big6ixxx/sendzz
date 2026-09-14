@@ -52,6 +52,24 @@ function sanitizeSearch(search: string | undefined): string {
   return (search || '').trim().replace(/[^a-zA-Z0-9]/g, '').slice(0, 128);
 }
 
+/** Chains the feed may be filtered by. Anything else is dropped rather than passed through. */
+const FILTERABLE_CHAINS = new Set([
+  'ethereum', 'base', 'polygon', 'arbitrum', 'optimism', 'avalanche', 'solana', 'stellar',
+]);
+
+/**
+ * A chain name safe to place in a PostgREST filter, or undefined.
+ *
+ * The filter below is built by string interpolation, and this module is `'use server'` — so the
+ * value arrives from whatever the caller sends, and a comma or parenthesis in it would rewrite
+ * the filter rather than be matched by it. Allow-listing is what makes the interpolation safe;
+ * an unrecognised chain simply drops the filter instead of being trusted.
+ */
+function sanitizeChain(chain: string | null | undefined): string | undefined {
+  const c = chain?.toLowerCase().trim();
+  return c && FILTERABLE_CHAINS.has(c) ? c : undefined;
+}
+
 /** Headline platform metrics + system status. */
 export async function getPublicStats(): Promise<PublicStats | null> {
   const { data, error } = await supabaseAdmin.rpc('get_public_stats');
@@ -82,7 +100,8 @@ export async function getPublicFeed(query: FeedQuery): Promise<PublicFeedResult>
     .order('id', { ascending });
 
   if (query.type) q = q.eq('tx_type', query.type);
-  if (query.chain) q = q.or(`source_chain.eq.${query.chain},dest_chain.eq.${query.chain}`);
+  const chain = sanitizeChain(query.chain);
+  if (chain) q = q.or(`source_chain.eq.${chain},dest_chain.eq.${chain}`);
   if (start) q = q.gte('created_at', start);
   if (search) q = q.or(`tx_hash.ilike.%${search}%,secondary_tx_hash.ilike.%${search}%`);
 
@@ -108,7 +127,9 @@ export async function getPublicFeedTotals(query: FeedQuery): Promise<PublicFeedT
 
   const { data, error } = await supabaseAdmin.rpc('get_public_feed_totals', {
     p_type: query.type ?? null,
-    p_chain: query.chain ?? null,
+    // Bound parameter, so this was never injectable — but it goes through the same allow-list so
+    // the totals can never be computed over a filter the feed itself would have rejected.
+    p_chain: sanitizeChain(query.chain) ?? null,
     p_start: start,
     p_end: null,
     p_search: search || null,

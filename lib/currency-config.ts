@@ -60,6 +60,19 @@ export function formatFiat(
 }
 
 /**
+ * An amount for a sentence rather than a ledger: "₦82,400", or "82,400 RWF" with no symbol.
+ *
+ * `formatFiat` always prints the code because a receipt or a table needs it unambiguous. A
+ * message does not — "Sending ₦82,400 NGN to John Doe" reads like a system log, and nobody's
+ * bank talks that way. Where a real symbol exists it carries the currency on its own; where it
+ * does not, the code stands in rather than being dropped.
+ */
+export function formatFiatShort(amount: number, code: string): string {
+  const formatted = amount.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return hasCurrencySymbol(code) ? `${getCurrencySymbol(code)}${formatted}` : `${formatted} ${code}`;
+}
+
+/**
  * Is there a real SYMBOL for this currency, as opposed to a letter abbreviation?
  *
  * Two things make a prefix not worth printing next to an amount that already carries its code.

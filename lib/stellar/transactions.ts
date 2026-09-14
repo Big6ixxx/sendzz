@@ -17,17 +17,13 @@ import {
   Operation,
   TransactionBuilder,
 } from '@stellar/stellar-sdk';
+import { STELLAR_HORIZON_URL, STELLAR_USDC_ISSUER as USDC_CLASSIC_ISSUER } from '@/lib/stellar/config';
 
 // ── Constants ────────────────────────────────────────────────────────────────
-
-const STELLAR_HORIZON_URL =
-  process.env.NEXT_PUBLIC_STELLAR_HORIZON_URL ?? 'https://horizon.stellar.org';
 
 const STELLAR_NETWORK_PASSPHRASE =
   process.env.NEXT_PUBLIC_STELLAR_NETWORK_PASSPHRASE ?? Networks.PUBLIC;
 
-/** Circle's USDC classic asset issuer on Stellar mainnet */
-const USDC_CLASSIC_ISSUER = 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
 const USDC_ASSET = new Asset('USDC', USDC_CLASSIC_ISSUER);
 
 // ── Account helpers ───────────────────────────────────────────────────────────

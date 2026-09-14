@@ -3,7 +3,7 @@
 import { Database } from "@/types/database";
 import { redactEmail } from "@/lib/log";
 import { supabaseAdmin } from "./adminClient";
-import { fetchAttestation, type SupportedChain } from "@/lib/circle/gateway";
+import { fetchAttestation, isEvmUsdcChain, type SupportedChain } from "@/lib/circle/gateway";
 import { fetchSolanaAttestation } from "@/lib/circle/solana-gateway";
 import { fetchStellarAttestation } from "@/lib/circle/stellar-gateway";
 import { requireUser } from "@/lib/auth/session";
@@ -50,8 +50,24 @@ async function recoverMintTxHash(
 
 // --- TRANSFERS ---
 
+/**
+ * Write the ledger row for a transfer the caller has just sent.
+ *
+ * The sender is taken from the session and is NOT a parameter. It used to be, which made this a
+ * public endpoint for writing history into somebody else's account: every `'use server'` export
+ * is a POST anyone can call once they know its action id. The forged row was the smaller half of
+ * it — the bigger half is that this function emails a receipt and raises a "you received USDC"
+ * notification, so an attacker could have Sendzz itself send convincing payment mail naming any
+ * sender they liked.
+ *
+ * The recipient stays a parameter: that is what the transfer DID, not who made it. Arguments say
+ * what happened; only the session says who you are.
+ *
+ * Never throws, and never has. The USDC has already moved on-chain by the time this runs, so a
+ * failure here costs a history row — recoverable by reconciliation — while throwing would break
+ * the confirmation screen for a payment that actually succeeded.
+ */
 export async function recordTransfer(params: {
-  senderEmail: string;
   recipientEmail: string;
   amount: number;
   status: "completed" | "pending_claim";
@@ -59,18 +75,31 @@ export async function recordTransfer(params: {
   txHash?: string;
   /** Network the transfer settled on (e.g. 'base', 'polygon'). Optional. */
   chain?: string;
+  /** For flows where the `privy-token` cookie isn't present. Verified like any other token. */
+  accessToken?: string;
 }): Promise<void> {
   try {
-    const senderEmail = params.senderEmail.toLowerCase();
+    const { getVerifiedIdentity, touchSession } = await import("@/lib/auth/session");
+    const identity = await getVerifiedIdentity(params.accessToken);
+    if (!identity) {
+      // Unsigned callers cannot be attributed, and guessing would mean writing this row against
+      // whatever email the request asked for — the exact hole this closes.
+      console.warn("[Supabase] recordTransfer: no verified session. Skipping.");
+      return;
+    }
+
+    const senderEmail = identity.email;
     const recipientEmail = params.recipientEmail.toLowerCase();
     console.log(
-      `[Supabase] Recording transfer: ${senderEmail} -> ${recipientEmail} ($${params.amount})`,
+      `[Supabase] Recording transfer: ${redactEmail(senderEmail)} -> ${redactEmail(recipientEmail)} ($${params.amount})`,
     );
 
+    // `.in` rather than an interpolated `.or`: the recipient is caller-supplied, and a comma or
+    // parenthesis in it used to rewrite the filter. This takes an array and parses nothing.
     const { data: users, error: fetchError } = await supabaseAdmin
       .from("users")
-      .select("id, email")
-      .or(`email.eq.${senderEmail},email.eq.${recipientEmail}`);
+      .select("id, email, smart_account_address, stellar_address, solana_address")
+      .in("email", [senderEmail, recipientEmail]);
 
     if (fetchError) {
       console.error(
@@ -88,6 +117,47 @@ export async function recordTransfer(params: {
     if (!sender) {
       console.warn(`[Supabase] Sender ${redactEmail(senderEmail)} not found. Skipping.`);
       return;
+    }
+
+    // Check the claim against the chain before it becomes history.
+    //
+    // The sender is authenticated, so this is not about impersonation any more — it is about the
+    // figures. `amount` and `txHash` are still whatever the caller sent, and recording also
+    // emails the recipient, so an unchecked row means Sendzz itself can be made to send a
+    // convincing "You received N USDC" message for a payment that never happened.
+    //
+    // Only a chain that ANSWERS and disagrees is grounds to refuse. An unreachable RPC returns
+    // `unknown` and the row is written, because losing the record of a real payment is the worse
+    // failure — that is the bug we just spent this cycle fixing on the send path.
+    const chainForVerify = params.chain?.toLowerCase();
+    const senderWallet =
+      chainForVerify === "stellar"
+        ? sender.stellar_address
+        : chainForVerify === "solana"
+          ? sender.solana_address
+          : sender.smart_account_address;
+
+    const { verifyUsdcSend } = await import("@/lib/web3/verify-send");
+    const verdict = await verifyUsdcSend({
+      chain: params.chain,
+      txHash: params.txHash,
+      senderAddress: senderWallet,
+      amount: params.amount,
+    });
+
+    if (verdict === "not_found") {
+      console.error(
+        `[Supabase] REFUSED to record transfer: ${redactEmail(senderEmail)} claimed ` +
+          `${params.amount} USDC in ${params.txHash?.slice(0, 14)} on ${params.chain}, ` +
+          `but that chain shows no such movement from their wallet.`,
+      );
+      return;
+    }
+    if (verdict === "unknown") {
+      console.warn(
+        `[Supabase] Recording ${params.txHash?.slice(0, 14)} unverified — chain ` +
+          `${params.chain ?? "?"} could not be read. A real payment must not lose its record.`,
+      );
     }
 
     const baseRow = {
@@ -132,13 +202,18 @@ export async function recordTransfer(params: {
     if (!insertError) {
       console.log("[Supabase] Transfer recorded successfully");
 
+      // Sending extends THIS device's session. The recipient's is untouched: receiving money is
+      // not evidence that the recipient is anywhere near their phone, and treating it as such
+      // would let a stranger's payment keep a lost device signed in.
+      await touchSession(identity.sessionId);
+
       // 1. Send transaction receipt email to sender
       try {
         const { sendTransferSentEmail } = await import("@/lib/email/sendEmail");
         await sendTransferSentEmail(
-          params.senderEmail,
+          senderEmail,
           params.amount.toString(),
-          params.recipientEmail,
+          recipientEmail,
           transferId,
           params.note,
           params.txHash,
@@ -156,15 +231,15 @@ export async function recordTransfer(params: {
         try {
           const { createNotification } = await import("./notifications");
           await createNotification(
-            params.recipientEmail,
+            recipientEmail,
             "USDC Received",
-            `You received ${params.amount} USDC from ${params.senderEmail}!`,
+            `You received ${params.amount} USDC from ${senderEmail}!`,
             "transfer",
             {
               url: `/dashboard/activity/${transferId}`,
               transactionId: transferId,
               amount: params.amount,
-              sender: params.senderEmail,
+              sender: senderEmail,
             },
           );
         } catch (notifErr) {
@@ -1030,7 +1105,7 @@ async function findEvmMintTxHash(
   messageBytes: string,
 ): Promise<string | undefined> {
   const dest = destChain.toLowerCase();
-  if (!EVM_CHAINS.includes(dest)) return undefined;
+  if (!isEvmUsdcChain(dest)) return undefined;
 
   try {
     const { findMintTxHash } = await import("@/lib/web3/cctp-delivery");
@@ -1040,15 +1115,6 @@ async function findEvmMintTxHash(
     return undefined;
   }
 }
-
-const EVM_CHAINS = [
-  "base",
-  "arbitrum",
-  "optimism",
-  "polygon",
-  "avalanche",
-  "ethereum",
-];
 
 /**
  * Has the destination chain already consumed this message's nonce?
@@ -1074,7 +1140,7 @@ async function isBurnDelivered(
     return isStellarBurnDelivered(messageBytes, attestation);
   }
 
-  if (!EVM_CHAINS.includes(dest)) return false;
+  if (!isEvmUsdcChain(dest)) return false;
 
   try {
     const { isMessageDelivered } = await import("@/lib/web3/cctp-delivery");
@@ -1110,7 +1176,7 @@ async function burnExistsOnChain(
   txHash: string,
 ): Promise<boolean | null> {
   const chain = sourceChain.toLowerCase();
-  if (!EVM_CHAINS.includes(chain) || !txHash.startsWith("0x")) return null;
+  if (!isEvmUsdcChain(chain) || !txHash.startsWith("0x")) return null;
 
   try {
     const client = await evmClient(chain);
@@ -1121,6 +1187,57 @@ async function burnExistsOnChain(
     // and only the message distinguishes them. Anything else is an unknown, not an absence.
     const message = (err as Error)?.message ?? "";
     return message.includes("could not be found") ? false : null;
+  }
+}
+
+/**
+ * Repair an attestation whose signature has expired.
+ *
+ * A fast transfer is attested before its source chain is final, and Circle bounds that risk by
+ * making the signature valid only until `expirationBlock` on the destination. Past that block
+ * `receiveMessage` reverts, permanently — the USDC is already burned, so the transfer is stranded
+ * rather than delayed. It surfaced as a claim that failed every single time with what the UI
+ * called a network issue, and no amount of retrying could ever have worked.
+ *
+ * Circle's answer is re-attestation: the same message, signed again with no expiry. This asks for
+ * it as soon as an expired signature is seen, so the repair happens while the user is looking at
+ * the claim rather than after they report it.
+ *
+ * Returns true when a re-attestation was requested, which means the message in hand is stale and
+ * the caller should show the claim as not-yet-ready. Circle reissues within a minute or so, and
+ * the panel polls, so the fresh signature arrives on its own.
+ */
+async function reattestIfExpired(
+  destChain: string,
+  attested: AttestationResult,
+): Promise<boolean> {
+  // Standard transfers report 0 and never expire, which is the overwhelming majority of rows —
+  // returning here keeps this free for them, with no RPC call at all.
+  if (attested.status !== "complete" || !attested.expirationBlock || !attested.nonce) {
+    return false;
+  }
+
+  const dest = destChain.toLowerCase();
+  if (!isEvmUsdcChain(dest)) return false;
+
+  try {
+    const currentBlock = await (await evmClient(dest)).getBlockNumber();
+    if (currentBlock <= BigInt(attested.expirationBlock)) return false;
+
+    console.warn(
+      `[getPendingBridgeClaims] attestation expired on ${dest} at block ` +
+        `${attested.expirationBlock} (now ${currentBlock}) — asking Circle to re-sign.`,
+    );
+    const { reattestMessage } = await import("@/lib/circle/gateway");
+    return await reattestMessage(attested.nonce);
+  } catch (err) {
+    // An unreadable RPC is not evidence of expiry. Leave the claim as it is: at worst the user
+    // sees the same failure they would have seen anyway, and the next poll tries again.
+    console.error(
+      `[getPendingBridgeClaims] expiry check failed on ${dest}:`,
+      (err as Error).message,
+    );
+    return false;
   }
 }
 
@@ -1254,6 +1371,67 @@ export async function verifyBridgeClaimSettled(
   }
 }
 
+/**
+ * Ask Circle to re-sign one of the caller's claims after it failed as expired.
+ *
+ * The Pending Claims list already re-attests expired messages when it sees them, which catches
+ * almost everything. This is the other half: a signature that was still valid when the list was
+ * built and expired before the user pressed the button, or one whose expiry check could not run
+ * because the destination RPC was unreachable. Without it that claim fails on every attempt
+ * forever, which is precisely how a burn ends up needing a developer to rescue it by hand.
+ *
+ * No expiry check is made first: the claim already failed as expired, which is better evidence
+ * than anything this could re-derive. If the message turns out not to need reissuing, Circle
+ * answers "already finalized" and this returns false — harmless, and the right answer, because
+ * a message needing nothing has no reissue pending.
+ *
+ * Scoped to the caller's own rows, like every other claim operation: burn hashes are public.
+ */
+export async function refreshExpiredBridgeClaim(
+  burnTxHash: string,
+  accessToken?: string,
+): Promise<boolean> {
+  try {
+    const { email } = await requireUser(accessToken);
+    const { data: userRecord } = await supabaseAdmin
+      .from("users")
+      .select("id")
+      .eq("email", email)
+      .single();
+    if (!userRecord?.id) return false;
+
+    const [{ data: bridge }, { data: scratch }] = await Promise.all([
+      supabaseAdmin
+        .from("bridge_transactions")
+        .select("source_chain")
+        .eq("burn_tx_hash", burnTxHash)
+        .eq("user_id", userRecord.id)
+        .maybeSingle(),
+      supabaseAdmin
+        .from("consolidation_claims")
+        .select("source_chain")
+        .eq("burn_tx_hash", burnTxHash)
+        .eq("user_id", userRecord.id)
+        .maybeSingle(),
+    ]);
+
+    const row = bridge ?? scratch;
+    if (!row) return false;
+
+    const attested = await getAttestation(row.source_chain as ExtendedChain, burnTxHash);
+    if (!attested.nonce) return false;
+
+    const { reattestMessage } = await import("@/lib/circle/gateway");
+    return await reattestMessage(attested.nonce);
+  } catch (err) {
+    console.error(
+      `[refreshExpiredBridgeClaim] Could not refresh ${burnTxHash.slice(0, 10)}:`,
+      (err as Error).message,
+    );
+    return false;
+  }
+}
+
 export async function getPendingBridgeClaims(
   accessToken?: string,
 ): Promise<PendingBridgeClaim[]> {
@@ -1334,6 +1512,11 @@ export async function getPendingBridgeClaims(
             }
           }
 
+          // An expired signature can only fail, so hold the claim closed for this cycle rather
+          // than offering a button that cannot work. Circle reissues within about a minute and
+          // the panel polls, so the card opens again on its own.
+          const reattesting = await reattestIfExpired(row.dest_chain, result);
+
           return {
             id: row.id,
             burnTxHash: row.burn_tx_hash,
@@ -1341,7 +1524,7 @@ export async function getPendingBridgeClaims(
             destChain: row.dest_chain,
             amount: row.amount,
             createdAt: row.created_at,
-            ready: result.status === "complete",
+            ready: result.status === "complete" && !reattesting,
             messageBytes: result.messageBytes ?? undefined,
             attestation: result.attestation ?? undefined,
           };

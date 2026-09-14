@@ -236,7 +236,13 @@ export const FAQ_SECTIONS: FaqSection[] = [
         id: "2fa",
         question: "I can't complete 2FA",
         answer:
-          "Larger withdrawals need two factor authentication. If your code is refused, check your device clock for authenticator codes, or request a fresh email code. You can change your 2FA method in Settings, and if you have lost access entirely, contact us on Telegram and we will verify you again.",
+          "Larger withdrawals need a second check before they go out. If your code is refused, check your device clock for authenticator codes, or request a fresh email code. You can change your method in Settings, and if you have lost access entirely, contact us on Telegram and we will verify you again.",
+      },
+      {
+        id: "2fa-what-is-it",
+        question: "What is the extra code when I withdraw?",
+        answer:
+          "A second check that it is really you, asked for on larger withdrawals rather than every one. You can have it sent to your email, use an authenticator app, or use your phone's own fingerprint or face unlock, whichever you set up in Settings. It exists so that someone who somehow reached your account still cannot move a meaningful amount without also having your email or your phone in their hand.",
       },
       {
         id: "receipt",
@@ -246,15 +252,27 @@ export const FAQ_SECTIONS: FaqSection[] = [
       },
       {
         id: "security",
-        question: "Is my money safe?",
+        question: "What actually protects my money?",
         answer:
-          "Your funds sit in a wallet only you control, and we never take custody of them. Withdrawals require authentication and larger ones require 2FA. We will never ask for your recovery details, and nobody from Sendzz will ever message you first asking for them.",
+          "Four things. Your funds sit in a wallet only you control, so we never hold them and cannot move them. Sending money out always needs you to be signed in, and larger amounts need a second check on top of that. Being signed in expires on its own after 24 hours without you sending anything, so a phone left in a taxi does not stay open indefinitely. And you can sign any device out yourself from Settings, which takes effect immediately. We will never ask for your recovery details, and nobody from Sendzz will message you first asking for them.",
+      },
+      {
+        id: "lost-phone",
+        question: "I've lost my phone. What should I do?",
+        answer:
+          "Open Sendzz on any other device, go to Settings and then Devices, and sign the missing phone out. It loses access straight away rather than whenever it next happens to expire. Even if you cannot get to another device, being signed in ends by itself after 24 hours without a transaction, so the window is limited either way. Your money stays where it is throughout, because it lives in your wallet rather than on the phone.",
+      },
+      {
+        id: "devices",
+        question: "How do I see where I'm signed in?",
+        answer:
+          "Settings, then Devices. It lists every device currently signed in to your account, with the device it is and when it was last active, and marks the one you are using. You can sign out any of them individually, or all the others at once. A device you sign out has to sign in again from scratch.",
       },
       {
         id: "session-expired",
-        question: "It says my session expired",
+        question: "Why was I signed out?",
         answer:
-          "Your session timed out, usually after a long spell with the tab open. Refresh the page and sign in again. Nothing is lost, and any withdrawal already in progress carries on regardless of your browser.",
+          "Being signed in lasts 24 hours from the last time you sent money. Browsing, checking your balance, or receiving a payment does not extend it, because none of those prove you are the one holding the phone. You may also have been signed out from another device. Either way nothing is lost, and anything already on its way carries on regardless. Sign in again and everything is where you left it.",
       },
     ],
   },

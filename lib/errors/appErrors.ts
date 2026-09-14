@@ -25,6 +25,8 @@ export interface AppError {
     | 'user_cancelled'
     | 'already_processed'
     | 'attestation_pending'
+    | 'attestation_expired'
+    | 'broadcast_unconfirmed'
     | 'wallet_not_ready'
     | 'wallet_not_registered'
     | 'insufficient_funds'
@@ -89,12 +91,16 @@ export function classifyAppError(err: unknown): AppError {
     return { message: 'Your session expired. Please refresh the page to continue.', category: 'validation', isSilent: false, isAlreadyProcessed: false };
   }
 
+  // A fast transfer's attestation is only valid for a short window on the destination chain.
+  // Past it the signature is refused permanently, so retrying is useless until Circle signs the
+  // message again — which is what the caller does on seeing this category. The message must not
+  // say "try again": it said exactly that for months while every retry failed identically.
   if (
     msg.includes('message expired') ||
     msg.includes('must be re-signed') ||
     msg.includes('signature expired')
   ) {
-    return { message: 'Signature expired. Please click Claim again to complete your transfer.', category: 'contract_revert', isSilent: false, isAlreadyProcessed: false };
+    return { message: 'This transfer needs a fresh signature. We have requested one — your funds are safe, please check back in a minute.', category: 'attestation_expired', isSilent: false, isAlreadyProcessed: false };
   }
 
   if (
@@ -110,6 +116,16 @@ export function classifyAppError(err: unknown): AppError {
     msg.includes('already arrived')
   ) {
     return { message: 'This transfer was already processed. Please refresh your balance.', category: 'already_processed', isSilent: false, isAlreadyProcessed: true };
+  }
+
+  // Broadcast, not yet mined. The funds may already be moving, so this must never read as a
+  // failure the user should retry — a retry here is how someone pays the same person twice.
+  if (
+    msg.includes('not confirmed within') ||
+    msg.includes('waitforuseroperationreceipt') ||
+    msg.includes('timed out while waiting for user operation')
+  ) {
+    return { message: 'Your transfer is still confirming on the network. Your funds are safe — please don\'t send it again; it will appear in your history shortly.', category: 'broadcast_unconfirmed', isSilent: false, isAlreadyProcessed: false };
   }
 
   if (

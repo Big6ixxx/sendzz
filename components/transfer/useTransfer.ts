@@ -4,6 +4,7 @@ import { useUserContacts } from "@/components/contacts/useContacts";
 import { useExchangeRate } from "@/lib/hooks/useExchangeRate";
 import { ConnectedWallet } from "@privy-io/react-auth";
 import { executeRoutedTransfer } from "@/lib/web3/circle-actions";
+import { recordSendIntent } from "@/lib/actions/pendingSend";
 import { consolidateFundsToChain } from "@/lib/web3/bridge-actions";
 import {
   planTransferRoute,
@@ -490,6 +491,16 @@ export function useTransfer({
         provider,
         recipientAddress as string,
         plan.legs as { chain: SupportedChain; amount: string }[],
+        // One intent per leg, filed as each is accepted. Legs settle independently, so a route
+        // that dies halfway still leaves a record of the parts that went through.
+        (userOpHash, leg) =>
+          recordSendIntent({
+            userOpHash,
+            chain: leg.chain,
+            recipient: recipientEmail,
+            amount: parseFloat(leg.amount),
+            note: memo || undefined,
+          }),
       );
       const txHash = txHashes[0];
 
@@ -510,7 +521,6 @@ export function useTransfer({
 
       const { recordTransfer } = await import("@/lib/supabase/transactions");
       await recordTransfer({
-        senderEmail,
         recipientEmail,
         amount: parseFloat(amountUsdc),
         status: isPendingClaim ? "pending_claim" : "completed",

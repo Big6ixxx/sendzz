@@ -516,3 +516,51 @@
     font-family: var(--font-display);
   }
 }
+
+/* ─── iOS focus zoom ──────────────────────────────────────────────────────────
+ *
+ * Safari on iOS zooms the whole viewport when you focus a form control whose
+ * font-size is under 16px, then leaves the page zoomed in. Users reported it as
+ * "the site zooms in when I tap an input", which is exactly what it is. Because
+ * Apple requires every iOS browser to use WebKit, Chrome and Firefox on iPhone do
+ * it too.
+ *
+ * The threshold is 16px and it is not configurable. Our shared Input is `text-sm`
+ * (14px) and roughly twenty other controls set text-sm or text-xs, so fixing them
+ * one by one would work today and regress the moment anyone adds another input.
+ *
+ * Only the sizes BELOW the threshold are raised. A blanket `font-size: 16px` on
+ * every control also SHRINKS the deliberately large ones -- the amount fields on
+ * Transfer (text-5xl), Crypto transfer (text-3xl), Bridge (text-2xl), Deposit and
+ * Withdraw (text-xl) would all have collapsed to body text on mobile. Anything
+ * already at 16px or above is left alone.
+ *
+ * Deliberately NOT solved with `maximum-scale=1` / `user-scalable=no` on the
+ * viewport. That does stop the zoom, by removing pinch-zoom from the entire site --
+ * it fails WCAG 1.4.4 and takes zoom away from people who need it to read at all.
+ *
+ * Scoped to `pointer: coarse` so it only touches devices with this behaviour:
+ * desktop keeps its 14px inputs. It catches Android too, which is harmless and
+ * arguably better -- there is no reliable way to target iOS in CSS, and 16px is a
+ * good size to type into on any phone.
+ *
+ * LIMITATION: this matches Tailwind's named small sizes, so an arbitrary value such
+ * as `text-[13px]` slips through. Two existed (CurrencySelector's search box and the
+ * admin refund filter) and are fixed at source with `text-base md:text-[...]`, which
+ * is the pattern to follow for any new compact control.
+ *
+ * Unlayered on purpose. Everything above lives in `@layer base`, and Tailwind's
+ * `utilities` layer is applied after it, so a rule inside base would lose to
+ * `text-sm` regardless of specificity. Unlayered styles outrank every layer, which
+ * is what makes this work without `!important`.
+ */
+@media (pointer: coarse) {
+  input.text-xs,
+  input.text-sm,
+  select.text-xs,
+  select.text-sm,
+  textarea.text-xs,
+  textarea.text-sm {
+    font-size: 16px;
+  }
+}

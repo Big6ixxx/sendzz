@@ -16,7 +16,7 @@ import {
   verifyBankAccount,
 } from "@/lib/actions/ramp";
 import type { RampProviderName } from "@/lib/ramp";
-import { CHAIN_NAMES, type SupportedChain } from "@/lib/circle/gateway";
+import { type SupportedChain } from "@/lib/circle/gateway";
 import {
   updateDepositStatus,
   saveWithdrawalTxHash,
@@ -53,7 +53,7 @@ import {
 import { parseFriendlyError } from "@/components/transfer/useTransfer";
 import { ConnectedWallet, usePrivy } from "@privy-io/react-auth";
 import { calculatePaycrestBaseAmount } from "@/lib/paycrest/config";
-import { getCurrencySymbol } from "@/lib/currency-config";
+import { formatFiatShort, getCurrencySymbol } from "@/lib/currency-config";
 import { FIAT_ROUTING_PAD, totalDeducted } from "@/lib/ramp/fees";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -187,6 +187,27 @@ export function useDepositWithdraw(
     /** Which provider priced it — a different one settling means a different price. */
     provider?: RampProviderName;
   } | null>(null);
+
+  /**
+   * Who the money is going to, in the words the user would use.
+   *
+   * The account name is the one a person recognises — it is their own name, or the name of
+   * whoever they are paying. The bank stands in only when the account name is missing, because
+   * "your bank" is still more meaningful than an account number.
+   */
+  const payoutTo = useCallback(
+    () =>
+      bankDetails.accountName?.trim() ||
+      bankDetails.bankName?.trim() ||
+      "your bank",
+    [bankDetails.accountName, bankDetails.bankName],
+  );
+
+  /** The payout as the recipient will see it on their statement: "₦82,400". */
+  const payoutAmountText = useCallback(
+    () => (quote?.payoutAmount != null ? formatFiatShort(quote.payoutAmount, fiatCurrency) : ""),
+    [quote?.payoutAmount, fiatCurrency],
+  );
   /**
    * The binding quote behind the amount currently typed on step 1. Distinct from `quote`, which
    * is the one the user has reviewed and committed to; this one changes as they type.
@@ -564,7 +585,7 @@ export function useDepositWithdraw(
     const baseAmount = calculatePaycrestBaseAmount(val, feePercent);
     const estimatedUsdc = baseAmount / (rate || 1);
     if (estimatedUsdc <= 1) {
-      toast.error("Estimated deposit must be greater than 1 USDC");
+      toast.error("That amount is too small after fees. Please enter a little more.");
       return;
     }
 
@@ -675,7 +696,7 @@ export function useDepositWithdraw(
     }
 
     if (isNaN(val) || val < 1) {
-      toast.error("Minimum withdrawal is 1 USDC equivalent");
+      toast.error("That amount is too small to withdraw. Please enter a little more.");
       return;
     }
 
@@ -778,7 +799,7 @@ export function useDepositWithdraw(
           return;
         }
         if (!solanaSource?.settleOffRamp) {
-          toast.error("Connect your Solana wallet to settle on Solana.");
+          toast.error("Your wallet is still loading. Please try again in a moment.");
           return;
         }
         settlementChain = "solana";
@@ -982,7 +1003,6 @@ export function useDepositWithdraw(
       // Done before creating the off-ramp order so the order's transfer window starts fresh.
       if (mustConsolidate && embeddedProvider) {
         const targetChain = withdrawChain as SupportedChain | "stellar" | "solana";
-        const targetName = targetChain === "stellar" ? "Stellar" : targetChain === "solana" ? "Solana" : (CHAIN_NAMES[targetChain as SupportedChain] ?? targetChain);
         // Bring over base + platform fee + corridor fee. Each is a separate outflow from this
         // chain, so consolidating only the base strands the withdrawal a fee short — and after
         // a CCTP bridge, which is slow and not worth repeating.
@@ -1030,7 +1050,10 @@ export function useDepositWithdraw(
               }
             }
           : undefined;
-        toast.loading(`Securing bridge transaction on ${targetName}…`, { id: "consolidate" });
+        // Moving USDC between networks to fund the payout is our problem, not the user's.
+        // They asked to be paid; the mechanics carry no meaning for them and naming chains here
+        // only invites "what is Arbitrum and why is my money on it?".
+        toast.loading("Preparing your withdrawal…", { id: "consolidate" });
         await consolidateFundsToChain(embeddedProvider, {
           targetChain,
           requiredAmount: required,
@@ -1052,9 +1075,10 @@ export function useDepositWithdraw(
           // that did not happen. Solana withdrawals settle directly on Solana and do not take
           // this path.
           solanaWallet: null,
-          onStatus: (s) => toast.loading(s, { id: "consolidate" }),
+          // Deliberately not surfaced: these read "Moving funds from Arbitrum to Base…".
+          onStatus: undefined,
         });
-        toast.success(`Funds secured & ready on ${targetName}.`, { id: "consolidate", duration: 5000 });
+        toast.dismiss("consolidate");
       }
 
       // Submit via the pinned-provider flow using the CANONICAL bank identity (name, not
@@ -1241,7 +1265,7 @@ export function useDepositWithdraw(
           payoutAmount: bitnobPayoutDeposit.toFixed(6),
           feeAddress: onchainFee?.address,
           feeAmount: onchainFee?.usdc,
-          onStatus: (s) => toast.loading(s, { id: "wd-settle" }),
+          onStatus: undefined,
         });
         toast.dismiss("wd-settle");
       } else if (settlementChain === "stellar") {
@@ -1251,7 +1275,7 @@ export function useDepositWithdraw(
         }
         const bitnobFee = parseFloat(activeOrder.bitnobFee || "0");
         const bitnobPayoutDeposit = baseAmount + bitnobFee;
-        toast.loading("Submitting direct Stellar withdrawal transaction…", { id: "wd-settle" });
+        toast.loading(`Sending ${payoutAmountText()} to ${payoutTo()}…`, { id: "wd-settle" });
 
         const res = await fetch("/api/stellar/send", {
           method: "POST",
@@ -1360,7 +1384,7 @@ export function useDepositWithdraw(
           }).catch(console.error);
         }
       }
-      toast.success("Transfer sent! Waiting for payout confirmation...");
+      toast.success(`Sending ${payoutAmountText()} to ${payoutTo()}…`);
       queryClient.invalidateQueries({ queryKey: ["balance", userAddress] });
       setStep(4);
       // Pass the order straight through — state has not flushed on this tick, and polling that
@@ -1443,7 +1467,7 @@ export function useDepositWithdraw(
               if (ledger !== "completed") {
                 reconcileOrderStatus(activeOrder.id, result.status, 'withdrawal').catch(console.error);
               }
-              toast.success("Withdrawal completed!");
+              toast.success(`${payoutAmountText()} sent to ${payoutTo()}.`);
 
               // Offer to save the destination, unless it is already in their contacts.
               const exists = bankContacts.some(
@@ -1474,7 +1498,7 @@ export function useDepositWithdraw(
                   console.error,
                 );
               }
-              toast.success("Funds received!");
+              toast.success("Deposit complete. Your balance has been updated.");
 
               // Check if bank is already in contacts (for refund)
               const exists = bankContacts.some(
@@ -1498,7 +1522,13 @@ export function useDepositWithdraw(
               updateDepositStatus(activeOrder.id, "failed");
             }
             setTxFailed(true);
-            toast.error(`Transaction ${result.status}`);
+            // The provider's own status word ("reverted", "expired") means nothing to someone
+            // watching for their money. Say what happened to them, not to the transaction.
+            toast.error(
+              isWithdraw
+                ? "That withdrawal didn't go through. Your balance is unchanged."
+                : "That deposit didn't go through. You have not been charged.",
+            );
           }
         }
       } catch {}
@@ -1563,6 +1593,9 @@ export function useDepositWithdraw(
     queryClient,
     userAddress,
     bankDetails.accountNumber,
+    // Both are read when the poll reports a terminal status, to name the amount and destination.
+    payoutAmountText,
+    payoutTo,
   ]);
 
   useEffect(() => {

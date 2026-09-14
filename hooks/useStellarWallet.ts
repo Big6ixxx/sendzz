@@ -24,8 +24,22 @@ export interface StellarWalletInfo {
   signerGranted: boolean;
 }
 
-/** Provisioning result is stable for a long time — don't re-derive it on every mount. */
-const STALE_MS = 30 * 60 * 1000;
+/** A finished wallet never changes — don't re-derive it on every mount. */
+const SETTLED_MS = 30 * 60 * 1000;
+
+/**
+ * How long to sit on an UNFINISHED wallet before trying again.
+ *
+ * Short on purpose. A wallet without its signer grant cannot receive USDC at all, and the grant
+ * is the one step that can fail quietly — so an incomplete result has to be treated as something
+ * to retry, not an answer to cache. Treating it as final is why 15 of 43 wallets sat without a
+ * trustline for weeks: the grant failed once, the failure was cached for half an hour, and by
+ * the time it expired the user had gone.
+ */
+const UNFINISHED_MS = 20 * 1000;
+
+const isReady = (w: StellarWalletInfo | null | undefined) =>
+  !!w && w.signerGranted && w.trustlineReady;
 
 export function useStellarWallet(options?: { enabled?: boolean }) {
   const { user } = usePrivy();
@@ -57,20 +71,36 @@ export function useStellarWallet(options?: { enabled?: boolean }) {
       };
 
       const wallet = await provision();
-      if (!wallet || (wallet.signerGranted && wallet.trustlineReady)) return wallet;
+      if (!wallet || isReady(wallet)) return wallet;
 
-      // If signer is not granted, grant it now; then re-provision so trustline setup runs.
+      // The signer grant is the one step the server cannot perform for itself, and the one that
+      // fails silently — `addSigners` needs the user's own session, so anything that interrupts
+      // it (a dismissed prompt, a navigation, a closed tab) leaves the wallet unable to hold
+      // USDC. Its result was previously discarded; now a failure is visible and the caller
+      // re-tries rather than caching a broken wallet as finished.
       if (!wallet.signerGranted) {
-        await grantServerSigner(wallet.address);
+        const granted = await grantServerSigner(wallet.address);
+        if (!granted) {
+          console.warn(
+            `[StellarWallet] Signer grant did not complete for ${wallet.address.slice(0, 6)} — ` +
+              `this wallet cannot receive USDC until it does. Will retry.`,
+          );
+          return wallet;
+        }
       }
+
+      // Re-provision so trustline setup runs now that the server can sign.
       return (await provision()) ?? wallet;
     },
     enabled: (options?.enabled ?? true) && !!privyUserId && !!email,
-    staleTime: STALE_MS,
-    gcTime: STALE_MS,
-    refetchOnWindowFocus: false,
-    refetchOnMount: false,
-    refetchOnReconnect: false,
-    retry: 1,
+
+    // An unfinished wallet goes stale almost immediately, so the next mount tries again. A
+    // finished one is stable and is left alone.
+    staleTime: (query) => (isReady(query.state.data) ? SETTLED_MS : UNFINISHED_MS),
+    gcTime: SETTLED_MS,
+    refetchOnWindowFocus: (query) => !isReady(query.state.data),
+    refetchOnMount: (query) => !isReady(query.state.data),
+    refetchOnReconnect: (query) => !isReady(query.state.data),
+    retry: 2,
   });
 }
