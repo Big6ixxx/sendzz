@@ -55,6 +55,47 @@ export const SESSION_IDLE_LIMIT_MS = 24 * 60 * 60 * 1000;
  * forged one are deliberately indistinguishable, so nothing here tells an attacker which part
  * of their attempt was wrong.
  */
+/**
+ * Emails already resolved from Privy, so a signed-in user does not cost a network round trip on
+ * every single request.
+ *
+ * The token itself is verified locally every time — that is the actual authentication, and it is
+ * never cached. This only remembers the email behind a user id, which is the one thing the JWT
+ * does not carry and the only reason Privy was being called at all.
+ *
+ * It is also what keeps a Privy outage from logging everybody out: a stale entry is served when
+ * the lookup fails, because someone holding a validly signed token IS authenticated whether or
+ * not a third party is reachable at that instant.
+ */
+const emailCache = new Map<string, { email: string; at: number }>();
+const EMAIL_FRESH_MS = 10 * 60 * 1000;
+
+async function emailForPrivyUser(privyUserId: string): Promise<string | null> {
+  const hit = emailCache.get(privyUserId);
+  if (hit && Date.now() - hit.at < EMAIL_FRESH_MS) return hit.email;
+
+  try {
+    const privyUser = await privy.users()._get(privyUserId);
+    const account = privyUser.linked_accounts.find((a) => a.type === 'email') as
+      | { address?: string }
+      | undefined;
+    const email = account?.address?.toLowerCase().trim();
+    if (!email) return hit?.email ?? null;
+
+    emailCache.set(privyUserId, { email, at: Date.now() });
+    return email;
+  } catch (err) {
+    // Privy unreachable, slow, or rate-limiting. A previously known email is far better than
+    // treating a valid token as unauthenticated — that reads as "signed out" to the user.
+    if (hit) {
+      console.warn('[Session] Privy lookup failed; using cached email for this request.');
+      return hit.email;
+    }
+    console.error('[Session] Privy lookup failed with nothing cached:', (err as Error).message);
+    return null;
+  }
+}
+
 export async function getVerifiedIdentity(
   accessToken?: string,
 ): Promise<{ email: string; privyUserId: string; sessionId: string } | null> {
@@ -62,21 +103,19 @@ export async function getVerifiedIdentity(
     const token = accessToken?.trim() || (await cookies()).get('privy-token')?.value;
     if (!token) return null;
 
+    // Local signature check against Privy's verification key — no network, and the only thing
+    // that decides whether this caller is authenticated.
     const claims = await privy.utils().auth().verifyAccessToken(token);
     if (!claims?.user_id) return null;
 
-    const privyUser = await privy.users()._get(claims.user_id);
-    const emailAccount = privyUser.linked_accounts.find((a) => a.type === 'email') as
-      | { address?: string }
-      | undefined;
-    const email = emailAccount?.address?.toLowerCase().trim();
+    const email = await emailForPrivyUser(claims.user_id);
     if (!email) return null;
 
     // `session_id` identifies the DEVICE session, not the account. It lives inside the signed
     // JWT, so it cannot be invented or borrowed from another device.
     return { email, privyUserId: claims.user_id, sessionId: claims.session_id };
   } catch {
-    // Invalid / expired / forged token, or Privy unreachable. Fail closed.
+    // Invalid, expired or forged token. Fail closed.
     return null;
   }
 }

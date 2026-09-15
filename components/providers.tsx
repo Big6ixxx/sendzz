@@ -16,7 +16,6 @@ import {
 import { ReactNode, useState, useEffect } from 'react';
 import { BalanceVisibilityProvider } from '@/components/providers/BalanceVisibilityProvider';
 import { useSessionActivity } from '@/hooks/useSessionActivity';
-import { useSessionEpoch } from '@/hooks/useSessionEpoch';
 /*
  * Imported for its side effect: registering the `beforeinstallprompt` listener at app boot.
  *
@@ -37,9 +36,6 @@ import '@/hooks/usePwaInstall';
  */
 function SessionActivityWatcher() {
   useSessionActivity();
-  // The one-time global sign-out. Runs at most once per browser, then never again until
-  // SESSION_EPOCH changes — see hooks/useSessionEpoch.ts.
-  useSessionEpoch();
   return null;
 }
 
