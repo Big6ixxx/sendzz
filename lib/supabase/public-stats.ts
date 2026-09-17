@@ -9,6 +9,7 @@
  * the browser only ever receives one page of rows plus aggregate totals.
  */
 
+import { EVM_USDC_CHAINS } from '@/lib/circle/gateway';
 import { supabaseAdmin } from './adminClient';
 import type {
   FeedQuery,
@@ -52,10 +53,13 @@ function sanitizeSearch(search: string | undefined): string {
   return (search || '').trim().replace(/[^a-zA-Z0-9]/g, '').slice(0, 128);
 }
 
-/** Chains the feed may be filtered by. Anything else is dropped rather than passed through. */
-const FILTERABLE_CHAINS = new Set([
-  'ethereum', 'base', 'polygon', 'arbitrum', 'optimism', 'avalanche', 'solana', 'stellar',
-]);
+/**
+ * Chains the feed may be filtered by. Anything else is dropped rather than passed through.
+ *
+ * Still a strict allow-list — that is what makes the interpolation below safe — but derived
+ * from the chain registry, so a new chain is filterable the day it ships.
+ */
+const FILTERABLE_CHAINS = new Set<string>([...EVM_USDC_CHAINS, 'solana', 'stellar']);
 
 /**
  * A chain name safe to place in a PostgREST filter, or undefined.

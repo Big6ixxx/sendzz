@@ -1,3 +1,4 @@
+import { ChainLogo } from '@/components/deposit-withdraw/ChainLogo';
 import { formatFeeSummary } from '@/lib/format-usdc';
 import { usePlatformFeePercent } from '@/lib/hooks/usePlatformFeePercent';
 import React from 'react';
@@ -51,6 +52,7 @@ const AVAILABLE_CHAINS: (SupportedChain | 'stellar' | 'solana')[] = [
   'optimism',
   'polygon',
   'avalanche',
+  'arc',
   'stellar',
   'solana',
 ];
@@ -62,6 +64,7 @@ const ALL_CHAIN_NAMES: Record<SupportedChain | 'stellar' | 'solana', string> = {
   optimism: 'Optimism',
   polygon: 'Polygon',
   avalanche: 'Avalanche',
+  arc: 'Arc',
   stellar: 'Stellar',
   solana: 'Solana',
 };
@@ -128,7 +131,7 @@ export function CryptoTransferForm({
             {AVAILABLE_CHAINS.map((chain) => (
               <SelectItem key={chain} value={chain}>
                 <div className="flex items-center gap-3">
-                  <img src={`/chains/${chain}.png`} alt={chain} className="w-5 h-5 rounded-full object-cover" />
+                  <ChainLogo chain={chain} size={20} />
                   <span className="text-xs font-bold">{ALL_CHAIN_NAMES[chain]}</span>
                 </div>
               </SelectItem>

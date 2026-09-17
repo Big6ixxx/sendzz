@@ -30,77 +30,10 @@ export interface KycVerification {
   updatedAt: string;
 }
 
-export interface TransactionTotals {
-  daily: number;
-  weekly: number;
-  monthly: number;
-}
-
-export interface KycStatusAndTotals {
-  kyc: KycVerification;
-  totals: TransactionTotals;
-}
-
 // ─── Queries ─────────────────────────────────────────────────────────────────
 
 /**
- * Fetches the user's KYC status and rolling transaction totals in a single
- * round-trip using the `get_kyc_status_and_totals` RPC.
- */
-export async function getKycStatusAndTotals(
-  userId: string,
-): Promise<KycStatusAndTotals> {
-  const { data, error } = await supabaseAdmin.rpc(
-    "get_kyc_status_and_totals",
-    { p_user_id: userId },
-  );
-
-  if (error) {
-    console.error("[KYC] Failed to fetch KYC status and totals:", error);
-    // Return safe defaults — do NOT silently allow on error
-    return {
-      kyc: {
-        userId,
-        diditSessionId: null,
-        status: "not_started",
-        updatedAt: new Date().toISOString(),
-      },
-      totals: { daily: 0, weekly: 0, monthly: 0 },
-    };
-  }
-
-  interface KycStatusRpcResult {
-    didit_session_id?: string | null;
-    kyc_status?: string;
-    daily_total?: number;
-    weekly_total?: number;
-    monthly_total?: number;
-  }
-
-  const row = (Array.isArray(data) ? data[0] : data) as unknown as KycStatusRpcResult | null;
-
-  return {
-    kyc: {
-      userId,
-      diditSessionId: row?.didit_session_id ?? null,
-      status: (row?.kyc_status ?? "not_started") as KycStatus,
-      updatedAt: new Date().toISOString(),
-    },
-    totals: {
-      daily: Number(row?.daily_total ?? 0),
-      weekly: Number(row?.weekly_total ?? 0),
-      monthly: Number(row?.monthly_total ?? 0),
-    },
-  };
-}
-
-/**
  * How much the user has already withdrawn against their unverified allowance.
- *
- * Separate from `getKycStatusAndTotals` on purpose: that one answers "how much has moved
- * lately" across several tables and windows, which is a different question from "how much of a
- * one-off allowance is spent". Sharing a query would have meant one of the two callers reading
- * a number that does not mean what it says.
  *
  * Returns the allowance as fully spent if the lookup fails. Defaulting to zero would hand a
  * fresh 100 to everyone the moment the database hiccuped, which is the one wrong answer here.
@@ -124,9 +57,7 @@ export async function getWithdrawnAgainstAllowance(
   return Number(data ?? 0);
 }
 
-/**
- * Gets just the user's KYC status (lightweight, no totals).
- */
+/** The user's KYC verification record, or a `not_started` default. */
 export async function getUserKycStatus(
   userId: string,
 ): Promise<KycVerification> {

@@ -72,18 +72,7 @@ export function useBatchSend(
       return;
     }
 
-    if (totalAmount > 0) {
-      try {
-        const { checkKycLimitAction } = await import("@/lib/kyc/guard");
-        const guard = await checkKycLimitAction(totalAmount, undefined, "transfer");
-        if (!guard.allowed) {
-          toast.error(guard.message);
-          return;
-        }
-      } catch (err) {
-        console.error("[BatchSend] Early KYC check error:", err);
-      }
-    }
+    // No KYC limit check — see the note in useCryptoTransfer. Limits live on the fiat edges.
 
     // Check if 2FA is required
     if (totalAmount >= twoFaThreshold) {

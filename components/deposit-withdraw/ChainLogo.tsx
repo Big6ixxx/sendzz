@@ -12,6 +12,7 @@ const CHAIN_LOGOS: Record<string, string> = {
   stellar:      '/chains/stellar.png',
   base:          '/chains/base.png',
   'base-direct': '/chains/base.png',
+  arc:           '/chains/arc.jpg',
 };
 
 export function ChainLogo({ chain, size = 32 }: { chain: string; size?: number }) {

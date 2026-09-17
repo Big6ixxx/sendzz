@@ -8,10 +8,18 @@ export const CCTP_DOMAINS: Record<string, number> = {
   solana: 5,
   base: 6,
   polygon: 7,
+  arc: 26,
   stellar: 27,
 };
 
-export type SupportedChain = 'ethereum' | 'avalanche' | 'optimism' | 'arbitrum' | 'base' | 'polygon';
+export type SupportedChain =
+  | 'ethereum'
+  | 'avalanche'
+  | 'optimism'
+  | 'arbitrum'
+  | 'base'
+  | 'polygon'
+  | 'arc';
 
 // CCTP V2 TokenMessengerV2 — same address across all EVM chains (CREATE2 deployment)
 export const TOKEN_MESSENGER_V2 =
@@ -25,6 +33,10 @@ export const USDC_ADDRESSES: Record<SupportedChain, string> = {
   arbitrum: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
   base: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
   polygon: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
+  // A precompile rather than a deployed contract, but it exposes the standard ERC-20 interface
+  // at 6 decimals like every other entry here. Arc's 18-decimal gas unit is a separate thing —
+  // see the note on `arc` in lib/web3/multichain.ts.
+  arc: '0x3600000000000000000000000000000000000000',
 };
 
 /**
@@ -48,6 +60,7 @@ export const CHAIN_NAMES: Record<SupportedChain, string> = {
   arbitrum: 'Arbitrum',
   base: 'Base',
   polygon: 'Polygon',
+  arc: 'Arc',
 };
 
 export const CHAIN_IDS: Record<SupportedChain, number> = {
@@ -57,6 +70,7 @@ export const CHAIN_IDS: Record<SupportedChain, number> = {
   arbitrum: 42161,
   base: 8453,
   polygon: 137,
+  arc: 5042,
 };
 
 /**
@@ -70,6 +84,7 @@ export const CHAIN_EXPLORERS: Record<SupportedChain, string> = {
   arbitrum: EXPLORER_TX_BASE.arbitrum,
   base: EXPLORER_TX_BASE.base,
   polygon: EXPLORER_TX_BASE.polygon,
+  arc: EXPLORER_TX_BASE.arc,
 };
 
 // Source chains the user can bridge FROM (Base is the destination)
@@ -80,6 +95,7 @@ export const CHAIN_EXPLORERS: Record<SupportedChain, string> = {
 // routing. Ethereum L1 is commented out for now — see BRIDGE_DISABLED_CHAINS below.
 export const SOURCE_CHAINS: SupportedChain[] = [
   'arbitrum',
+  'arc',
   'avalanche',
   // 'ethereum',
   'optimism',
@@ -107,6 +123,11 @@ export const SOURCE_CHAINS: SupportedChain[] = [
  * Chain *metadata* (CHAIN_META, deposit-shared, explorers) deliberately keeps its
  * ethereum entries — historical L1 transactions still need a name, colour and
  * explorer link to render.
+ *
+ * Adding a BRAND-NEW chain is a superset of the above: the metadata it relies on does not
+ * exist yet either, so also add an RPC (lib/web3/rpc.ts), a viem chain (lib/web3/multichain),
+ * an explorer (lib/explorers), an Alchemy subdomain (lib/web3/deposit-scanner) and a logo.
+ * Adding it to `SupportedChain` first makes the compiler name every map that needs filling.
  */
 export const BRIDGE_DISABLED_CHAINS: SupportedChain[] = ['ethereum'];
 
@@ -146,6 +167,7 @@ export const SMART_BRIDGE_CHAINS: SupportedChain[] = SOURCE_CHAINS.filter(isBrid
  */
 export const GAS_POLICY_IDS: Partial<Record<SupportedChain, string | undefined>> = {
   arbitrum:  process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_ARBITRUM,
+  arc:       process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_ARC,
   avalanche: process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_AVALANCHE,
   ethereum:  process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_ETHEREUM,
   optimism:  process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_OPTIMISM,

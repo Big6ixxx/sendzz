@@ -50,6 +50,7 @@ const EVM_NETWORKS: { key: string; name: string }[] = [
   { key: 'arbitrum', name: 'Arbitrum' },
   { key: 'optimism', name: 'Optimism' },
   { key: 'avalanche', name: 'Avalanche' },
+  { key: 'arc', name: 'Arc' },
 ];
 
 interface ReceiveCryptoFlowProps {

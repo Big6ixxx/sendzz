@@ -17,9 +17,7 @@ import { cn } from "@/lib/utils";
 import { ChevronDown, HelpCircle, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
-/** Configurable without a deploy — a support group link can change. */
-const TELEGRAM_URL =
-  process.env.NEXT_PUBLIC_SUPPORT_TELEGRAM_URL || "https://t.me/sendzz";
+import { TELEGRAM_URL } from "@/lib/social";
 
 export function SupportWidget() {
   const [open, setOpen] = useState(false);

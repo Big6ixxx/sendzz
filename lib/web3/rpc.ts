@@ -10,6 +10,8 @@
 
 import { fallback, http, type Transport } from 'viem';
 
+import { arc } from './multichain';
+
 export const ALCHEMY_SUBDOMAIN: Record<string, string> = {
   ethereum: 'eth-mainnet',
   arbitrum: 'arb-mainnet',
@@ -17,6 +19,7 @@ export const ALCHEMY_SUBDOMAIN: Record<string, string> = {
   optimism: 'opt-mainnet',
   polygon: 'polygon-mainnet',
   base: 'base-mainnet',
+  arc: 'arc-mainnet',
 };
 
 /**
@@ -37,6 +40,8 @@ export const PUBLIC_RPCS: Record<string, string[]> = {
   optimism: ['https://optimism-rpc.publicnode.com', 'https://mainnet.optimism.io'],
   polygon: ['https://polygon-bor-rpc.publicnode.com'],
   base: ['https://mainnet.base.org', 'https://base.llamarpc.com', 'https://base-rpc.publicnode.com', 'https://1rpc.io/base'],
+  // Taken from the chain definition rather than retyped, so the two cannot disagree.
+  arc: [...arc.rpcUrls.default.http],
 };
 
 /**

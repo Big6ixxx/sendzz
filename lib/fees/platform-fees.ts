@@ -35,6 +35,7 @@ const FEE_TREASURY: Record<string, string | undefined> = {
   ethereum: process.env.BITNOB_FEE_TREASURY_ETHEREUM,
   optimism: process.env.BITNOB_FEE_TREASURY_OPTIMISM,
   polygon: process.env.BITNOB_FEE_TREASURY_POLYGON,
+  arc: process.env.BITNOB_FEE_TREASURY_ARC,
   solana: process.env.BITNOB_FEE_TREASURY_SOLANA,
   stellar: process.env.BITNOB_FEE_TREASURY_STELLAR,
 };

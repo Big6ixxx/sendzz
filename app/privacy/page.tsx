@@ -1,17 +1,15 @@
 'use client';
 
-import { usePrivy } from '@privy-io/react-auth';
+import { SiteHeader } from '@/components/layout/SiteHeader';
+import { SiteFooter } from '@/components/layout/SiteFooter';
 import {
   Eye,
   FileText,
   Shield,
   UserCheck
 } from 'lucide-react';
-import Link from 'next/link';
 
 export default function PrivacyPage() {
-  const { login } = usePrivy();
-
   const principles = [
     {
       title: 'Minimal Data Collection',
@@ -43,22 +41,7 @@ export default function PrivacyPage() {
         <div className="absolute top-[0%] right-[0%] w-[50%] h-[50%] rounded-full bg-accent opacity-[0.02] blur-[160px]" />
       </div>
 
-      <header className="fixed top-0 left-0 right-0 z-50 flex justify-between items-center py-5 px-6 md:px-12 bg-[#07070a]/60 backdrop-blur-xl border-b border-white/5">
-        <Link href="/" className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl flex items-center justify-center font-display font-bold text-lg bg-accent text-[#07070a]">
-            S
-          </div>
-          <span className="font-display text-xl font-bold tracking-tight text-brand-secondary">
-            Sendzz
-          </span>
-        </Link>
-        <button
-          onClick={login}
-          className="btn-accent h-10 px-6 text-sm rounded-full font-semibold"
-        >
-          Get Started
-        </button>
-      </header>
+      <SiteHeader />
 
       <main className="pt-40 pb-24 px-6 relative z-10">
         <div className="max-w-4xl mx-auto space-y-20">
@@ -137,28 +120,10 @@ export default function PrivacyPage() {
             </section>
           </div>
 
-          {/* Contact */}
-          <div className="card-glass p-10 flex flex-col md:flex-row items-center justify-between gap-8 bg-accent/3 border-accent/20">
-            <div className="space-y-2 text-center md:text-left">
-              <h3 className="text-xl font-bold text-brand-secondary">
-                Have questions about your data?
-              </h3>
-              <p className="text-sm text-brand-secondary/40">
-                Our privacy officer is available to help.
-              </p>
-            </div>
-            <button className="h-12 px-8 rounded-xl bg-accent text-[#07070a] font-bold text-sm hover:brightness-110 transition-all">
-              privacy@sendzz.io
-            </button>
-          </div>
         </div>
       </main>
 
-      <footer className="py-12 px-12 border-t border-white/5 text-center">
-        <p className="text-[11px] font-bold uppercase tracking-widest opacity-20 text-brand-secondary">
-          © 2026 Sendzz Global Operations Group
-        </p>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }

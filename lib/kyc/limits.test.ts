@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  KYC_LIMITS,
   UNVERIFIED_WITHDRAWAL_ALLOWANCE,
   exceedsUnverifiedAllowance,
-  getBindingPeriod,
   remainingUnverifiedAllowance,
 } from './limits';
 
@@ -55,21 +53,5 @@ describe('remainingUnverifiedAllowance', () => {
     // A user can end up past the cap — two withdrawals settling at once, or the figure being
     // lowered later. "You have -20 left" is not something to put in front of them.
     expect(remainingUnverifiedAllowance(120)).toBe(0);
-  });
-});
-
-describe('rolling windows', () => {
-  it('no longer bind an unverified user', () => {
-    // The allowance is the only rule for them now. A window that still had a number would be a
-    // second, contradictory limit nobody could reach anyway.
-    expect(
-      getBindingPeriod(50_000, { daily: 0, weekly: 0, monthly: 0 }, KYC_LIMITS.UNVERIFIED),
-    ).toBeNull();
-  });
-
-  it('still never bind a verified user', () => {
-    expect(
-      getBindingPeriod(1_000_000, { daily: 0, weekly: 0, monthly: 0 }, KYC_LIMITS.VERIFIED),
-    ).toBeNull();
   });
 });

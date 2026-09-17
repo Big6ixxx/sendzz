@@ -26,19 +26,19 @@ import { usePlatformFee } from '@/lib/hooks/usePlatformFee';
 const HELP_FAQS = [
   {
     q: "Is Sendzz non-custodial? What does 'Your Email Is Your Key' mean?",
-    a: "Sendzz is 100% non-custodial. Your email address acts as your key via Privy's non-custodial Smart Wallet infrastructure (ERC-4337 on Base). Sendzz never holds your private keys and cannot touch or freeze your funds. You have complete control over your money at all times.",
+    a: "Sendzz is 100% non-custodial. Your email address acts as your key to a non-custodial smart wallet (ERC-4337). Sendzz never holds your private keys and cannot touch or freeze your funds. You have complete control over your money at all times.",
     icon: Key,
     badge: "Non-Custodial",
   },
   {
     q: "How does identity verification (KYC) work, and what are the limits?",
-    a: "To ensure compliance with financial regulations, unverified accounts have a transaction limit of $500 per rolling 24-hour period ($2,500 weekly, $10,000 monthly). Once you reach $500 in cumulative outgoing volume, you'll be prompted to complete a quick 2-minute identity verification powered by Didit to unlock unlimited transactions.",
+    a: "Sending, receiving and depositing are unlimited and need no verification. The limit applies only to cashing out: an unverified account can withdraw $100 in total to a bank account. After that, a quick 2-minute identity verification removes the limit, keeping Sendzz compliant with financial regulations.",
     icon: ShieldCheck,
-    badge: "$500 Daily Limit",
+    badge: "$100 Withdrawal Limit",
   },
   {
     q: "Where does Sendzz sponsor gas fees?",
-    a: "Sendzz sponsors 100% of network gas fees for P2P transfers and embedded wallet deposits on Base, Solana, and EVM chains using Circle Gas Station and Account Abstraction paymasters. You never need native ETH or SOL to pay for gas.",
+    a: "Sendzz sponsors 100% of network gas fees for P2P transfers and embedded wallet deposits across every supported chain, using account abstraction paymasters. You never need native ETH or SOL to pay for gas.",
     icon: Zap,
     badge: "Free Gas",
   },
@@ -49,8 +49,8 @@ const HELP_FAQS = [
     badge: "Universal Escrow",
   },
   {
-    q: "What counts towards my KYC transaction limit?",
-    a: "Outgoing transfers (sending USDC to any email or wallet address) and fiat off-ramps (selling USDC to your bank) count towards your limit. Receiving transfers, crypto deposits, and cross-chain bridging of your own funds between networks do NOT count.",
+    q: "What counts towards my KYC limit?",
+    a: "Only fiat withdrawals to your bank account. Sending USDC to an email or wallet address, receiving transfers, crypto deposits, and moving your own funds between networks are all unlimited and never count.",
     icon: Receipt,
     badge: "Limit Scope",
   },

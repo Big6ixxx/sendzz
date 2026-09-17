@@ -26,6 +26,7 @@ export const EVM_CHAINS: SupportedChain[] = [
   'arbitrum',
   'optimism',
   'avalanche',
+  'arc',
   // 'ethereum',
 ];
 
@@ -40,6 +41,10 @@ const SPEND_PRIORITY: SupportedChain[] = [
   'arbitrum',
   'optimism',
   'avalanche',
+  // Last despite being the fastest rail: a spend lands the recipient on whichever chain we
+  // sourced from, and Arc is too new to route strangers onto. Ordering only — Arc funds stay
+  // fully spendable and withdrawable.
+  'arc',
   // 'ethereum',
 ];
 

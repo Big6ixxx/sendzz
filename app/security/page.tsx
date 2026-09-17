@@ -1,6 +1,7 @@
 'use client';
 
-import { usePrivy } from '@privy-io/react-auth';
+import { SiteHeader } from '@/components/layout/SiteHeader';
+import { SiteFooter } from '@/components/layout/SiteFooter';
 import { motion } from 'framer-motion';
 import {
   AlertTriangle,
@@ -11,22 +12,8 @@ import {
   Shield,
   ShieldCheck,
 } from 'lucide-react';
-import Image from 'next/image';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 
 export default function SecurityPage() {
-  const { authenticated, login } = usePrivy();
-  const router = useRouter();
-
-  const handleAction = () => {
-    if (authenticated) {
-      router.push('/dashboard');
-    } else {
-      login();
-    }
-  };
-
   const securityFeatures = [
     {
       title: 'MPC-CMP Technology',
@@ -65,23 +52,7 @@ export default function SecurityPage() {
         <div className="absolute bottom-[-10%] left-[-5%] w-[50%] h-[50%] rounded-full bg-red-500 opacity-[0.02] blur-[140px]" />
       </div>
 
-      <header className="fixed top-0 left-0 right-0 z-50 flex justify-between items-center py-5 px-6 md:px-12 bg-[#07070a]/60 backdrop-blur-xl border-b border-white/5">
-        <Link href="/">
-          <Image
-            src="/logo.svg"
-            alt="Sendzz"
-            width={100}
-            height={30}
-            priority
-          />
-        </Link>
-        <button
-          onClick={handleAction}
-          className="btn-accent h-10 px-6 text-sm rounded-full font-semibold"
-        >
-          {authenticated ? 'Dashboard' : 'Get Started'}
-        </button>
-      </header>
+      <SiteHeader />
 
       <main className="pt-40 pb-24 px-6 relative z-10">
         <div className="max-w-5xl mx-auto space-y-32">
@@ -206,11 +177,7 @@ export default function SecurityPage() {
         </div>
       </main>
 
-      <footer className="py-12 px-12 border-t border-white/5 text-center">
-        <p className="text-[11px] font-bold uppercase tracking-widest opacity-20 text-brand-secondary">
-          © 2026 Sendzz Global Operations Group
-        </p>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }

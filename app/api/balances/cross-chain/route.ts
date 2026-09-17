@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createPublicClient, type Chain } from 'viem';
+import { createPublicClient } from 'viem';
 import { rpcTransport } from '@/lib/web3/rpc';
-import { mainnet, arbitrum, avalanche, optimism, polygon, base } from 'viem/chains';
+import { VIEM_CHAINS } from '@/lib/web3/multichain';
 import { USDC_ADDRESSES, SOURCE_CHAINS, type SupportedChain } from '@/lib/circle/gateway';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
@@ -30,22 +30,19 @@ const SOLANA_RPC =
   'https://api.mainnet-beta.solana.com';
 
 /**
- * `key` is our chain identifier, not viem's display name — those differ ("Arbitrum One",
- * "OP Mainnet"), and deriving one from the other silently selects the wrong endpoint.
+ * A public client per chain, built from VIEM_CHAINS rather than a second list.
+ *
+ * The transport is keyed by OUR chain identifier, not viem's display name — those differ
+ * ("Arbitrum One", "OP Mainnet"), and deriving one from the other silently selects the wrong
+ * endpoint, which reads as an empty balance rather than an error.
  */
-function makeClient(key: SupportedChain, chain: Chain) {
-  return createPublicClient({ chain, transport: rpcTransport(key) });
-}
-
 function getEvmClients(): Record<SupportedChain, ReturnType<typeof createPublicClient>> {
-  return {
-    ethereum: makeClient('ethereum', mainnet),
-    arbitrum: makeClient('arbitrum', arbitrum),
-    avalanche: makeClient('avalanche', avalanche),
-    optimism: makeClient('optimism', optimism),
-    polygon: makeClient('polygon', polygon),
-    base: makeClient('base', base),
-  };
+  return Object.fromEntries(
+    (Object.keys(VIEM_CHAINS) as SupportedChain[]).map((key) => [
+      key,
+      createPublicClient({ chain: VIEM_CHAINS[key], transport: rpcTransport(key) }),
+    ]),
+  ) as Record<SupportedChain, ReturnType<typeof createPublicClient>>;
 }
 
 /** Fetch Solana USDC balance for a given base58 wallet address. Returns 0 on any error. */

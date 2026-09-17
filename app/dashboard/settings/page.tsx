@@ -162,7 +162,6 @@ export default function SettingsPage() {
   const [kycModalOpen, setKycModalOpen] = useState(false);
   const [kycData, setKycData] = useState<{
     kyc: { status: string; updatedAt: string };
-    totals: { daily: number; weekly: number; monthly: number };
     allowance: Allowance | null;
   } | null>(null);
   const [isKycLoading, setIsKycLoading] = useState(true);
@@ -691,7 +690,6 @@ export default function SettingsPage() {
                 {/* Limits meter */}
                 {kycData && (
                   <LimitsMeter
-                    totals={kycData.totals}
                     allowance={kycData.allowance}
                     isVerified={kycData.kyc.status === "approved"}
                   />

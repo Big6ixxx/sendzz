@@ -50,6 +50,11 @@ export const CHAIN_META: Record<string, ChainMeta> = {
     color: '#E84142',
     explorerTx: (h) => explorerTxUrl('avalanche', h) ?? '',
   },
+  arc: {
+    name: 'Arc',
+    color: '#2775CA',
+    explorerTx: (h) => explorerTxUrl('arc', h) ?? '',
+  },
   solana: {
     name: 'Solana',
     color: '#9945FF',

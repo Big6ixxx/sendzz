@@ -1,4 +1,4 @@
-import { fetchAttestation, type SupportedChain } from '@/lib/circle/gateway';
+import { fetchAttestation, isEvmUsdcChain, type SupportedChain } from '@/lib/circle/gateway';
 import { fetchSolanaAttestation } from '@/lib/circle/solana-gateway';
 import { fetchStellarAttestation } from '@/lib/circle/stellar-gateway';
 import { NextRequest, NextResponse } from 'next/server';
@@ -107,9 +107,9 @@ export async function GET(req: NextRequest) {
     // If Iris attestation is complete but mintTxHash is still missing/manual-claim, check on-chain processed state
     if (result.status === 'complete' && !result.mintTxHash && result.messageBytes) {
       const destChain = dbTx?.dest_chain || 'base';
-      const evmDestChains = ['base', 'arbitrum', 'optimism', 'polygon', 'avalanche', 'ethereum'];
-      
-      if (evmDestChains.includes(destChain.toLowerCase())) {
+
+      // Same predicate the claim path uses — see lib/web3/bridge-claim.ts.
+      if (isEvmUsdcChain(destChain)) {
         try {
           const { createPublicClient } = await import('viem');
           const { rpcTransport } = await import('@/lib/web3/rpc');

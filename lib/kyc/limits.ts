@@ -3,12 +3,18 @@
  *
  * All amounts are in USD (1 USDC = 1 USD for enforcement purposes).
  *
- * To update a limit, change the value here. No other files need to change.
+ * There is exactly one rule, and it is the whole file: an unverified user may withdraw
+ * UNVERIFIED_WITHDRAWAL_ALLOWANCE in total, once, and then must verify their identity.
+ * Verified users have no limit.
  *
- * Tiers:
- *   - UNVERIFIED: one cumulative withdrawal allowance, spent once and not replenished.
- *     Reaching it means identity verification is required to withdraw again.
- *   - VERIFIED: no allowance. The rolling ceilings below are a compliance backstop only.
+ * Nothing else is rationed. Deposits are not capped, and sending — on-chain, by email, or in a
+ * batch — never reaches this code at all. A limit belongs on the way out, where the compliance
+ * obligation actually sits; anywhere else it only stops people using the product.
+ *
+ * This deliberately replaced a daily/weekly/monthly ceiling system. Those windows were set to
+ * Infinity for both tiers, so they refused nothing, while still costing a database read on every
+ * movement and describing a second rule that did not exist. A rolling window is also the wrong
+ * shape for the promise here: it forgives, so it could never mean "100 before you verify".
  */
 
 /**
@@ -64,45 +70,4 @@ export function exceedsUnverifiedAllowance(
   amountUsd: number,
 ): boolean {
   return withdrawnSoFar + amountUsd > UNVERIFIED_WITHDRAWAL_ALLOWANCE;
-}
-
-export const KYC_LIMITS = {
-  /**
-   * Unverified users are governed by UNVERIFIED_WITHDRAWAL_ALLOWANCE above, not by windows.
-   *
-   * These are Infinity rather than deleted because `getBindingPeriod` is still how the VERIFIED
-   * compliance ceiling is expressed, and it takes both tiers. Numbers here would be dead code
-   * that reads as a second, contradictory rule: nobody who may only ever withdraw 100 in total
-   * can reach 500 in a day.
-   */
-  UNVERIFIED: {
-    daily: Infinity,
-    weekly: Infinity,
-    monthly: Infinity,
-  },
-
-  /**
-   * Post-KYC limits. Transactions that would exceed these limits
-   * are blocked even for verified users (compliance ceiling).
-   * Set to Infinity to disable.
-   */
-  VERIFIED: {
-    daily: Infinity,
-    weekly: Infinity,
-    monthly: Infinity,
-  },
-} as const;
-
-export type KycLimitPeriod = "daily" | "weekly" | "monthly";
-
-/** Returns which limit period is the most restrictive for a given transaction. */
-export function getBindingPeriod(
-  transactionAmount: number,
-  totals: { daily: number; weekly: number; monthly: number },
-  limits: { daily: number; weekly: number; monthly: number },
-): KycLimitPeriod | null {
-  if (totals.daily + transactionAmount > limits.daily) return "daily";
-  if (totals.weekly + transactionAmount > limits.weekly) return "weekly";
-  if (totals.monthly + transactionAmount > limits.monthly) return "monthly";
-  return null;
 }

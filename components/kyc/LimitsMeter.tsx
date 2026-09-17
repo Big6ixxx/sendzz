@@ -14,7 +14,6 @@ export interface Allowance {
 }
 
 interface LimitsMeterProps {
-  totals: { daily: number; weekly: number; monthly: number };
   allowance: Allowance | null;
   isVerified?: boolean;
   compact?: boolean;
@@ -57,20 +56,8 @@ function ProgressBar({
   );
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
 
-/**
- * LimitsMeter
- *
- * For an unverified user: how much of their one-off withdrawal allowance is spent.
- * For a verified user: their volume, with no limit attached to it.
- *
- * This used to render daily/weekly/monthly bars for everyone. Those windows no longer bind an
- * unverified account — the allowance replaced them — so the bars sat at zero and told the user
- * they had no limits at all, right up until a withdrawal was refused.
- */
 export function LimitsMeter({
-  totals,
   allowance,
   isVerified = false,
   compact = false,
@@ -99,44 +86,11 @@ export function LimitsMeter({
               Unlimited Account Access
             </p>
             <p className="text-xs mt-0.5" style={{ color: "rgba(248,248,246,0.6)" }}>
-              Your identity is verified. You have no daily, weekly, or monthly restrictions on transactions.
+              Your identity is verified. There is no limit on what you can send, receive or withdraw.
             </p>
           </div>
         </div>
 
-        {/* Volume Summary */}
-        <div
-          className="grid grid-cols-3 gap-3 p-3.5 rounded-xl"
-          style={{
-            background: "rgba(255,255,255,0.02)",
-            border: "1px solid rgba(255,255,255,0.04)",
-          }}
-        >
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-              Daily Volume
-            </p>
-            <p className="text-xs font-bold text-foreground mt-0.5">
-              ${totals.daily.toFixed(2)}
-            </p>
-          </div>
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-              Weekly Volume
-            </p>
-            <p className="text-xs font-bold text-foreground mt-0.5">
-              ${totals.weekly.toFixed(2)}
-            </p>
-          </div>
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-              Monthly Volume
-            </p>
-            <p className="text-xs font-bold text-foreground mt-0.5">
-              ${totals.monthly.toFixed(2)}
-            </p>
-          </div>
-        </div>
       </div>
     );
   }

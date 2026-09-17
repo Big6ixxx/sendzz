@@ -1,5 +1,11 @@
 -- One-time: end every device session that exists right now.
 --
+-- ALREADY RUN on 14 Sep 2026. Kept as the record of what was done; re-running it would sign
+-- everybody out again. The client half that accompanied it (hooks/useSessionEpoch.ts) has been
+-- removed now that the sweep is complete — to repeat this later, restore that hook with a new
+-- epoch value rather than running this file on its own, which on its own reaches only sessions
+-- the app has already seen.
+--
 -- RUN THIS ONCE, AFTER the code is deployed — not before.
 --
 -- Order matters. Run before the deploy and you revoke rows that the old code does not check,

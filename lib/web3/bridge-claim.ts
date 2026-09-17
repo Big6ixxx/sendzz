@@ -15,7 +15,7 @@
 
 import type { ConnectedWallet } from '@privy-io/react-auth';
 import { executeReceiveMessage } from '@/lib/web3/bridge-actions';
-import type { SupportedChain } from '@/lib/circle/gateway';
+import { isEvmUsdcChain, type SupportedChain } from '@/lib/circle/gateway';
 
 export interface BridgeClaimParams {
   destChain: string;
@@ -31,8 +31,6 @@ export interface BridgeClaimParams {
   burnTxHash?: string;
   sourceChain?: string;
 }
-
-const EVM_DEST_CHAINS = ['base', 'arbitrum', 'optimism', 'polygon', 'avalanche', 'ethereum'];
 
 /**
  * A claim involves a bundler, a paymaster and an RPC, none of which are guaranteed to
@@ -67,7 +65,10 @@ export async function claimBridgeOnDestination(
 
   if (dest === 'solana') return withClaimTimeout(claimOnSolana(params));
   if (dest === 'stellar') return withClaimTimeout(claimOnStellar(params));
-  if (EVM_DEST_CHAINS.includes(dest)) {
+  // Derived from the USDC address map, never a list repeated here: a local copy is how Arc
+  // bridges burned and then refused to claim, with the funds minted and waiting. Every other
+  // place that needs "is this an EVM chain we handle?" uses this same predicate.
+  if (isEvmUsdcChain(dest)) {
     return withClaimTimeout(claimOnEvm(params, dest as SupportedChain));
   }
 

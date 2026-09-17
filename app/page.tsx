@@ -1,5 +1,6 @@
 'use client';
 
+import { SiteHeader } from '@/components/layout/SiteHeader';
 import { usePrivy } from '@privy-io/react-auth';
 import { redactEmail } from '@/lib/log';
 import {
@@ -17,8 +18,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { SupportWidget } from '@/components/support/SupportWidget';
-import Image from 'next/image';
-import Link from 'next/link';
+import { SiteFooter } from '@/components/layout/SiteFooter';
 import { useRouter } from 'next/navigation';
 import { useRef, useEffect, useState } from 'react';
 
@@ -320,19 +320,19 @@ function CardTriptych() {
 const buildFaqs = (platformFee: number | null) => [
   {
     q: "Is Sendzz non-custodial? How does 'Your Email Is Your Key' work?",
-    a: "Yes, Sendzz is 100% non-custodial. Your email address is your master key. When you log in with your email, Privy generates a Multi-Chain Non-Custodial Smart Account using secure Multi-Party Computation (MPC) and WebAuthn Passkeys. Sendzz never stores or touches your private keys, cannot freeze your account, and cannot move your money without your explicit authorization.",
+    a: "Yes, Sendzz is 100% non-custodial. Your email address is your master key. When you log in, a multi-chain non-custodial smart account is generated for you using secure Multi-Party Computation (MPC) and WebAuthn passkeys. Sendzz never stores or touches your private keys, cannot freeze your account, and cannot move your money without your explicit authorization.",
     icon: Key,
     highlight: "Your Email Is Your Key",
   },
   {
     q: "What are the KYC identity verification limits?",
-    a: "You can start transacting immediately without verification! Unverified accounts have a limit of $500 total in rolling 24-hour transactions ($2,500 weekly, $10,000 monthly). Once your transaction volume reaches $500, a quick 2-minute identity verification powered by Didit will unlock higher limits while keeping Sendzz fully compliant with global financial standards.",
+    a: "You can start using Sendzz immediately without verification. Sending, receiving and depositing are unlimited. The only limit is cashing out to a bank account: unverified accounts can withdraw $100 in total, after which a quick 2-minute identity verification removes the limit entirely, keeping Sendzz compliant with global financial standards.",
     icon: ShieldCheck,
-    highlight: "$500 Daily Limit for Unverified Accounts",
+    highlight: "$100 Withdrawal Limit Before Verification",
   },
   {
     q: "Are there any transaction or gas fees?",
-    a: `Sendzz P2P transfers are 100% free with zero gas fees. Network gas costs across all supported chains are fully sponsored by Sendzz using Account Abstraction paymasters and Circle Gas Station. For fiat withdrawals to your local bank account, a minimal ${platformFee ?? '—'}% platform fee applies.`,
+    a: `Sendzz P2P transfers are 100% free with zero gas fees. Network gas costs across all supported chains are fully sponsored by Sendzz using account abstraction paymasters. For fiat withdrawals to your local bank account, a minimal ${platformFee ?? '—'}% platform fee applies.`,
     icon: Zap,
     highlight: "Zero Network Gas Fees",
   },
@@ -488,53 +488,7 @@ export default function Landing() {
       </div>
 
       {/* ─── Navigation ─── */}
-      <header
-        className="fixed top-0 left-0 right-0 z-50 flex justify-between items-center py-5 px-6 md:px-12"
-        style={{
-          background: 'rgba(7, 7, 10, 0.6)',
-          backdropFilter: 'blur(24px) saturate(180%)',
-          borderBottom: '1px solid rgba(255,255,255,0.05)',
-        }}
-      >
-        <Link href="/">
-          <Image
-            src="/logo.svg"
-            alt="Sendzz"
-            width={100}
-            height={30}
-            priority
-          />
-        </Link>
-
-        <nav className="hidden md:flex items-center gap-8">
-          {[
-            { label: 'Features', href: '/features' },
-            { label: 'Explore', href: '/explore' },
-            { label: 'Security', href: '/security' },
-          ].map((l) => (
-            <Link
-              key={l.label}
-              href={l.href}
-              className="text-[13px] font-medium transition-colors"
-              style={{ color: 'rgba(248,248,246,0.45)' }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = '#f8f8f6')}
-              onMouseLeave={(e) =>
-                (e.currentTarget.style.color = 'rgba(248,248,246,0.45)')
-              }
-            >
-              {l.label}
-            </Link>
-          ))}
-        </nav>
-
-        <button
-          onClick={handleAction}
-          className="btn-accent h-10 px-6 text-sm rounded-full font-semibold"
-          style={{ height: '2.5rem' }}
-        >
-          {authenticated ? 'Dashboard' : 'Get Started'}
-        </button>
-      </header>
+      <SiteHeader />
 
       {/* ─── Hero ─── */}
       <main className="flex-1">
@@ -807,72 +761,7 @@ export default function Landing() {
       </main>
 
       {/* ─── Footer ─── */}
-      <footer
-        className="px-6 md:px-12 py-10"
-        style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}
-      >
-        <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
-          <div className="flex items-center gap-2.5">
-            <Image
-              src="/logo.svg"
-              alt="Sendzz"
-              width={50}
-              height={15}
-              priority
-            />
-            <span
-              className="text-[11px] ml-2"
-              style={{ color: 'rgba(248,248,246,0.2)' }}
-            >
-              © {new Date().getFullYear()} Global Operations Group
-            </span>
-          </div>
-
-          <div className="flex items-center gap-8">
-            {[
-              { label: 'Explore', href: '/explore' },
-              { label: 'Security', href: '/security' },
-              { label: 'Privacy', href: '/privacy' },
-            ].map((l) => (
-              <Link
-                key={l.label}
-                href={l.href}
-                className="text-[11px] font-medium transition-colors"
-                style={{ color: 'rgba(248,248,246,0.3)' }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = '#f8f8f6')}
-                onMouseLeave={(e) =>
-                  (e.currentTarget.style.color = 'rgba(248,248,246,0.3)')
-                }
-              >
-                {l.label}
-              </Link>
-            ))}
-            <a
-              href="https://x.com/use_sendzz"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Sendzz on X"
-              className="transition-colors"
-              style={{ color: 'rgba(248,248,246,0.3)' }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = '#f8f8f6')}
-              onMouseLeave={(e) =>
-                (e.currentTarget.style.color = 'rgba(248,248,246,0.3)')
-              }
-            >
-              {/* lucide has no X mark, so the wordmark path is inlined. */}
-              <svg
-                viewBox="0 0 24 24"
-                width="13"
-                height="13"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-              </svg>
-            </a>
-          </div>
-        </div>
-      </footer>
+      <SiteFooter />
 
       {/* Curated answers plus a route to a person — same widget as the dashboard. */}
       <SupportWidget />

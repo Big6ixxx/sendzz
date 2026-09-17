@@ -20,6 +20,7 @@ export const EXPLORER_TX_BASE: Record<string, string> = {
   arbitrum: 'https://arbiscan.io/tx',
   base: 'https://basescan.org/tx',
   polygon: 'https://polygonscan.com/tx',
+  arc: 'https://explorer.arc.io/tx',
   solana: 'https://solscan.io/tx',
   stellar: 'https://stellar.expert/explorer/public/tx',
 };

@@ -41,6 +41,8 @@ import {
 } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 import { STELLAR_HORIZON_URL, STELLAR_USDC_ISSUER } from '@/lib/stellar/config';
+import { transferAmountUsdc, type AlchemyTransfer } from './deposit-amount';
+import { VIEM_CHAINS } from './multichain';
 
 /** Alchemy Transfers API subdomain per chain. */
 const ALCHEMY_SUBDOMAIN: Record<SupportedChain, string> = {
@@ -50,6 +52,7 @@ const ALCHEMY_SUBDOMAIN: Record<SupportedChain, string> = {
   optimism: 'opt-mainnet',
   polygon: 'polygon-mainnet',
   base: 'base-mainnet',
+  arc: 'arc-mainnet',
 };
 
 const SOLANA_USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
@@ -191,12 +194,19 @@ async function writeCursor(userId: string, chain: string, cursor: string): Promi
 
 // ─── EVM ─────────────────────────────────────────────────────────────────────
 
-interface AlchemyTransfer {
-  hash: string;
-  value: number | null;
-  from: string;
-  blockNum: string;
-  metadata?: { blockTimestamp?: string };
+/**
+ * Which transfer categories carry USDC on this chain.
+ *
+ * Almost everywhere USDC is only an ERC-20, and asking for `external` too would count incoming
+ * ETH or MATIC as a deposit. On Arc it IS the gas token, so an ordinary send is a native
+ * transfer that emits no ERC-20 event — asking only for `erc20` made real deposits invisible
+ * while the balance still rose, because that is read straight from the chain.
+ *
+ * Keyed off the chain's native-currency symbol, so a future USDC-gas chain works unchanged.
+ */
+function transferCategories(chain: SupportedChain): string[] {
+  const nativeIsUsdc = VIEM_CHAINS[chain]?.nativeCurrency?.symbol?.toUpperCase() === 'USDC';
+  return nativeIsUsdc ? ['erc20', 'external'] : ['erc20'];
 }
 
 /** Fetch incoming USDC transfers to `address` on `chain` from `fromBlockHex`, paging up to a cap. */
@@ -224,7 +234,7 @@ async function fetchIncomingUsdc(
             toBlock: 'latest',
             toAddress: address,
             contractAddresses: [USDC_ADDRESSES[chain]],
-            category: ['erc20'],
+            category: transferCategories(chain),
             withMetadata: true,
             excludeZeroValue: true,
             order: 'asc',
@@ -274,7 +284,18 @@ async function scanEvmChain(
   for (const t of transfers) {
     const block = t.blockNum ? BigInt(t.blockNum) : 0n;
     if (block > maxBlock) maxBlock = block;
-    if (!t.hash || !t.value || t.value <= 0) continue;
+    if (!t.hash) continue;
+    const amount = transferAmountUsdc(t);
+    if (amount === null) {
+      // Recording a deposit whose amount we cannot establish would credit a wrong number.
+      // Skipping loses nothing recoverable — but it is silent, so say so.
+      console.error(
+        `[deposit-scan] ${chain} ${t.hash}: no usable amount (value=${t.value}, ` +
+          `raw=${t.rawContract?.value ?? 'none'}). Deposit NOT recorded.`,
+      );
+      continue;
+    }
+    if (amount <= 0) continue;
     // Minted in, not paid in — a bridge delivery. Recorded as a bridge, not a deposit.
     if (t.from?.toLowerCase() === ZERO_ADDRESS) continue;
     const hash = t.hash.toLowerCase();
@@ -283,7 +304,7 @@ async function scanEvmChain(
     rows.push({
       user_id: userId,
       tx_hash: hash,
-      amount_usdc: t.value,
+      amount_usdc: amount,
       network: chain,
       provider: 'onchain',
       status: 'confirmed',

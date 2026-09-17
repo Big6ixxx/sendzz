@@ -70,33 +70,15 @@ export async function initiateOnRamp({
 }): Promise<RampOrderResponse> {
   try {
     // Identity from the session — see the note in executeOffRamp. A caller-supplied id here
-    // would let a deposit (and its KYC-limit consumption) be booked to another account.
+    // would let a deposit be booked to another account.
     const session = await requireUserId(accessToken);
     const userId = session.userId;
     const userEmail = session.email;
 
-    // KYC limit guard for on-ramps.
-    // Convert fiat amount → USD equivalent using the live buy rate before
-    // checking limits. USDC is pegged 1:1 to USD, so amountUsdc ≈ amountUsd.
-    // If the rate fetch fails we still enforce the guard using a conservative
-    // fallback of 1 (treats fiat amount as USD — safe to over-enforce briefly).
-    let amountUsd: number;
-    try {
-      const rates = await Ramp.getRates(amountFiat, fiatCurrency);
-      const buyRate = rates.data.buy?.rate;
-      amountUsd = buyRate && buyRate > 0 ? amountFiat / buyRate : amountFiat;
-    } catch {
-      console.warn(`[KYC onRamp] Could not fetch ${fiatCurrency} rate — using raw fiat amount as conservative USD estimate`);
-      amountUsd = amountFiat;
-    }
-
-    const guard = await kycGuard(userId, amountUsd, "deposit");
-    if (!guard.allowed) {
-      throw Object.assign(
-        new Error(guard.message),
-        { reason: guard.reason, bindingPeriod: guard.bindingPeriod },
-      );
-    }
+    // No KYC guard on deposits: money arriving is not rationed. The allowance is spent on the
+    // way out, where the obligation sits — charging it here would mean topping up made it
+    // harder to withdraw. This also removed a live-rate fetch from the deposit path, which
+    // existed only to convert fiat into a USD figure for a limit that no longer exists.
 
     const order = await Ramp.createOnRampOrder({
       amountFiat,
@@ -444,7 +426,7 @@ export async function executeOffRamp(params: {
   if (!guard.allowed) {
     throw Object.assign(
       new Error(guard.message),
-      { reason: guard.reason, bindingPeriod: guard.bindingPeriod },
+      { reason: guard.reason },
     );
   }
   // Constrain to providers that can settle on the chosen network

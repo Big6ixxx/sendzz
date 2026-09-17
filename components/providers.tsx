@@ -4,15 +4,8 @@ import { PrivyProvider } from '@privy-io/react-auth';
 import { createSolanaRpc, createSolanaRpcSubscriptions } from '@solana/kit';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
-import {
-  arbitrum,
-  avalanche,
-  base,
-  baseSepolia,
-  mainnet,
-  optimism,
-  polygon,
-} from 'viem/chains';
+import { base, baseSepolia } from 'viem/chains';
+import { VIEM_CHAINS } from '@/lib/web3/multichain';
 import { ReactNode, useState, useEffect } from 'react';
 import { BalanceVisibilityProvider } from '@/components/providers/BalanceVisibilityProvider';
 import { useSessionActivity } from '@/hooks/useSessionActivity';
@@ -98,15 +91,11 @@ export function Providers({ children }: { children: ReactNode }) {
             },
           },
           defaultChain: isProd ? base : baseSepolia,
-          supportedChains: [
-            mainnet,
-            arbitrum,
-            optimism,
-            polygon,
-            avalanche,
-            base,
-            baseSepolia,
-          ],
+          // Privy refuses `wallet_switchEthereumChain` for any chain missing from this array,
+          // so it is derived rather than listed — a chain the app supports but this omits fails
+          // only at the moment someone claims a bridge on it. Testnet is appended because it is
+          // deliberately not in the production registry.
+          supportedChains: [...Object.values(VIEM_CHAINS), baseSepolia],
         }}
       >
         <BalanceVisibilityProvider>

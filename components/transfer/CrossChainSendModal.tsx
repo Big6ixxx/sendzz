@@ -15,6 +15,7 @@ const ALL_CHAIN_NAMES: Record<string, string> = {
   optimism: "Optimism",
   polygon: "Polygon",
   avalanche: "Avalanche",
+  arc: "Arc",
   stellar: "Stellar",
   solana: "Solana",
 };

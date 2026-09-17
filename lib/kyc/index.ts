@@ -5,8 +5,13 @@
  * Import from this file rather than from individual modules.
  */
 
-// Limits configuration
-export { KYC_LIMITS, getBindingPeriod, type KycLimitPeriod } from "./limits";
+// Limits configuration — one rule: the unverified withdrawal allowance.
+export {
+  UNVERIFIED_WITHDRAWAL_ALLOWANCE,
+  UNVERIFIED_ALLOWANCE_START,
+  exceedsUnverifiedAllowance,
+  remainingUnverifiedAllowance,
+} from "./limits";
 
 // Didit API client
 export {
@@ -22,15 +27,12 @@ export {
 
 // Supabase data access
 export {
-  getKycStatusAndTotals,
   getUserKycStatus,
   upsertKycVerification,
   getUserIdByVendorData,
   getUserIdBySessionId,
   type KycStatus,
   type KycVerification,
-  type TransactionTotals,
-  type KycStatusAndTotals,
 } from "./supabase-kyc";
 
 // Guard (server-only)

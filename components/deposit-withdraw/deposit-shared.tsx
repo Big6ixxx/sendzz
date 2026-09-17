@@ -77,6 +77,14 @@ export const CHAIN_META: Record<string, ChainMeta> = {
     description: 'High-speed L1',
     explorerTx: (h) => explorerTxUrl('avalanche', h) ?? '',
   },
+  arc: {
+    name: 'Arc',
+    color: '#2775CA',
+    bg: 'rgba(39,117,202,0.08)',
+    border: 'rgba(39,117,202,0.2)',
+    description: "Circle's L1 · USDC gas",
+    explorerTx: (h) => explorerTxUrl('arc', h) ?? '',
+  },
   solana: {
     name: 'Solana',
     color: '#9945FF',

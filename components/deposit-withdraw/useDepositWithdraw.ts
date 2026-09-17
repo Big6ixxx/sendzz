@@ -589,18 +589,8 @@ export function useDepositWithdraw(
       return;
     }
 
-    // Early KYC & Limit Pre-Check — block immediately at step 1
-    try {
-      const { checkKycLimitAction } = await import("@/lib/kyc/guard");
-      const guard = await checkKycLimitAction(estimatedUsdc, await freshToken(), "deposit");
-      if (!guard.allowed) {
-        toast.error(guard.message);
-        return;
-      }
-    } catch (err) {
-      console.error("[Deposit] Early KYC check error:", err);
-    }
-
+    // No KYC check on deposits. Money arriving is not rationed — the allowance applies on the
+    // way out, and charging it here would mean topping up made it harder to take anything out.
     setLoading(true);
     try {
       const res = await initiateOnRamp({

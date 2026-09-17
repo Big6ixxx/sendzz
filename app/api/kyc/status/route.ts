@@ -1,9 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
-import { getKycStatusAndTotals } from "@/lib/kyc";
+import { getUserKycStatus } from "@/lib/kyc";
 import { getWithdrawnAgainstAllowance } from "@/lib/kyc/supabase-kyc";
 import {
-  KYC_LIMITS,
   UNVERIFIED_WITHDRAWAL_ALLOWANCE,
   remainingUnverifiedAllowance,
 } from "@/lib/kyc/limits";
@@ -13,16 +12,12 @@ export const runtime = "nodejs";
 /**
  * GET /api/kyc/status
  *
- * Returns the authenticated user's KYC status and rolling transaction totals.
- * Used by the frontend to render the KYC banner, settings section, and
- * the LimitsMeter component.
+ * Returns the authenticated user's KYC status and how much of the unverified withdrawal
+ * allowance they have spent. Read by the KYC banner, the settings section and LimitsMeter.
  *
  * Response shape:
  * {
  *   kyc: { status, diditSessionId, updatedAt },
- *   totals: { daily, weekly, monthly },
- *   limits: { daily, weekly, monthly },      // from central config
- *   percentages: { daily, weekly, monthly }, // 0-100 for progress bars
  *   allowance: { total, used, remaining, percentage } | null,  // unverified users only
  * }
  */
@@ -55,8 +50,8 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Email or user ID required" }, { status: 400 });
     }
 
-    // ── 2. Fetch status + totals ───────────────────────────────────────────
-    const { kyc, totals } = await getKycStatusAndTotals(userId);
+    // ── 2. Fetch status ────────────────────────────────────────────────────
+    const kyc = await getUserKycStatus(userId);
 
     // Live sync: if not approved/declined yet and session ID exists, check Didit API directly
     if (
@@ -90,30 +85,11 @@ export async function GET(req: Request) {
     }
 
     const isApproved = kyc.status === "approved";
-    const activeLimits = isApproved
-      ? KYC_LIMITS.VERIFIED
-      : KYC_LIMITS.UNVERIFIED;
-
-    // Compute percentages (cap at 100 to avoid visual overflow)
     const clamp = (v: number) => Math.min(100, Math.max(0, v));
-    const pct = (used: number, limit: number) =>
-      limit === Infinity || limit === 0 ? 0 : clamp((used / limit) * 100);
 
-    const percentages = {
-      daily: pct(totals.daily, activeLimits.daily),
-      weekly: pct(totals.weekly, activeLimits.weekly),
-      monthly: pct(totals.monthly, activeLimits.monthly),
-    };
-
-    // ── The rule that actually binds an unverified user ────────────────────
-    //
-    // A one-off withdrawal allowance, not a window, so it is reported as its own figure
-    // rather than squeezed into daily/weekly/monthly. Null for a verified user, who has
-    // no allowance to spend.
-    //
-    // This is what the settings meter and the dashboard banner read. Without it they were
-    // rendering rolling percentages that are now permanently zero, which showed an
-    // unverified user three empty bars and no limit at all — the opposite of the truth.
+    // The only rule there is: a one-off withdrawal allowance. Null for a verified user, who has
+    // none to spend. This endpoint also used to publish daily/weekly/monthly totals and ceilings
+    // — the ceilings bound nobody and the totals were read by nothing, so both are gone.
     const used = isApproved
       ? 0
       : await getWithdrawnAgainstAllowance(userId);
@@ -133,18 +109,7 @@ export async function GET(req: Request) {
         diditSessionId: kyc.diditSessionId,
         updatedAt: kyc.updatedAt,
       },
-      totals: {
-        daily: totals.daily,
-        weekly: totals.weekly,
-        monthly: totals.monthly,
-      },
-      limits: {
-        daily: activeLimits.daily === Infinity ? null : activeLimits.daily,
-        weekly: activeLimits.weekly === Infinity ? null : activeLimits.weekly,
-        monthly: activeLimits.monthly === Infinity ? null : activeLimits.monthly,
-      },
       allowance,
-      percentages,
     });
   } catch (error) {
     console.error("[KYC Status] Error:", error);
