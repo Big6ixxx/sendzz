@@ -21,7 +21,7 @@ import { useState } from "react";
 const NAV_ITEMS = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Transfer", href: "/dashboard/transfer", icon: Send },
-  { name: "Smart Bridge", href: "/dashboard/bridge", icon: Repeat },
+  { name: "Bridge", href: "/dashboard/bridge", icon: Repeat },
   { name: "History", href: "/dashboard/history", icon: History },
   { name: "Notifications", href: "/dashboard/notifications", icon: Bell },
   { name: "Settings", href: "/dashboard/settings", icon: Settings },

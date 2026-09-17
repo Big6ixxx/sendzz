@@ -3,7 +3,7 @@
 /**
  * ChainBridgeModule — move USDC between the user's own networks.
  *
- * Unlike SmartBridgeModule (which only consolidates idle funds onto Base), this lets
+ * The bridge UI. This lets
  * the user pick BOTH the source and destination chain and bridge between them via
  * Circle CCTP V2. The mint recipient is the user's own smart account (for EVM) or
  * Stellar address. Gasless on both legs (burn + mint sponsored by circle/relayer).

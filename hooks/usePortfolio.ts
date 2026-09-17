@@ -1,5 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
-import type { ChainBalance } from '@/hooks/useCrossChainBalances';
+import type { SupportedChain } from '@/lib/circle/gateway';
+
+export type ChainBalanceChain = SupportedChain | 'solana' | 'stellar';
+
+/** One chain's USDC holding, as /api/balances/cross-chain reports it. */
+export interface ChainBalance {
+  chain: ChainBalanceChain;
+  balance: string;
+  hasBalance: boolean;
+}
 
 export interface Portfolio {
   /** Sum of USDC across every chain, formatted to 2dp. */

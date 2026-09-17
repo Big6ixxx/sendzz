@@ -6,7 +6,7 @@
  * Solana uses a different execution path from EVM (Privy embedded Solana wallet, a
  * Circle DCW fee-payer for gas, SPL USDC). This module makes Solana usable as a
  * *spendable source*: bridge its USDC onto Base, after which the normal EVM routing
- * spends it. `prepareSolanaBurnTx` is shared with SmartBridgeModule; `bridgeSolanaToBase`
+ * spends it. `prepareSolanaBurnTx` is shared with ChainBridgeModule; `bridgeSolanaToBase`
  * is the awaitable end-to-end used by auto-consolidation.
  */
 

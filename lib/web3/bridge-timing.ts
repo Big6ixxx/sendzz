@@ -2,7 +2,7 @@
  * Handoff timing between the two things that can finish a bridge.
  *
  * A burn is watched by exactly one actor at a time:
- *   0 → HANDOFF        the in-page monitor (ChainBridgeModule / SmartBridgeModule) polls for
+ *   0 → HANDOFF        the in-page monitor (ChainBridgeModule) polls for
  *                      the attestation and claims automatically while the user is on the page
  *   HANDOFF → ∞        the Pending Claims panel takes over, so a transfer still finishes if
  *                      the user navigated away or closed the tab

@@ -111,7 +111,7 @@ export const SOURCE_CHAINS: SupportedChain[] = [
  *
  * Ethereum is currently commented out of every user-facing list, not just this one.
  * To bring it back, restore all of these together:
- *   - SOURCE_CHAINS above           — balance scanning + smart-bridge sources
+ *   - SOURCE_CHAINS above           — balance scanning
  *   - EVM_CHAINS (lib/web3/routing) — spend routing + ChainBridge source/dest list
  *   - SPEND_PRIORITY (same file)    — spend ordering
  *   - RAMP_NETWORKS (same file)     — on-ramp deposit networks
@@ -150,15 +150,6 @@ export const SOLANA_RECEIVE_ENABLED = false;
 export function isBridgeable(chain: string): boolean {
   return !(BRIDGE_DISABLED_CHAINS as string[]).includes(chain);
 }
-
-/**
- * All EVM chains the Smart Bridge will scan.
- *
- * Derived from SOURCE_CHAINS rather than repeated: the two had drifted apart, and the
- * copy here was missing Polygon. A chain the app is willing to bridge *to* but won't
- * scan for balances is a one-way door — the funds arrive and the UI offers no way out.
- */
-export const SMART_BRIDGE_CHAINS: SupportedChain[] = SOURCE_CHAINS.filter(isBridgeable);
 
 /**
  * Circle Gas Station policy IDs per chain — set in .env
