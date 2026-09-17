@@ -367,10 +367,8 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
               solanaBalance={hook.solanaBalance}
               stellarBalance={hook.stellarBalance}
               requiredAmount={usdcTotal}
-              singleSourceChains={hook.rampNetworks}
               allowConsolidate
-              consolidationTarget="Base"
-              value={hook.sourcePref}
+                  value={hook.sourcePref}
               onChange={hook.setSourcePref}
             />
           )}

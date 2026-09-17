@@ -435,13 +435,31 @@ export function planWithdrawalRoute(
   // Pick the highest-balance supported chain to act as consolidation target
   const targetChain = (rankedSupportedChains[0] ?? (supported.includes(home) ? home : 'base')) as SupportedChain;
 
-  // User override: force a single supported chain (must hold enough and be ramp-supported).
+  // User override: pay from one chosen chain.
   if (opts.source?.mode === 'single') {
     const c = opts.source.chain;
-    if (supported.includes(c) && toMicro(balances[c as keyof typeof balances] ?? 0) >= requestedMicro) {
+    const holdsEnough =
+      toMicro(balances[c as keyof typeof balances] ?? 0) >= requestedMicro;
+
+    if (!holdsEnough) {
+      return { feasible: false, needsConsolidation: false, totalAvailable, requested };
+    }
+    if (supported.includes(c)) {
       return { feasible: true, chain: c as SupportedChain, needsConsolidation: false, totalAvailable, requested };
     }
-    return { feasible: false, needsConsolidation: false, totalAvailable, requested };
+
+    // Holds enough, but no provider settles fiat on it — Arc is the case this exists for.
+    // That is a bridge, not a refusal: move the funds to a chain that can settle and pay out
+    // there. Refusing instead told the user their funded chain "doesn't hold enough", which
+    // was both wrong and a dead end, since the money was there all along.
+    return {
+      feasible: false,
+      needsConsolidation: true,
+      consolidateFrom: [c],
+      chain: targetChain,
+      totalAvailable,
+      requested,
+    };
   }
 
   // User override: consolidate the chosen chains onto the highest-balance supported chain.

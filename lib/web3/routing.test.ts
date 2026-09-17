@@ -95,6 +95,87 @@ describe('planWithdrawalRoute', () => {
     expect(plan.chain).toBe('polygon'); // base empty → polygon before ethereum
   });
 
+  /**
+   * Paying from a chain no provider settles on.
+   *
+   * Arc is the case this exists for: USDC lives there, but the off-ramp cannot pay out from
+   * it. That is a bridge, not a refusal — the route must carry the funds to a settlement
+   * chain. It used to come back "not feasible", which the withdrawal screen reported as
+   * "arc doesn't hold enough", with the money sitting right there.
+   */
+  it('bridges to a settlement chain when the chosen source cannot settle', () => {
+    const plan = planWithdrawalRoute('50', { arc: 100, base: 0 }, {
+      source: { mode: 'single', chain: 'arc' },
+    });
+    expect(plan.feasible).toBe(false);
+    expect(plan.needsConsolidation).toBe(true);
+    expect(plan.consolidateFrom).toEqual(['arc']);
+    expect(plan.chain).toBe('base');
+  });
+
+  it('still refuses when the chosen source genuinely lacks the funds', () => {
+    // The negative control: needsConsolidation must not become a way to paper over a shortfall.
+    const plan = planWithdrawalRoute('50', { arc: 10 }, {
+      source: { mode: 'single', chain: 'arc' },
+    });
+    expect(plan.feasible).toBe(false);
+    expect(plan.needsConsolidation).toBe(false);
+  });
+
+  it('pays directly, with no bridge, when the chosen source can settle', () => {
+    const plan = planWithdrawalRoute('50', { base: 100, arc: 100 }, {
+      source: { mode: 'single', chain: 'base' },
+    });
+    expect(plan.feasible).toBe(true);
+    expect(plan.chain).toBe('base');
+    expect(plan.needsConsolidation).toBe(false);
+  });
+
+  /**
+   * Where a withdrawal settles is chosen by balance, not by habit.
+   *
+   * Base is the home chain and the tie-break, NOT a fixed destination. Bridging everything to
+   * Base when the money is already sitting on another settlement chain would pay CCTP fees and
+   * wait on a bridge for no reason.
+   */
+  describe('settlement chain selection', () => {
+    it('settles where the balance already is, not on base', () => {
+      const plan = planWithdrawalRoute('6', { arc: 5, base: 0, polygon: 3 });
+      expect(plan.needsConsolidation).toBe(true);
+      expect(plan.chain).toBe('polygon');
+    });
+
+    it('prefers the richest settlement chain when several are funded', () => {
+      const plan = planWithdrawalRoute('10', { arc: 5, base: 2, polygon: 7 });
+      expect(plan.chain).toBe('polygon');
+    });
+
+    it('uses base when base is the richest', () => {
+      const plan = planWithdrawalRoute('10', { arc: 5, base: 8, polygon: 1 });
+      expect(plan.chain).toBe('base');
+    });
+
+    it('falls back to base only to break a tie', () => {
+      const plan = planWithdrawalRoute('3', { arc: 5, base: 0, polygon: 0 });
+      expect(plan.chain).toBe('base');
+    });
+
+    it('does not bridge at all when one settlement chain already covers it', () => {
+      const plan = planWithdrawalRoute('3', { arc: 5, base: 0, polygon: 4 });
+      expect(plan.feasible).toBe(true);
+      expect(plan.needsConsolidation).toBe(false);
+      expect(plan.chain).toBe('polygon');
+    });
+
+    it('sends a chosen source to the richest settlement chain, not to base', () => {
+      const plan = planWithdrawalRoute('3', { arc: 5, base: 0, polygon: 3 }, {
+        source: { mode: 'single', chain: 'arc' },
+      });
+      expect(plan.consolidateFrom).toEqual(['arc']);
+      expect(plan.chain).toBe('polygon');
+    });
+  });
+
   it('ignores non-ramp chains when choosing a source', () => {
     // arbitrum holds plenty but Paycrest cannot settle there → consolidation
     const plan = planWithdrawalRoute('50', { arbitrum: 100, base: 10 });

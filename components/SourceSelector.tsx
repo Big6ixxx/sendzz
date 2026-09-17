@@ -21,15 +21,8 @@ interface SourceSelectorProps {
   stellarBalance?: number;
   /** Amount the movement needs (USDC). */
   requiredAmount: number;
-  /**
-   * When set, only these chains may be picked as a single direct source (e.g. ramp-
-   * supported chains for withdrawals). Consolidation can still pull from any chain.
-   */
-  singleSourceChains?: SupportedChain[];
   /** Whether the "combine networks" (consolidate) option is offered. Off for p2p. */
   allowConsolidate?: boolean;
-  /** Label for where consolidated funds land, e.g. "Base". */
-  consolidationTarget?: string;
   value: SourcePreference;
   onChange: (next: SourcePreference) => void;
 }
@@ -51,9 +44,7 @@ export function SourceSelector({
   solanaBalance = 0,
   stellarBalance = 0,
   requiredAmount,
-  singleSourceChains,
   allowConsolidate = false,
-  consolidationTarget = 'Base',
   value,
   onChange,
 }: SourceSelectorProps) {
@@ -77,10 +68,14 @@ export function SourceSelector({
     [fundedChains, solanaBalance, stellarBalance],
   );
 
+  /**
+   * Any funded chain may be paid from — that is the whole rule.
+   *
+   * Some chains cannot settle fiat directly and are bridged to one that can. That is not
+   * surfaced here on purpose: the user asked to be paid, and which rail the money crosses on
+   * the way carries no meaning for them. The route handles it.
+   */
   const hasEnough = (c: SupportedChain) => (balances[c] ?? 0) + 1e-9 >= requiredAmount;
-  const isDirectSupported = (c: SupportedChain) =>
-    !singleSourceChains || singleSourceChains.includes(c);
-  const canSingle = (c: SupportedChain) => hasEnough(c) && isDirectSupported(c);
 
   // Current consolidate selection (defaults to everything funded).
   const consolidateFrom =
@@ -96,7 +91,7 @@ export function SourceSelector({
       ? 'Automatic (smart)'
       : value.mode === 'single'
         ? `From ${NAME(value.chain)}`
-        : `Combine ${value.from.length} network${value.from.length === 1 ? '' : 's'} → ${consolidationTarget}`;
+        : `Combine ${value.from.length} network${value.from.length === 1 ? '' : 's'}`;
 
   const toggleConsolidateChain = (c: SourceChainKey) => {
     const set = new Set(consolidateFrom);
@@ -139,14 +134,11 @@ export function SourceSelector({
 
           {/* Single-chain sources */}
           {fundedChains.map((c) => {
-            const eligible = canSingle(c);
+            const eligible = hasEnough(c);
             const bal = `$${(balances[c] ?? 0).toFixed(2)}`;
-            // Distinguish "has funds but not a direct payout chain" from "not enough funds".
             const subtitle = eligible
               ? `${bal} available`
-              : !isDirectSupported(c)
-                ? `${bal} — not a direct withdrawal network, use Combine`
-                : `${bal} — not enough on its own`;
+              : `${bal} — not enough on its own`;
             return (
               <OptionRow
                 key={c}
@@ -176,7 +168,7 @@ export function SourceSelector({
                   onChange({ mode: 'consolidate', from: allConsolidatable })
                 }
                 icon={<Layers className="w-4 h-4 text-brand-secondary/60" />}
-                title={`Combine networks → ${consolidationTarget}`}
+                title="Combine networks"
                 subtitle="Gather funds from the networks you pick"
                 flush
               />

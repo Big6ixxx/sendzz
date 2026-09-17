@@ -277,7 +277,6 @@ export function CryptoTransferForm({
           solanaBalance={solanaBalance}
           requiredAmount={parseFloat(amount || '0')}
           allowConsolidate
-          consolidationTarget="Base"
           value={sourcePref}
           onChange={setSourcePref}
         />

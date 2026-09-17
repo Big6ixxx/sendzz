@@ -751,7 +751,16 @@ export function useDepositWithdraw(
       const isSolanaSettlement = sourcePref.mode === "single" && sourcePref.chain === "solana";
 
       // Validate a manual override before proceeding (Solana is validated separately below).
-      if (sourcePref.mode === "single" && !isSolanaSettlement && !route.feasible) {
+      //
+      // `needsConsolidation` is not a failure here: it means the chosen chain holds the money
+      // but cannot settle fiat, so the route bridges it to one that can. Only a route that is
+      // neither directly payable nor bridgeable is a genuine shortfall.
+      if (
+        sourcePref.mode === "single" &&
+        !isSolanaSettlement &&
+        !route.feasible &&
+        !route.needsConsolidation
+      ) {
         toast.error(
           `${sourcePref.chain} doesn't hold enough to withdraw ${totalUsdcRequired.toFixed(2)} USDC.`,
         );
@@ -1649,7 +1658,6 @@ export function useDepositWithdraw(
     chainBalances: chainBalances ?? {},
     solanaBalance: solanaSource?.balance ?? 0,
     stellarBalance: stellarBalance ?? 0,
-    rampNetworks,
     offRampProvider,
     feePercent,
     // The provider's flat corridor fee in USDC. Exposed so the breakdown can show the SAME
