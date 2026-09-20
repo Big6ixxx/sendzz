@@ -39,6 +39,7 @@ import { ArrowDown, CheckCircle2, ExternalLink, Loader2, X } from "lucide-react"
 import { useEffect, useRef, useState } from "react";
 import { usePinAuthorization } from "@/components/security/PinAuthorizationProvider";
 import { noteTransactionAuthorization } from "@/lib/actions/transactionAuth";
+import { describeBridge } from "@/lib/signing/describe";
 import { toast } from "sonner";
 
 const SOLANA_RPC =
@@ -368,6 +369,7 @@ export function ChainBridgeModule({
         { label: "From", value: CHAIN_DISPLAY_NAMES[source] ?? source },
         { label: "To", value: CHAIN_DISPLAY_NAMES[dest] ?? dest },
       ],
+      plan: describeBridge({ amount, sourceChain: source, destChain: dest }),
       confirmLabel: "Start bridge",
     });
     if (!authorization) return;

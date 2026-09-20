@@ -80,6 +80,8 @@ export function TransferModule({
     setWarningModalOpen,
     handleWarningConfirm,
     handleTwoFaClose,
+    activePlan,
+    activeStep,
     sourcePref,
     setSourcePref,
     chainBalances: transferChainBalances,
@@ -177,6 +179,8 @@ export function TransferModule({
           setSourcePref={setSourcePref}
           chainBalances={transferChainBalances}
           solanaBalance={transferSolanaBalance}
+          activePlan={activePlan}
+          activeStep={activeStep}
         />
       ) : (
         <CryptoTransferForm

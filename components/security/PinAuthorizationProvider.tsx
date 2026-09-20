@@ -1,7 +1,14 @@
 "use client";
 
 /**
- * Asking for the transaction PIN before money moves, and carrying the answer to the server.
+ * The confirmation sheet: what is about to happen, and the PIN that approves it.
+ *
+ * This is the screen that replaced Privy's wallet pop-ups. Those pop-ups were accurate and
+ * unreadable — they described a user operation to people who came here to send money to a
+ * friend, and they appeared once per signature with no warning that a second one was coming.
+ * `showWalletUIs: false` in components/providers.tsx turns them off; this is what stands in
+ * their place, and it is shown ONCE per transaction no matter how many signatures the
+ * transaction needs.
  *
  * Every outgoing action goes through `authorize()`. It shows the user what they are about to
  * do, takes the PIN, and returns a single-use token bound to that exact operation — which the
@@ -24,7 +31,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
-import { ShieldCheck } from "lucide-react";
+import { Clock, Layers, ShieldCheck } from "lucide-react";
 
 import {
   Dialog,
@@ -34,6 +41,11 @@ import {
 } from "@/components/ui/dialog";
 import { ForgotPinDialog } from "@/components/security/ForgotPinDialog";
 import { PinInput } from "@/components/security/PinGate";
+import {
+  confirmationNotice,
+  durationEstimate,
+  type SigningPlan,
+} from "@/lib/signing/plan";
 
 /** The operations a PIN can authorise. Mirrors AuthorizationPurpose on the server. */
 export type AuthorizationPurpose =
@@ -70,6 +82,13 @@ export interface AuthorizationRequest {
   description?: string;
   /** The breakdown: amount, fee, destination, network. */
   details?: AuthorizationDetail[];
+  /**
+   * What the transaction will ask of them, step by step.
+   *
+   * Supplied wherever the flow takes more than one confirmation. This is the part that stops
+   * a second prompt reading as a failure of the first — see lib/signing/plan.ts.
+   */
+  plan?: SigningPlan;
   confirmLabel?: string;
 }
 
@@ -216,6 +235,49 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
                   </div>
                 ))}
               </dl>
+            )}
+
+            {/* What is about to happen, before they are asked to approve it. Shown only when
+                the flow takes more than one step — a list of one is noise, and noise is what
+                trains people to stop reading these. */}
+            {request?.plan && request.plan.steps.length > 1 && (
+              <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 space-y-3">
+                <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-brand-secondary/35">
+                  What happens next
+                </p>
+
+                <ol className="space-y-2.5">
+                  {request.plan.steps.map((step, index) => (
+                    <li key={`${step.kind}-${index}`} className="flex gap-2.5">
+                      <span className="mt-0.5 w-4 h-4 shrink-0 rounded-full border border-white/12 flex items-center justify-center text-[9px] font-bold text-brand-secondary/35">
+                        {index + 1}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-[12.5px] font-medium text-brand-secondary/80">
+                          {step.title}
+                        </span>
+                        {step.detail && (
+                          <span className="block text-[11.5px] text-brand-secondary/40 leading-relaxed mt-0.5">
+                            {step.detail}
+                          </span>
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+
+                {confirmationNotice(request.plan) && (
+                  <p className="flex items-start gap-2 text-[12px] text-brand-secondary/55 leading-relaxed pt-1 border-t border-white/5">
+                    <Layers className="w-3.5 h-3.5 mt-0.5 shrink-0 text-accent/60" />
+                    <span>{confirmationNotice(request.plan)}</span>
+                  </p>
+                )}
+
+                <p className="flex items-start gap-2 text-[12px] text-brand-secondary/45 leading-relaxed">
+                  <Clock className="w-3.5 h-3.5 mt-0.5 shrink-0 text-brand-secondary/30" />
+                  <span>Usually takes {durationEstimate(request.plan)}.</span>
+                </p>
+              </div>
             )}
 
             <PinInput

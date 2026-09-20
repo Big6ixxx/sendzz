@@ -76,6 +76,36 @@ export function Providers({ children }: { children: ReactNode }) {
             solana: {
               createOnLogin: 'all-users',
             },
+            /*
+             * Sendzz owns the confirmation screen; Privy's pop-up never appears.
+             *
+             * Privy's prompt is accurate and unreadable. It describes a user operation — raw
+             * calldata, a gas ceiling, a contract address — to somebody who came here to send
+             * $40 to a friend, and it appears once PER SIGNATURE with no warning that another
+             * is coming. A bridge takes two of them, minutes apart, and to a Web2 user the
+             * second one does not read as "step two". It reads as "the first one failed", or
+             * as something trying to charge them twice.
+             *
+             * In its place, components/security/PinAuthorizationProvider shows one sheet per
+             * TRANSACTION: what is about to happen, the amounts, how many confirmations it
+             * will take and roughly how long — and takes the PIN. After that the signatures
+             * happen silently, tracked by components/signing/SigningProgress.
+             *
+             * --- What this flag actually covers -------------------------------------
+             *
+             * Verified against the shipped bundle rather than assumed, because it matters:
+             * the EVM send and bridge paths do not call Privy's hooks at all. They go through
+             * a raw EIP-1193 `provider.request({method: 'eth_signTypedData_v4'})` from
+             * lib/web3/circle-client.ts, since Circle's smart account needs its own signer
+             * shape. In @privy-io/react-auth 3.19, that request routes to
+             * `handleSignedTypedData`, which calls the same internal signer as the hook and
+             * passes no `uiOptions` — so it falls through to exactly this config flag.
+             *
+             * The consequence to remember when changing this: with the pop-ups off, Privy
+             * shows nothing on ANY embedded-wallet action, so any new signing path must bring
+             * its own confirmation. Sign silently and the user is never asked at all.
+             */
+            showWalletUIs: false,
           },
           solana: {
             rpcs: {

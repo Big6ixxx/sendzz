@@ -39,7 +39,10 @@ import {
   executeCircleGaslessTransfer,
   executeCircleGaslessBatchTransfer,
 } from "@/lib/web3/circle-actions";
-import { consolidateFundsToChain } from "@/lib/web3/bridge-actions";
+import {
+  consolidateFundsToChain,
+  selectConsolidationSources,
+} from "@/lib/web3/bridge-actions";
 import { bridgeStellarToBase } from "@/lib/web3/stellar-bridge";
 import {
   planWithdrawalRoute,
@@ -58,6 +61,8 @@ import { FIAT_ROUTING_PAD, totalDeducted } from "@/lib/ramp/fees";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePinAuthorization } from "@/components/security/PinAuthorizationProvider";
+import { describeWithdrawal } from "@/lib/signing/describe";
+import { type SigningPlan } from "@/lib/signing/plan";
 import { toast } from "sonner";
 import type { KycBlock } from "@/components/kyc/KycRequiredModal";
 import { useCurrencies } from "@/lib/hooks/useCurrencies";
@@ -105,6 +110,9 @@ export function useDepositWithdraw(
   const [twoFaEnabled, setTwoFaEnabled] = useState(false);
   const [twoFaThreshold, setTwoFaThreshold] = useState(500);
   const { authorize } = usePinAuthorization();
+  // The plan the user approved, and how far through it we are.
+  const [activePlan, setActivePlan] = useState<SigningPlan | null>(null);
+  const [activeStep, setActiveStep] = useState(0);
 
   /**
    * The chains the off-ramp provider can settle on. Drives withdrawal routing.
@@ -908,6 +916,26 @@ export function useDepositWithdraw(
     const totalUsdcRequired = totalDeducted(amountUsdc, feePercent, corridorFee);
     const payout = quote?.payoutAmount;
 
+    const plan = describeWithdrawal({
+      amountLabel: payout
+        ? `${payout.toLocaleString()} ${fiatCurrency}`
+        : `${amountUsdc.toFixed(2)} USDC`,
+      bankLabel: bankDetails.accountName || bankDetails.accountNumber,
+      settlementChain: withdrawChain,
+      // Only the networks this withdrawal will actually pull from, taken from the same
+      // selection the consolidation step runs — so "you'll confirm twice" stays true when
+      // the balance is split, and stays absent when it is not.
+      gatherFrom: mustConsolidate
+        ? selectConsolidationSources({
+            targetChain: withdrawChain as SupportedChain | "stellar" | "solana",
+            requiredAmount: totalUsdcRequired.toFixed(6),
+            balances: chainBalances ?? {},
+            solanaBalance: solanaSource?.balance,
+            stellarBalance,
+          }).map((source) => source.chain as string)
+        : [],
+    });
+
     const authorization = await authorize({
       purpose: "withdrawal",
       payload: {
@@ -930,11 +958,14 @@ export function useDepositWithdraw(
         { label: "Bank", value: bankDetails.bankName || bankDetails.bankCode || "—" },
         { label: "Total deducted", value: `${totalUsdcRequired.toFixed(2)} USDC` },
       ],
+      plan,
       confirmLabel: "Withdraw",
     });
 
     if (!authorization) return;
 
+    setActivePlan(plan);
+    setActiveStep(0);
     await executeWithdrawalActual(authorization);
   };
 
@@ -1122,9 +1153,15 @@ export function useDepositWithdraw(
           solanaWallet: null,
           // Deliberately not surfaced: these read "Moving funds from Arbitrum to Base…".
           onStatus: undefined,
+          // The index, though, IS surfaced — that is what moves the tracker through the
+          // gathering legs the user was told about.
+          onSourceStart: setActiveStep,
         });
         toast.dismiss("consolidate");
       }
+
+      // Gathering done; the step the user confirms next is the settlement itself.
+      setActiveStep((current) => current + 1);
 
       // Submit via the pinned-provider flow using the CANONICAL bank identity (name, not
       // a raw code). executeOffRamp resolves the right bank_code per provider and falls
@@ -1197,6 +1234,8 @@ export function useDepositWithdraw(
       toast.dismiss("consolidate");
       toast.error(parseFriendlyError(err));
     } finally {
+      setActivePlan(null);
+      setActiveStep(0);
       setLoading(false);
     }
   };
@@ -1733,6 +1772,8 @@ export function useDepositWithdraw(
     setTwoFaModalOpen,
     twoFaLoading,
     twoFaError,
+    activePlan,
+    activeStep,
     handleTwoFaSubmit,
     handleTwoFaResend,
     totpEnabled,

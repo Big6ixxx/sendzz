@@ -2,12 +2,17 @@ import { useState, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePinAuthorization } from "@/components/security/PinAuthorizationProvider";
 import { noteTransactionAuthorization } from "@/lib/actions/transactionAuth";
+import { describeTransfer } from "@/lib/signing/describe";
+import { type SigningPlan } from "@/lib/signing/plan";
 import { useUserContacts } from "@/components/contacts/useContacts";
 import { useExchangeRate } from "@/lib/hooks/useExchangeRate";
 import { ConnectedWallet } from "@privy-io/react-auth";
 import { executeRoutedTransfer } from "@/lib/web3/circle-actions";
 import { recordSendIntent } from "@/lib/actions/pendingSend";
-import { consolidateFundsToChain } from "@/lib/web3/bridge-actions";
+import {
+  consolidateFundsToChain,
+  selectConsolidationSources,
+} from "@/lib/web3/bridge-actions";
 import {
   planTransferRoute,
   AUTO_SOURCE,
@@ -102,6 +107,10 @@ export function useTransfer({
   const [totpEnabled, setTotpEnabled] = useState(false);
   const [passkeyEnabled, setPasskeyEnabled] = useState(false);
   const [warningModalOpen, setWarningModalOpen] = useState(false);
+  // The plan the user agreed to, and where we are in it. Kept so the screen can show progress
+  // through a multi-step send instead of one spinner that never explains itself.
+  const [activePlan, setActivePlan] = useState<SigningPlan | null>(null);
+  const [activeStep, setActiveStep] = useState(0);
 
   // Cache recipient check results for 30s to avoid hammering on keystrokes
   const checkCacheRef = useRef<
@@ -265,6 +274,30 @@ export function useTransfer({
    * the user is doing: the PIN is the moment they commit, not a hurdle on the way to deciding.
    */
   const authorizeAndSend = async () => {
+    // The step list comes from the SAME selection the transfer will run, not from a guess
+    // made beside the UI. A balance spread over three networks means three extra
+    // confirmations, and the user is told that before they agree — not when the second
+    // unexpected prompt appears.
+    const balancesForRoute: ChainBalances =
+      chainBalances && Object.keys(chainBalances).length > 0
+        ? chainBalances
+        : { base: parseFloat(balance) || 0 };
+
+    const gatherFrom = selectConsolidationSources({
+      targetChain: "base",
+      requiredAmount: amountUsdc,
+      balances: balancesForRoute,
+      solanaBalance: solanaSource?.balance,
+      stellarBalance,
+    }).map((source) => source.chain as string);
+
+    const plan = describeTransfer({
+      amount: amountUsdc,
+      recipient: recipientEmail,
+      gatherFrom,
+      settlementChain: "base",
+    });
+
     const authorization = await authorize({
       purpose: "transfer",
       payload: {
@@ -279,6 +312,7 @@ export function useTransfer({
         { label: "To", value: recipientEmail },
         ...(memo ? [{ label: "Note", value: memo }] : []),
       ],
+      plan,
       confirmLabel: "Send",
     });
 
@@ -289,6 +323,8 @@ export function useTransfer({
       return;
     }
 
+    setActivePlan(plan);
+    setActiveStep(0);
     await executeTransferActual(authorization);
   };
 
@@ -501,6 +537,7 @@ export function useTransfer({
             solana: solanaSource,
             stellar: stellarSource,
             onStatus: setStatus,
+            onSourceStart: setActiveStep,
           });
           plan = {
             feasible: true,
@@ -513,6 +550,9 @@ export function useTransfer({
           throw new Error("Insufficient balance to complete this transfer.");
         }
       }
+
+      // Whatever gathering was needed is done; the last step is the send itself.
+      setActiveStep((current) => Math.max(current + 1, 0));
 
       setStatus(
         plan.multiSource
@@ -591,6 +631,8 @@ export function useTransfer({
       toast.error(parseFriendlyError(err));
       setStatus("");
     }
+    setActivePlan(null);
+    setActiveStep(0);
     setLoading(false);
   };
 
@@ -642,5 +684,7 @@ export function useTransfer({
     setWarningModalOpen,
     handleWarningConfirm,
     handleTwoFaClose,
+    activePlan,
+    activeStep,
   };
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { CurrencySelector } from "@/components/CurrencySelector";
+import { SigningProgress } from "@/components/signing/SigningProgress";
 import { formatFiat, getCurrencySymbol } from "@/lib/currency-config";
 import {
   CheckCircle2,
@@ -597,6 +598,13 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
             `Send ${formatFiat(hook.quote.payoutAmount, hook.fiatCurrency)}`
           )}
         </button>
+
+        {/* A withdrawal that has to gather funds first spends minutes here, bridging, with
+            nothing on screen but a spinning button. This is where someone decides the app has
+            frozen and starts pressing things. */}
+        {hook.activePlan && hook.activePlan.steps.length > 1 && (
+          <SigningProgress plan={hook.activePlan} current={hook.activeStep} />
+        )}
       </div>
     );
   }

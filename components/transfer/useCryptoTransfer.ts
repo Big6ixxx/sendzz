@@ -2,6 +2,7 @@ import { usePlatformFeePercent } from '@/lib/hooks/usePlatformFeePercent';
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { usePinAuthorization } from "@/components/security/PinAuthorizationProvider";
 import { noteTransactionAuthorization } from "@/lib/actions/transactionAuth";
+import { describeCryptoSend } from "@/lib/signing/describe";
 import { quoteFee } from "@/lib/actions/fees";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { ConnectedWallet, usePrivy, useSigners } from "@privy-io/react-auth";
@@ -307,6 +308,8 @@ export function useCryptoTransfer({
   const requireSendPin = async (
     chain: string,
     sendAmount: string,
+    /** Set when the funds have to cross networks to get there — two confirmations, not one. */
+    fromChain?: string,
   ): Promise<string | null> => {
     const chainLabel =
       chain === "stellar"
@@ -327,6 +330,12 @@ export function useCryptoTransfer({
         { label: "To", value: recipientAddress },
         { label: "Network", value: chainLabel },
       ],
+      plan: describeCryptoSend({
+        amount: sendAmount,
+        recipient: recipientAddress,
+        destChain: chain,
+        sourceChain: fromChain,
+      }),
       confirmLabel: "Send",
     });
 
@@ -811,7 +820,11 @@ export function useCryptoTransfer({
 
     // Asked for after the cross-chain confirmation, not before it — the PIN approves the send
     // the user has just agreed to the shape of, including which network it lands on.
-    const authorization = await requireSendPin(info.destChain, info.amount);
+    const authorization = await requireSendPin(
+      info.destChain,
+      info.amount,
+      info.sourceChain,
+    );
     if (!authorization) return;
 
     setBridgeConfirm(null);

@@ -8,6 +8,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { usePinAuthorization } from "@/components/security/PinAuthorizationProvider";
 import { noteTransactionAuthorization } from "@/lib/actions/transactionAuth";
+import { describeBatch } from "@/lib/signing/describe";
+import { selectConsolidationSources } from "@/lib/web3/bridge-actions";
 import { toast } from "sonner";
 import { useExchangeRate } from "@/lib/hooks/useExchangeRate";
 
@@ -118,6 +120,16 @@ export function useBatchSend(
         { label: "Total", value: `$${total.toFixed(2)}` },
         ...(note ? [{ label: "Note", value: note }] : []),
       ],
+      plan: describeBatch({
+        recipientCount: targets.length,
+        total,
+        gatherFrom: selectConsolidationSources({
+          targetChain: "base",
+          requiredAmount: total.toFixed(6),
+          balances: chainBalances ?? {},
+          solanaBalance: solanaSource?.balance,
+        }).map((source) => source.chain as string),
+      }),
       confirmLabel: "Send batch",
     });
 
