@@ -50,9 +50,9 @@ import { TOTPSetupWizard } from "@/components/TOTPSetupWizard";
 import { PasskeySetupWizard } from "@/components/PasskeySetupWizard";
 import {
   PinGate,
-  PinInput,
   type PinGateRequest,
 } from "@/components/security/PinGate";
+import { ForgotPinDialog } from "@/components/security/ForgotPinDialog";
 import { Fingerprint } from "lucide-react";
 import { KycModal } from "@/components/kyc/KycModal";
 import { InstallAppButton } from "@/components/pwa/InstallAppButton";
@@ -131,9 +131,7 @@ export default function SettingsPage() {
   // PIN is tracked separately from the passkey so each can be added or removed on its own.
   const [pinEnabled, setPinEnabled] = useState(false);
   const [pinSetupOpen, setPinSetupOpen] = useState(false);
-  const [pinRemoveOpen, setPinRemoveOpen] = useState(false);
-  const [pinConfirm, setPinConfirm] = useState("");
-  const [pinError, setPinError] = useState<string | null>(null);
+  const [forgotPinOpen, setForgotPinOpen] = useState(false);
   const [pinGate, setPinGate] = useState<PinGateRequest | null>(null);
 
   // Notification Preferences
@@ -385,30 +383,6 @@ export default function SettingsPage() {
     }
   };
 
-  const handleRemovePin = async () => {
-    setIsUpdatingSecurity(true);
-    setPinError(null);
-    try {
-      const res = await fetch("/api/2fa/pin", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "remove", currentPin: pinConfirm }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setPinError(data.error ?? "Could not remove your PIN.");
-        return;
-      }
-      setPinEnabled(false);
-      setPinRemoveOpen(false);
-      setPinConfirm("");
-      toast.success("PIN removed.");
-    } catch {
-      setPinError("Could not reach the server. Try again.");
-    } finally {
-      setIsUpdatingSecurity(false);
-    }
-  };
 
   const handleDisablePasskey = async () => {
     if (!userEmail) return;
@@ -905,8 +879,12 @@ export default function SettingsPage() {
                   )}
                 </div>
 
-                {/* Its own row, so a PIN can be added or removed without touching the
-                    passkey. Anything less means turning one off to reach the other. */}
+                {/* Its own row, so the PIN can be changed without touching the passkey.
+                    There is no longer a "remove" here: the PIN gates every outgoing
+                    transaction, so taking it away would not relax a setting — it would leave
+                    the account unable to send, withdraw or bridge at all. What people
+                    actually want from that button is covered by the two below: change it if
+                    you know it, reset it by email if you don't. */}
                 <div className="p-6 flex items-center justify-between hover:bg-white/2 transition-colors">
                   <div className="flex items-center gap-5">
                     <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-brand-secondary/40 border border-white/8">
@@ -922,12 +900,20 @@ export default function SettingsPage() {
                     </div>
                   </div>
                   {pinEnabled ? (
-                    <button
-                      onClick={() => setPinRemoveOpen(true)}
-                      className="text-xs font-bold uppercase tracking-widest text-red-400 hover:text-red-300 transition-colors"
-                    >
-                      Remove
-                    </button>
+                    <div className="flex items-center gap-5">
+                      <button
+                        onClick={() => setPinSetupOpen(true)}
+                        className="text-xs font-bold uppercase tracking-widest text-accent hover:text-accent/80 transition-colors"
+                      >
+                        Change
+                      </button>
+                      <button
+                        onClick={() => setForgotPinOpen(true)}
+                        className="text-xs font-bold uppercase tracking-widest text-brand-secondary/40 hover:text-brand-secondary/70 transition-colors"
+                      >
+                        Forgot it?
+                      </button>
+                    </div>
                   ) : (
                     <button
                       onClick={() => setPinSetupOpen(true)}
@@ -1262,61 +1248,12 @@ export default function SettingsPage() {
         onComplete={refreshSecurityStatus}
       />
 
-      {/* PIN Remove Modal */}
-      <Dialog
-        open={pinRemoveOpen}
-        onOpenChange={(v) => {
-          setPinRemoveOpen(v);
-          if (!v) {
-            setPinConfirm("");
-            setPinError(null);
-          }
-        }}
-      >
-        <DialogContent className="card-glass border-white/10 max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-xl text-brand-secondary">
-              Remove PIN
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4 py-2">
-            <p className="text-sm text-brand-secondary/70 leading-relaxed">
-              Withdrawals above your threshold will fall back to your other
-              methods. You can set a new PIN at any time.
-            </p>
-
-            {/* Proving you know the current PIN is what stops anyone who reaches an
-                open session from quietly stripping the factor that protects it. */}
-            <PinInput
-              label="Current PIN"
-              value={pinConfirm}
-              onChange={(v) => {
-                setPinError(null);
-                setPinConfirm(v);
-              }}
-              onEnter={handleRemovePin}
-              error={pinError}
-            />
-          </div>
-
-          <div className="flex flex-col-reverse sm:flex-row gap-3 pt-4">
-            <button
-              onClick={() => setPinRemoveOpen(false)}
-              className="btn-secondary flex-1"
-            >
-              Keep it
-            </button>
-            <button
-              onClick={handleRemovePin}
-              disabled={isUpdatingSecurity || pinConfirm.length < 4}
-              className="btn-primary flex-1 !bg-red-500 !text-white hover:!bg-red-600"
-            >
-              {isUpdatingSecurity ? "Removing..." : "Remove PIN"}
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <ForgotPinDialog
+        open={forgotPinOpen}
+        onOpenChange={setForgotPinOpen}
+        email={userEmail}
+        onReset={refreshSecurityStatus}
+      />
 
       {/* KYC Verification Modal */}
       <KycModal

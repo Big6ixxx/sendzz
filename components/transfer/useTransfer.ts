@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { usePinAuthorization } from "@/components/security/PinAuthorizationProvider";
+import { noteTransactionAuthorization } from "@/lib/actions/transactionAuth";
 import { useUserContacts } from "@/components/contacts/useContacts";
 import { useExchangeRate } from "@/lib/hooks/useExchangeRate";
 import { ConnectedWallet } from "@privy-io/react-auth";
@@ -112,6 +114,7 @@ export function useTransfer({
   const isFiat = currency !== "USD";
   const { data: exchangeRate = 1 } = useExchangeRate(isFiat ? currency : "USD");
   const queryClient = useQueryClient();
+  const { authorize } = usePinAuthorization();
 
   const { data: contacts = [] } = useUserContacts(senderEmail);
 
@@ -243,12 +246,50 @@ export function useTransfer({
         setLoading(false);
         return;
       }
-      // 2FA Required - open modal without sending OTP
+      // 2FA Required - open modal without sending OTP. The PIN comes after it, in
+      // authorizeAndSend — see the note there on why that order and not the reverse.
       setTwoFaModalOpen(true);
       return;
     }
 
-    await executeTransferActual();
+    await authorizeAndSend();
+  };
+
+  /**
+   * Take the PIN, then send.
+   *
+   * This is the LAST thing before money moves, and deliberately so. The email or authenticator
+   * check above can take a minute of hunting through an inbox, and the authorisation the PIN
+   * mints is only valid for a few minutes — putting the PIN first would mean the slow step
+   * routinely outliving the token it was supposed to protect. Asking last also matches what
+   * the user is doing: the PIN is the moment they commit, not a hurdle on the way to deciding.
+   */
+  const authorizeAndSend = async () => {
+    const authorization = await authorize({
+      purpose: "transfer",
+      payload: {
+        destination: recipientEmail,
+        amount: amountUsdc,
+      },
+      title: `Send $${parseFloat(amountUsdc || "0").toFixed(2)} to ${recipientEmail}`,
+      description:
+        "Enter your PIN to approve this transfer. Once it is sent it cannot be reversed.",
+      details: [
+        { label: "Amount", value: `$${parseFloat(amountUsdc || "0").toFixed(2)}` },
+        { label: "To", value: recipientEmail },
+        ...(memo ? [{ label: "Note", value: memo }] : []),
+      ],
+      confirmLabel: "Send",
+    });
+
+    // Cancelling is an ordinary decision, not an error. The form goes back to how it was.
+    if (!authorization) {
+      setLoading(false);
+      setStatus("");
+      return;
+    }
+
+    await executeTransferActual(authorization);
   };
 
   const handleTwoFaSubmit = async (
@@ -261,9 +302,9 @@ export function useTransfer({
       let res;
 
       if (method === "passkey") {
-        // Passkey is already verified, just proceed with the actual transfer
+        // Passkey is already verified; the PIN is still required before anything moves.
         setTwoFaModalOpen(false);
-        await executeTransferActual();
+        await authorizeAndSend();
         return;
       }
 
@@ -297,7 +338,7 @@ export function useTransfer({
 
       setTwoFaModalOpen(false);
       setTwoFaOtpId(null);
-      await executeTransferActual();
+      await authorizeAndSend();
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : "Invalid code";
       setTwoFaError(errorMessage);
@@ -332,7 +373,7 @@ export function useTransfer({
     }
   };
 
-  const executeTransferActual = async () => {
+  const executeTransferActual = async (authorization: string) => {
     if (!amount || !recipientEmail || !embeddedProvider) return;
     setLoading(true);
     setLastCompletedTransfer(null);
@@ -364,6 +405,15 @@ export function useTransfer({
       } else {
         setStatus("Identity confirmed. Requesting signature...");
       }
+
+      // Spend the PIN authorisation before signing. This cannot stop the signature that
+      // follows — the browser talks to the bundler directly — but it records that the PIN was
+      // entered for these parameters, and spends the token so it cannot cover a second send.
+      void noteTransactionAuthorization({
+        token: authorization,
+        purpose: "transfer",
+        payload: { destination: recipientEmail, amount: amountUsdc },
+      }).catch(() => undefined);
 
       const provider = await embeddedProvider.getEthereumProvider();
 

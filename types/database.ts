@@ -184,6 +184,42 @@ export interface Database {
         };
         Relationships: [];
       };
+      transaction_authorizations: {
+        Row: {
+          id: string;
+          user_id: string;
+          session_id: string;
+          purpose: string;
+          payload_hash: string;
+          token_hash: string;
+          created_at: string;
+          expires_at: string;
+          consumed_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          session_id: string;
+          purpose: string;
+          payload_hash: string;
+          token_hash: string;
+          created_at?: string;
+          expires_at: string;
+          consumed_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          session_id?: string;
+          purpose?: string;
+          payload_hash?: string;
+          token_hash?: string;
+          created_at?: string;
+          expires_at?: string;
+          consumed_at?: string | null;
+        };
+        Relationships: [];
+      };
       user_profiles: {
         Row: {
           id: string;
@@ -1045,7 +1081,7 @@ export interface Database {
       withdrawal_verification_status: WithdrawalVerificationStatus;
       otp_purpose: OtpPurpose;
       webhook_provider: WebhookProvider;
-      transaction_otp_action: "transfer" | "withdrawal";
+      transaction_otp_action: "transfer" | "withdrawal" | "pin_reset";
     };
     CompositeTypes: {
       [_ in never]: never;

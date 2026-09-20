@@ -41,6 +41,17 @@ export async function bridgeStellarToBase(params: {
       destChain,
       chargeFee: true,
       consolidation: params.consolidation === true,
+      // Always internal, and not the same claim as `consolidation` above.
+      //
+      // `consolidation` decides where the burn is RECORDED — scratch table or history — and
+      // only the withdrawal path sets it. `internal` decides whether the route demands its own
+      // transaction PIN, and the answer here is always no, because nothing reaches this
+      // function as a top-level user action: the bridge screen calls /api/stellar/bridge
+      // directly and passes its own authorisation. Every caller of this helper is a step
+      // inside a transfer, a send or a withdrawal that the user already approved with a PIN
+      // moments earlier, and stopping mid-flow to ask again would interrupt an operation they
+      // are not watching — after money has started moving.
+      internal: true,
     }),
   });
 

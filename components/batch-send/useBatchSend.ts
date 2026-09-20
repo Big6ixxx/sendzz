@@ -6,6 +6,8 @@ import { type FiatCurrencyCode } from "@/lib/currency-config";
 import { ConnectedWallet } from "@privy-io/react-auth";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { usePinAuthorization } from "@/components/security/PinAuthorizationProvider";
+import { noteTransactionAuthorization } from "@/lib/actions/transactionAuth";
 import { toast } from "sonner";
 import { useExchangeRate } from "@/lib/hooks/useExchangeRate";
 
@@ -37,6 +39,7 @@ export function useBatchSend(
   solanaSource?: SolanaSource,
 ) {
   const queryClient = useQueryClient();
+  const { authorize } = usePinAuthorization();
   const [step, setStep] = useState<Step>("recipients");
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [amount, setAmount] = useState("");
@@ -81,6 +84,53 @@ export function useBatchSend(
       setTwoFaModalOpen(true);
       return;
     }
+
+    await authorizeAndSend(retryEmails);
+  };
+
+  /**
+   * Take the PIN for a batch, then send.
+   *
+   * The token is bound to the recipient count and the total rather than to one address,
+   * because that is what a batch IS — and because those two numbers are what the user was
+   * shown. A retry of the failed half re-authorises rather than reusing the first token: the
+   * second send has a different set of recipients, so it is a different transaction.
+   */
+  const authorizeAndSend = async (retryEmails?: string[]) => {
+    const targets = retryEmails || validRecipients.map((r) => r.email);
+    const total = amountUsd * targets.length;
+
+    const authorization = await authorize({
+      purpose: "batch_send",
+      payload: {
+        // Sorted so the same set of people always produces the same hash, whatever order the
+        // list was typed or retried in.
+        destination: [...targets].map((e) => e.toLowerCase()).sort().join(","),
+        amount: total,
+      },
+      title: `Send $${total.toFixed(2)} to ${targets.length} ${targets.length === 1 ? "person" : "people"}`,
+      description:
+        "Enter your PIN to approve this batch. Each person is paid separately, and payments " +
+        "that succeed cannot be reversed.",
+      details: [
+        { label: "Each receives", value: `$${amountUsd.toFixed(2)}` },
+        { label: "Recipients", value: String(targets.length) },
+        { label: "Total", value: `$${total.toFixed(2)}` },
+        ...(note ? [{ label: "Note", value: note }] : []),
+      ],
+      confirmLabel: "Send batch",
+    });
+
+    if (!authorization) return;
+
+    void noteTransactionAuthorization({
+      token: authorization,
+      purpose: "batch_send",
+      payload: {
+        destination: [...targets].map((e) => e.toLowerCase()).sort().join(","),
+        amount: total,
+      },
+    }).catch(() => undefined);
 
     await executeBatchSendActual(retryEmails);
   };
@@ -156,7 +206,7 @@ export function useBatchSend(
       if (method === "passkey") {
         // Passkey is already verified in the modal, just proceed with the actual transfer
         // Execute the batch send without closing the modal
-        await executeBatchSendActual();
+        await authorizeAndSend();
         // Only close modal after execution completes
         setTwoFaModalOpen(false);
         return;
@@ -192,7 +242,7 @@ export function useBatchSend(
 
       setTwoFaModalOpen(false);
       setTwoFaOtpId(null);
-      await executeBatchSendActual();
+      await authorizeAndSend();
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : "Invalid code";
       setTwoFaError(errorMessage);

@@ -450,7 +450,7 @@ function MethodCard({
  * component, is the authority on whether a PIN is acceptable — the check here is only to give
  * an answer instantly, and the same rules run again before anything is stored.
  */
-function PinSetup({ onDone }: { onDone: () => void }) {
+export function PinSetup({ onDone }: { onDone: () => void }) {
   const [phase, setPhase] = useState<"enter" | "confirm">("enter");
   const [first, setFirst] = useState("");
   const [second, setSecond] = useState("");

@@ -1,5 +1,7 @@
 import { usePlatformFeePercent } from '@/lib/hooks/usePlatformFeePercent';
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { usePinAuthorization } from "@/components/security/PinAuthorizationProvider";
+import { noteTransactionAuthorization } from "@/lib/actions/transactionAuth";
 import { quoteFee } from "@/lib/actions/fees";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { ConnectedWallet, usePrivy, useSigners } from "@privy-io/react-auth";
@@ -89,6 +91,7 @@ export function useCryptoTransfer({
 
   const { wallets: solWallets } = useSolanaWallets();
   const { signTransaction } = useSignTransaction();
+  const { authorize } = usePinAuthorization();
 
   const solanaConnection = useMemo(() => new Connection(
     process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com',
@@ -288,6 +291,50 @@ export function useCryptoTransfer({
     }
 
     await proceedAfterAuth();
+  };
+
+  /**
+   * Take the PIN for this send, and hand back the token the server will ask for.
+   *
+   * Called from the two places that actually commit — a direct transfer, and a confirmed
+   * cross-chain send — rather than once up front. The bridge path puts its own confirmation
+   * modal in between, and a PIN taken before that modal would be a PIN taken for something
+   * the user had not yet agreed to.
+   *
+   * `chain` is part of what gets signed for: the same amount to the same address on a
+   * different network is a different transaction, and the token should not cover both.
+   */
+  const requireSendPin = async (
+    chain: string,
+    sendAmount: string,
+  ): Promise<string | null> => {
+    const chainLabel =
+      chain === "stellar"
+        ? "Stellar"
+        : chain === "solana"
+          ? "Solana"
+          : (CHAIN_NAMES[chain as SupportedChain] ?? chain);
+
+    const token = await authorize({
+      purpose: "crypto_transfer",
+      payload: { destination: recipientAddress, amount: sendAmount, chain },
+      title: `Send ${parseFloat(sendAmount || "0").toFixed(2)} USDC`,
+      description:
+        "Enter your PIN to approve this transfer. Sending to a wallet address cannot be undone — " +
+        "check the address and the network before you confirm.",
+      details: [
+        { label: "Amount", value: `${parseFloat(sendAmount || "0").toFixed(2)} USDC` },
+        { label: "To", value: recipientAddress },
+        { label: "Network", value: chainLabel },
+      ],
+      confirmLabel: "Send",
+    });
+
+    if (!token) {
+      setLoading(false);
+      setStatus("");
+    }
+    return token;
   };
 
   // Decide how to fulfil the send once auth (2FA) has passed: a direct same-chain
@@ -569,10 +616,25 @@ export function useCryptoTransfer({
     if (selectedChain !== "stellar" && selectedChain !== "solana" && !embeddedProvider) {
       return;
     }
+
+    const authorization = await requireSendPin(selectedChain, amount);
+    if (!authorization) return;
+
     setLoading(true);
     setStatus("Requesting signature...");
 
     try {
+      // EVM and Solana sign in the page, so this records the PIN rather than enforcing it.
+      // The Stellar branch below is different: the server broadcasts there, so it is handed
+      // the token and refuses the send without it.
+      if (selectedChain !== "stellar") {
+        void noteTransactionAuthorization({
+          token: authorization,
+          purpose: "crypto_transfer",
+          payload: { destination: recipientAddress, amount, chain: selectedChain },
+        }).catch(() => undefined);
+      }
+
       let txHash: string;
 
       if (selectedChain === "stellar") {
@@ -596,6 +658,7 @@ export function useCryptoTransfer({
             recipientAddress,
             amount,
             memo: memo || undefined,
+            authorization,
           }),
         });
         const data = await res.json();
@@ -745,10 +808,26 @@ export function useCryptoTransfer({
   const confirmBridgeSend = async () => {
     const info = bridgeConfirm;
     if (!info || !embeddedProvider) return;
+
+    // Asked for after the cross-chain confirmation, not before it — the PIN approves the send
+    // the user has just agreed to the shape of, including which network it lands on.
+    const authorization = await requireSendPin(info.destChain, info.amount);
+    if (!authorization) return;
+
     setBridgeConfirm(null);
     setLoading(true);
 
     try {
+      void noteTransactionAuthorization({
+        token: authorization,
+        purpose: "crypto_transfer",
+        payload: {
+          destination: recipientAddress,
+          amount: info.amount,
+          chain: info.destChain,
+        },
+      }).catch(() => undefined);
+
       let txHash: string;
 
       if (info.consolidate) {

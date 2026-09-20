@@ -135,6 +135,56 @@ export function otpLoginTemplate(code: string): string {
 }
 
 /**
+ * Resetting a forgotten transaction PIN.
+ *
+ * Deliberately blunt about what the code does. A reset email that reads like every other
+ * verification email invites someone to type the code without registering that it changes the
+ * key to their money — so this one names the consequence, and says plainly what to do if they
+ * did not ask for it.
+ */
+export function pinResetTemplate(code: string): string {
+  const digitBoxes = code
+    .split('')
+    .map(
+      (d) => `
+    <td style="padding: 0 4px;">
+      <div style="width: 44px; height: 52px; border: 1.5px solid #006633; border-radius: 14px; font-size: 26px; font-weight: 700; color: #252525; text-align: center; line-height: 52px; font-family: 'Geist', sans-serif; background-color: #ffffff;">
+        ${d}
+      </div>
+    </td>
+  `,
+    )
+    .join('');
+
+  return baseTemplate(`
+    <div style="text-align: center;">
+      <p style="font-size: 15px; color: #555555; margin: 0 0 8px 0;">Transaction PIN</p>
+      <h1 style="font-size: 34px; font-weight: 950; color: #111111; margin: 0 0 6px 0; letter-spacing: -1px;">Choose a new PIN</h1>
+      <p style="font-size: 14px; color: #888888; margin: 0 0 32px 0;">Because you told us you forgot the old one</p>
+
+      <div style="text-align: left; margin: 0 0 28px 0;">
+        <p style="font-size: 15px; font-weight: 700; color: #111111; margin: 0 0 4px 0;">Your reset code</p>
+        <p style="font-size: 14px; color: #555555; margin: 0;">Enter this <strong>6-digit code</strong> in Sendzz to set a new transaction PIN. It expires in <strong>10 minutes</strong>.</p>
+      </div>
+
+      <table align="center" border="0" cellpadding="0" cellspacing="0" style="margin: 0 auto 32px auto;">
+        <tr>${digitBoxes}</tr>
+      </table>
+
+      <div style="text-align: left; background-color: #fff8f0; border: 1px solid #ffd9a8; border-radius: 14px; padding: 16px 18px; margin: 0 0 8px 0;">
+        <p style="font-size: 14px; font-weight: 700; color: #111111; margin: 0 0 4px 0;">Didn't ask for this?</p>
+        <p style="font-size: 13px; color: #555555; margin: 0;">
+          Someone with access to your Sendzz session is trying to change the PIN that approves payments from your account.
+          Do not share this code. Sign out on your <a href="${process.env.NEXT_PUBLIC_APP_URL ?? ''}/dashboard/settings/devices" style="color:#006633 !important;">devices page</a> and contact us.
+        </p>
+      </div>
+
+      <p style="font-size: 12px; color: #aaaaaa; margin: 20px 0 0 0;">Your current PIN keeps working until a new one is set.</p>
+    </div>
+  `);
+}
+
+/**
  * Unified Transaction OTP Template
  * Used for all 2FA-gated actions: transfers, withdrawals, on-chain sends.
  */

@@ -37,6 +37,8 @@ import { Connection } from "@solana/web3.js";
 
 import { ArrowDown, CheckCircle2, ExternalLink, Loader2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { usePinAuthorization } from "@/components/security/PinAuthorizationProvider";
+import { noteTransactionAuthorization } from "@/lib/actions/transactionAuth";
 import { toast } from "sonner";
 
 const SOLANA_RPC =
@@ -78,6 +80,7 @@ export function ChainBridgeModule({
 
   const { wallets: solanaWallets } = useSolanaWallets();
   const { signTransaction } = useSignTransaction();
+  const { authorize } = usePinAuthorization();
   const solConn = useRef(new Connection(SOLANA_RPC, "confirmed"));
 
   const embeddedSolWallet =
@@ -348,6 +351,27 @@ export function ChainBridgeModule({
 
   const handleBridge = async () => {
     if (!canBridge || !source || !dest) return;
+
+    // The PIN comes before the fee quote and well before the burn. A bridge is irreversible
+    // the instant the burn lands, and the two-step burn-then-claim shape means a user who
+    // walks away mid-flow has already committed — so the approval belongs at the very front,
+    // where backing out still costs nothing.
+    const authorization = await authorize({
+      purpose: "bridge",
+      payload: { destination: dest, amount, chain: source },
+      title: `Move ${parseFloat(amount || "0").toFixed(2)} USDC to ${CHAIN_DISPLAY_NAMES[dest] ?? dest}`,
+      description:
+        "Enter your PIN to approve this bridge. Moving funds between networks cannot be " +
+        "undone once it starts.",
+      details: [
+        { label: "Amount", value: `${parseFloat(amount || "0").toFixed(2)} USDC` },
+        { label: "From", value: CHAIN_DISPLAY_NAMES[source] ?? source },
+        { label: "To", value: CHAIN_DISPLAY_NAMES[dest] ?? dest },
+      ],
+      confirmLabel: "Start bridge",
+    });
+    if (!authorization) return;
+
     setPhase("submitting");
 
     // Resolve the fee BEFORE anything irreversible. A burn can't be undone, so discovering
@@ -371,6 +395,17 @@ export function ChainBridgeModule({
     }
 
     setBridgeStep("burn_sig");
+
+    // Solana and EVM burns are signed in the page, so this records the PIN rather than
+    // gating on it. The Stellar branch below hands the token to the server instead.
+    if (source !== "stellar") {
+      void noteTransactionAuthorization({
+        token: authorization,
+        purpose: "bridge",
+        payload: { destination: dest, amount, chain: source },
+      }).catch(() => undefined);
+    }
+
     mintingRef.current = false;
     claimErrorNotifiedRef.current = false;
     setMintTxHash(null);
@@ -428,6 +463,8 @@ export function ChainBridgeModule({
             // Explicit, user-initiated bridge — bill it. The consolidation path in
             // lib/web3/stellar-bridge omits this and is never charged.
             chargeFee: true,
+            // The server broadcasts this one, so it enforces the PIN rather than noting it.
+            authorization,
           }),
         });
         const data = await res.json();

@@ -7,6 +7,7 @@ import { isBridgeable } from "@/lib/circle/gateway";
 import { applyFee, getCorridorFee, getProviderFee, resolveFeeTreasury } from "@/lib/ramp/fees";
 import { resolvePayoutFiat } from "@/lib/ramp/payout-figure";
 import { kycGuard } from "@/lib/kyc/guard";
+import { consumeAuthorization } from "@/lib/security/transaction-auth";
 import type {
   RampCurrency,
   RampNetwork,
@@ -411,6 +412,11 @@ export async function executeOffRamp(params: {
    * or could not serve the corridor — its price does not apply and must not be recorded.
    */
   quotedBy?: RampProviderName;
+  /**
+   * Single-use proof that the transaction PIN was entered for THIS withdrawal, minted by
+   * /api/2fa/pin. Required — see the consumption below.
+   */
+  authorization?: string;
 }): Promise<{ order: RampOrderResponse; provider: RampProviderName }> {
   // ── Identity ────────────────────────────────────────────────────────────
   // Taken from the session, never from `params`. This action moves money and records it
@@ -420,6 +426,28 @@ export async function executeOffRamp(params: {
   const session = await requireUserId(params.accessToken);
   const userId = session.userId;
   const userEmail = session.email;
+
+  // ── PIN authorisation ───────────────────────────────────────────────────
+  //
+  // Before the KYC guard and before any provider is contacted, because this is the cheapest
+  // check and the one whose failure should cost nothing. A withdrawal is the single most
+  // valuable thing an open session can do — it turns a balance into money in somebody's bank
+  // account — so it is enforced here rather than merely noted.
+  //
+  // The payload is rebuilt from the arguments this action is about to act on. A token minted
+  // for a different account number or a different amount hashes differently and is refused,
+  // which is what stops an authorisation for a small withdrawal to the user's own bank being
+  // reused for a large one to somebody else's.
+  await consumeAuthorization({
+    token: params.authorization,
+    purpose: 'withdrawal',
+    payload: {
+      destination: params.bank.accountNumber,
+      amount: params.amountUsdc,
+      chain: params.network,
+    },
+    accessToken: params.accessToken,
+  });
 
   // ── KYC & Limit Guard ───────────────────────────────────────────────────
   const guard = await kycGuard(userId, params.amountUsdc);

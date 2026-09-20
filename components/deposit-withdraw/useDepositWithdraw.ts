@@ -57,6 +57,7 @@ import { formatFiatShort, getCurrencySymbol } from "@/lib/currency-config";
 import { FIAT_ROUTING_PAD, totalDeducted } from "@/lib/ramp/fees";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePinAuthorization } from "@/components/security/PinAuthorizationProvider";
 import { toast } from "sonner";
 import type { KycBlock } from "@/components/kyc/KycRequiredModal";
 import { useCurrencies } from "@/lib/hooks/useCurrencies";
@@ -103,6 +104,7 @@ export function useDepositWithdraw(
   // User Security Preferences
   const [twoFaEnabled, setTwoFaEnabled] = useState(false);
   const [twoFaThreshold, setTwoFaThreshold] = useState(500);
+  const { authorize } = usePinAuthorization();
 
   /**
    * The chains the off-ramp provider can settle on. Drives withdrawal routing.
@@ -889,7 +891,51 @@ export function useDepositWithdraw(
       return;
     }
 
-    await executeWithdrawalActual();
+    await authorizeAndWithdraw();
+  };
+
+  /**
+   * Take the PIN, then run the withdrawal.
+   *
+   * Asked BEFORE the consolidation step inside executeWithdrawalActual, not after it. When a
+   * balance is spread across networks that step bridges funds onto the settlement chain, which
+   * is slow and costs real money — so it must be something the user approved, not something
+   * that happens while they are still deciding. The authorisation is minted with a longer life
+   * for exactly this reason; see AUTHORIZATION_TTL_MS in lib/security/transaction-auth.ts.
+   */
+  const authorizeAndWithdraw = async () => {
+    const amountUsdc = parseFloat(quoteUsdcAmount);
+    const totalUsdcRequired = totalDeducted(amountUsdc, feePercent, corridorFee);
+    const payout = quote?.payoutAmount;
+
+    const authorization = await authorize({
+      purpose: "withdrawal",
+      payload: {
+        destination: bankDetails.accountNumber,
+        amount: amountUsdc,
+        chain: withdrawChain,
+      },
+      title: `Withdraw to ${bankDetails.accountName || bankDetails.accountNumber}`,
+      description:
+        "Enter your PIN to approve this withdrawal. Once the payout is sent to your bank it " +
+        "cannot be recalled.",
+      details: [
+        {
+          label: "They receive",
+          value: payout
+            ? `${payout.toLocaleString()} ${fiatCurrency}`
+            : `${amountUsdc.toFixed(2)} USDC`,
+        },
+        { label: "Account", value: bankDetails.accountNumber },
+        { label: "Bank", value: bankDetails.bankName || bankDetails.bankCode || "—" },
+        { label: "Total deducted", value: `${totalUsdcRequired.toFixed(2)} USDC` },
+      ],
+      confirmLabel: "Withdraw",
+    });
+
+    if (!authorization) return;
+
+    await executeWithdrawalActual(authorization);
   };
 
   const handleTwoFaSubmit = async (
@@ -904,7 +950,7 @@ export function useDepositWithdraw(
       if (method === "passkey") {
         // Passkey is already verified, just proceed with the actual withdrawal
         setTwoFaModalOpen(false);
-        await executeWithdrawalActual();
+        await authorizeAndWithdraw();
         return;
       }
 
@@ -950,7 +996,7 @@ export function useDepositWithdraw(
 
       setTwoFaModalOpen(false);
       setTwoFaOtpId(null);
-      await executeWithdrawalActual();
+      await authorizeAndWithdraw();
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : "Invalid code";
       setTwoFaError(errorMessage);
@@ -991,7 +1037,7 @@ export function useDepositWithdraw(
     }
   };
 
-  const executeWithdrawalActual = async () => {
+  const executeWithdrawalActual = async (authorization: string) => {
     if (!bankDetails.accountName) {
       toast.error("Please verify destination account");
       return;
@@ -1103,6 +1149,10 @@ export function useDepositWithdraw(
         quoteId: quote?.quoteId,
         quoteReference: quote?.reference,
         quotedBy: quote?.provider,
+        // Refused by the action without this. The server re-derives the hash from the
+        // amount, account number and chain it is about to act on, so a token minted for a
+        // different account or a different figure does not open this door.
+        authorization,
       });
       setOrder(res);
 
