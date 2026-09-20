@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 import { verifyBitnobSignature } from '@/lib/bitnob/webhook-signature';
 import { triggerWithdrawalNotifications } from '@/lib/supabase/transactions';
+import { accrueReferralEarning, voidReferralEarning } from '@/lib/referrals/accrue';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -444,6 +445,17 @@ export async function POST(req: Request) {
         console.error(`[Bitnob Webhook] [${requestId}] deposit update failed:`, error.message);
         return new Response('Internal error', { status: 500 });
       }
+
+      // Pay the referrer their share of what this deposit earned us. Awaited rather than
+      // fired off, so it runs before the function can be frozen — but it never throws and
+      // never fails this webhook, whose real job is the line above. A redelivery of the same
+      // event is a no-op: the earnings row is unique per deposit.
+      if (status === 'confirmed') {
+        await accrueReferralEarning(dep.id);
+      } else if (status === 'reversed') {
+        await voidReferralEarning(dep.id);
+      }
+
       handled = true;
     } else if (wd?.provider_order_id) {
       // Payout (off-ramp) — the finalize RPCs match provider_order_id (or legacy id).

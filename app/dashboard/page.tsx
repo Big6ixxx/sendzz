@@ -13,6 +13,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { registerUserAddress } from "@/lib/supabase/users";
+import { clearReferral, readReferral } from "@/lib/referrals/client";
 import { cn } from "@/lib/utils";
 import { getCircleAddress } from "@/lib/web3/circle-client";
 import { usePortfolio } from "@/hooks/usePortfolio";
@@ -145,11 +146,24 @@ export default function Dashboard() {
         const address = await getCircleAddress(provider);
         setSmartAddress(address);
         if (user?.email?.address) {
+          // The referral code this browser picked up from a `?ref=` link, handed over at the
+          // first moment there is an account to attribute it to. Cleared either way: if it
+          // was not honoured now it never will be, and retrying the same decision on every
+          // future sign-in achieves nothing.
+          const referralCode = readReferral();
           registerUserAddress(
             user.email.address,
             address,
             embeddedSolWallet?.address,
-          ).catch(console.error);
+            undefined,
+            undefined,
+            undefined,
+            referralCode,
+          )
+            .then(() => {
+              if (referralCode) clearReferral();
+            })
+            .catch(console.error);
         }
       } catch (err) {
         console.error("[Dashboard] INIT ACCOUNT FATAL ERROR:", err);

@@ -1,8 +1,19 @@
 'use server';
 
 import { supabaseAdmin } from './adminClient';
+import { attributeReferral } from '@/lib/referrals/attribution';
 
-export async function ensureUserInDatabase(email: string): Promise<string> {
+export async function ensureUserInDatabase(
+  email: string,
+  /**
+   * The referral code this browser was carrying, if any.
+   *
+   * Only ever acted on for an account that has no referrer yet, so passing it on every
+   * sign-in is harmless — see lib/referrals/attribution.ts, where the rule is enforced, and
+   * migration 053, where the database enforces it again.
+   */
+  referralCode?: string | null,
+): Promise<string> {
   const normalizedEmail = email.toLowerCase();
   const { data: existing } = await supabaseAdmin
     .from("users")
@@ -11,6 +22,10 @@ export async function ensureUserInDatabase(email: string): Promise<string> {
     .maybeSingle();
 
   if (existing?.id) {
+    // Existing account. Attribution still runs, because a user can be created by someone
+    // ELSE sending them money — `pre-generate` makes the row before they have ever signed in —
+    // and this is the first moment a code they clicked can be honoured.
+    if (referralCode) await attributeReferral({ userId: existing.id, code: referralCode });
     return existing.id;
   }
 
@@ -26,9 +41,14 @@ export async function ensureUserInDatabase(email: string): Promise<string> {
       .select("id")
       .eq("email", normalizedEmail)
       .single();
-    if (retry?.id) return retry.id;
+    if (retry?.id) {
+      if (referralCode) await attributeReferral({ userId: retry.id, code: referralCode });
+      return retry.id;
+    }
     throw new Error(`Failed to ensure user in DB: ${error?.message}`);
   }
+
+  if (referralCode) await attributeReferral({ userId: inserted.id, code: referralCode });
 
   return inserted.id;
 }
@@ -53,6 +73,14 @@ export async function registerUserAddress(
   stellarAddress?: string,
   stellarWalletId?: string,
   stellarSignerGranted?: boolean,
+  /**
+   * The referral code this browser was carrying, if any.
+   *
+   * This is where referrals are actually attributed, because this — not
+   * `ensureUserInDatabase` — is what runs on first sign-in: the dashboard calls it as soon as
+   * the smart account address is derived. Honoured only for an account with no referrer yet.
+   */
+  referralCode?: string | null,
 ): Promise<void> {
   const normalizedEmail = email.toLowerCase();
   const row: {
@@ -71,11 +99,19 @@ export async function registerUserAddress(
   if (stellarWalletId) row.stellar_wallet_id = stellarWalletId;
   if (stellarSignerGranted !== undefined) row.stellar_signer_granted = stellarSignerGranted;
 
-  const { error } = await supabaseAdmin
+  const { data: upserted, error } = await supabaseAdmin
     .from('users')
-    .upsert(row, { onConflict: 'email' });
+    .upsert(row, { onConflict: 'email' })
+    .select('id')
+    .maybeSingle();
 
   if (error) throw new Error(`Failed to map address: ${error.message}`);
+
+  // After the row exists, never before. Attribution never throws — a referral that does not
+  // land costs one commission, while an exception here would break sign-in itself.
+  if (referralCode && upserted?.id) {
+    await attributeReferral({ userId: upserted.id, code: referralCode });
+  }
 }
 
 export async function registerStellarAddress(

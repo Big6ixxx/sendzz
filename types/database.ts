@@ -62,6 +62,9 @@ export interface Database {
           stellar_wallet_id: string | null;
           stellar_signer_granted: boolean;
           last_deposit_scan_at: string | null;
+          referral_code: string | null;
+          referred_by: string | null;
+          referred_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -74,6 +77,9 @@ export interface Database {
           stellar_wallet_id?: string | null;
           stellar_signer_granted?: boolean;
           last_deposit_scan_at?: string | null;
+          referral_code?: string | null;
+          referred_by?: string | null;
+          referred_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -86,6 +92,93 @@ export interface Database {
           stellar_wallet_id?: string | null;
           stellar_signer_granted?: boolean;
           last_deposit_scan_at?: string | null;
+          referral_code?: string | null;
+          referred_by?: string | null;
+          referred_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      referral_earnings: {
+        Row: {
+          id: string;
+          referrer_id: string;
+          referee_id: string;
+          deposit_id: string;
+          basis_usdc: number;
+          percent: number;
+          amount_usdc: number;
+          status: "accrued" | "paid" | "void";
+          payout_id: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          referrer_id: string;
+          referee_id: string;
+          deposit_id: string;
+          basis_usdc: number;
+          percent: number;
+          amount_usdc: number;
+          status?: "accrued" | "paid" | "void";
+          payout_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          referrer_id?: string;
+          referee_id?: string;
+          deposit_id?: string;
+          basis_usdc?: number;
+          percent?: number;
+          amount_usdc?: number;
+          status?: "accrued" | "paid" | "void";
+          payout_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      referral_payouts: {
+        Row: {
+          id: string;
+          referrer_id: string;
+          amount_usdc: number;
+          destination: string;
+          chain: string;
+          status: "pending" | "paid" | "failed";
+          provider_tx_id: string | null;
+          tx_hash: string | null;
+          error: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          referrer_id: string;
+          amount_usdc: number;
+          destination: string;
+          chain: string;
+          status?: "pending" | "paid" | "failed";
+          provider_tx_id?: string | null;
+          tx_hash?: string | null;
+          error?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          referrer_id?: string;
+          amount_usdc?: number;
+          destination?: string;
+          chain?: string;
+          status?: "pending" | "paid" | "failed";
+          provider_tx_id?: string | null;
+          tx_hash?: string | null;
+          error?: string | null;
           created_at?: string;
           updated_at?: string;
         };

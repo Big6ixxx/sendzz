@@ -8,6 +8,7 @@ import {
   History,
   LayoutDashboard,
   LogOut,
+  Gift,
   Repeat,
   Send,
   Settings,
@@ -23,6 +24,7 @@ const NAV_ITEMS = [
   { name: "Transfer", href: "/dashboard/transfer", icon: Send },
   { name: "Bridge", href: "/dashboard/bridge", icon: Repeat },
   { name: "History", href: "/dashboard/history", icon: History },
+  { name: "Refer & Earn", href: "/dashboard/referrals", icon: Gift },
   { name: "Notifications", href: "/dashboard/notifications", icon: Bell },
   { name: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
