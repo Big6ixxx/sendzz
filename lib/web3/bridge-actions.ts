@@ -78,20 +78,39 @@ const MAX_FEE_HEADROOM = 2n;
  * under 100k. Polygon measured ~132,900, so every claim there died on AA26 — after the
  * burn, with the USDC already committed.
  *
- * Since the true cost is per-chain and unknowable up front, this adapts instead of
- * guessing: start where the SDK would, then use whichever bound the bundler complains
- * about to compute the next attempt. The efficiency error is the useful one — it reports
- * the actual ratio, which yields the exact gas used and therefore the right limit.
+ * So the limit is asked for rather than guessed — `quotedVerificationGas` reads the bundler's
+ * own figure for this account's deployment state — and then adapted if that still misses,
+ * using whichever bound the bundler complains about. The efficiency error is the useful one:
+ * it reports the actual ratio, which yields the exact gas used and therefore the right limit.
  */
 const SDK_DEFAULT_VERIFICATION_GAS = 100_000n;
 
 /**
- * Known starting points, to skip a doomed first attempt. Measured 2026-08-04; if a chain
- * starts costing a round trip, re-measure rather than nudging the number.
+ * Fallback starting points, used only when the bundler will not quote — `quotedVerificationGas`
+ * is the real source. Measured 2026-08-04 against an ALREADY-DEPLOYED account, so they are far
+ * too low for a first-ever transaction, which must also pay to deploy.
  */
 const VERIFICATION_GAS_SEED: Record<string, bigint> = {
   polygon: 265_000n, // validation measured at ~132,900 → 2x keeps efficiency at 0.5
 };
+
+/**
+ * Bundler rejections that mean `verificationGasLimit` was too LOW.
+ *
+ * AA26 is the plain case: validation itself needed more than it was given.
+ *
+ * AA13 is the one that stranded users: the account's DEPLOYMENT ran out of gas. Until it
+ * matched here it fell through to `throw` on the very first attempt — four tries were budgeted
+ * and none were used — so anyone whose funds sat on a chain they had never transacted on could
+ * neither bridge nor withdraw from it. The balance was visible and unreachable.
+ *
+ * Its text is "initCode failed or OOG", which is genuinely ambiguous: a factory that reverts
+ * looks identical to one that ran out of gas. Retrying is still right — the out-of-gas case
+ * recovers, and a broken factory costs three wasted round trips before surfacing the same
+ * error it would have surfaced immediately.
+ */
+const VERIFICATION_GAS_TOO_LOW =
+  /AA13|AA26|initCode failed|over verificationGasLimit/i;
 
 /**
  * Send a sponsored userOperation, correcting `verificationGasLimit` against whichever
@@ -101,8 +120,13 @@ const VERIFICATION_GAS_SEED: Record<string, bigint> = {
 export async function sendWithAdaptiveVerificationGas(
   chain: string,
   send: (verificationGasLimit: bigint | undefined) => Promise<`0x${string}`>,
+  /**
+   * What to try first. Pass the bundler's own quote where one is available — it knows the
+   * real cost, and the table below is only a measured guess. Falls back to the table.
+   */
+  seed?: bigint,
 ): Promise<`0x${string}`> {
-  let limit: bigint | undefined = VERIFICATION_GAS_SEED[chain.toLowerCase()];
+  let limit: bigint | undefined = seed ?? VERIFICATION_GAS_SEED[chain.toLowerCase()];
 
   for (let attempt = 0; ; attempt++) {
     try {
@@ -127,7 +151,7 @@ export async function sendWithAdaptiveVerificationGas(
         }
       }
 
-      if (/AA26|over verificationGasLimit/i.test(msg)) {
+      if (VERIFICATION_GAS_TOO_LOW.test(msg)) {
         limit = applied * 3n;
         console.warn(
           `[SmartBridge] ${chain} verification gas limit too low at ${applied}. Retrying at ${limit}.`,
@@ -165,6 +189,45 @@ const MIN_PRIORITY_FEE: Record<string, bigint> = {
 };
 
 const bigMax = (a: bigint, b: bigint) => (a > b ? a : b);
+
+/**
+ * What the bundler itself says validation will cost, for an account in this deployment state.
+ *
+ * Circle returns both figures on every `circle_getUserOperationGasPrice` call — the same
+ * response the fee quote below already reads — and they are not close together:
+ *
+ *     "deployed": "100000",  "notDeployed": "1500000"
+ *
+ * Fifteen times more to deploy. The measured table above holds deployed-account numbers, so a
+ * first-ever transaction on a chain started 5-6x under what it needed and failed AA13. Asking
+ * is better than guessing: this is the bundler's own answer for the account actually being
+ * sent, so it is right on every chain without a table entry per chain.
+ *
+ * Returns undefined if the bundler does not answer, leaving the caller on the measured seed.
+ */
+export async function quotedVerificationGas(
+  bundlerClient: BundlerClient,
+  isDeployed: boolean,
+): Promise<bigint | undefined> {
+  try {
+    const { modularWalletActions } = await import('@circle-fin/modular-wallets-core');
+    const quoted = (await bundlerClient
+      .extend(modularWalletActions)
+      .getUserOperationGasPrice()) as unknown as {
+      deployed?: string | number;
+      notDeployed?: string | number;
+    } | null;
+
+    const raw = isDeployed ? quoted?.deployed : quoted?.notDeployed;
+    if (raw == null) return undefined;
+
+    const value = BigInt(raw);
+    return value > 0n ? value : undefined;
+  } catch {
+    // The fee quote makes this same call and tolerates failure; so does this.
+    return undefined;
+  }
+}
 
 export async function sponsoredUserOpFees(
   bundlerClient: BundlerClient,
@@ -416,6 +479,13 @@ export async function executeSmartBridge(
           ],
         });
 
+    // A first-ever transaction on this chain also has to deploy the account, which costs far
+    // more to validate. Ask the bundler rather than guess — see quotedVerificationGas.
+    const burnSeed = await quotedVerificationGas(
+      bundlerClient,
+      await account.isDeployed().catch(() => true),
+    );
+
     toast.info('Initiating bridge transfer...');
     const bridgeOpHash = await sendWithAdaptiveVerificationGas(sourceChain, (verificationGasLimit) =>
       bundlerClient.sendUserOperation({
@@ -457,6 +527,7 @@ export async function executeSmartBridge(
         paymaster: true,
         paymasterContext: policyId ? { policyId } : undefined,
       }),
+      burnSeed,
     );
 
     toast.info('Bridge transaction sent! Finalizing...');
@@ -665,6 +736,13 @@ export async function executeReceiveMessage(
     destChain,
   );
 
+    // The claim can be a user's first transaction on the destination chain, which means this
+    // op deploys the account too. Same reasoning as the burn side.
+    const claimSeed = await quotedVerificationGas(
+      bundlerClient,
+      await account.isDeployed().catch(() => true),
+    );
+
     const userOpHash = await sendWithAdaptiveVerificationGas(destChain, (verificationGasLimit) =>
       bundlerClient.sendUserOperation({
         account,
@@ -684,6 +762,7 @@ export async function executeReceiveMessage(
         paymaster: true,
         ...(policyId ? { paymasterContext: { policyId } } : {}),
       }),
+      claimSeed,
     );
 
     // Poll both standard RPC client (processedMessages) and bundler client (with timeout) for instant, hang-free resolution

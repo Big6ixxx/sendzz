@@ -7,17 +7,21 @@
  * transaction initiated here. Both are decided server-side — see lib/auth/session.ts — and this
  * hook exists to act on that decision promptly and tell the user what happened.
  *
- * ─── Why one refusal is not enough ───────────────────────────────────────────
+ * ─── Which refusals this acts on ─────────────────────────────────────────────
  *
- * An earlier version signed the user out on the first 401 it saw, while checking every 30
- * seconds and on every window focus. That combination was wrong: `getVerifiedIdentity` answers
- * "not authenticated" for a network blip exactly as it does for a forged token, so a single slow
- * moment anywhere between here and Privy ended a perfectly good session. It logged people out
- * repeatedly, within hours, with no session anywhere near its 24-hour limit.
+ * Only `revoked` and `expired` — the two rules the app itself owns. A third answer,
+ * `unauthenticated`, means the access token did not verify, and it is deliberately ignored.
  *
- * So a refusal now has to repeat before it is believed. A real expiry or revocation stays
- * refused — every subsequent check returns 401 too, so the threshold is reached in seconds and
- * the user is still signed out promptly. A blip recovers on the next check and costs nothing.
+ * That one caused the bug this file keeps being rewritten for. Privy's access tokens are
+ * short-lived and its SDK refreshes them in the background; this hook checks on tab focus,
+ * which is exactly when a woken tab still holds the previous token. The route used to report
+ * that as `expired` — indistinguishable from the 24-hour rule — so the hook called logout on
+ * sessions that were hours from any limit. Sessions were being ended roughly hourly.
+ *
+ * Adding a second strike was an earlier attempt at the same problem. It helped but could not
+ * fix it: a stale token stays stale across both checks, so two strikes were reached just as
+ * reliably as one. The strikes are kept because they still absorb genuine blips, but the real
+ * fix is refusing to treat someone else's expiry as our verdict.
  *
  * ─── Why this is still only a convenience ────────────────────────────────────
  *
@@ -77,12 +81,23 @@ export function useSessionActivity(): void {
       // Only a refusal counts. A 500 means the server is unwell, not that the session is over.
       if (res.status !== 401) return;
 
+      const { reason } = (await res.json().catch(() => ({}))) as {
+        reason?: 'revoked' | 'expired' | 'unauthenticated';
+      };
+
+      // The token did not verify. That is Privy's business, not ours — its SDK refreshes
+      // tokens in the background, and this check runs on tab focus, which is precisely when a
+      // woken tab is still holding the old one. Treating it as a verdict is what signed people
+      // out within hours of a 24-hour limit. If the session really is finished, Privy ends it
+      // and `authenticated` goes false on its own; until then the server keeps refusing API
+      // calls regardless, so nothing is at risk in waiting.
+      if (reason === 'unauthenticated') {
+        strikes.current = 0;
+        return;
+      }
+
       strikes.current += 1;
       if (strikes.current < STRIKES) return;
-
-      const { reason } = (await res.json().catch(() => ({}))) as {
-        reason?: 'revoked' | 'expired';
-      };
 
       endedRef.current = true;
       toast.info(
