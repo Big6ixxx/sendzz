@@ -100,6 +100,21 @@ export interface Database {
         };
         Relationships: [];
       };
+      ops_alert_log: {
+        Row: {
+          key: string;
+          last_sent_at: string;
+        };
+        Insert: {
+          key: string;
+          last_sent_at?: string;
+        };
+        Update: {
+          key?: string;
+          last_sent_at?: string;
+        };
+        Relationships: [];
+      };
       referral_earnings: {
         Row: {
           id: string;

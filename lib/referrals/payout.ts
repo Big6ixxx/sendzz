@@ -82,6 +82,37 @@ export function readPayoutConfig(): { config: PayoutConfig } | { missing: string
   return missing.length > 0 ? { missing } : { config };
 }
 
+/**
+ * What the payout wallet is holding, in USDC.
+ *
+ * Returns null when the balance cannot be read, and the caller treats that as "unknown"
+ * rather than as zero. Guessing zero would fire a low-balance alarm every time Circle's API
+ * had a bad minute, which is the fastest way to make the alarm meaningless.
+ */
+export async function readTreasuryBalance(config: PayoutConfig): Promise<number | null> {
+  try {
+    const circle = initiateDeveloperControlledWalletsClient({
+      apiKey: config.apiKey,
+      entitySecret: config.entitySecret,
+    });
+
+    const response = await circle.getWalletTokenBalance({ id: config.walletId });
+    const balances = response.data?.tokenBalances ?? [];
+
+    // Matched on the token id we are configured to SEND, not on a symbol. A wallet can hold
+    // several things called USDC across networks, and paying out against the wrong one's
+    // balance would report plenty while the transfer fails for want of funds.
+    const usdc = balances.find((entry) => entry.token?.id === config.tokenId);
+    if (!usdc) return 0;
+
+    const amount = Number(usdc.amount);
+    return Number.isFinite(amount) ? amount : null;
+  } catch (err) {
+    console.error('[Referrals] could not read treasury balance:', (err as Error).message);
+    return null;
+  }
+}
+
 export interface PayableReferrer {
   referrerId: string;
   destination: string;
