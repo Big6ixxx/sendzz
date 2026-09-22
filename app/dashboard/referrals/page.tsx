@@ -15,12 +15,14 @@
  */
 
 import { DashboardPageHeader } from '@/components/layout/DashboardPageHeader';
-import { Check, Copy, Gift, Loader2, Share2, Wallet } from 'lucide-react';
+import { Check, ChevronRight, Copy, Gift, Loader2, Share2, Wallet } from 'lucide-react';
 import { usePrivy } from '@privy-io/react-auth';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { explorerTxUrl } from '@/lib/explorers';
+import { getMyMerchantApplication, type MerchantApplication } from '@/lib/actions/merchant';
+import { MerchantApplicationCard } from '@/components/referrals/MerchantApplicationCard';
 
 interface PayoutRow {
   id: string;
@@ -37,7 +39,7 @@ interface ReferralSummary {
   pendingUsdc: number;
   paidUsdc: number;
   minimumPayoutUsdc: number;
-  program: 'retail' | 'scout';
+  program: 'retail' | 'merchant';
   feeCreditUsdc: number;
   waiverVolumeUsdc: number;
   milestoneVolumeUsdc: number;
@@ -53,6 +55,7 @@ interface ReferralSummary {
 export default function ReferralsPage() {
   const { ready, authenticated } = usePrivy();
   const [data, setData] = useState<ReferralSummary | null>(null);
+  const [application, setApplication] = useState<MerchantApplication | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
 
@@ -70,6 +73,10 @@ export default function ReferralsPage() {
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+
+    void getMyMerchantApplication().then((result) => {
+      if (!cancelled) setApplication(result);
+    });
 
     return () => {
       cancelled = true;
@@ -135,14 +142,14 @@ export default function ReferralsPage() {
   // Two audiences, two sets of numbers. A retail referrer paid in fee credit has no tier, no
   // pending cash and no payout history — showing them zeros for all three reads as a broken
   // page rather than a different programme.
-  const isScout = data.program === 'scout';
+  const isMerchant = data.program === 'merchant';
 
   return (
     <div className="space-y-8 max-w-3xl">
       <DashboardPageHeader
         title="Refer & Earn"
         subtitle={
-          isScout
+          isMerchant
             ? 'Share Sendzz, earn on every cash-out your people make'
             : 'Give your friends free transfers, earn credit on yours'
         }
@@ -186,7 +193,7 @@ export default function ReferralsPage() {
       </div>
 
       {/* ── What it has earned ────────────────────────────────────────────── */}
-      {isScout ? (
+      {isMerchant ? (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <Stat label="Your tier" value={TIER_LABELS[data.tier]} />
           <Stat label="People joined" value={String(data.referredCount)} />
@@ -206,7 +213,7 @@ export default function ReferralsPage() {
 
       {/* Progress towards the next tier. Only shown when there is one to reach — a Gold
           affiliate being told they are 0% of the way to nothing is worse than silence. */}
-      {isScout && data.nextTier && (
+      {isMerchant && data.nextTier && (
         <div className="card-glass p-6 space-y-3">
           <div className="flex items-baseline justify-between gap-4">
             <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-brand-secondary/35">
@@ -236,7 +243,7 @@ export default function ReferralsPage() {
         </p>
 
         <div className="space-y-3.5">
-          {isScout ? (
+          {isMerchant ? (
             <>
               <Point
                 title="You earn when they cash out to a bank"
@@ -265,17 +272,41 @@ export default function ReferralsPage() {
                 title={`You get $${data.milestoneCreditUsdc.toFixed(2)} once they cash out $${data.milestoneVolumeUsdc}`}
                 body="It lands as Sendzz fee credit, which comes off your own withdrawal fees automatically — no claiming, no minimum, nothing to withdraw. Counted across all their cash-outs, not one big one."
               />
-              <Point
-                title="Moving serious volume?"
-                body="Communities, agencies and group admins can apply to earn a share of the fees in cash instead of credit. Get in touch and we'll set you up."
-              />
             </>
           )}
         </div>
       </div>
 
+      {/* A Merchant's full view lives on its own screen — network, monthly history, tier
+          progress. Linked from here rather than the sidebar, so retail users are not shown a
+          nav item for a track they are not on. */}
+      {isMerchant && (
+        <a
+          href="/dashboard/merchant"
+          className="card-glass p-6 flex items-center justify-between gap-4 hover:border-accent/30 transition-colors"
+        >
+          <div className="min-w-0">
+            <p className="font-bold text-brand-secondary">Your Merchant dashboard</p>
+            <p className="text-[13px] text-brand-secondary/50 mt-0.5">
+              Monthly earnings, your network, and progress to the next tier.
+            </p>
+          </div>
+          <ChevronRight className="w-5 h-5 shrink-0 text-brand-secondary/30" />
+        </a>
+      )}
+
+      {/* Only for retail referrers — a Merchant is already on the track this applies to. */}
+      {!isMerchant && (
+        <MerchantApplicationCard
+          application={application}
+          onApplied={() => {
+            void getMyMerchantApplication().then(setApplication);
+          }}
+        />
+      )}
+
       {/* ── What has actually been sent ───────────────────────────────────── */}
-      {isScout && data.payouts.length > 0 && (
+      {isMerchant && data.payouts.length > 0 && (
         <div className="space-y-3">
           <p className="text-xs font-bold uppercase tracking-widest text-brand-secondary/35 px-1">
             Payouts

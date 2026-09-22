@@ -63,7 +63,7 @@ export interface Database {
           stellar_signer_granted: boolean;
           last_deposit_scan_at: string | null;
           referral_code: string | null;
-          referral_program: "retail" | "scout";
+          referral_program: "retail" | "merchant";
           referred_by: string | null;
           referred_at: string | null;
           created_at: string;
@@ -79,7 +79,7 @@ export interface Database {
           stellar_signer_granted?: boolean;
           last_deposit_scan_at?: string | null;
           referral_code?: string | null;
-          referral_program?: "retail" | "scout";
+          referral_program?: "retail" | "merchant";
           referred_by?: string | null;
           referred_at?: string | null;
           created_at?: string;
@@ -95,7 +95,7 @@ export interface Database {
           stellar_signer_granted?: boolean;
           last_deposit_scan_at?: string | null;
           referral_code?: string | null;
-          referral_program?: "retail" | "scout";
+          referral_program?: "retail" | "merchant";
           referred_by?: string | null;
           referred_at?: string | null;
           created_at?: string;
@@ -115,6 +115,51 @@ export interface Database {
         Update: {
           key?: string;
           last_sent_at?: string;
+        };
+        Relationships: [];
+      };
+      merchant_applications: {
+        Row: {
+          id: string;
+          user_id: string;
+          organisation: string | null;
+          audience: string | null;
+          expected_monthly_volume_usdc: number | null;
+          notes: string | null;
+          status: "pending" | "approved" | "rejected";
+          decision_note: string | null;
+          decided_by: string | null;
+          decided_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          organisation?: string | null;
+          audience?: string | null;
+          expected_monthly_volume_usdc?: number | null;
+          notes?: string | null;
+          status?: "pending" | "approved" | "rejected";
+          decision_note?: string | null;
+          decided_by?: string | null;
+          decided_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          organisation?: string | null;
+          audience?: string | null;
+          expected_monthly_volume_usdc?: number | null;
+          notes?: string | null;
+          status?: "pending" | "approved" | "rejected";
+          decision_note?: string | null;
+          decided_by?: string | null;
+          decided_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
         };
         Relationships: [];
       };

@@ -9,7 +9,7 @@
  *
  * What a referrer gets depends on which programme they are on, and it is always exactly one:
  *
- *   scout  — a fixed share of VOLUME, paid in USDC. See lib/referrals/tiers.ts for why volume
+ *   merchant  — a fixed share of VOLUME, paid in USDC. See lib/referrals/tiers.ts for why volume
  *            rather than a share of the fee, and for the cap that keeps a thin corridor from
  *            paying out more than it earned.
  *   retail — a one-off fee credit per referee who passes a milestone. No cash leaves Sendzz;
@@ -156,7 +156,7 @@ export async function accrueReferralEarning(params: {
 
     // ── One programme per referrer, never both ──────────────────────────────
     //
-    // The two tracks pay for the same event. A Gold Scout earns 0.25% of this withdrawal; a
+    // The two tracks pay for the same event. A Gold Merchant earns 0.25% of this withdrawal; a
     // retail referrer earns a $2 credit once this person passes $100. Paying both on a $100
     // withdrawal would be $2.25 against a $0.50 fee — a loss per transaction that grows with
     // volume. So the referrer's programme decides which one runs, and the other does not.
@@ -166,7 +166,7 @@ export async function accrueReferralEarning(params: {
       .eq('id', referee.referred_by)
       .maybeSingle();
 
-    if ((referrer?.referral_program ?? 'retail') !== 'scout') {
+    if ((referrer?.referral_program ?? 'retail') !== 'merchant') {
       await grantMilestoneCredit({
         referrerId: referee.referred_by,
         refereeId: referee.id,

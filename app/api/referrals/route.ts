@@ -67,7 +67,7 @@ export async function GET() {
       benefitBalances(userId),
       supabaseAdmin.from('users').select('referral_program').eq('id', userId).maybeSingle(),
     ]);
-    const program = (profile.data?.referral_program ?? 'retail') as 'retail' | 'scout';
+    const program = (profile.data?.referral_program ?? 'retail') as 'retail' | 'merchant';
     const tier = tierForVolume(monthlyVolumeUsdc);
     const nextTier = TIERS[TIERS.indexOf(tier) + 1];
 

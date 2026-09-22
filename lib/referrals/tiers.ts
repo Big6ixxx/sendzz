@@ -1,5 +1,5 @@
 /**
- * Scout tiers, and the translation that makes them stable.
+ * Merchant tiers, and the translation that makes them stable.
  *
  * --- Two ways of saying the same thing --------------------------------------
  *

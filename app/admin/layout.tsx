@@ -13,6 +13,7 @@ import {
   LogOut,
   Menu,
   ShieldAlert,
+  Store,
   Undo2,
   User,
   Users,
@@ -28,6 +29,7 @@ const navItems = [
   { name: 'Transactions', href: '/admin/transactions', icon: ArrowLeftRight },
   { name: 'Users', href: '/admin/users', icon: Users },
   { name: 'Refunds Owed', href: '/admin/refunds', icon: Undo2 },
+  { name: 'Merchants', href: '/admin/merchants', icon: Store },
   { name: 'System Logs', href: '/admin/logs', icon: ShieldAlert },
 ];
 

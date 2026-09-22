@@ -3,14 +3,14 @@
 --
 -- --- Why a referrer is on ONE programme, never both --------------------------
 --
--- The two tracks pay for the same event and would stack. A Gold Scout earns 0.25% of every
+-- The two tracks pay for the same event and would stack. A Gold Merchant earns 0.25% of every
 -- withdrawal; a retail referrer earns $2.00 in credits per referee who moves $100+. Both at
 -- once on a $100 withdrawal is $2.00 of credit plus $0.25 of cash against a $0.50 fee — four
 -- and a half times what we made on it, which is not a promotion, it is a loss per transaction
 -- that grows with volume.
 --
 -- So `users.referral_program` picks one. Everyone starts on 'retail' because it costs no cash;
--- 'scout' is granted deliberately (migration 057) and switches the same referrer from credits
+-- 'merchant' is granted deliberately (migration 057) and switches the same referrer from credits
 -- to revenue share. Accrual reads this and takes exactly one branch.
 --
 -- --- Why benefits are a ledger, not two balance columns ----------------------
@@ -30,10 +30,10 @@ ALTER TABLE public.users
   DROP CONSTRAINT IF EXISTS users_referral_program_valid;
 ALTER TABLE public.users
   ADD CONSTRAINT users_referral_program_valid
-  CHECK (referral_program IN ('retail', 'scout'));
+  CHECK (referral_program IN ('retail', 'merchant'));
 
 COMMENT ON COLUMN public.users.referral_program IS
-  'Which referral programme this user earns under as a REFERRER. retail = fee credits, scout = revenue share. Never both — see migration 056.';
+  'Which referral programme this user earns under as a REFERRER. retail = fee credits, merchant = revenue share. Never both — see migration 056.';
 
 -- ── The benefits ledger ──────────────────────────────────────────────────────
 
