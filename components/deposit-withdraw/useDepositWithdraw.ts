@@ -56,11 +56,13 @@ import {
 import { parseFriendlyError } from "@/components/transfer/useTransfer";
 import { ConnectedWallet, usePrivy } from "@privy-io/react-auth";
 import { formatFiatShort, getCurrencySymbol } from "@/lib/currency-config";
-import { FIAT_ROUTING_PAD, totalDeducted } from "@/lib/ramp/fees";
+import { FIAT_ROUTING_PAD } from "@/lib/ramp/fees";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePinAuthorization } from "@/components/security/PinAuthorizationProvider";
 import { describeWithdrawal } from "@/lib/signing/describe";
+import { getReferralBenefitBalances } from "@/lib/actions/ramp";
+import { applyBenefits, type BenefitBalances } from "@/lib/referrals/benefit-math";
 import { type SigningPlan } from "@/lib/signing/plan";
 import { toast } from "sonner";
 import type { KycBlock } from "@/components/kyc/KycRequiredModal";
@@ -109,6 +111,14 @@ export function useDepositWithdraw(
   const [twoFaEnabled, setTwoFaEnabled] = useState(false);
   const [twoFaThreshold, setTwoFaThreshold] = useState(500);
   const { authorize } = usePinAuthorization();
+
+  // Referral benefits, as BALANCES rather than a priced quote, so the fee recomputes as the
+  // user types without a round trip per keystroke. The arithmetic is shared with the server
+  // (lib/referrals/benefit-math.ts), so what is shown here is what is charged.
+  const [benefits, setBenefits] = useState<BenefitBalances>({
+    waiverVolumeUsdc: 0,
+    feeCreditUsdc: 0,
+  });
   // The plan the user approved, and how far through it we are.
   const [activePlan, setActivePlan] = useState<SigningPlan | null>(null);
   const [activeStep, setActiveStep] = useState(0);
@@ -345,6 +355,11 @@ export function useDepositWithdraw(
         getCorridorFeeAction(provider, fiatCurrency)
           .then(setCorridorFee)
           .catch(() => setCorridorFee(0));
+        getReferralBenefitBalances()
+          .then(setBenefits)
+          // Zero on failure means the full fee is quoted. The user is then charged less than
+          // shown, never more — the only safe direction for a number they are deciding on.
+          .catch(() => setBenefits({ waiverVolumeUsdc: 0, feeCreditUsdc: 0 }));
         setInstitutions(instRes.data);
       } catch (err) {
         console.error("Failed to fetch banks", err);
@@ -679,6 +694,25 @@ export function useDepositWithdraw(
     };
   }, [type, step, amount, inputMode, fiatCurrency, withdrawChain]);
 
+  /**
+   * What this withdrawal actually costs, benefits included.
+   *
+   * Every balance check and every displayed total goes through this. Using the raw rate
+   * anywhere would tell a referee inside their fee-free allowance that they cannot afford a
+   * withdrawal they can in fact make for nothing — which is exactly the audience the
+   * allowance exists for.
+   */
+  const feeBreakdown = useCallback(
+    (base: number) =>
+      applyBenefits({ volumeUsdc: base, feePercent, balances: benefits }),
+    [feePercent, benefits],
+  );
+
+  const totalRequired = useCallback(
+    (base: number) => base + feeBreakdown(base).feeUsdc + corridorFee,
+    [feeBreakdown, corridorFee],
+  );
+
   const handleWithdrawQuote = async () => {
     const typed = parseFloat(amount);
     let val = typed;
@@ -707,7 +741,7 @@ export function useDepositWithdraw(
     // base, so the fee is added on top of it.
     // base + our platform fee + the provider's corridor fee — all three leave the user's
     // wallet, so all three must be covered before we route or bridge anything.
-    const totalUsdcRequired = totalDeducted(val, feePercent, corridorFee);
+    const totalUsdcRequired = totalRequired(val);
 
     // The spinner starts here, before the first slow call.
     //
@@ -887,7 +921,7 @@ export function useDepositWithdraw(
     const amountUsdc = parseFloat(quoteUsdcAmount);
 
     // Total amount that will be deducted including the platform fee (provider-specific).
-    const totalUsdcRequired = totalDeducted(amountUsdc, feePercent, corridorFee);
+    const totalUsdcRequired = totalRequired(amountUsdc);
 
     if (totalUsdcRequired >= twoFaThreshold) {
       if (!twoFaEnabled) {
@@ -916,7 +950,7 @@ export function useDepositWithdraw(
    */
   const authorizeAndWithdraw = async () => {
     const amountUsdc = parseFloat(quoteUsdcAmount);
-    const totalUsdcRequired = totalDeducted(amountUsdc, feePercent, corridorFee);
+    const totalUsdcRequired = totalRequired(amountUsdc);
     const payout = quote?.payoutAmount;
 
     const plan = describeWithdrawal({
@@ -1086,7 +1120,7 @@ export function useDepositWithdraw(
         // chain, so consolidating only the base strands the withdrawal a fee short — and after
         // a CCTP bridge, which is slow and not worth repeating.
         const required = (
-          totalDeducted(parseFloat(quoteUsdcAmount), feePercent, corridorFee)
+          totalRequired(parseFloat(quoteUsdcAmount))
         ).toFixed(6);
         // Honour the user's chosen networks (if any); otherwise pull from everything.
         const allBalances: ChainBalances & { solana?: number; stellar?: number } = {
@@ -1777,6 +1811,9 @@ export function useDepositWithdraw(
     twoFaError,
     activePlan,
     activeStep,
+    benefits,
+    feeBreakdown,
+    totalRequired,
     handleTwoFaSubmit,
     handleTwoFaResend,
     totpEnabled,

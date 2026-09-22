@@ -63,6 +63,7 @@ export interface Database {
           stellar_signer_granted: boolean;
           last_deposit_scan_at: string | null;
           referral_code: string | null;
+          referral_program: "retail" | "scout";
           referred_by: string | null;
           referred_at: string | null;
           created_at: string;
@@ -78,6 +79,7 @@ export interface Database {
           stellar_signer_granted?: boolean;
           last_deposit_scan_at?: string | null;
           referral_code?: string | null;
+          referral_program?: "retail" | "scout";
           referred_by?: string | null;
           referred_at?: string | null;
           created_at?: string;
@@ -93,6 +95,7 @@ export interface Database {
           stellar_signer_granted?: boolean;
           last_deposit_scan_at?: string | null;
           referral_code?: string | null;
+          referral_program?: "retail" | "scout";
           referred_by?: string | null;
           referred_at?: string | null;
           created_at?: string;
@@ -112,6 +115,45 @@ export interface Database {
         Update: {
           key?: string;
           last_sent_at?: string;
+        };
+        Relationships: [];
+      };
+      referral_benefits: {
+        Row: {
+          id: string;
+          user_id: string;
+          kind: "waiver_volume" | "fee_credit";
+          delta_usdc: number;
+          withdrawal_id: string | null;
+          referee_id: string | null;
+          source: string;
+          dedupe_key: string | null;
+          status: "active" | "void";
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          kind: "waiver_volume" | "fee_credit";
+          delta_usdc: number;
+          withdrawal_id?: string | null;
+          referee_id?: string | null;
+          source: string;
+          dedupe_key?: string | null;
+          status?: "active" | "void";
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          kind?: "waiver_volume" | "fee_credit";
+          delta_usdc?: number;
+          withdrawal_id?: string | null;
+          referee_id?: string | null;
+          source?: string;
+          dedupe_key?: string | null;
+          status?: "active" | "void";
+          created_at?: string;
         };
         Relationships: [];
       };

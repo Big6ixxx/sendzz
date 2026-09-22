@@ -4,10 +4,13 @@ import { markSessionTransacted, requireUserId } from "@/lib/auth/session";
 import { toUserSafeMessage } from "@/lib/errors/sanitize";
 import { Ramp } from "@/lib/ramp";
 import { isBridgeable } from "@/lib/circle/gateway";
-import { applyFee, getCorridorFee, getProviderFee, resolveFeeTreasury } from "@/lib/ramp/fees";
+import { getCorridorFee, getProviderFee, resolveFeeTreasury } from "@/lib/ramp/fees";
 import { resolvePayoutFiat } from "@/lib/ramp/payout-figure";
 import { kycGuard } from "@/lib/kyc/guard";
 import { consumeAuthorization } from "@/lib/security/transaction-auth";
+import { benefitBalances, resolveWithdrawalFee, spendBenefits } from "@/lib/referrals/benefits";
+import type { BenefitBalances } from "@/lib/referrals/benefit-math";
+import { supabaseAdmin } from "@/lib/supabase/adminClient";
 import type {
   RampCurrency,
   RampNetwork,
@@ -28,6 +31,26 @@ export async function getProviderFeePercent(
   currency?: string,
 ): Promise<number> {
   return getProviderFee(provider, currency).percent;
+}
+
+/**
+ * This user's referral benefit balances, for pricing a withdrawal in the browser.
+ *
+ * Balances rather than a priced quote, so the screen can recompute instantly as the amount
+ * changes without a round trip per keystroke. The arithmetic is shared — see
+ * lib/referrals/benefit-math.ts — so the figure shown is the figure charged.
+ *
+ * Identity from the session. An endpoint that took a user id would report anyone's balances.
+ */
+export async function getReferralBenefitBalances(): Promise<BenefitBalances> {
+  try {
+    const { userId } = await requireUserId();
+    return await benefitBalances(userId);
+  } catch {
+    // Not signed in, or no account row yet. No benefits is the safe answer: the user is
+    // quoted the full fee and charged less, never the reverse.
+    return { waiverVolumeUsdc: 0, feeCreditUsdc: 0 };
+  }
 }
 
 /**
@@ -570,14 +593,35 @@ export async function executeOffRamp(params: {
 
       // Platform fee on the base amount (resolved server-side so the client can execute it
       // without reading secret env). Embedded in the order for the transfer step.
-      const { fee } = applyFee(finalAmountUsdc, provider, params.fiatCurrency);
-      if (feeCfg.percent > 0) {
+      //
+      // Referral benefits are applied HERE, against the corridor's own rate, because this is
+      // the figure the order carries and the user is charged. A referee inside their fee-free
+      // allowance pays nothing; a referrer holding credits pays the remainder less those
+      // credits. See lib/referrals/benefits.ts for why the waiver is spent before the credit.
+      const benefit = await resolveWithdrawalFee({
+        userId,
+        volumeUsdc: finalAmountUsdc,
+        feePercent: feeCfg.percent,
+      });
+      const fee = benefit.feeUsdc;
+
+      // A fully waived fee means no fee leg at all, not a zero-value transfer to the
+      // treasury — which would burn gas to move nothing and show up as a transaction the
+      // user cannot explain.
+      if (fee > 0) {
         created.fee = {
           percent: feeCfg.percent,
           usdc: fee.toFixed(6),
           collection: feeCfg.collection,
           address: feeAddress,
         };
+      }
+
+      if (benefit.waivedVolumeUsdc > 0 || benefit.creditAppliedUsdc > 0) {
+        console.log(
+          `[Referrals] withdrawal ${created.id}: waived ${benefit.waivedVolumeUsdc} volume, ` +
+            `${benefit.creditAppliedUsdc} credit — fee ${benefit.standardFeeUsdc} -> ${fee}`,
+        );
       }
 
       // A deferred payout has no beneficiary attached yet, and the browser is normally what
@@ -619,6 +663,28 @@ export async function executeOffRamp(params: {
         corridorFeeUsdc: getCorridorFee(provider, params.fiatCurrency),
         memo: params.bank.memo || undefined,
       });
+
+      // Spend the benefits against the order that now exists. Done here rather than on
+      // settlement because the discounted fee is already baked into that order — leaving the
+      // balance intact until then would let a second withdrawal, started before this one
+      // finished, be quoted against the same allowance. A failed withdrawal gets it back;
+      // see releaseBenefits, wired into the payout webhooks.
+      if (benefit.waivedVolumeUsdc > 0 || benefit.creditAppliedUsdc > 0) {
+        const { data: row } = await supabaseAdmin
+          .from('withdrawals')
+          .select('id')
+          .eq('provider_order_id', created.id)
+          .maybeSingle();
+
+        if (row?.id) {
+          await spendBenefits({
+            userId,
+            withdrawalId: row.id,
+            waivedVolumeUsdc: benefit.waivedVolumeUsdc,
+            creditAppliedUsdc: benefit.creditAppliedUsdc,
+          });
+        }
+      }
 
       // A withdrawal is the clearest possible "the owner is here", so it extends THIS device's
       // session — and only this one. Money arriving never does.

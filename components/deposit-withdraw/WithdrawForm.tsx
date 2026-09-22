@@ -2,6 +2,7 @@
 
 import { CurrencySelector } from "@/components/CurrencySelector";
 import { SigningProgress } from "@/components/signing/SigningProgress";
+import { maxWithdrawableBase } from "@/lib/referrals/benefit-math";
 import { formatFiat, getCurrencySymbol } from "@/lib/currency-config";
 import {
   CheckCircle2,
@@ -18,9 +19,6 @@ import { OrderAdvancedDetails } from "./OrderAdvancedDetails";
 import { CHAIN_NAMES, type SupportedChain } from "@/lib/circle/gateway";
 import {
   FIAT_ROUTING_PAD,
-  feeFromBase,
-  maxBaseFromBalance,
-  totalDeducted,
 } from "@/lib/ramp/fees";
 import { useDepositWithdraw } from "./useDepositWithdraw";
 import { ReceiptActions } from "@/components/receipt/ReceiptActions";
@@ -60,7 +58,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
   // Total USDC that will be deducted — base + platform fee + the provider's corridor fee. All
   // three leave the wallet, and omitting the corridor fee here understated the deduction against
   // the summary's own "Total Deducted".
-  const usdcTotal = totalDeducted(usdcBase, feePercent, hook.corridorFee);
+  const usdcTotal = hook.totalRequired(usdcBase);
 
   /**
    * The payout to advertise while the user is still choosing an amount.
@@ -91,11 +89,14 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
    * pre-transfer check is the first place base, platform fee and corridor fee are added up
    * against the wallet — so the user got "Not enough balance" only after the quote existed.
    */
-  const maxBaseUsdc = maxBaseFromBalance(
-    totalAvailable,
+  const maxBaseUsdc = maxWithdrawableBase({
+    availableUsdc: totalAvailable,
     feePercent,
-    hook.corridorFee,
-  );
+    corridorFeeUsdc: hook.corridorFee,
+    // A fee-free allowance raises the ceiling: less of the balance goes on fees, so more of
+    // it can be withdrawn. Ignoring it here would offer a referee less than they can take.
+    balances: hook.benefits,
+  });
 
   const isOverBalance = parsedAmount > 0 && usdcTotal > totalAvailable + 1e-9;
 
@@ -462,29 +463,57 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
               shown ONLY when the platform fee is the whole of it; once a corridor fee is
               folded in, the total is no longer that percentage of the base and labelling it so
               would be the same displayed-vs-charged mismatch this screen exists to end. */}
-          <div className="flex justify-between text-sm text-muted-foreground">
-            <span>{hook.corridorFee > 0 ? "Fee" : `Fee (${feePercent}%)`}</span>
-            <span>
-              {(
-                feeFromBase(parseFloat(hook.quoteUsdcAmount), feePercent) + hook.corridorFee
-              ).toLocaleString(undefined, { maximumFractionDigits: 2 })}{" "}
-              USDC
-            </span>
-          </div>
-          <div className="flex justify-between text-sm pt-2 border-t border-border">
-            <span className="font-bold">Total Deducted</span>
-            <span className="font-bold text-red-400">
-              -
-              {(
-                totalDeducted(
-                  parseFloat(hook.quoteUsdcAmount),
-                  feePercent,
-                  hook.corridorFee,
-                )
-              ).toLocaleString(undefined, { maximumFractionDigits: 2 })}{" "}
-              USDC
-            </span>
-          </div>
+          {(() => {
+            const breakdown = hook.feeBreakdown(parseFloat(hook.quoteUsdcAmount));
+            const charged = breakdown.feeUsdc + hook.corridorFee;
+            const discounted =
+              breakdown.waivedVolumeUsdc > 0 || breakdown.creditAppliedUsdc > 0;
+            const wouldHaveBeen = breakdown.standardFeeUsdc + hook.corridorFee;
+
+            return (
+              <>
+                <div className="flex justify-between text-sm text-muted-foreground">
+                  <span>{hook.corridorFee > 0 ? "Fee" : `Fee (${feePercent}%)`}</span>
+                  <span className="flex items-baseline gap-2">
+                    {/* The old figure struck through, because "your first $200 is free" is
+                        only persuasive if the user can see what it saved them. */}
+                    {discounted && wouldHaveBeen > charged && (
+                      <span className="line-through text-muted-foreground/40">
+                        {wouldHaveBeen.toLocaleString(undefined, {
+                          maximumFractionDigits: 2,
+                        })}
+                      </span>
+                    )}
+                    <span className={discounted ? "text-accent font-semibold" : undefined}>
+                      {charged === 0
+                        ? "Free"
+                        : `${charged.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC`}
+                    </span>
+                  </span>
+                </div>
+
+                {discounted && (
+                  <p className="text-[11.5px] text-accent/80 leading-relaxed">
+                    {breakdown.waivedVolumeUsdc > 0 &&
+                      `${breakdown.waivedVolumeUsdc.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC of this is inside your fee-free allowance. `}
+                    {breakdown.creditAppliedUsdc > 0 &&
+                      `${breakdown.creditAppliedUsdc.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC covered by your referral credit.`}
+                  </p>
+                )}
+
+                <div className="flex justify-between text-sm pt-2 border-t border-border">
+                  <span className="font-bold">Total Deducted</span>
+                  <span className="font-bold text-red-400">
+                    -
+                    {hook
+                      .totalRequired(parseFloat(hook.quoteUsdcAmount))
+                      .toLocaleString(undefined, { maximumFractionDigits: 2 })}{" "}
+                    USDC
+                  </span>
+                </div>
+              </>
+            );
+          })()}
         </div>
 
         <div className="space-y-4">
@@ -669,13 +698,9 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
           <div className="flex justify-between text-xs text-muted-foreground pt-2 border-t border-border">
             <span>Total deducted</span>
             <span className="font-semibold tabular-nums">
-              {(
-                totalDeducted(
-                  parseFloat(hook.quoteUsdcAmount),
-                  feePercent,
-                  hook.corridorFee,
-                )
-              ).toLocaleString(undefined, { maximumFractionDigits: 2 })}{" "}
+              {hook
+                .totalRequired(parseFloat(hook.quoteUsdcAmount))
+                .toLocaleString(undefined, { maximumFractionDigits: 2 })}{" "}
               USDC
             </span>
           </div>

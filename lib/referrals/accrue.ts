@@ -7,13 +7,21 @@
  * generates none — and since a deposit can be reversed by withdrawing, it would be farmable in
  * a loop.
  *
- * What a referrer gets is a fixed share of VOLUME, not of the fee. See lib/referrals/tiers.ts
- * for why, and for the cap that keeps a thin corridor from paying out more than it earned.
+ * What a referrer gets depends on which programme they are on, and it is always exactly one:
+ *
+ *   scout  — a fixed share of VOLUME, paid in USDC. See lib/referrals/tiers.ts for why volume
+ *            rather than a share of the fee, and for the cap that keeps a thin corridor from
+ *            paying out more than it earned.
+ *   retail — a one-off fee credit per referee who passes a milestone. No cash leaves Sendzz;
+ *            see lib/referrals/benefits.ts.
+ *
+ * Both would stack if either forgot to check, and stacking is a loss per transaction.
  */
 
 import { getCorridorFee, getWithdrawalFeePercent, feeFromBase } from '@/lib/ramp/fees';
 import type { RampProviderName } from '@/lib/ramp/types';
 import { supabaseAdmin } from '@/lib/supabase/adminClient';
+import { grantMilestoneCredit } from './benefits';
 import { computeCommission, minimumWithdrawalUsdc, tierForVolume } from './tiers';
 
 /** The window a tier is assessed over. Calendar month, matching how the tiers are described. */
@@ -145,6 +153,26 @@ export async function accrueReferralEarning(params: {
       .maybeSingle();
 
     if (!referee?.referred_by) return;
+
+    // ── One programme per referrer, never both ──────────────────────────────
+    //
+    // The two tracks pay for the same event. A Gold Scout earns 0.25% of this withdrawal; a
+    // retail referrer earns a $2 credit once this person passes $100. Paying both on a $100
+    // withdrawal would be $2.25 against a $0.50 fee — a loss per transaction that grows with
+    // volume. So the referrer's programme decides which one runs, and the other does not.
+    const { data: referrer } = await supabaseAdmin
+      .from('users')
+      .select('referral_program')
+      .eq('id', referee.referred_by)
+      .maybeSingle();
+
+    if ((referrer?.referral_program ?? 'retail') !== 'scout') {
+      await grantMilestoneCredit({
+        referrerId: referee.referred_by,
+        refereeId: referee.id,
+      });
+      return;
+    }
 
     // The tier as it stands NOW, frozen onto this row. A referrer who reaches Gold mid-month
     // earns Gold on what follows — not retroactively on what came before, which would make

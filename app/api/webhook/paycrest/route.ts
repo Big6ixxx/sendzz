@@ -1,5 +1,6 @@
 import { Database, Json } from '@/types/database';
 import { accrueReferralEarning, voidReferralEarning } from '@/lib/referrals/accrue';
+import { releaseBenefitsForOrder } from '@/lib/referrals/benefits';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 import { clearOnchainDepositShadow, triggerWithdrawalNotifications } from '@/lib/supabase/transactions';
@@ -242,6 +243,11 @@ export async function POST(req: Request) {
         // released. Only ever touches rows still owed — a commission already paid out stays
         // paid; see voidReferralEarning.
         await voidReferralEarning({ providerOrderId: orderId });
+
+        // And give back any fee-free allowance or credit the order consumed. It was spent at
+        // creation so a concurrent withdrawal could not be quoted against it twice; this is
+        // the other half of that trade.
+        await releaseBenefitsForOrder(orderId);
 
         console.warn(`[Paycrest Webhook] [${requestId}] Withdrawal ${orderId} finalized as ${finalStatus} — reason=${reason}`);
         handled = true;

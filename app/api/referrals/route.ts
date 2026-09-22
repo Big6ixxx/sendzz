@@ -14,6 +14,11 @@ import { requireUserId } from '@/lib/auth/session';
 import { ensureReferralCode } from '@/lib/referrals/code';
 import { monthlyNetworkVolume } from '@/lib/referrals/accrue';
 import {
+  benefitBalances,
+  milestoneCreditUsdc,
+  milestoneVolumeUsdc,
+} from '@/lib/referrals/benefits';
+import {
   TIERS,
   tierDefinition,
   tierForVolume,
@@ -57,7 +62,12 @@ export async function GET() {
     // The tier is derived from this month's network volume rather than stored, so it cannot
     // go stale. Each earning row already carries the tier it was PAID at, which is the figure
     // that matters historically; this one is "where you stand right now".
-    const monthlyVolumeUsdc = await monthlyNetworkVolume(userId);
+    const [monthlyVolumeUsdc, balances, profile] = await Promise.all([
+      monthlyNetworkVolume(userId),
+      benefitBalances(userId),
+      supabaseAdmin.from('users').select('referral_program').eq('id', userId).maybeSingle(),
+    ]);
+    const program = (profile.data?.referral_program ?? 'retail') as 'retail' | 'scout';
     const tier = tierForVolume(monthlyVolumeUsdc);
     const nextTier = TIERS[TIERS.indexOf(tier) + 1];
 
@@ -70,6 +80,14 @@ export async function GET() {
       // The floor a balance has to reach before a sweep sends it. Shown so "why haven't I
       // been paid?" has an answer on the page rather than in a support conversation.
       minimumPayoutUsdc: Number(process.env.REFERRAL_MIN_PAYOUT_USDC) || 5,
+      program,
+      // Retail referrers are paid in fee credits, not cash, so their balance is a different
+      // number in a different unit. Sent alongside rather than instead of, because a user can
+      // hold a fee-free allowance as a REFEREE while earning as a referrer.
+      feeCreditUsdc: balances.feeCreditUsdc,
+      waiverVolumeUsdc: balances.waiverVolumeUsdc,
+      milestoneVolumeUsdc: milestoneVolumeUsdc(),
+      milestoneCreditUsdc: milestoneCreditUsdc(),
       tier,
       // What they actually earn, as a percentage of what their network withdraws. Quoted this
       // way rather than as a share of our fee because it is the number that stays put — see

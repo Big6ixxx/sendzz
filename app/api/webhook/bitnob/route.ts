@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { verifyBitnobSignature } from '@/lib/bitnob/webhook-signature';
 import { triggerWithdrawalNotifications } from '@/lib/supabase/transactions';
 import { accrueReferralEarning, voidReferralEarning } from '@/lib/referrals/accrue';
+import { releaseBenefitsForOrder } from '@/lib/referrals/benefits';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -529,6 +530,11 @@ export async function POST(req: Request) {
         // A payout that did not happen earned nothing, so any commission accrued on it is
         // released. Only touches rows still owed — one already paid out stays paid.
         await voidReferralEarning({ providerOrderId: rpcOrderId });
+
+        // And give back any fee-free allowance or credit the order consumed. It was spent at
+        // creation so a concurrent withdrawal could not be quoted against it twice; this is
+        // the other half of that trade.
+        await releaseBenefitsForOrder(rpcOrderId);
       }
       handled = true;
     } else {

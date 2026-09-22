@@ -15,6 +15,7 @@
 
 import { supabaseAdmin } from '@/lib/supabase/adminClient';
 import { findReferrerByCode } from './code';
+import { grantSignupWaiver } from './benefits';
 
 /**
  * Record who referred this user, if the claim stands up.
@@ -65,6 +66,11 @@ export async function attributeReferral(params: {
       console.error('[Referrals] attribution failed:', error.message);
       return false;
     }
+
+    // The referee's side of the bargain, granted now so it is already waiting the first time
+    // they withdraw. This is what the referrer actually pitches — "your first $200 is
+    // fee-free" is a reason to click a link; "so I earn a cut of your money" is not.
+    await grantSignupWaiver(userId);
 
     return true;
   } catch (err) {

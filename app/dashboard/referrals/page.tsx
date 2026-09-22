@@ -37,6 +37,11 @@ interface ReferralSummary {
   pendingUsdc: number;
   paidUsdc: number;
   minimumPayoutUsdc: number;
+  program: 'retail' | 'scout';
+  feeCreditUsdc: number;
+  waiverVolumeUsdc: number;
+  milestoneVolumeUsdc: number;
+  milestoneCreditUsdc: number;
   tier: 'bronze' | 'silver' | 'gold';
   /** What they earn, as a percentage of what their network withdraws. */
   tierRatePercent: number;
@@ -127,12 +132,20 @@ export default function ReferralsPage() {
   }
 
   const toGo = Math.max(0, data.minimumPayoutUsdc - data.pendingUsdc);
+  // Two audiences, two sets of numbers. A retail referrer paid in fee credit has no tier, no
+  // pending cash and no payout history — showing them zeros for all three reads as a broken
+  // page rather than a different programme.
+  const isScout = data.program === 'scout';
 
   return (
     <div className="space-y-8 max-w-3xl">
       <DashboardPageHeader
         title="Refer & Earn"
-        subtitle="Share Sendzz, earn on every cash-out your people make"
+        subtitle={
+          isScout
+            ? 'Share Sendzz, earn on every cash-out your people make'
+            : 'Give your friends free transfers, earn credit on yours'
+        }
       />
 
       {/* ── The link ──────────────────────────────────────────────────────── */}
@@ -173,16 +186,27 @@ export default function ReferralsPage() {
       </div>
 
       {/* ── What it has earned ────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <Stat label="Your tier" value={TIER_LABELS[data.tier]} />
-        <Stat label="People joined" value={String(data.referredCount)} />
-        <Stat label="Waiting to be paid" value={`$${data.pendingUsdc.toFixed(2)}`} />
-        <Stat label="Paid to your wallet" value={`$${data.paidUsdc.toFixed(2)}`} />
-      </div>
+      {isScout ? (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <Stat label="Your tier" value={TIER_LABELS[data.tier]} />
+          <Stat label="People joined" value={String(data.referredCount)} />
+          <Stat label="Waiting to be paid" value={`$${data.pendingUsdc.toFixed(2)}`} />
+          <Stat label="Paid to your wallet" value={`$${data.paidUsdc.toFixed(2)}`} />
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          <Stat label="People joined" value={String(data.referredCount)} />
+          <Stat label="Fee credit earned" value={`$${data.feeCreditUsdc.toFixed(2)}`} />
+          <Stat
+            label="Your fee-free allowance"
+            value={`$${data.waiverVolumeUsdc.toFixed(2)}`}
+          />
+        </div>
+      )}
 
       {/* Progress towards the next tier. Only shown when there is one to reach — a Gold
           affiliate being told they are 0% of the way to nothing is worse than silence. */}
-      {data.nextTier && (
+      {isScout && data.nextTier && (
         <div className="card-glass p-6 space-y-3">
           <div className="flex items-baseline justify-between gap-4">
             <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-brand-secondary/35">
@@ -212,31 +236,46 @@ export default function ReferralsPage() {
         </p>
 
         <div className="space-y-3.5">
-          <Point
-            title="You earn when they cash out to a bank"
-            body={`You keep ${data.tierRatePercent}% of every withdrawal the people you invited make. It comes out of the fee Sendzz charges, never out of their money — they pay exactly the same whether they used your link or not.`}
-          />
-          <Point
-            title="Your rate doesn't change with theirs"
-            body={`Some countries cost us more to pay out to, so the fee there is higher. Your ${data.tierRatePercent}% stays the same either way — you are never paid less because of where someone banks.`}
-          />
-          <Point
-            title="Adding money is free, so it earns nothing"
-            body="Deposits carry no fee at all — there's nothing for us to share on the way in. Only cash-outs count, and only those above $50."
-          />
-          <Point
-            title="We pay into your Sendzz wallet automatically"
-            body={`Once you've earned $${data.minimumPayoutUsdc.toFixed(2)}, your balance is sent to your wallet as USDC. Nothing to claim — it just arrives.${
-              toGo > 0 && data.pendingUsdc > 0
-                ? ` You're $${toGo.toFixed(2)} away from your next payout.`
-                : ''
-            }`}
-          />
+          {isScout ? (
+            <>
+              <Point
+                title="You earn when they cash out to a bank"
+                body={`You keep ${data.tierRatePercent}% of every withdrawal the people you invited make. It comes out of the fee Sendzz charges, never out of their money — they pay exactly the same whether they used your link or not.`}
+              />
+              <Point
+                title="Your rate doesn't change with theirs"
+                body={`Some countries cost us more to pay out to, so the fee there is higher. Your ${data.tierRatePercent}% stays the same either way — you are never paid less because of where someone banks.`}
+              />
+              <Point
+                title="We pay into your Sendzz wallet automatically"
+                body={`Once you've earned $${data.minimumPayoutUsdc.toFixed(2)}, your balance is sent to your wallet as USDC. Nothing to claim — it just arrives.${
+                  toGo > 0 && data.pendingUsdc > 0
+                    ? ` You're $${toGo.toFixed(2)} away from your next payout.`
+                    : ''
+                }`}
+              />
+            </>
+          ) : (
+            <>
+              <Point
+                title="They get their first cash-outs free"
+                body="Anyone who joins with your link pays no Sendzz fee on their first withdrawals, up to a set amount. That's the part worth telling them about — it costs them nothing to try you out."
+              />
+              <Point
+                title={`You get $${data.milestoneCreditUsdc.toFixed(2)} once they cash out $${data.milestoneVolumeUsdc}`}
+                body="It lands as Sendzz fee credit, which comes off your own withdrawal fees automatically — no claiming, no minimum, nothing to withdraw. Counted across all their cash-outs, not one big one."
+              />
+              <Point
+                title="Moving serious volume?"
+                body="Communities, agencies and group admins can apply to earn a share of the fees in cash instead of credit. Get in touch and we'll set you up."
+              />
+            </>
+          )}
         </div>
       </div>
 
       {/* ── What has actually been sent ───────────────────────────────────── */}
-      {data.payouts.length > 0 && (
+      {isScout && data.payouts.length > 0 && (
         <div className="space-y-3">
           <p className="text-xs font-bold uppercase tracking-widest text-brand-secondary/35 px-1">
             Payouts
