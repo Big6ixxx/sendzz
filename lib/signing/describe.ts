@@ -181,17 +181,23 @@ export function describeWithdrawal(params: {
       ...gatherSteps(gatherFrom, settlementChain),
       {
         kind: 'settle',
-        title: 'Send your money to our payout partner',
+        title: 'Send your money on its way',
         detail: `From ${chainLabel(settlementChain)}. This is the last step you confirm.`,
         signature: true,
         estimateSeconds: 30,
       },
       {
+        // Deliberately says nothing about WHO pays the bank.
+        //
+        // Naming a payout provider tells the user something they cannot use and did not ask
+        // for — and worse, it invites the thought that their money is now with somebody else.
+        // From where they stand it is Sendzz getting their money to their bank, which is also
+        // true: if it does not arrive, it is us they come to and us who fixes it.
         kind: 'wait',
-        title: `Our partner pays ${bankLabel}`,
+        title: `Getting your money to ${bankLabel}`,
         detail:
-          'Nothing more to confirm. Most banks show the money within minutes, though some ' +
-          'take longer. We will email you when it is done.',
+          'Nothing more to confirm — we take it from here. Most banks show the money within ' +
+          'minutes, though some take longer. We will email you when it lands.',
         signature: false,
         estimateSeconds: 120,
       },

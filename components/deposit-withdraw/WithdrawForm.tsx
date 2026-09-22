@@ -666,7 +666,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
           <p className="text-sm text-muted-foreground">
             {hook.transferError
               ? hook.transferError
-              : "Signing the transfer and releasing the payout. Keep this open."}
+              : "Making sure your money gets where it needs to go. Keep this page open."}
           </p>
         </div>
 

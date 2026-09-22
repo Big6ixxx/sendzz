@@ -398,7 +398,7 @@ export async function executeSmartBridge(
 
     if (!chain || !usdcAddress) throw new Error('Unsupported chain config');
 
-    toast.info(`Preparing gasless transfer on ${sourceChain}...`);
+    toast.info(`Preparing your transfer on ${sourceChain} — we cover the network fee.`);
     const ethereumProvider = await embeddedWallet.getEthereumProvider();
     const { bundlerClient, account } = await getCircleClient(ethereumProvider, sourceChain);
 

@@ -113,7 +113,7 @@ export function useCryptoTransfer({
   const ensureStellarSetup = useCallback(async () => {
     if (!privyUserId) return null;
     setIsSettingUpStellar(true);
-    setStatus("Checking Stellar wallet status...");
+    setStatus("Checking your Stellar account…");
     try {
       // 1. Get signer ID
       const signerRes = await fetch('/api/stellar/signer-id');
@@ -121,7 +121,7 @@ export function useCryptoTransfer({
       const { keyQuorumId } = await signerRes.json();
 
       // 2. Provision (creates wallet if needed)
-      setStatus("Provisioning Stellar wallet in TEE...");
+      setStatus("Setting up your Stellar account…");
       const provRes = await fetch('/api/stellar/provision', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -135,7 +135,7 @@ export function useCryptoTransfer({
       const isSignerGranted = provData.signerGranted || false;
 
       if (!isSignerGranted) {
-        setStatus("Authorizing signing access in Privy TEE...");
+        setStatus("Securing your Stellar account…");
         try {
           await addSigners({
             address: walletAddress,
@@ -154,7 +154,7 @@ export function useCryptoTransfer({
       }
 
       // Provision once more to ensure trustline and active state on-chain
-      setStatus("Activating account & setting trustline...");
+      setStatus("Activating your Stellar account…");
       const finalRes = await fetch('/api/stellar/provision', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -271,7 +271,7 @@ export function useCryptoTransfer({
     setLoading(true);
     // No KYC limit check. Sending is not rationed, and neither is depositing — the one limit in
     // the product is the unverified withdrawal allowance. See lib/kyc/limits.ts.
-    setStatus("Initiating transfer...");
+    setStatus("Starting your transfer…");
 
     await executeTransferFlow();
   };
@@ -630,7 +630,7 @@ export function useCryptoTransfer({
     if (!authorization) return;
 
     setLoading(true);
-    setStatus("Requesting signature...");
+    setStatus("Confirming your transfer…");
 
     try {
       // EVM and Solana sign in the page, so this records the PIN rather than enforcing it.
@@ -657,7 +657,7 @@ export function useCryptoTransfer({
           currentWallet = ok;
         }
 
-        setStatus("Submitting Stellar transfer...");
+        setStatus("Sending on Stellar…");
         const res = await fetch("/api/stellar/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -707,7 +707,7 @@ export function useCryptoTransfer({
           throw new Error("No Solana wallet found. Please link a Solana wallet first.");
         }
 
-        setStatus("Building Solana transfer transaction...");
+        setStatus("Preparing your transfer on Solana…");
         const { buildSolanaUsdcTransferTx } = await import("@/lib/web3/solana-bridge");
         const tx = await buildSolanaUsdcTransferTx({
           connection: solanaConnection,
@@ -717,7 +717,7 @@ export function useCryptoTransfer({
           platformFee: (await resolveTransferFee("solana", amount)) ?? undefined,
         });
 
-        setStatus("Confirming on Solana...");
+        setStatus("Confirming on Solana…");
         const { signedTransaction } = await signTransaction({
           transaction: tx.serialize({ requireAllSignatures: false }),
           wallet: solWallet,
@@ -915,7 +915,7 @@ export function useCryptoTransfer({
           txHash = mintTxHash ?? burnTxHash;
         }
       } else if (info.sourceChain === "stellar") {
-        setStatus(`Bridging directly from Stellar to ${CHAIN_NAMES[info.destChain as SupportedChain]}…`);
+        setStatus(`Moving your money from Stellar to ${CHAIN_NAMES[info.destChain as SupportedChain]}…`);
         if (!stellarWallet?.address) throw new Error("Stellar wallet not connected.");
         const feePercent = transferFeePercent ?? 0;
         const totalAmountWithFee = (parseFloat(info.amount) * (1 + feePercent / 100)).toFixed(6);
@@ -931,7 +931,7 @@ export function useCryptoTransfer({
         txHash = mintTxHash ?? burnTxHash;
       } else {
         // A single EVM chain covers it — bridge straight to the recipient.
-        setStatus(`Bridging from ${CHAIN_NAMES[info.sourceChain]}…`);
+        setStatus(`Moving your money from ${CHAIN_NAMES[info.sourceChain]}…`);
         const { burnTxHash, mintTxHash } = await bridgeAndDeliver(embeddedProvider, {
           sourceChain: info.sourceChain,
           destChain: info.destChain as SupportedChain,

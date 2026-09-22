@@ -208,7 +208,7 @@ export function useTransfer({
 
     setLoading(true);
     // No KYC limit check — see the note in useCryptoTransfer. Limits live on the fiat edges.
-    setStatus("Checking transaction history...");
+    setStatus("Checking this recipient…");
 
     try {
       const emailLower = recipientEmail.toLowerCase().trim();
@@ -413,7 +413,7 @@ export function useTransfer({
     if (!amount || !recipientEmail || !embeddedProvider) return;
     setLoading(true);
     setLastCompletedTransfer(null);
-    setStatus("Looking up recipient...");
+    setStatus("Looking up recipient…");
     setIsPendingClaim(false);
 
     try {
@@ -422,7 +422,7 @@ export function useTransfer({
 
       if (!recipientAddress) {
         setIsPendingClaim(true);
-        setStatus("Recipient not found. Generating secure wallet...");
+        setStatus("New to Sendzz — setting up a secure wallet for them…");
 
         const res = await fetch("/api/wallets/pre-generate", {
           method: "POST",
@@ -437,9 +437,9 @@ export function useTransfer({
         }
 
         recipientAddress = data.address as string;
-        setStatus("Ready to send to new wallet...");
+        setStatus("Ready to send…");
       } else {
-        setStatus("Identity confirmed. Requesting signature...");
+        setStatus("Recipient confirmed. Sending…");
       }
 
       // Spend the PIN authorisation before signing. This cannot stop the signature that

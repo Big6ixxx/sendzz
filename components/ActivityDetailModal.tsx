@@ -81,7 +81,7 @@ export function ActivityDetailModal({
         (w) => w.walletClientType === "privy",
       );
       if (!embeddedWallet) {
-        toast.error("Embedded wallet not found. Please log in.");
+        toast.error("Your wallet isn't ready yet. Please sign in again.");
         setIsClaiming(false);
         return;
       }
@@ -97,14 +97,14 @@ export function ActivityDetailModal({
       }
 
       if (domain === null) {
-        toast.error("Invalid bridge source chain.");
+        toast.error("We couldn't tell which network this came from.");
         setIsClaiming(false);
         return;
       }
 
       // ── Fast path: already minted, just update DB and refresh ───────────
       if (activity.mintTxHash) {
-        toast.info("This bridge was already completed. Refreshing status...");
+        toast.info("This already arrived. Refreshing…");
         await fetch("/api/bridge/complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -113,13 +113,13 @@ export function ActivityDetailModal({
             mintTxHash: activity.mintTxHash,
           }),
         }).catch(() => {});
-        toast.success("Bridge marked complete!");
+        toast.success("All done.");
         setTimeout(() => window.location.reload(), 800);
         return;
       }
 
       // ── Fetch attestation from Circle (DB-cached by status route) ────────
-      toast.info("Checking bridge status...");
+      toast.info("Checking on your transfer…");
       const res = await fetch(
         `/api/bridge/status?txHash=${activity.txHash}&sourceChain=${sourceChain}`,
       );
@@ -157,7 +157,7 @@ export function ActivityDetailModal({
       }
 
       if (data.status !== "complete") {
-        toast.error("Bridge is still processing. Please try again shortly.");
+        toast.error("Still on its way. Try again in a moment.");
         setIsClaiming(false);
         return;
       }
@@ -173,11 +173,11 @@ export function ActivityDetailModal({
         if (!mintTxHash) {
           if (!data.messageBytes || !data.attestation) {
             throw new Error(
-              "Attestation data incomplete. Please try again in 30 seconds.",
+              "Not quite ready yet. Try again in 30 seconds.",
             );
           }
           // Check if Circle's relayer already minted before trying manually
-          toast.info("Finalising bridge on destination chain...");
+          toast.info("Delivering your money…");
           await new Promise((r) => setTimeout(r, 3000));
           const recheckRes = await fetch(
             `/api/bridge/status?txHash=${activity.txHash}&sourceChain=${sourceChain}`,
@@ -199,7 +199,7 @@ export function ActivityDetailModal({
           console.log(
             "[Manual Claim] Stellar destination — server-side claim...",
           );
-          toast.info("Claiming USDC on Stellar (gas paid by sponsor)...");
+          toast.info("Delivering your money on Stellar — we cover the network fee.");
 
           // Resolve the user's Stellar wallet so the claim can add the USDC trustline
           // if it's missing — without it `mint_and_forward` reverts on the transfer leg.
@@ -245,7 +245,7 @@ export function ActivityDetailModal({
           console.log(
             "[Manual Claim Modal] Solana destination - initiating client-side receiveMessage...",
           );
-          toast.info("Claiming USDC on Solana...");
+          toast.info("Delivering your money on Solana…");
 
           const solAccount = user?.linkedAccounts.find(
             (a) =>
@@ -306,7 +306,7 @@ export function ActivityDetailModal({
         body: JSON.stringify({ burnTxHash: activity.txHash, mintTxHash }),
       }).catch(() => {});
 
-      toast.success("USDC claimed successfully!");
+      toast.success("Your money has arrived.");
       setTimeout(() => window.location.reload(), 800);
     } catch (err: unknown) {
       // classifyAppError logs the full error and returns a message that is always safe
@@ -317,7 +317,7 @@ export function ActivityDetailModal({
       // on-chain, so reconcile our record rather than reporting a failure.
       if (classified.isAlreadyProcessed) {
         // Circle's relayer already minted — re-poll to get the forwardTxHash
-        toast.info("Your USDC has already been delivered. Saving mint hash...");
+        toast.info("This already arrived. Updating your history…");
         try {
           const retryRes = await fetch(
             `/api/bridge/status?txHash=${activity.txHash}&sourceChain=${activity.sourceChain?.toLowerCase()}`,
@@ -341,7 +341,7 @@ export function ActivityDetailModal({
         }
         setTimeout(() => window.location.reload(), 800);
       } else if (classified.isSilent) {
-        toast.info("Transaction cancelled. You can try again.");
+        toast.info("Cancelled. You can try again whenever you like.");
       } else {
         toast.error(classified.message);
       }
@@ -603,8 +603,8 @@ export function ActivityDetailModal({
                     if (activity.status === "complete") {
                       return (
                         <div className="flex-1 min-h-12 rounded-xl flex items-center justify-center text-center px-3 py-2 text-[11px] leading-snug font-medium bg-emerald-500/8 text-emerald-400/80 border border-emerald-500/20">
-                          Delivered on {chainLabel(activity.destChain ?? "base")}. No mint
-                          transaction id was recorded for this one.
+                          Delivered on {chainLabel(activity.destChain ?? "base")}. We have no
+                          receipt link for this one.
                         </div>
                       );
                     }

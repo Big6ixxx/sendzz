@@ -200,9 +200,9 @@ export function ChainBridgeModule({
                 setBridgeStep("mint_sig");
 
                 if (monitor.destChain === "solana") {
-                  toast.info("Minting USDC on Solana...");
+                  toast.info("Delivering your money on Solana…");
                 } else if (monitor.destChain === "stellar") {
-                  toast.info("Minting USDC on Stellar...");
+                  toast.info("Delivering your money on Stellar…");
                 } else {
                   toast.info("Finalising bridge on destination chain...");
                   // Circle's relayer often mints on EVM before we get here — check first
@@ -478,7 +478,7 @@ export function ChainBridgeModule({
         }
         // Ethereum L1 disabled — was: dest === "ethereum" ? embeddedWallet!.address
         const recipient = smartAddress;
-        toast.info("Preparing gasless Solana transfer...");
+        toast.info("Preparing your transfer — we cover the network fee.");
         const { sponsoredTx } = await prepareSolanaBurnTx({
           connection: solConn.current,
           walletAddress: embeddedSolWallet.address,
@@ -608,23 +608,23 @@ export function ChainBridgeModule({
         <div className="space-y-2">
           <h3 className="text-xl font-display font-bold text-white tracking-tight">
             {isDone
-              ? "Bridge Complete"
+              ? "All done"
               : step2Active
-                ? "2/2 — Finalising on Destination"
-                : "1/2 — Burn & Verify"}
+                ? "Step 2 of 2 — Delivering"
+                : "Step 1 of 2 — Sending"}
           </h3>
           <p className="text-sm text-white/40 max-w-xs mx-auto">
+            {/* Two of these used to tell the user to approve a pop-up. There is no pop-up any
+                more — Privy's UIs are off and we take the confirmation ourselves before any of
+                this starts — so the instruction was not merely jargon, it was an instruction to
+                do something impossible while they waited. */}
             {isDone && monitor
-              ? `Your USDC has arrived on ${CHAIN_DISPLAY_NAMES[monitor.destChain]}.`
+              ? `Your money has arrived on ${CHAIN_DISPLAY_NAMES[monitor.destChain]}.`
               : bridgeStep === "burn_sig"
-                ? "Approve the signature popup to initiate the burn."
+                ? `Moving your money off ${source ? CHAIN_DISPLAY_NAMES[source] ?? source : "this network"}…`
                 : bridgeStep === "attestation"
-                  ? "Waiting for Circle to verify the burn (typically 1–3 min)..."
-                  : dest === "stellar"
-                    ? "Minting USDC on Stellar..."
-                    : dest === "solana"
-                      ? "Approve the popup to receive USDC on Solana."
-                      : "Circle is minting your USDC on the destination chain..."}
+                  ? "Both networks are confirming the move. Usually 1–3 minutes."
+                  : `Delivering your money on ${dest ? CHAIN_DISPLAY_NAMES[dest] ?? dest : "the other network"}…`}
           </p>
         </div>
 

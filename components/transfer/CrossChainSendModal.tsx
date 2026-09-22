@@ -120,7 +120,7 @@ export function CrossChainSendModal({
             </div>
 
             <p className="text-[11px] text-brand-secondary/35 leading-relaxed">
-              Bridging is gasless and takes a few minutes to settle.
+              We cover the network fee. This takes a few minutes to arrive.
             </p>
 
             <div className="flex gap-3 pt-1">
