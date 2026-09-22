@@ -18,6 +18,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { SupportWidget } from '@/components/support/SupportWidget';
+import { InstallAppPrompt } from '@/components/pwa/InstallAppPrompt';
 import { SiteFooter } from '@/components/layout/SiteFooter';
 import { useRouter } from 'next/navigation';
 import { useRef, useEffect, useState } from 'react';
@@ -770,6 +771,7 @@ export default function Landing() {
 
       {/* ─── Footer ─── */}
       <SiteFooter />
+      <InstallAppPrompt />
 
       {/* Curated answers plus a route to a person — same widget as the dashboard. */}
       <SupportWidget />
