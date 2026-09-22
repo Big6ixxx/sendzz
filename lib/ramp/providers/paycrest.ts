@@ -4,8 +4,6 @@
  * Bitnob doesn't expose: bank verification, institutions list, fiat on-ramp).
  */
 import { getPaycrestClient } from "@/lib/paycrest/client";
-import { calculatePaycrestBaseAmount } from "@/lib/paycrest/config";
-import { getProviderFee } from "../fees";
 import type { PaycrestNetwork, PaycrestOrderResponse, PaycrestRate } from "@/lib/paycrest/types";
 import type { RampProvider } from "../provider";
 import type {
@@ -159,14 +157,15 @@ export class PaycrestProvider implements RampProvider {
 
   async createOnRampOrder(params: CreateOnRampParams): Promise<RampOrderResponse> {
     const paycrest = getPaycrestClient();
-    // Effective rate — honours PAYCREST_FEE_PERCENT, not just the compiled-in default.
-    const baseAmount = calculatePaycrestBaseAmount(
-      params.amountFiat,
-      getProviderFee('paycrest').percent,
-    );
+    // The user's full amount, with nothing taken out.
+    //
+    // Deposits used to be shrunk here so Paycrest's partner fee skimmed the difference. That
+    // fee is now zero on their dashboard and gone from the product: money coming IN is not
+    // charged for, and the only fee on the fiat rails is on the way out. Sending a reduced
+    // base while their dashboard skims nothing would simply lose the user that slice.
     const safeUserId = params.userId.replace(/[^a-z0-9]/gi, "");
     const order = await paycrest.createOrder({
-      amount: baseAmount.toFixed(2),
+      amount: params.amountFiat.toFixed(2),
       amountIn: "fiat",
       source: {
         type: "fiat",

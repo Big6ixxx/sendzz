@@ -16,13 +16,18 @@ import type {
 } from "@/lib/ramp";
 
 /**
- * Platform fee percentage for a provider — for UI (fee line, balance math). The actual fee
+ * Withdrawal fee percentage for a corridor — for UI (fee line, balance math). The actual fee
  * amount + treasury address are resolved server-side and embedded in the order (see below).
+ *
+ * `currency` matters: a corridor with a `WITHDRAWAL_FEE_PERCENT_<CURRENCY>` override is
+ * charged at that rate, and a UI that asked without it would quote the standard one and then
+ * deduct something else.
  */
 export async function getProviderFeePercent(
   provider: RampProviderName,
+  currency?: string,
 ): Promise<number> {
-  return getProviderFee(provider).percent;
+  return getProviderFee(provider, currency).percent;
 }
 
 /**
@@ -479,7 +484,7 @@ export async function executeOffRamp(params: {
       // provider is skipped before an order exists, so nothing appears in the ledger and the
       // only trace is this log line. Name it explicitly — an unconfigured treasury looks
       // exactly like "the provider doesn't support this corridor" from the outside.
-      const feeCfg = getProviderFee(provider);
+      const feeCfg = getProviderFee(provider, params.fiatCurrency);
       let feeAddress: string | undefined;
       if (feeCfg.collection === "onchain" && feeCfg.percent > 0) {
         try {
@@ -565,7 +570,7 @@ export async function executeOffRamp(params: {
 
       // Platform fee on the base amount (resolved server-side so the client can execute it
       // without reading secret env). Embedded in the order for the transfer step.
-      const { fee } = applyFee(finalAmountUsdc, provider);
+      const { fee } = applyFee(finalAmountUsdc, provider, params.fiatCurrency);
       if (feeCfg.percent > 0) {
         created.fee = {
           percent: feeCfg.percent,

@@ -1,5 +1,4 @@
 import { Database, Json } from '@/types/database';
-import { accrueReferralEarning, voidReferralEarning } from '@/lib/referrals/accrue';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 import { clearOnchainDepositShadow, triggerWithdrawalNotifications } from '@/lib/supabase/transactions';
@@ -146,46 +145,34 @@ export async function POST(req: Request) {
         // The scanner may already have recorded this delivery as an unattributed on-chain
         // deposit — drop that shadow so this row can take the hash.
         if (txHash) await clearOnchainDepositShadow(orderId, txHash);
-        const { data: confirmed, error } = await supabaseAdmin
+        const { error } = await supabaseAdmin
           .from('deposits')
           .update({ status: 'confirmed', tx_hash: txHash })
-          .eq('provider_order_id', orderId)
-          .select('id')
-          .maybeSingle();
+          .eq('provider_order_id', orderId);
 
         if (error) {
           console.error(`[Paycrest Webhook] [${requestId}] Failed to confirm deposit ${orderId}:`, error.message);
           return new Response('Internal error', { status: 500 });
         }
 
-        // Pay the referrer their share of what this deposit earned us. Paycrest skims our
-        // partner fee on every fiat on-ramp, so this is the path where referral money is
-        // actually made. Never throws and never fails the confirmation above; a redelivery
-        // of the same event is a no-op, because the earnings row is unique per deposit.
-        if (confirmed?.id) await accrueReferralEarning(confirmed.id);
-
+        // No referral accrual here. Deposits are free — there is no fee on the way in any
+        // more, so there is nothing to share. Referral earnings come from withdrawals; see
+        // lib/referrals/accrue.ts.
         console.log(`[Paycrest Webhook] [${requestId}] Deposit ${orderId} confirmed`);
         handled = true;
 
       } else if (status && ['failed', 'refunded', 'expired', 'refunding'].includes(status)) {
         const reason = orderData.failureReason || orderData.reason || 'unknown';
         const finalStatus = ['refunded', 'refunding'].includes(status) ? 'reversed' : 'failed';
-        const { data: updated, error } = await supabaseAdmin
+        const { error } = await supabaseAdmin
           .from('deposits')
           .update({ status: finalStatus })
-          .eq('provider_order_id', orderId)
-          .select('id')
-          .maybeSingle();
+          .eq('provider_order_id', orderId);
 
         if (error) {
           console.error(`[Paycrest Webhook] [${requestId}] Failed to update deposit ${orderId} status:`, error.message);
           return new Response('Internal error', { status: 500 });
         }
-
-        // A refunded deposit earned us nothing, so any commission accrued on it is released.
-        // Only ever touches rows still owed — see voidReferralEarning on why a commission
-        // that has already been paid out stays paid.
-        if (updated?.id) await voidReferralEarning(updated.id);
         console.warn(`[Paycrest Webhook] [${requestId}] Deposit ${orderId} status updated to ${finalStatus} — reason=${reason}`);
         handled = true;
 

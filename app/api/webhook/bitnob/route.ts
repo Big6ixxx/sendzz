@@ -3,7 +3,6 @@ import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 import { verifyBitnobSignature } from '@/lib/bitnob/webhook-signature';
 import { triggerWithdrawalNotifications } from '@/lib/supabase/transactions';
-import { accrueReferralEarning, voidReferralEarning } from '@/lib/referrals/accrue';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -446,16 +445,9 @@ export async function POST(req: Request) {
         return new Response('Internal error', { status: 500 });
       }
 
-      // Pay the referrer their share of what this deposit earned us. Awaited rather than
-      // fired off, so it runs before the function can be frozen — but it never throws and
-      // never fails this webhook, whose real job is the line above. A redelivery of the same
-      // event is a no-op: the earnings row is unique per deposit.
-      if (status === 'confirmed') {
-        await accrueReferralEarning(dep.id);
-      } else if (status === 'reversed') {
-        await voidReferralEarning(dep.id);
-      }
-
+      // No referral accrual here. Deposits are free — there is no fee on the way in any more,
+      // so there is nothing to share. Referral earnings come from withdrawals; see
+      // lib/referrals/accrue.ts.
       handled = true;
     } else if (wd?.provider_order_id) {
       // Payout (off-ramp) — the finalize RPCs match provider_order_id (or legacy id).

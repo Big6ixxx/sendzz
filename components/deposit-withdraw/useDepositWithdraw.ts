@@ -55,7 +55,6 @@ import {
 } from "@/lib/web3/routing";
 import { parseFriendlyError } from "@/components/transfer/useTransfer";
 import { ConnectedWallet, usePrivy } from "@privy-io/react-auth";
-import { calculatePaycrestBaseAmount } from "@/lib/paycrest/config";
 import { formatFiatShort, getCurrencySymbol } from "@/lib/currency-config";
 import { FIAT_ROUTING_PAD, totalDeducted } from "@/lib/ramp/fees";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -336,7 +335,11 @@ export function useDepositWithdraw(
         }
 
         setOffRampProvider(provider);
-        getProviderFeePercent(provider).then(setFeePercent).catch(() => setFeePercent(0));
+        // Asked per corridor: a currency with its own rate must not be quoted at the
+        // standard one and then deducted at the other.
+        getProviderFeePercent(provider, fiatCurrency)
+          .then(setFeePercent)
+          .catch(() => setFeePercent(0));
         // Flat provider fee for this corridor (Bitnob only). Fetched alongside the provider so
         // it is known before the amount is validated, not after the order exists.
         getCorridorFeeAction(provider, fiatCurrency)
@@ -591,11 +594,11 @@ export function useDepositWithdraw(
       return;
     }
 
-    // Check estimated USDC > 1 (after fees)
-    const baseAmount = calculatePaycrestBaseAmount(val, feePercent);
-    const estimatedUsdc = baseAmount / (rate || 1);
+    // Deposits carry no fee, so the whole amount converts. The floor is about the result
+    // being worth delivering on-chain at all, not about covering a deduction.
+    const estimatedUsdc = val / (rate || 1);
     if (estimatedUsdc <= 1) {
-      toast.error("That amount is too small after fees. Please enter a little more.");
+      toast.error("That amount is too small. Please enter a little more.");
       return;
     }
 
