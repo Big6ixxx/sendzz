@@ -14,7 +14,10 @@
  * than returning empty, and a referral is never worth breaking the landing page over.
  */
 
-import { normalizeReferralCode } from './code';
+// From code-format, NOT code: the latter imports the Supabase service-role client, and
+// pulling that into a browser bundle throws at module evaluation and takes the landing page
+// down for everyone. See the header of code-format.ts.
+import { normalizeReferralCode } from './code-format';
 
 const STORAGE_KEY = 'sendzz.referral';
 /**

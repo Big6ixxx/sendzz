@@ -1,36 +1,18 @@
 /**
- * The code a referrer hands out.
+ * Minting and looking up referral codes.
  *
- * It is read aloud, retyped from a screenshot, and pasted out of a WhatsApp message with a
- * stray space on the end. Everything here follows from that:
- *
- *   * No characters that look like other characters. 0/O and 1/I/L are the classic ones, and
- *     a referral that silently fails to attribute is worse than one that fails loudly — the
- *     referrer never finds out, and blames us for not paying.
- *   * Compared case-insensitively, because nobody preserves case when retyping.
- *   * Short enough to say out loud. Eight characters from this alphabet is ~28 bits, which is
- *     ample when the only thing guessing a code buys you is crediting somebody else.
+ * SERVER ONLY — this imports the Supabase service-role client. What a code LOOKS like lives in
+ * code-format.ts, which has no database behind it, because the browser needs to read a `?ref=`
+ * off the landing-page URL before any account exists. Importing this module from a client
+ * component takes the whole page down; see the header of code-format.ts for why.
  */
 
 import { supabaseAdmin } from '@/lib/supabase/adminClient';
+import { normalizeReferralCode, randomReferralCode } from './code-format';
 
-/** No O, 0, I, 1 or L. See above — these are the pairs people get wrong. */
-const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-const CODE_LENGTH = 8;
-
-/** Tidy up whatever the user pasted. Returns null when nothing usable is left. */
-export function normalizeReferralCode(raw: string | null | undefined): string | null {
-  if (!raw) return null;
-  const cleaned = raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (cleaned.length < 4 || cleaned.length > 16) return null;
-  return cleaned;
-}
-
-function randomCode(): string {
-  const bytes = new Uint8Array(CODE_LENGTH);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => ALPHABET[b % ALPHABET.length]).join('');
-}
+// Re-exported so existing server callers keep one import. The definition lives in
+// code-format.ts, which the browser can safely reach.
+export { normalizeReferralCode } from './code-format';
 
 /**
  * This user's code, minting one the first time it is asked for.
@@ -51,7 +33,7 @@ export async function ensureReferralCode(userId: string): Promise<string> {
   if (existing?.referral_code) return existing.referral_code;
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    const code = randomCode();
+    const code = randomReferralCode();
     const { error } = await supabaseAdmin
       .from('users')
       .update({ referral_code: code })
