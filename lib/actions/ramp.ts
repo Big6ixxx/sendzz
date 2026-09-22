@@ -613,6 +613,10 @@ export async function executeOffRamp(params: {
           created.provider === "bitnob" ? created.providerAccount?.receiveAddress : undefined,
         feeUsdc: feeCfg.percent > 0 ? fee : undefined,
         feePercent: feeCfg.percent > 0 ? feeCfg.percent : undefined,
+        // What the provider itself deducts on this corridor. Subtracted from our fee before a
+        // referral commission is worked out, so a corridor that costs more to serve cannot
+        // fund a commission out of margin that is not there.
+        corridorFeeUsdc: getCorridorFee(provider, params.fiatCurrency),
         memo: params.bank.memo || undefined,
       });
 

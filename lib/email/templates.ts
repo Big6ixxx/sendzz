@@ -647,6 +647,72 @@ export function transferSentTemplate(
  * Security Alert Template
  * Used when a security setting changes (2FA on/off, passkey added/removed).
  */
+/** Minimal escape for values interpolated into these templates. */
+function esc(value: string): string {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * "You just earned something."
+ *
+ * The feedback loop that turns a casual referrer into an active one. It is sent the moment a
+ * commission is recorded, not at month end, because a balance that ticks up while you watch is
+ * what makes people share a link again — a monthly statement is a payroll slip, and nobody
+ * forwards a payroll slip to their group chat.
+ *
+ * Two numbers, deliberately: what this one earned, and what is waiting. The second is the one
+ * that grows, and watching it approach the payout threshold is the thing worth coming back for.
+ */
+export function referralEarningTemplate(
+  amountUsdc: number,
+  pendingUsdc: number,
+  tier: string,
+  minimumPayoutUsdc: number,
+): string {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
+  const toGo = Math.max(0, minimumPayoutUsdc - pendingUsdc);
+
+  return baseTemplate(`
+    <div style="text-align: center;">
+      <p style="font-size: 15px; color: #555555; margin: 0 0 8px 0;">Someone you invited just cashed out</p>
+      <h1 style="font-size: 44px; font-weight: 950; color: #006633; margin: 0 0 4px 0; letter-spacing: -2px;">+$${amountUsdc.toFixed(2)}</h1>
+      <p style="font-size: 14px; color: #888888; margin: 0 0 32px 0;">added to your referral balance</p>
+
+      <div style="background-color: #F4F7F4; border-radius: 16px; padding: 22px; margin: 0 0 24px 0;">
+        <p style="font-size: 11px; font-weight: 700; color: #707070; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 6px 0;">Waiting to be paid</p>
+        <p style="font-size: 30px; font-weight: 900; color: #111111; margin: 0; letter-spacing: -1px;">$${pendingUsdc.toFixed(2)}</p>
+        <p style="font-size: 13px; color: #707070; margin: 10px 0 0 0;">
+          ${
+            toGo > 0
+              ? `$${toGo.toFixed(2)} more and it goes straight to your Sendzz wallet.`
+              : 'This is on its way to your Sendzz wallet — nothing for you to claim.'
+          }
+        </p>
+      </div>
+
+      <p style="font-size: 14px; line-height: 1.7; color: #3f3f3f; margin: 0 0 24px 0;">
+        You are on <strong>${esc(tier)}</strong>. Every time someone you invited withdraws to
+        their bank, you earn a share — it comes out of what Sendzz makes, never out of theirs.
+      </p>
+
+      <table width="100%" border="0" cellpadding="0" cellspacing="0">
+        <tr>
+          <td align="center">
+            <a href="${appUrl}/dashboard/referrals" target="_blank" rel="noopener noreferrer"
+               style="background-color:#006633;color:#ffffff !important;padding:14px 32px;border-radius:12px;font-size:14px;font-weight:800;text-decoration:none;display:inline-block;">
+              See your referrals
+            </a>
+          </td>
+        </tr>
+      </table>
+    </div>
+  `);
+}
+
 export function securityAlertTemplate(title: string, body: string): string {
   return baseTemplate(`
     <div style="text-align: center;">

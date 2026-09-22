@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 import { verifyBitnobSignature } from '@/lib/bitnob/webhook-signature';
 import { triggerWithdrawalNotifications } from '@/lib/supabase/transactions';
+import { accrueReferralEarning, voidReferralEarning } from '@/lib/referrals/accrue';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -502,6 +503,11 @@ export async function POST(req: Request) {
           return new Response('Internal error', { status: 500 });
         }
         await triggerWithdrawalNotifications(rpcOrderId, 'completed');
+
+        // The money reached a bank, so it earned us a fee, so a referrer may be owed a share.
+        // Never throws and never fails this webhook; a redelivery is a no-op, because the
+        // earnings row is unique per withdrawal.
+        await accrueReferralEarning({ providerOrderId: rpcOrderId });
       } else {
         const { error } = await supabaseAdmin.rpc('finalize_withdrawal_failed', {
           p_paycrest_order_id: rpcOrderId,
@@ -519,6 +525,10 @@ export async function POST(req: Request) {
         } else {
           await triggerWithdrawalNotifications(rpcOrderId, 'failed');
         }
+
+        // A payout that did not happen earned nothing, so any commission accrued on it is
+        // released. Only touches rows still owed — one already paid out stays paid.
+        await voidReferralEarning({ providerOrderId: rpcOrderId });
       }
       handled = true;
     } else {

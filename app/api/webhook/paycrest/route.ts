@@ -1,4 +1,5 @@
 import { Database, Json } from '@/types/database';
+import { accrueReferralEarning, voidReferralEarning } from '@/lib/referrals/accrue';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 import { clearOnchainDepositShadow, triggerWithdrawalNotifications } from '@/lib/supabase/transactions';
@@ -205,6 +206,12 @@ export async function POST(req: Request) {
         }
         console.log(`[Paycrest Webhook] [${requestId}] Withdrawal ${orderId} finalized`);
         await triggerWithdrawalNotifications(orderId, 'completed');
+
+        // The money reached a bank, so it earned us a fee, so a referrer may be owed a share.
+        // Awaited rather than fired off, so it runs before the function can be frozen — but it
+        // never throws and never fails this webhook, whose real job is the payout above. A
+        // redelivery is a no-op: the earnings row is unique per withdrawal.
+        await accrueReferralEarning({ providerOrderId: orderId });
         handled = true;
 
       } else if (status && ['failed', 'refunded', 'expired', 'refunding'].includes(status)) {
@@ -231,6 +238,11 @@ export async function POST(req: Request) {
         } else {
           await triggerWithdrawalNotifications(orderId, 'failed');
         }
+        // A payout that did not happen earned nothing, so any commission accrued on it is
+        // released. Only ever touches rows still owed — a commission already paid out stays
+        // paid; see voidReferralEarning.
+        await voidReferralEarning({ providerOrderId: orderId });
+
         console.warn(`[Paycrest Webhook] [${requestId}] Withdrawal ${orderId} finalized as ${finalStatus} — reason=${reason}`);
         handled = true;
 

@@ -3,7 +3,7 @@
 import { Resend } from 'resend';
 import { redactEmail } from '@/lib/log';
 import type { ReceiptData } from '@/lib/receipt/types';
-import { claimTransferTemplate, transferReceivedTemplate, depositConfirmedTemplate, bridgeCompletedTemplate, withdrawalCompletedTemplate, securityAlertTemplate, transferSentTemplate } from './templates';
+import { claimTransferTemplate, transferReceivedTemplate, depositConfirmedTemplate, bridgeCompletedTemplate, withdrawalCompletedTemplate, securityAlertTemplate, transferSentTemplate, referralEarningTemplate } from './templates';
 import { userWantsEmail } from '@/lib/supabase/emailPrefs';
 
 export interface SendEmailOptions {
@@ -209,6 +209,37 @@ export async function sendWithdrawalEmail(
 /**
  * Send Security Alert Email if enabled by user
  */
+/**
+ * Tell a referrer they just earned a commission.
+ *
+ * Not gated on a notification preference, because there is no preference for this yet and a
+ * silent earning defeats the purpose of the programme. If one is added later it belongs here,
+ * alongside the others.
+ *
+ * Never throws: this runs off the back of a ledger write inside a payout webhook, and an email
+ * failure must not disturb either.
+ */
+export async function sendReferralEarningEmail(
+  recipientEmail: string,
+  amountUsdc: number,
+  pendingUsdc: number,
+  tier: string,
+): Promise<void> {
+  try {
+    const minimumPayout = Number(process.env.REFERRAL_MIN_PAYOUT_USDC) || 5;
+    const result = await sendEmail({
+      to: recipientEmail,
+      subject: `You earned $${amountUsdc.toFixed(2)} from a referral`,
+      html: referralEarningTemplate(amountUsdc, pendingUsdc, tier, minimumPayout),
+    });
+    if (!result.success) {
+      console.error('[sendReferralEarningEmail] Failed to send email:', result.error);
+    }
+  } catch (err) {
+    console.error('[sendReferralEarningEmail] Error:', err);
+  }
+}
+
 export async function sendSecurityEmail(
   recipientEmail: string,
   title: string,

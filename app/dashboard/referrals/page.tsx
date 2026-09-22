@@ -37,7 +37,11 @@ interface ReferralSummary {
   pendingUsdc: number;
   paidUsdc: number;
   minimumPayoutUsdc: number;
-  sharePercent: number;
+  tier: 'bronze' | 'silver' | 'gold';
+  /** What they earn, as a percentage of what their network withdraws. */
+  tierRatePercent: number;
+  monthlyVolumeUsdc: number;
+  nextTier: { name: string; ratePercent: number; volumeNeededUsdc: number } | null;
   payouts: PayoutRow[];
 }
 
@@ -128,7 +132,7 @@ export default function ReferralsPage() {
     <div className="space-y-8 max-w-3xl">
       <DashboardPageHeader
         title="Refer & Earn"
-        subtitle="Share Sendzz, earn a cut of what we make"
+        subtitle="Share Sendzz, earn on every cash-out your people make"
       />
 
       {/* ── The link ──────────────────────────────────────────────────────── */}
@@ -169,11 +173,37 @@ export default function ReferralsPage() {
       </div>
 
       {/* ── What it has earned ────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <Stat label="Your tier" value={TIER_LABELS[data.tier]} />
         <Stat label="People joined" value={String(data.referredCount)} />
         <Stat label="Waiting to be paid" value={`$${data.pendingUsdc.toFixed(2)}`} />
         <Stat label="Paid to your wallet" value={`$${data.paidUsdc.toFixed(2)}`} />
       </div>
+
+      {/* Progress towards the next tier. Only shown when there is one to reach — a Gold
+          affiliate being told they are 0% of the way to nothing is worse than silence. */}
+      {data.nextTier && (
+        <div className="card-glass p-6 space-y-3">
+          <div className="flex items-baseline justify-between gap-4">
+            <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-brand-secondary/35">
+              Next tier
+            </p>
+            <p className="text-[12px] text-brand-secondary/50">
+              ${data.monthlyVolumeUsdc.toLocaleString()} withdrawn this month
+            </p>
+          </div>
+          <p className="text-[13.5px] text-brand-secondary/80 leading-relaxed">
+            <span className="font-semibold text-brand-secondary">
+              ${data.nextTier.volumeNeededUsdc.toLocaleString()} more
+            </span>{' '}
+            in cash-outs from the people you invited and you reach{' '}
+            <span className="font-semibold text-brand-secondary">
+              {TIER_LABELS[data.nextTier.name as keyof typeof TIER_LABELS] ?? data.nextTier.name}
+            </span>
+            , which pays {data.nextTier.ratePercent}% instead of {data.tierRatePercent}%.
+          </p>
+        </div>
+      )}
 
       {/* ── How it works, in plain words ──────────────────────────────────── */}
       <div className="card-glass p-6 md:p-8 space-y-4">
@@ -183,16 +213,16 @@ export default function ReferralsPage() {
 
         <div className="space-y-3.5">
           <Point
-            title="You earn when they add money by bank transfer"
-            body={
-              data.sharePercent > 0
-                ? `Sendzz charges a small fee on those deposits, and you keep ${data.sharePercent}% of that fee. It comes out of what we make, never out of their money — they pay exactly the same whether they used your link or not.`
-                : 'Sendzz charges a small fee on those deposits, and you keep a share of that fee. It comes out of what we make, never out of their money.'
-            }
+            title="You earn when they cash out to a bank"
+            body={`You keep ${data.tierRatePercent}% of every withdrawal the people you invited make. It comes out of the fee Sendzz charges, never out of their money — they pay exactly the same whether they used your link or not.`}
           />
           <Point
-            title="Deposits made in crypto don't earn anything"
-            body="Sending USDC straight to a wallet costs nothing and earns Sendzz nothing, so there's no fee to share. Only bank deposits count."
+            title="Your rate doesn't change with theirs"
+            body={`Some countries cost us more to pay out to, so the fee there is higher. Your ${data.tierRatePercent}% stays the same either way — you are never paid less because of where someone banks.`}
+          />
+          <Point
+            title="Adding money is free, so it earns nothing"
+            body="Deposits carry no fee at all — there's nothing for us to share on the way in. Only cash-outs count, and only those above $50."
           />
           <Point
             title="We pay into your Sendzz wallet automatically"
@@ -276,6 +306,12 @@ export default function ReferralsPage() {
 function receiptUrl(payout: PayoutRow): string | null {
   return payout.txHash ? explorerTxUrl(payout.chain, payout.txHash) : null;
 }
+
+const TIER_LABELS = {
+  bronze: 'Bronze',
+  silver: 'Silver',
+  gold: 'Gold',
+} as const;
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
