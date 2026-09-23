@@ -1172,7 +1172,6 @@ export default function SettingsPage() {
       <TOTPSetupWizard
         open={totpSetupOpen}
         onOpenChange={setTotpSetupOpen}
-        email={userEmail}
         onComplete={() => {
           fetchSecurityPrefs();
           toast.success("Authenticator app enabled");
@@ -1258,7 +1257,6 @@ export default function SettingsPage() {
       <PasskeySetupWizard
         open={passkeySetupOpen}
         onOpenChange={setPasskeySetupOpen}
-        email={userEmail}
         onComplete={refreshSecurityStatus}
       />
 
@@ -1266,7 +1264,6 @@ export default function SettingsPage() {
       <PasskeySetupWizard
         open={pinSetupOpen}
         onOpenChange={setPinSetupOpen}
-        email={userEmail}
         initialMethod="pin"
         onComplete={refreshSecurityStatus}
       />
@@ -1274,6 +1271,8 @@ export default function SettingsPage() {
       <ForgotPinDialog
         open={forgotPinOpen}
         onOpenChange={setForgotPinOpen}
+        // Shown to the user ("code goes to ..."), not used to address the mail — the server
+        // sends to the session's own address regardless.
         email={userEmail}
         onReset={refreshSecurityStatus}
       />

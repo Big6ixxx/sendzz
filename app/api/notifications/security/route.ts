@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { requireUser } from '@/lib/auth/session';
 import { createNotification } from '@/lib/supabase/notifications';
 import { sendSecurityEmail } from '@/lib/email/sendEmail';
 
@@ -24,10 +25,22 @@ const SECURITY_MESSAGES: Record<string, { title: string; body: string }> = {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { email, event } = body;
+    const { event } = body;
 
-    if (!email || !event) {
-      return NextResponse.json({ error: 'Email and event are required' }, { status: 400 });
+    if (!event) {
+      return NextResponse.json({ error: 'event is required' }, { status: 400 });
+    }
+
+    // ── Identity from the session ─────────────────────────────────────────
+    //
+    // This sends a security alert to whoever it names. Open, it was a way to send convincing
+    // "a passkey was removed from your account" mail to any Sendzz user from Sendzz itself —
+    // the perfect setup for a phone call that follows it.
+    let email: string;
+    try {
+      ({ email } = await requireUser());
+    } catch {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const message = SECURITY_MESSAGES[event];

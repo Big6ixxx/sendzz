@@ -147,7 +147,7 @@ export function TwoFactorModal({
       const res = await fetch("/api/2fa/passkey/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: userEmail, action: "generate-options" }),
+        body: JSON.stringify({ action: "generate-options" }),
       });
 
       const data = await res.json();
@@ -161,7 +161,6 @@ export function TwoFactorModal({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: userEmail,
           action: "verify-authentication",
           credential: authResponse,
           challengeId,

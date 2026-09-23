@@ -1,4 +1,5 @@
-import { createAdminClient, createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/server';
+import { requireUserId } from '@/lib/auth/session';
 import crypto from 'crypto';
 import { NextResponse } from 'next/server';
 
@@ -14,13 +15,18 @@ export async function POST(req: Request) {
     }
 
     // Authenticate the recipient via their Privy/Supabase session
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+    // ── Privy, not Supabase Auth ────────────────────────────────────────────
+    //
+    // This authenticated against `supabase.auth.getUser()`, which nothing else in the product
+    // uses — users are provisioned in Privy, so no session ever existed here and the route was
+    // unreachable in production. It read as authenticated while being, in practice, dead.
+    //
+    // `requireUserId` returns the `users.id` the RPC below already expects, which is what
+    // `auth.getUser()` was standing in for.
+    let session: Awaited<ReturnType<typeof requireUserId>>;
+    try {
+      session = await requireUserId();
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -62,7 +68,7 @@ export async function POST(req: Request) {
 
     // Call the atomic RPC to credit the recipient and unlock the sender
     const { error: rpcError } = await adminSupabase.rpc('claim_transfer', {
-      p_recipient_id: user.id,
+      p_recipient_id: session.userId,
       p_claim_token_hash: tokenHash,
     });
 

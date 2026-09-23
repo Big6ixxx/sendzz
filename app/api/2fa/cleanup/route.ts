@@ -1,18 +1,17 @@
 import { NextResponse } from "next/server";
+import { rejectUnauthorizedCron } from "@/lib/auth/cron";
 import { cleanupExpiredOTPs } from "@/lib/twoFactor";
 
 export async function POST(req: Request) {
   try {
-    // Simple auth check - in production, use proper API key or cron secret
-    const authHeader = req.headers.get("authorization");
-    const cronSecret = process.env.CRON_SECRET;
-    
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 },
-      );
-    }
+    // Uses the shared cron gate, which fails CLOSED.
+    //
+    // This used to read `if (cronSecret && header !== ...)`, so a deployment with no
+    // CRON_SECRET skipped the comparison and served everybody — while looking perfectly
+    // healthy. That is the precise bug lib/auth/cron.ts was written to end, and this route
+    // had its own copy of it.
+    const unauthorized = rejectUnauthorizedCron(req);
+    if (unauthorized) return unauthorized;
 
     await cleanupExpiredOTPs();
 

@@ -1,10 +1,22 @@
 import { NextResponse } from 'next/server';
+import { requireUser } from '@/lib/auth/session';
 import { getEmailNotifPrefs, saveEmailNotifPrefs, DEFAULT_PREFS } from '@/lib/supabase/emailPrefs';
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const email = searchParams.get('email');
-  if (!email) return NextResponse.json({ prefs: DEFAULT_PREFS });
+/**
+ * Which emails a user wants. Identity from the session on both halves.
+ *
+ * These were keyed on an email from the request. The write half is the one that matters: an
+ * attacker could silence somebody's SECURITY alerts and then take their time, with the victim
+ * never told that anything had changed. The read half leaked whether an address has an
+ * account at all.
+ */
+export async function GET() {
+  let email: string;
+  try {
+    ({ email } = await requireUser());
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
 
   try {
     const prefs = await getEmailNotifPrefs(email);
@@ -18,8 +30,16 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { email, prefs } = body;
-    if (!email || !prefs) return NextResponse.json({ error: 'email and prefs required' }, { status: 400 });
+    const { prefs } = body;
+    if (!prefs) return NextResponse.json({ error: 'prefs required' }, { status: 400 });
+
+    let email: string;
+    try {
+      ({ email } = await requireUser());
+    } catch {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     await saveEmailNotifPrefs(email, prefs);
     return NextResponse.json({ success: true });
   } catch (err: unknown) {

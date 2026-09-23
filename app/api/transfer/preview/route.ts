@@ -1,6 +1,7 @@
 import { createAdminClient, createClient } from '@/lib/supabase/server';
 import crypto from 'crypto';
 import { NextResponse } from 'next/server';
+import { requireUser } from '@/lib/auth/session';
 
 /**
  * GET /api/transfer/preview?token=<rawToken>
@@ -10,6 +11,15 @@ import { NextResponse } from 'next/server';
  */
 export async function GET(req: Request) {
   try {
+
+    // Signed-in callers only.
+    //
+    // Prices a transfer using our rate and RPC calls. Free to anyone who knew the URL.
+    try {
+      await requireUser();
+    } catch {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     const { searchParams } = new URL(req.url);
     const token = searchParams.get('token');
 

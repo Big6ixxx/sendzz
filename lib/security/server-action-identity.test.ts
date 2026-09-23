@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 /**
- * Identity comes from the session, never from an argument.
+ * Identity comes from the session, never from an argument — in server actions AND routes.
  *
  * Thirteen of the eighteen findings in the security audit were one mistake wearing different
  * hats: a `'use server'` export that took an email or a user id and trusted it. Every export in
@@ -11,9 +11,13 @@ import path from 'node:path';
  * `registerUserAddress(email, address)` was an open API for redirecting somebody else's money,
  * and the 2FA routes were an open API for switching off their protections.
  *
- * Fixing the thirteen does not stop the fourteenth. This does: it walks every `'use server'`
- * module and fails when an export takes a caller-supplied identity without deriving one from
- * the session. A test rather than a convention, because a convention is what let this happen.
+ * Fixing the thirteen does not stop the fourteenth. This does, from two directions:
+ *
+ *   1. every `'use server'` module, failing when an export takes a caller-supplied identity
+ *      without deriving one from the session;
+ *   2. every route under app/api, failing when it has no gate at all.
+ *
+ * A test rather than a convention, because a convention is what let this happen.
  */
 
 const ROOTS = ['lib', 'app', 'components', 'hooks'];
@@ -97,6 +101,46 @@ describe('server actions resolve identity from the session', () => {
           `Take the identity from requireUser()/requireUserId() instead. If the argument is ` +
           `genuinely about somebody ELSE — a transfer recipient, say — add it to EXEMPT in ` +
           `this file with the reason.`
+        : '',
+    ).toEqual([]);
+  });
+});
+
+/**
+ * Anything that decides whether a caller may proceed. Webhooks verify a signature rather than
+ * a session, and cron endpoints a shared secret — different proofs, same obligation.
+ */
+const ROUTE_GATES =
+  /\b(requireUser|requireUserId|requireAdmin|getVerifiedIdentity|rejectUnauthorizedCron|authorizeSecurityChange|consumeAuthorization|verifyBitnobSignature|verifyWebhookSignature)\b|x-paycrest-signature/;
+
+/**
+ * Routes that are deliberately open, each with a reason.
+ *
+ * Empty today. An entry here is a claim that the endpoint is safe to serve anonymously — not
+ * that nobody has got round to it yet.
+ */
+const OPEN_ROUTES: Record<string, string> = {};
+
+describe('every API route decides whether the caller may proceed', () => {
+  const routes = walk('app/api').filter((f) => /route\.tsx?$/.test(f));
+
+  it('finds the routes at all', () => {
+    expect(routes.length).toBeGreaterThan(20);
+  });
+
+  it('has no route without a gate', () => {
+    const ungated = routes
+      .filter((f) => !ROUTE_GATES.test(fs.readFileSync(f, 'utf8')))
+      .map((f) => f.split(path.sep).join('/'))
+      .filter((f) => !OPEN_ROUTES[f]);
+
+    expect(
+      ungated,
+      ungated.length
+        ? `These routes serve anyone who knows the URL:\n\n  ${ungated.join('\n  ')}\n\n` +
+          `Add a session check (requireUser), an admin check, a cron secret, or a webhook ` +
+          `signature. If the route is genuinely meant to be public, add it to OPEN_ROUTES ` +
+          `in this file with the reason.`
         : '',
     ).toEqual([]);
   });

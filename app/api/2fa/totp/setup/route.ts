@@ -1,12 +1,23 @@
 import { NextResponse } from "next/server";
+import { requireUser } from "@/lib/auth/session";
 import { supabaseAdmin } from "@/lib/supabase/adminClient";
 import { generateTOTPSecret, generateTOTPUri } from "@/lib/totp";
 import { encrypt } from "@/lib/encryption";
 
-export async function POST(req: Request) {
+export async function POST() {
   try {
-    const body = await req.json();
-    const { email } = body;
+    // ── Identity from the session, never the body ───────────────────────────
+    //
+    // This route mints a TOTP secret and stores it against an account. Taking the email
+    // from the body meant anyone could pair THEIR authenticator to somebody else's
+    // account — handing themselves a factor on a wallet they do not own.
+    let email: string;
+    try {
+      ({ email } = await requireUser());
+    } catch {
+      return NextResponse.json({ error: "Please sign in again." }, { status: 401 });
+    }
+
 
     if (!email) {
       return NextResponse.json({ error: "Email is required" }, { status: 400 });

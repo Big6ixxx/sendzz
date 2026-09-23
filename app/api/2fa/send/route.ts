@@ -1,18 +1,31 @@
 import { NextResponse } from "next/server";
+import { requireUser } from "@/lib/auth/session";
 import { generateAndSend2FA } from "@/lib/twoFactor";
 
 export async function POST(req: Request) {
   try {
-    const { userEmail, actionType, payload } = await req.json();
+    const { actionType, payload } = await req.json();
+    // ── Identity from the session, never the body ───────────────────────────
+    //
+    // This route used to take an email and trust it, so anyone could flood anyone's inbox
+    // with codes — and probe which addresses have accounts by watching which calls
+    // succeeded.
+    let email: string;
+    try {
+      ({ email } = await requireUser());
+    } catch {
+      return NextResponse.json({ error: "Please sign in again." }, { status: 401 });
+    }
 
-    if (!userEmail || !actionType || !payload) {
+
+    if (!email || !actionType || !payload) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 },
       );
     }
 
-    const id = await generateAndSend2FA(userEmail, actionType, payload);
+    const id = await generateAndSend2FA(email, actionType, payload);
 
     return NextResponse.json({ success: true, otp_id: id });
   } catch (error: unknown) {

@@ -20,7 +20,6 @@ import {
 interface PasskeySetupWizardProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  email: string;
   onComplete: () => void;
   /**
    * Skip the chooser and set up this method directly.
@@ -129,7 +128,6 @@ function explainPasskeyError(name: string, raw: string): string {
 export function PasskeySetupWizard({
   open,
   onOpenChange,
-  email,
   onComplete,
   initialMethod,
 }: PasskeySetupWizardProps) {
@@ -159,7 +157,7 @@ export function PasskeySetupWizard({
       const res = await fetch("/api/2fa/passkey/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, action: "generate-options" }),
+        body: JSON.stringify({ action: "generate-options" }),
       });
 
       const data = await res.json();
@@ -172,7 +170,6 @@ export function PasskeySetupWizard({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email,
           action: "verify-registration",
           credential: registrationResponse,
           challengeId,

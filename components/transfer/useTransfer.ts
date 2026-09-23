@@ -350,7 +350,6 @@ export function useTransfer({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            email: senderEmail,
             token: code,
             method: "totp",
           }),
@@ -362,7 +361,6 @@ export function useTransfer({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            userEmail: senderEmail,
             otp_id: twoFaOtpId,
             otp_code: code,
           }),
@@ -392,7 +390,6 @@ export function useTransfer({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userEmail: senderEmail,
           actionType: "transfer",
           payload: { amount: valUsdc, recipientEmail, note: memo },
         }),

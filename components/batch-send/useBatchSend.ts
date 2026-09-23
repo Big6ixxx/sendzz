@@ -229,7 +229,6 @@ export function useBatchSend(
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            email: senderEmail,
             token: code,
             method: "totp",
           }),
@@ -241,7 +240,6 @@ export function useBatchSend(
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            userEmail: senderEmail,
             otp_id: twoFaOtpId,
             otp_code: code,
           }),
@@ -270,7 +268,6 @@ export function useBatchSend(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userEmail: senderEmail,
           actionType: "transfer",
           payload: { amount: totalAmount, recipientEmail: "batch", note },
         }),

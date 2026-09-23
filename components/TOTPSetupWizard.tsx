@@ -17,7 +17,6 @@ import { parseAppError } from "@/lib/errors/appErrors";
 interface TOTPSetupWizardProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  email: string;
   onComplete: () => void;
 }
 
@@ -26,7 +25,6 @@ type Step = "intro" | "qr" | "verify" | "success";
 export function TOTPSetupWizard({
   open,
   onOpenChange,
-  email,
   onComplete,
 }: TOTPSetupWizardProps) {
   const [step, setStep] = useState<Step>("intro");
@@ -46,7 +44,7 @@ export function TOTPSetupWizard({
       const res = await fetch("/api/2fa/totp/setup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({}),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Setup failed");
@@ -73,7 +71,7 @@ export function TOTPSetupWizard({
       const res = await fetch("/api/2fa/totp/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, token: verificationCode }),
+        body: JSON.stringify({ token: verificationCode }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Verification failed");
@@ -84,7 +82,7 @@ export function TOTPSetupWizard({
     } finally {
       setLoading(false);
     }
-  }, [verificationCode, email]);
+  }, [verificationCode]);
 
   const handleComplete = useCallback(() => {
     onComplete();

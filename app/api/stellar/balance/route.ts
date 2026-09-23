@@ -7,8 +7,19 @@
 
 import { getStellarUsdcBalance, getStellarXlmBalance } from '@/lib/stellar/transactions';
 import { NextRequest, NextResponse } from 'next/server';
+import { requireUser } from '@/lib/auth/session';
 
 export async function GET(req: NextRequest) {
+
+    // Signed-in callers only.
+    //
+    // Public chain data, but our RPC quota. A session ends the anonymous case; rate limiting is
+    // what would bound the rest.
+    try {
+      await requireUser();
+    } catch {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
   const address = req.nextUrl.searchParams.get('address');
 
   if (!address || !address.startsWith('G')) {
