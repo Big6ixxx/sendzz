@@ -29,8 +29,8 @@ export async function POST(req: Request) {
 
     let userId: string | null = null;
     if (email) {
-      const { ensureUserInDatabase } = await import("@/lib/supabase/users");
-      userId = await ensureUserInDatabase(email);
+      const { ensureUserRecord } = await import("@/lib/supabase/user-records");
+      userId = await ensureUserRecord(email);
     }
 
     if (!userId) {

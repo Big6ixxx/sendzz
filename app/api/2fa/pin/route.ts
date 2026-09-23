@@ -48,6 +48,7 @@ const AUTHORIZATION_PURPOSES = [
   "withdrawal",
   "bridge",
   "batch_send",
+  "security_change",
 ] as const;
 
 function isAuthorizationPurpose(value: unknown): value is AuthorizationPurpose {

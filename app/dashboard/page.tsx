@@ -12,7 +12,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { registerUserAddress } from "@/lib/supabase/users";
+import { registerMyAddresses } from "@/lib/supabase/users";
 import { clearReferral, readReferral } from "@/lib/referrals/client";
 import { cn } from "@/lib/utils";
 import { getCircleAddress } from "@/lib/web3/circle-client";
@@ -151,15 +151,13 @@ export default function Dashboard() {
           // was not honoured now it never will be, and retrying the same decision on every
           // future sign-in achieves nothing.
           const referralCode = readReferral();
-          registerUserAddress(
-            user.email.address,
+          // No email argument: the server takes it from the session. Passing one used to be
+          // the whole vulnerability — see the header of lib/supabase/users.ts.
+          registerMyAddresses({
             address,
-            embeddedSolWallet?.address,
-            undefined,
-            undefined,
-            undefined,
+            solanaAddress: embeddedSolWallet?.address,
             referralCode,
-          )
+          })
             .then(() => {
               if (referralCode) clearReferral();
             })
@@ -174,7 +172,7 @@ export default function Dashboard() {
       if (!user?.email?.address) return;
       try {
         const res = await fetch(
-          `/api/user/preferences?email=${encodeURIComponent(user.email.address)}`,
+          "/api/user/preferences",
         );
         if (res.ok) {
           const data = await res.json();
@@ -221,7 +219,6 @@ export default function Dashboard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: user.email.address,
           two_fa_nudge_dismissed_at: new Date().toISOString(),
         }),
       });

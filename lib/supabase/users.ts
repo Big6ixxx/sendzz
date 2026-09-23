@@ -1,172 +1,120 @@
 'use server';
 
-import { supabaseAdmin } from './adminClient';
+/**
+ * The account actions a signed-in user may take on their OWN record.
+ *
+ * Every export here is a POST endpoint that anyone can invoke once they know its action id.
+ * That is the whole reason this file looks the way it does.
+ *
+ * --- What was wrong -----------------------------------------------------------
+ *
+ * These used to take an email as their first argument and trust it:
+ *
+ *     registerUserAddress(email, address)   // upsert on email, no authentication
+ *
+ * Anyone could POST somebody else's email with an address of their own, and the victim's
+ * `smart_account_address` was rewritten. The next payment sent to that person — looked up by
+ * exactly this email, in useTransfer and batch-send — would be delivered to the attacker, and
+ * the victim's balance and deposit scanning would go quiet because both read the same column.
+ * No session, no ownership check, no trace.
+ *
+ * --- The rule now -------------------------------------------------------------
+ *
+ * Identity comes from the session; arguments say what to do, never who is doing it. There is
+ * no email parameter on a self-write, so there is nothing to forge.
+ *
+ * Work that is legitimately ABOUT somebody else — creating a wallet for a recipient who has
+ * never signed in — lives in lib/supabase/user-records.ts, which is not a server action and is
+ * reachable only from server code that has already decided the caller may act.
+ */
+
+import { requireUser } from '@/lib/auth/session';
+import {
+  readSmartAccountAddress,
+  writeUserAddresses,
+  type UserAddresses,
+} from './user-records';
 import { attributeReferral } from '@/lib/referrals/attribution';
 
-export async function ensureUserInDatabase(
-  email: string,
+/**
+ * Record the addresses of the signed-in user's own wallets.
+ *
+ * Called on every dashboard load once the smart account address has been derived. Idempotent:
+ * the same addresses written twice is a no-op upsert.
+ */
+export async function registerMyAddresses(input: {
+  address: string;
+  solanaAddress?: string;
+  stellarAddress?: string;
+  stellarWalletId?: string;
+  stellarSignerGranted?: boolean;
   /**
-   * The referral code this browser was carrying, if any.
-   *
-   * Only ever acted on for an account that has no referrer yet, so passing it on every
-   * sign-in is harmless — see lib/referrals/attribution.ts, where the rule is enforced, and
-   * migration 053, where the database enforces it again.
+   * The referral code this browser was carrying, if any. Honoured only for an account with no
+   * referrer yet — see lib/referrals/attribution.ts, and migration 053 where the database
+   * enforces the same rule again.
    */
-  referralCode?: string | null,
-): Promise<string> {
-  const normalizedEmail = email.toLowerCase();
-  const { data: existing } = await supabaseAdmin
-    .from("users")
-    .select("id")
-    .eq("email", normalizedEmail)
-    .maybeSingle();
+  referralCode?: string | null;
+  accessToken?: string;
+}): Promise<void> {
+  const { email } = await requireUser(input.accessToken);
 
-  if (existing?.id) {
-    // Existing account. Attribution still runs, because a user can be created by someone
-    // ELSE sending them money — `pre-generate` makes the row before they have ever signed in —
-    // and this is the first moment a code they clicked can be honoured.
-    if (referralCode) await attributeReferral({ userId: existing.id, code: referralCode });
-    return existing.id;
+  const userId = await writeUserAddresses(email, {
+    smartAccountAddress: input.address,
+    solanaAddress: input.solanaAddress,
+    stellarAddress: input.stellarAddress,
+    stellarWalletId: input.stellarWalletId,
+    stellarSignerGranted: input.stellarSignerGranted,
+  });
+
+  // After the row exists, never before. Attribution never throws — a referral that fails to
+  // land costs one commission, where an exception here would break sign-in itself.
+  if (input.referralCode && userId) {
+    await attributeReferral({ userId, code: input.referralCode });
   }
-
-  const { data: inserted, error } = await supabaseAdmin
-    .from("users")
-    .insert({ email: normalizedEmail, smart_account_address: "" })
-    .select("id")
-    .single();
-
-  if (error || !inserted) {
-    const { data: retry } = await supabaseAdmin
-      .from("users")
-      .select("id")
-      .eq("email", normalizedEmail)
-      .single();
-    if (retry?.id) {
-      if (referralCode) await attributeReferral({ userId: retry.id, code: referralCode });
-      return retry.id;
-    }
-    throw new Error(`Failed to ensure user in DB: ${error?.message}`);
-  }
-
-  if (referralCode) await attributeReferral({ userId: inserted.id, code: referralCode });
-
-  return inserted.id;
 }
 
-export async function getUserAddressByEmail(
+/** Record the signed-in user's own Stellar wallet. */
+export async function registerMyStellarAddress(input: {
+  stellarAddress: string;
+  stellarWalletId: string;
+  stellarSignerGranted?: boolean;
+  accessToken?: string;
+}): Promise<void> {
+  const { email } = await requireUser(input.accessToken);
+
+  await writeUserAddresses(email, {
+    stellarAddress: input.stellarAddress,
+    stellarWalletId: input.stellarWalletId,
+    stellarSignerGranted: input.stellarSignerGranted,
+  });
+}
+
+/**
+ * Where to send money for a given email — the recipient of a transfer.
+ *
+ * An email argument is correct here and cannot be removed: the whole point is to look up
+ * somebody OTHER than the caller. What it gains is a session requirement, which turns an open
+ * email-to-wallet oracle into one that costs an account.
+ *
+ * That is a real but partial mitigation, and worth being precise about: a signed-in attacker
+ * can still probe addresses one email at a time. Closing that properly needs rate limiting,
+ * which is a separate piece of work — this removes the anonymous bulk case, not the patient
+ * authenticated one.
+ *
+ * Returns null for an unknown email, which is inherent to the feature: the sender has to know
+ * whether to pre-generate a wallet for somebody who has never signed in.
+ */
+export async function lookupRecipientAddress(
   email: string,
+  accessToken?: string,
 ): Promise<string | null> {
-  const normalizedEmail = email.toLowerCase();
-  const { data, error } = await supabaseAdmin
-    .from('users')
-    .select('smart_account_address')
-    .eq('email', normalizedEmail)
-    .single();
-
-  if (error || !data) return null;
-  return data.smart_account_address;
-}
-export async function registerUserAddress(
-  email: string,
-  address: string,
-  solanaAddress?: string,
-  stellarAddress?: string,
-  stellarWalletId?: string,
-  stellarSignerGranted?: boolean,
-  /**
-   * The referral code this browser was carrying, if any.
-   *
-   * This is where referrals are actually attributed, because this — not
-   * `ensureUserInDatabase` — is what runs on first sign-in: the dashboard calls it as soon as
-   * the smart account address is derived. Honoured only for an account with no referrer yet.
-   */
-  referralCode?: string | null,
-): Promise<void> {
-  const normalizedEmail = email.toLowerCase();
-  const row: {
-    email: string;
-    smart_account_address: string;
-    solana_address?: string;
-    stellar_address?: string;
-    stellar_wallet_id?: string;
-    stellar_signer_granted?: boolean;
-  } = {
-    email: normalizedEmail,
-    smart_account_address: address,
-  };
-  if (solanaAddress) row.solana_address = solanaAddress;
-  if (stellarAddress) row.stellar_address = stellarAddress;
-  if (stellarWalletId) row.stellar_wallet_id = stellarWalletId;
-  if (stellarSignerGranted !== undefined) row.stellar_signer_granted = stellarSignerGranted;
-
-  const { data: upserted, error } = await supabaseAdmin
-    .from('users')
-    .upsert(row, { onConflict: 'email' })
-    .select('id')
-    .maybeSingle();
-
-  if (error) throw new Error(`Failed to map address: ${error.message}`);
-
-  // After the row exists, never before. Attribution never throws — a referral that does not
-  // land costs one commission, while an exception here would break sign-in itself.
-  if (referralCode && upserted?.id) {
-    await attributeReferral({ userId: upserted.id, code: referralCode });
-  }
+  await requireUser(accessToken);
+  return readSmartAccountAddress(email);
 }
 
-export async function registerStellarAddress(
-  email: string,
-  stellarAddress: string,
-  stellarWalletId: string,
-  stellarSignerGranted?: boolean,
-  _privyUserId?: string,
-): Promise<void> {
-  const normalizedEmail = email.toLowerCase();
-  const row: {
-    email: string;
-    stellar_address: string;
-    stellar_wallet_id: string;
-    stellar_signer_granted?: boolean;
-  } = {
-    email: normalizedEmail,
-    stellar_address: stellarAddress,
-    stellar_wallet_id: stellarWalletId,
-  };
-  if (stellarSignerGranted !== undefined) {
-    row.stellar_signer_granted = stellarSignerGranted;
-  }
-
-  const { error } = await supabaseAdmin
-    .from('users')
-    .upsert(row, { onConflict: 'email' });
-
-  if (error) throw new Error(`Failed to map Stellar address: ${error.message}`);
-}
-
-export async function getUserAddresses(
-  email: string,
-  _privyUserId?: string,
-): Promise<{
-  smart_account_address: string | null;
-  solana_address: string | null;
-  stellar_address: string | null;
-  stellar_wallet_id: string | null;
-  stellar_signer_granted: boolean;
-} | null> {
-  const normalizedEmail = email.toLowerCase();
-  const { data, error } = await supabaseAdmin
-    .from('users')
-    .select('smart_account_address, solana_address, stellar_address, stellar_wallet_id, stellar_signer_granted')
-    .eq('email', normalizedEmail)
-    .maybeSingle();
-
-  if (error || !data) return null;
-
-  return {
-    smart_account_address: data.smart_account_address,
-    solana_address: data.solana_address,
-    stellar_address: data.stellar_address,
-    stellar_wallet_id: data.stellar_wallet_id,
-    stellar_signer_granted: !!data.stellar_signer_granted,
-  };
+/** Every address the signed-in user holds. */
+export async function getMyAddresses(accessToken?: string): Promise<UserAddresses | null> {
+  const { email } = await requireUser(accessToken);
+  const { readUserAddresses } = await import('./user-records');
+  return readUserAddresses(email);
 }

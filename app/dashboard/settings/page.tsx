@@ -132,6 +132,9 @@ export default function SettingsPage() {
   const [pinEnabled, setPinEnabled] = useState(false);
   const [pinSetupOpen, setPinSetupOpen] = useState(false);
   const [forgotPinOpen, setForgotPinOpen] = useState(false);
+  // The threshold is confirmed with the PIN and then typed into a second dialog, so the token
+  // minted at confirmation has to survive until the value is actually submitted.
+  const [thresholdAuthorization, setThresholdAuthorization] = useState<string | null>(null);
   const [pinGate, setPinGate] = useState<PinGateRequest | null>(null);
 
   // Notification Preferences
@@ -223,7 +226,7 @@ export default function SettingsPage() {
     setIsSecurityLoading(true);
     try {
       const res = await fetch(
-        `/api/user/preferences?email=${encodeURIComponent(userEmail)}`,
+        "/api/user/preferences",
       );
       if (res.ok) {
         const data = await res.json();
@@ -291,17 +294,21 @@ export default function SettingsPage() {
   const updateSecurityPrefs = async (
     enabled: boolean,
     threshold: string,
+    authorization: string,
   ): Promise<boolean> => {
     if (!userEmail) return false;
     setIsUpdatingSecurity(true);
     try {
+      // No email in the body — the server takes it from the session. The authorization is a
+      // single-use token minted when the PIN was accepted, which the server requires before
+      // it will weaken anything.
       const res = await fetch("/api/user/preferences", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: userEmail,
           two_fa_enabled: enabled,
           two_fa_threshold: parseFloat(threshold || "0"),
+          authorization,
         }),
       });
       if (!res.ok) throw new Error("Failed to update");
@@ -317,14 +324,14 @@ export default function SettingsPage() {
     }
   };
 
-  const handleDisableTotp = async () => {
+  const handleDisableTotp = async (authorization: string) => {
     if (!userEmail) return;
     setIsUpdatingSecurity(true);
     try {
       const res = await fetch("/api/2fa/totp/disable", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: userEmail }),
+        body: JSON.stringify({ authorization }),
       });
       if (!res.ok) throw new Error("Failed to disable");
       toast.success("Authenticator app disabled");
@@ -344,10 +351,20 @@ export default function SettingsPage() {
 
   /** Saving a threshold is the same write as the toggle, with the same revert on failure. */
   const handleThresholdUpdate = async () => {
+    // Spent here rather than at confirmation: the token is bound to the threshold control and
+    // single-use, so a dialog opened and abandoned simply expires unspent.
+    const authorization = thresholdAuthorization;
+    if (!authorization) {
+      toast.error("That took too long. Confirm with your PIN again.");
+      setThresholdModalOpen(false);
+      return;
+    }
+
     const previous = twoFaThreshold;
     setTwoFaThreshold(thresholdValue);
     setThresholdModalOpen(false);
-    const ok = await updateSecurityPrefs(twoFaEnabled, thresholdValue);
+    setThresholdAuthorization(null);
+    const ok = await updateSecurityPrefs(twoFaEnabled, thresholdValue, authorization);
     if (!ok) setTwoFaThreshold(previous);
   };
 
@@ -384,14 +401,14 @@ export default function SettingsPage() {
   };
 
 
-  const handleDisablePasskey = async () => {
+  const handleDisablePasskey = async (authorization: string) => {
     if (!userEmail) return;
     setIsUpdatingSecurity(true);
     try {
       const res = await fetch("/api/2fa/passkey/disable", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: userEmail }),
+        body: JSON.stringify({ authorization }),
       });
       if (!res.ok) throw new Error("Failed to disable passkey");
       setPasskeyEnabled(false);
@@ -401,7 +418,7 @@ export default function SettingsPage() {
       fetch("/api/notifications/security", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: userEmail, event: "passkey_disabled" }),
+        body: JSON.stringify({ event: "passkey_disabled" }),
       }).catch(() => {});
     } catch {
       toast.error("Failed to disable passkey. Please try again.");
@@ -739,10 +756,11 @@ export default function SettingsPage() {
                           : "Large withdrawals will ask for a second check. Confirm with your PIN.",
                         confirmLabel: twoFaEnabled ? "Turn off" : "Turn on",
                         destructive: twoFaEnabled,
-                        run: () => {
+                        control: "two_fa",
+                        run: (authorization) => {
                           const checked = !twoFaEnabled;
                           setTwoFaEnabled(checked);
-                          updateSecurityPrefs(checked, twoFaThreshold);
+                          updateSecurityPrefs(checked, twoFaThreshold, authorization);
                         },
                       })}
                       disabled={isUpdatingSecurity}
@@ -761,7 +779,9 @@ export default function SettingsPage() {
                       description:
                         "Raising the threshold means more can be withdrawn without a second check. Confirm with your PIN.",
                       confirmLabel: "Continue",
-                      run: () => {
+                      control: "threshold",
+                      run: (authorization) => {
+                        setThresholdAuthorization(authorization);
                         setThresholdValue(twoFaThreshold);
                         setThresholdModalOpen(true);
                       },
@@ -813,6 +833,7 @@ export default function SettingsPage() {
                           "Codes from your authenticator app will no longer be accepted. You can pair an app again at any time.",
                         confirmLabel: "Remove app",
                         destructive: true,
+                        control: "totp",
                         run: handleDisableTotp,
                       })}
                       className="text-xs font-bold uppercase tracking-widest text-red-400 hover:text-red-300 transition-colors"
@@ -826,6 +847,7 @@ export default function SettingsPage() {
                         description:
                           "Confirm it is you before adding a new way to approve withdrawals.",
                         confirmLabel: "Continue",
+                        control: "totp",
                         run: () => setTotpSetupOpen(true),
                       })}
                       className="text-xs font-bold uppercase tracking-widest text-accent hover:text-accent/80 transition-colors"
@@ -857,6 +879,7 @@ export default function SettingsPage() {
                           "Every passkey on your account is removed. Withdrawals will fall back to your other methods.",
                         confirmLabel: "Remove passkey",
                         destructive: true,
+                        control: "passkey",
                         run: handleDisablePasskey,
                       })}
                       className="text-xs font-bold uppercase tracking-widest text-red-400 hover:text-red-300 transition-colors"
@@ -870,6 +893,7 @@ export default function SettingsPage() {
                         description:
                           "Confirm it is you before adding a new way to approve withdrawals.",
                         confirmLabel: "Continue",
+                        control: "passkey",
                         run: () => setPasskeySetupOpen(true),
                       })}
                       className="text-xs font-bold uppercase tracking-widest text-accent hover:text-accent/80 transition-colors"

@@ -22,6 +22,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+/** Which control is being changed. Binds the token, so one cannot be spent on another. */
+export type SecurityControl =
+  | "two_fa"
+  | "threshold"
+  | "totp"
+  | "passkey"
+  | "pin";
+
 export interface PinGateRequest {
   /** What the PIN is authorising, in the user's words. */
   title: string;
@@ -30,8 +38,16 @@ export interface PinGateRequest {
   confirmLabel: string;
   /** Whether the action is destructive, which the button colour follows. */
   destructive?: boolean;
-  /** Runs only after the PIN is accepted. */
-  run: () => Promise<void> | void;
+  /** The control this change touches. The minted token is bound to it. */
+  control: SecurityControl;
+  /**
+   * Runs only after the PIN is accepted, with a single-use token the server requires.
+   *
+   * The token is the point. Verifying the PIN here and then calling an unauthenticated
+   * endpoint proved nothing — the endpoint had no way to know a PIN had ever been entered,
+   * and anyone could call it directly. Now the server consumes this and refuses without it.
+   */
+  run: (authorization: string) => Promise<void> | void;
 }
 
 export function PinGate({
@@ -60,16 +76,23 @@ export function PinGate({
       const res = await fetch("/api/2fa/pin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "verify", pin }),
+        body: JSON.stringify({
+          action: "authorize",
+          pin,
+          purpose: "security_change",
+          // Bound to the control being changed, so a token minted to unpair an
+          // authenticator cannot be spent removing a passkey.
+          payload: { destination: request.control, amount: 0 },
+        }),
       });
       const data = await res.json();
-      if (!res.ok) {
+      if (!res.ok || !data.authorization) {
         // The server's message carries the attempts left, or how long a lockout has to run.
         setError(data.error ?? "That PIN was not accepted.");
         setPin("");
         return;
       }
-      await request.run();
+      await request.run(data.authorization as string);
       onClose();
     } catch {
       setError("Could not reach the server. Try again.");

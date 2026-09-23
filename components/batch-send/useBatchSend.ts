@@ -163,7 +163,6 @@ export function useBatchSend(
       const results = await batchSend({
         recipients: targetEmails,
         amount: amountUsd.toString(),
-        senderEmail,
         note: note || undefined,
         provider,
         chainBalances,

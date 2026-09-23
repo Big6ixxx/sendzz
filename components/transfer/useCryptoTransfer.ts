@@ -143,8 +143,12 @@ export function useCryptoTransfer({
           });
           
           // Save in database that the signer is now granted
-          const { registerStellarAddress } = await import("@/lib/supabase/users");
-          await registerStellarAddress(senderEmail, walletAddress, walletId, true);
+          const { registerMyStellarAddress } = await import("@/lib/supabase/users");
+          await registerMyStellarAddress({
+            stellarAddress: walletAddress,
+            stellarWalletId: walletId,
+            stellarSignerGranted: true,
+          });
         } catch (err: unknown) {
           const errMsg = err instanceof Error ? err.message : String(err);
           if (!errMsg.toLowerCase().includes('duplicate')) {
@@ -203,7 +207,7 @@ export function useCryptoTransfer({
   // Fetch security preferences
   useEffect(() => {
     if (senderEmail) {
-      fetch(`/api/user/preferences?email=${encodeURIComponent(senderEmail)}`)
+      fetch("/api/user/preferences")
         .then((res) => res.json())
         .then((data) => {
           if (data && typeof data.two_fa_enabled === "boolean") {

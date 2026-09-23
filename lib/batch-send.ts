@@ -1,6 +1,6 @@
-import { sendTransferEmail } from '@/lib/email/sendEmail';
+import { notifyTransferSent } from '@/lib/email/notify';
 import { redactEmail } from '@/lib/log';
-import { getUserAddressByEmail } from '@/lib/supabase/users';
+import { lookupRecipientAddress } from '@/lib/supabase/users';
 import { recordTransfer } from '@/lib/supabase/transactions';
 import { recordSendIntent } from '@/lib/actions/pendingSend';
 import { executeCircleGaslessBatchTransfer } from '@/lib/web3/circle-actions';
@@ -22,7 +22,6 @@ export interface SendResult {
 export async function batchSend({
   recipients,
   amount,
-  senderEmail,
   note,
   provider,
   chainBalances,
@@ -34,7 +33,6 @@ export async function batchSend({
 }: {
   recipients: string[];
   amount: string;
-  senderEmail: string;
   note?: string;
   provider: EIP1193Provider;
   /** Per-chain EVM balances; the batch is routed across chains accordingly. */
@@ -61,7 +59,7 @@ export async function batchSend({
 
     for (let i = 0; i < recipients.length; i++) {
       const email = recipients[i];
-      let recipientAddress = await getUserAddressByEmail(email);
+      let recipientAddress = await lookupRecipientAddress(email);
       let isNewUser = false;
 
       if (!recipientAddress) {
@@ -214,7 +212,7 @@ export async function batchSend({
           console.error(`[BatchSend] Ledger failed for ${redactEmail(p.email)}:`, err),
         );
 
-        sendTransferEmail(p.email, p.amountUSDC, senderEmail).catch((err) =>
+        notifyTransferSent({ recipientEmail: p.email, amountUsdc: p.amountUSDC }).catch((err) =>
           console.error(`[BatchSend] Email failed for ${redactEmail(p.email)}:`, err),
         );
 

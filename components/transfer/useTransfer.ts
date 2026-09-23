@@ -21,7 +21,7 @@ import {
   type SourcePreference,
 } from "@/lib/web3/routing";
 import { CHAIN_NAMES, type SupportedChain } from "@/lib/circle/gateway";
-import { sendTransferEmail } from "@/lib/email/sendEmail";
+import { notifyTransferSent } from "@/lib/email/notify";
 import { type FiatCurrencyCode } from "@/lib/currency-config";
 import { ReceiptData } from "@/lib/receipt/types";
 import { toast } from "sonner";
@@ -135,7 +135,7 @@ export function useTransfer({
 
     // Fetch security preferences
     if (senderEmail) {
-      fetch(`/api/user/preferences?email=${encodeURIComponent(senderEmail)}`)
+      fetch("/api/user/preferences")
         .then((res) => res.json())
         .then((data) => {
           if (data && typeof data.two_fa_enabled === "boolean") {
@@ -417,8 +417,8 @@ export function useTransfer({
     setIsPendingClaim(false);
 
     try {
-      const { getUserAddressByEmail } = await import("@/lib/supabase/users");
-      let recipientAddress = await getUserAddressByEmail(recipientEmail);
+      const { lookupRecipientAddress } = await import("@/lib/supabase/users");
+      let recipientAddress = await lookupRecipientAddress(recipientEmail);
 
       if (!recipientAddress) {
         setIsPendingClaim(true);
@@ -603,7 +603,11 @@ export function useTransfer({
       });
 
       // Notify recipient — fire-and-forget so a failed email never blocks the transfer
-      sendTransferEmail(recipientEmail, amountUsdc, senderEmail, {
+      // No sender argument — the server reads it from the session, so nobody can send mail
+      // over somebody else's name. See lib/email/notify.ts.
+      notifyTransferSent({
+        recipientEmail,
+        amountUsdc,
         isPendingClaim,
         note: memo || undefined,
       }).catch((err) =>

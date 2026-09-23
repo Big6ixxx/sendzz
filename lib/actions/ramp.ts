@@ -989,7 +989,13 @@ export async function settleDeferredBitnobPayoutAction(params: {
     .eq("provider_order_id", params.orderId)
     .maybeSingle();
 
-  if (!row || (userId && row.user_id !== userId)) {
+  // `!userId` is part of the condition, not a reason to skip it.
+  //
+  // This read `(userId && row.user_id !== userId)`, so a signed-in caller whose Supabase row
+  // could not be resolved short-circuited the comparison to false and settled whatever order
+  // id they passed — authenticated, but against somebody else's withdrawal. An identity we
+  // cannot resolve is a refusal, never a pass.
+  if (!row || !userId || row.user_id !== userId) {
     console.error(
       `[Action] settleDeferredBitnobPayout: ${params.orderId} does not belong to the caller — refusing.`,
     );

@@ -1,4 +1,26 @@
-'use server';
+/**
+ * Sending mail. SERVER ONLY, and deliberately NOT a server action.
+ *
+ * --- What this was ------------------------------------------------------------
+ *
+ * This file began with `'use server'`, which made every export a POST endpoint anyone could
+ * invoke once they knew its action id — including the generic one:
+ *
+ *     sendEmail({ to, subject, html })   // arbitrary recipient, arbitrary HTML
+ *
+ * That is an open mail relay. Not a leak of anything, but worse in a slower way: mail sent
+ * through it leaves as sendzz.io, DKIM-signed by our own domain, and passes every check a
+ * recipient's provider makes. A phishing run costs the attacker nothing and costs us the
+ * domain reputation that every legitimate email depends on — and reputation, once burned, is
+ * repaired over weeks, not with a deploy.
+ *
+ * --- The shape now ------------------------------------------------------------
+ *
+ * Internal module. Server code imports it directly; the browser cannot reach it at all. The
+ * one notification a client genuinely needs to trigger — telling a recipient they were paid —
+ * goes through lib/email/notify.ts, which is session-gated and takes the sender from the
+ * session rather than from an argument.
+ */
 
 import { Resend } from 'resend';
 import { redactEmail } from '@/lib/log';

@@ -405,7 +405,7 @@ export function useDepositWithdraw(
       getUserBankContacts().then(setBankContacts).catch(console.error);
 
       // Fetch security preferences
-      fetch(`/api/user/preferences?email=${encodeURIComponent(userEmail)}`)
+      fetch("/api/user/preferences")
         .then((res) => res.json())
         .then((data) => {
           if (data && typeof data.two_fa_enabled === "boolean") {

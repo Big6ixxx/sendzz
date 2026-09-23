@@ -51,6 +51,8 @@ const AUTHORIZATION_TTL_MS: Record<AuthorizationPurpose, number> = {
   batch_send: 3 * 60 * 1000,
   bridge: 5 * 60 * 1000,
   withdrawal: 15 * 60 * 1000,
+  // A settings change is applied in the same tick the PIN is accepted.
+  security_change: 2 * 60 * 1000,
 };
 
 /**
@@ -65,7 +67,17 @@ export type AuthorizationPurpose =
   | 'crypto_transfer'
   | 'withdrawal'
   | 'bridge'
-  | 'batch_send';
+  | 'batch_send'
+  /**
+   * Weakening a security control — removing a passkey, unpairing an authenticator, turning
+   * verification off, raising the threshold at which it applies.
+   *
+   * Not a payment, but the same requirement: without it, anyone who reaches an open session
+   * can quietly strip every protection and then withdraw freely, which makes the other
+   * factors decorative. The payload names WHICH control, so a token minted to remove an
+   * authenticator cannot be spent removing a passkey.
+   */
+  | 'security_change';
 
 /**
  * What the user was shown, reduced to the fields that decide where the money goes.
