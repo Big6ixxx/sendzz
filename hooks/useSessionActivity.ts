@@ -1,75 +1,103 @@
 'use client';
 
 /**
- * Ends a session on this device when the server says it is genuinely over.
+ * Ends a session on this device when the server says it is genuinely over, and tells the server
+ * when the user is actually here.
  *
- * Two things end a session: signing this device out from another one, and 24 hours without a
- * transaction initiated here. Both are decided server-side — see lib/auth/session.ts — and this
- * hook exists to act on that decision promptly and tell the user what happened.
+ * Two things end a session: signing this device out from another one, and a week in which the
+ * user did nothing. Both are decided server-side (see lib/auth/session.ts); this hook reports
+ * presence, acts on the verdict, and says what happened.
+ *
+ * ─── What counts as presence ─────────────────────────────────────────────────
+ *
+ * A real input event: a tap, a click, a key. Not a poll, and not an open tab.
+ *
+ * The first version of this counted the status check itself, which meant a phone with Sendzz
+ * left open in a background tab renewed its own session forever — it could never expire,
+ * because something was always polling. "Seven days of inactivity" has to mean seven days since
+ * a human touched the thing, or it means nothing.
+ *
+ * Mounting counts once: arriving on the page is itself something the user did.
  *
  * ─── Which refusals this acts on ─────────────────────────────────────────────
  *
- * Only `revoked` and `expired` — the two rules the app itself owns. A third answer,
- * `unauthenticated`, means the access token did not verify, and it is deliberately ignored.
- *
- * That one caused the bug this file keeps being rewritten for. Privy's access tokens are
- * short-lived and its SDK refreshes them in the background; this hook checks on tab focus,
- * which is exactly when a woken tab still holds the previous token. The route used to report
- * that as `expired` — indistinguishable from the 24-hour rule — so the hook called logout on
- * sessions that were hours from any limit. Sessions were being ended roughly hourly.
- *
- * Adding a second strike was an earlier attempt at the same problem. It helped but could not
- * fix it: a stale token stays stale across both checks, so two strikes were reached just as
- * reliably as one. The strikes are kept because they still absorb genuine blips, but the real
- * fix is refusing to treat someone else's expiry as our verdict.
+ * Only `revoked` and `expired` — the two rules the app owns. A third answer,
+ * `unauthenticated`, means the access token did not verify, and is deliberately ignored: Privy
+ * refreshes tokens in the background, and a woken tab is checked at exactly the moment it still
+ * holds the old one. Treating that as a verdict signed people out roughly hourly.
  *
  * ─── Why this is still only a convenience ────────────────────────────────────
  *
- * It logs someone out promptly and cleanly. It is not the protection. The real boundary is
- * `getSessionUser`, which refuses any revoked or lapsed session — so a dead session is dead to
- * the API whether or not this ever runs.
+ * The real boundary is `getSessionUser`, which refuses any revoked or lapsed session. A dead
+ * session is dead to the API whether or not this ever runs.
  */
 
 import { usePrivy } from '@privy-io/react-auth';
 import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 
-/** Background cadence. Fast enough that a revocation lands quickly on an idle screen. */
-const CHECK_EVERY_MS = 60 * 1000;
+/**
+ * Backstop cadence, for a tab that stays open and focused.
+ *
+ * Fifteen minutes, not sixty seconds. The old cadence made ~1,440 requests a day per open tab
+ * to watch for an event that happens a handful of times a year, and every one of them cost a
+ * token verification and two database reads. The moments that actually matter — returning to
+ * the tab, coming back online, touching the screen after a while — are handled by events below,
+ * so the timer only has to catch a revocation on a tab nobody is touching.
+ */
+const CHECK_EVERY_MS = 15 * 60 * 1000;
 
-/** Ignore a foreground event right after a check — focus events arrive in bursts. */
-const MIN_GAP_MS = 3 * 1000;
+/** Ignore a check request this soon after the last one — focus events arrive in bursts. */
+const MIN_GAP_MS = 30 * 1000;
+
+/** After this long without a check, the next interaction triggers one. */
+const CHECK_AFTER_IDLE_MS = 5 * 60 * 1000;
 
 /**
  * Consecutive refusals required before signing out.
  *
- * Two, spaced by at least MIN_GAP_MS. Enough that a single failed round trip is ignored, few
- * enough that a genuine revocation still ends the session within seconds.
+ * Kept because they absorb a genuine blip, though they were never the fix for the hourly
+ * logouts: a stale token stays stale across both checks.
  */
 const STRIKES = 2;
+
+/** Deliberate human input. Scroll is excluded — it can be programmatic. */
+const INTERACTION_EVENTS = ['pointerdown', 'keydown', 'touchstart'] as const;
 
 export function useSessionActivity(): void {
   const { authenticated, logout } = usePrivy();
   const lastCheck = useRef(0);
   const strikes = useRef(0);
   const endedRef = useRef(false);
+  /** Has the user done something since the last check reported it? */
+  const interacted = useRef(true); // arriving on the page counts
 
   useEffect(() => {
     if (!authenticated) return;
     let cancelled = false;
     endedRef.current = false;
     strikes.current = 0;
+    interacted.current = true;
 
     const check = async () => {
       if (cancelled || endedRef.current) return;
       if (Date.now() - lastCheck.current < MIN_GAP_MS) return;
       lastCheck.current = Date.now();
 
+      // Claimed only when the user actually did something, and cleared as it is sent so the
+      // same tap cannot keep a session alive twice.
+      const active = interacted.current;
+      interacted.current = false;
+
       let res: Response;
       try {
-        res = await fetch('/api/session/status', { cache: 'no-store' });
+        res = await fetch(`/api/session/status${active ? '?active=1' : ''}`, {
+          cache: 'no-store',
+        });
       } catch {
-        // Offline, or the request never completed. Not evidence of anything.
+        // Offline, or the request never completed. Not evidence of anything — and the
+        // interaction is put back, since it was never reported.
+        interacted.current = interacted.current || active;
         return;
       }
       if (cancelled) return;
@@ -78,19 +106,13 @@ export function useSessionActivity(): void {
         strikes.current = 0;
         return;
       }
-      // Only a refusal counts. A 500 means the server is unwell, not that the session is over.
       if (res.status !== 401) return;
 
       const { reason } = (await res.json().catch(() => ({}))) as {
         reason?: 'revoked' | 'expired' | 'unauthenticated';
       };
 
-      // The token did not verify. That is Privy's business, not ours — its SDK refreshes
-      // tokens in the background, and this check runs on tab focus, which is precisely when a
-      // woken tab is still holding the old one. Treating it as a verdict is what signed people
-      // out within hours of a 24-hour limit. If the session really is finished, Privy ends it
-      // and `authenticated` goes false on its own; until then the server keeps refusing API
-      // calls regardless, so nothing is at risk in waiting.
+      // Privy's business, not ours. Its SDK will refresh the token, or end the session itself.
       if (reason === 'unauthenticated') {
         strikes.current = 0;
         return;
@@ -103,13 +125,20 @@ export function useSessionActivity(): void {
       toast.info(
         reason === 'revoked'
           ? 'This device was signed out from another device. Please sign in again.'
-          : 'Signed out after 24 hours without a transaction. Please sign in again.',
+          : 'Signed out after a week of inactivity. Please sign in again.',
       );
       void logout();
     };
 
-    // The foreground moment is the one that matters — a phone picked up, a tab refocused, the
-    // network back. Checking here is what turns "eventually" into "immediately" in practice.
+    const onInteract = () => {
+      interacted.current = true;
+      // Only worth a round trip if it has been a while. Otherwise the flag simply rides along
+      // on whatever check comes next.
+      if (Date.now() - lastCheck.current > CHECK_AFTER_IDLE_MS) void check();
+    };
+
+    // Returning to the tab is the moment that matters most — it is when a revocation that
+    // happened while the device was asleep should surface.
     const onForeground = () => {
       if (document.visibilityState === 'visible') void check();
     };
@@ -118,6 +147,9 @@ export function useSessionActivity(): void {
     document.addEventListener('visibilitychange', onForeground);
     window.addEventListener('focus', onForeground);
     window.addEventListener('online', onForeground);
+    for (const e of INTERACTION_EVENTS) {
+      window.addEventListener(e, onInteract, { passive: true });
+    }
 
     void check();
 
@@ -127,6 +159,7 @@ export function useSessionActivity(): void {
       document.removeEventListener('visibilitychange', onForeground);
       window.removeEventListener('focus', onForeground);
       window.removeEventListener('online', onForeground);
+      for (const e of INTERACTION_EVENTS) window.removeEventListener(e, onInteract);
     };
   }, [authenticated, logout]);
 }

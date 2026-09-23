@@ -547,18 +547,30 @@ export async function executeOffRamp(params: {
         };
       }
 
-      // A deferred payout has no beneficiary attached yet, and the browser is normally what
-      // supplies it once the deposit clears. Seal a copy so a dropped connection cannot strand
-      // the user's money — see lib/ramp/beneficiary-vault.
+      // Seal where this money is going, for EVERY withdrawal.
+      //
+      // Two different failures need it, and only the first was originally in scope:
+      //
+      //   1. A deferred payout (Stellar) has no beneficiary attached yet and relies on the
+      //      browser to supply one once the deposit clears. A dropped connection there used to
+      //      strand the money outright.
+      //   2. ANY payout can fail after the user's deposit has landed, on any chain. That leaves
+      //      a debt, and settling it by paying the bank — which is what the user actually asked
+      //      for — needs the account number. `withdrawals` stores only a mask, so without this
+      //      the sole remaining option is reversing USDC the user never asked to have back.
+      //
+      // Sealing only when `deferredInitialize` was true meant only Stellar was covered. Three of
+      // the first four real debts were on Base and had nothing recoverable but `******9077`.
+      //
+      // Encrypted at rest, and cleared the moment the withdrawal completes — see the scrub in
+      // triggerWithdrawalNotifications.
       const { sealBeneficiary } = await import("@/lib/ramp/beneficiary-vault");
-      const pendingBeneficiary = created.deferredInitialize
-        ? sealBeneficiary({
-            accountNumber: params.bank.accountNumber,
-            accountName: params.bank.accountName,
-            bankName: params.bank.bankName,
-            memo: params.bank.memo,
-          })
-        : null;
+      const pendingBeneficiary = sealBeneficiary({
+        accountNumber: params.bank.accountNumber,
+        accountName: params.bank.accountName,
+        bankName: params.bank.bankName,
+        memo: params.bank.memo,
+      });
 
       const { recordWithdrawal } = await import("@/lib/supabase/transactions");
       await recordWithdrawal({

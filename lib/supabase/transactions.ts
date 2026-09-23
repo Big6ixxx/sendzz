@@ -527,6 +527,8 @@ export async function triggerWithdrawalNotifications(
       source_chain?: string | null;
       memo?: string | null;
       created_at?: string | null;
+      /** Sealed destination, for the refund-owed alert. Null once the payout succeeded. */
+      pending_beneficiary?: string | null;
       users?: { email: string } | null;
     }
 
@@ -535,7 +537,7 @@ export async function triggerWithdrawalNotifications(
       .select(
         "id, amount_usdc, fiat_amount, fiat_currency, exchange_rate, bank_account_masked, " +
           "institution_code, provider, provider_order_id, tx_hash, source_chain, memo, " +
-          "created_at, users (email)",
+          "created_at, pending_beneficiary, users (email)",
       )
       .eq("provider_order_id", paycrestOrderId)
       .maybeSingle()) as unknown as { data: WithdrawalNotificationData | null };
@@ -587,6 +589,17 @@ export async function triggerWithdrawalNotifications(
     const { createNotification } = await import("./notifications");
 
     if (status === "completed") {
+      // The payout landed, so the sealed destination has done its job. Scrubbed HERE rather
+      // than when the payout was created: a created payout can still fail, and that is exactly
+      // when an operator needs the destination to settle the debt by hand.
+      void supabaseAdmin
+        .from("withdrawals")
+        .update({ pending_beneficiary: null })
+        .eq("id", referenceId)
+        .then(({ error }) => {
+          if (error) console.error("[Supabase] could not scrub sealed beneficiary:", error.message);
+        });
+
       // Awaited BEFORE the email rather than raced alongside it: this row is what the guard
       // above reads, so writing it first is what actually closes the window on a second caller
       // arriving mid-send. The email is the slow half — starting it first would leave that
@@ -743,6 +756,22 @@ export async function triggerWithdrawalNotifications(
         const { refundDestination } = await import("@/lib/ramp/refund");
         const refundAddress = refundDestination(chain, u);
 
+        // Where the fiat was headed, so the alert can say whether paying the bank is even an
+        // option at all. Tiers explained in lib/ramp/payout-destination.
+        const { resolvePayoutDestination, isPayable } = await import(
+          "@/lib/ramp/payout-destination"
+        );
+        const { data: contacts } = await supabaseAdmin
+          .from("bank_contacts")
+          .select("bank_name, bank_code, account_number, account_name")
+          .eq("user_id", refundRow!.user_id);
+
+        const destination = resolvePayoutDestination({
+          sealedBeneficiary: wData.pending_beneficiary ?? null,
+          bankAccountMasked: wData.bank_account_masked ?? null,
+          contacts: contacts ?? [],
+        });
+
         const { sendRefundOwedAlert } = await import("@/lib/email/admin-alerts");
         await sendRefundOwedAlert({
           withdrawalId: referenceId,
@@ -757,6 +786,13 @@ export async function triggerWithdrawalNotifications(
           txHash: wData.tx_hash ?? null,
           refundAddress,
           provider: wData.provider ?? null,
+          payout: {
+            accountNumber: destination.accountNumber,
+            accountName: destination.accountName,
+            bankName: destination.bankName,
+            masked: destination.masked,
+            payable: isPayable(destination),
+          },
         });
       }
     }

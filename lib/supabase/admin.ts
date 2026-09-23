@@ -9,6 +9,11 @@ import type {
 import { getAdminSession, requireAdmin } from '@/lib/admin/auth';
 import { diditConsoleSessionUrl } from '@/lib/kyc/didit-client';
 import { refundDestination } from '@/lib/ramp/refund';
+import {
+  isPayable,
+  resolvePayoutDestination,
+  type SavedContact,
+} from '@/lib/ramp/payout-destination';
 import { supabaseAdmin } from './adminClient';
 
 /**
@@ -351,7 +356,7 @@ export async function getPendingRefunds(
   const { data: rows, error } = await supabaseAdmin
     .from('withdrawals')
     .select(
-      'id, user_id, provider_order_id, provider, provider_metadata, status, amount_usdc, refund_owed_usdc, refund_tx_hash, refunded_at, fiat_amount, fiat_currency, source_chain, tx_hash, created_at',
+      'id, user_id, provider_order_id, provider, provider_metadata, status, amount_usdc, refund_owed_usdc, refund_tx_hash, refunded_at, fiat_amount, fiat_currency, source_chain, tx_hash, created_at, bank_account_masked, pending_beneficiary, institution_code',
     )
     .not('refund_owed_usdc', 'is', null)
     .is('refund_tx_hash', null)
@@ -372,6 +377,20 @@ export async function getPendingRefunds(
 
   const byId = new Map((users ?? []).map((u) => [u.id, u]));
 
+  // Tier-2 input for resolvePayoutDestination — fetched once for every user on the list
+  // rather than per row.
+  const { data: contactRows } = await supabaseAdmin
+    .from('bank_contacts')
+    .select('user_id, bank_name, bank_code, account_number, account_name')
+    .in('user_id', userIds);
+
+  const contactsByUser = new Map<string, SavedContact[]>();
+  for (const c of contactRows ?? []) {
+    const list = contactsByUser.get(c.user_id) ?? [];
+    list.push(c);
+    contactsByUser.set(c.user_id, list);
+  }
+
   return rows.map((r) => {
     const u = byId.get(r.user_id);
     const meta = (r.provider_metadata ?? null) as { fee_usdc?: number | string } | null;
@@ -380,6 +399,12 @@ export async function getPendingRefunds(
 
     const amountUsdc = Number(r.amount_usdc ?? 0);
     const owedUsdc = Number(r.refund_owed_usdc ?? 0);
+
+    const destination = resolvePayoutDestination({
+      sealedBeneficiary: r.pending_beneficiary,
+      bankAccountMasked: r.bank_account_masked,
+      contacts: contactsByUser.get(r.user_id) ?? [],
+    });
 
     return {
       withdrawalId: r.id,
@@ -398,10 +423,84 @@ export async function getPendingRefunds(
       provider: r.provider,
       status: r.status,
       createdAt: r.created_at,
+      payout: {
+        accountNumber: destination.accountNumber,
+        accountName: destination.accountName,
+        bankName: destination.bankName,
+        masked: destination.masked,
+        source: destination.source,
+        payable: isPayable(destination),
+      },
       refundTxHash: r.refund_tx_hash,
       refundedAt: r.refunded_at,
     } satisfies AdminPendingRefund;
   });
+}
+
+/**
+ * Settle a withdrawal debt by paying the fiat instead of reversing the USDC.
+ *
+ * The operator has already sent the money from their own bank — this records that, it does not
+ * move anything. What it must get right is the AFTER state: a manual payout delivered exactly
+ * what an automatic one delivers, so the row becomes `completed` and the user gets the same
+ * notification and receipt they would have got had it never failed.
+ *
+ * `triggerWithdrawalNotifications` is reused rather than reimplemented for that reason — it is
+ * the same call the automatic path makes, so preferences, the in-app notification, the email
+ * template and the receipt cannot drift between the two routes.
+ */
+export async function markFiatPayoutSent(
+  withdrawalId: string,
+  note?: string,
+  accessToken?: string,
+): Promise<{ ok: boolean; reason?: string }> {
+  const session = await requireAdmin(accessToken);
+
+  const { data, error } = await supabaseAdmin.rpc('finalize_withdrawal_fiat_payout', {
+    p_withdrawal_id: withdrawalId,
+    p_admin_email: session?.email ?? null,
+    p_note: (note || '').trim() || null,
+  });
+
+  if (error) {
+    console.error('[Admin] markFiatPayoutSent failed:', error.message);
+    return {
+      ok: false,
+      reason: /owes nothing/i.test(error.message)
+        ? 'This withdrawal does not owe anything — nothing to pay out.'
+        : 'Could not record the payout.',
+    };
+  }
+
+  if (data === false) {
+    return { ok: false, reason: 'This withdrawal is already settled.' };
+  }
+
+  // The user's side of it: identical to an automatic payout, by construction.
+  try {
+    const { data: row } = await supabaseAdmin
+      .from('withdrawals')
+      .select('provider_order_id, paycrest_order_id')
+      .eq('id', withdrawalId)
+      .maybeSingle();
+
+    const orderId = row?.provider_order_id ?? row?.paycrest_order_id ?? null;
+    if (orderId) {
+      const { triggerWithdrawalNotifications } = await import('./transactions');
+      await triggerWithdrawalNotifications(orderId, 'completed');
+    } else {
+      console.error(`[Admin] fiat payout ${withdrawalId} recorded but has no order id — user not notified.`);
+    }
+  } catch (e) {
+    // The money is paid and the row says so. A failed notification must not undo that, but it
+    // does mean someone was not told, so it is logged loudly rather than swallowed.
+    console.error('[Admin] fiat payout recorded but notification failed:', e);
+  }
+
+  console.log(
+    `[Admin] fiat payout recorded for withdrawal ${withdrawalId} by ${session?.email ?? 'admin'}`,
+  );
+  return { ok: true };
 }
 
 /**

@@ -254,13 +254,13 @@ export const FAQ_SECTIONS: FaqSection[] = [
         id: "security",
         question: "What actually protects my money?",
         answer:
-          "Four things. Your funds sit in a wallet only you control, so we never hold them and cannot move them. Sending money out always needs you to be signed in, and larger amounts need a second check on top of that. Being signed in expires on its own after 24 hours without you sending anything, so a phone left in a taxi does not stay open indefinitely. And you can sign any device out yourself from Settings, which takes effect immediately. We will never ask for your recovery details, and nobody from Sendzz will message you first asking for them.",
+          "Four things. Your funds sit in a wallet only you control, so we never hold them and cannot move them. Sending money out always needs you to be signed in, and larger amounts need a second check on top of that. Being signed in expires on its own after a week without you using the app at all, so a phone left in a taxi does not stay open indefinitely. And you can sign any device out yourself from Settings, which takes effect immediately. We will never ask for your recovery details, and nobody from Sendzz will message you first asking for them.",
       },
       {
         id: "lost-phone",
         question: "I've lost my phone. What should I do?",
         answer:
-          "Open Sendzz on any other device, go to Settings and then Devices, and sign the missing phone out. It loses access straight away rather than whenever it next happens to expire. Even if you cannot get to another device, being signed in ends by itself after 24 hours without a transaction, so the window is limited either way. Your money stays where it is throughout, because it lives in your wallet rather than on the phone.",
+          "Open Sendzz on any other device, go to Settings and then Devices, and sign the missing phone out. It loses access straight away rather than whenever it next happens to expire. Even if you cannot get to another device, being signed in ends by itself after a week with no sign of that phone, so the window is limited either way. Your money stays where it is throughout, because it lives in your wallet rather than on the phone.",
       },
       {
         id: "devices",
@@ -272,7 +272,7 @@ export const FAQ_SECTIONS: FaqSection[] = [
         id: "session-expired",
         question: "Why was I signed out?",
         answer:
-          "Being signed in lasts 24 hours from the last time you sent money. Browsing, checking your balance, or receiving a payment does not extend it, because none of those prove you are the one holding the phone. You may also have been signed out from another device. Either way nothing is lost, and anything already on its way carries on regardless. Sign in again and everything is where you left it.",
+          "Being signed in lasts a week from the last time you used the app. Opening Sendzz keeps it alive; simply receiving a payment does not, because money arriving proves nothing about who is holding the phone. You may also have been signed out from another device. Either way nothing is lost, and anything already on its way carries on regardless. Sign in again and everything is where you left it.",
       },
     ],
   },

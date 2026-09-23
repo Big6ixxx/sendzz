@@ -1002,6 +1002,14 @@ export interface Database {
         };
         Returns: boolean;
       };
+      finalize_withdrawal_fiat_payout: {
+        Args: {
+          p_withdrawal_id: string;
+          p_admin_email?: string | null;
+          p_note?: string | null;
+        };
+        Returns: boolean;
+      };
       claim_transfer: {
         Args: {
           p_recipient_id: string;
