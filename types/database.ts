@@ -103,6 +103,12 @@ export interface Database {
         };
         Relationships: [];
       };
+      rate_limits: {
+        Row: { key: string; window_start: string; count: number };
+        Insert: { key: string; window_start?: string; count?: number };
+        Update: { key?: string; window_start?: string; count?: number };
+        Relationships: [];
+      };
       ops_alert_log: {
         Row: {
           key: string;
@@ -1210,6 +1216,18 @@ export interface Database {
     };
     Functions: {
       // Extends a device session using Postgres `now()` (migration 048).
+      consume_rate_limit: {
+        Args: {
+          p_key: string;
+          p_limit: number;
+          p_window_ms: number;
+        };
+        Returns: {
+          allowed: boolean;
+          used: number;
+          reset_at: string;
+        }[];
+      };
       touch_user_session: {
         Args: { p_session_id: string };
         Returns: undefined;

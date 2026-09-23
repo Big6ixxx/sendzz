@@ -2,6 +2,11 @@ import { createAdminClient, createClient } from '@/lib/supabase/server';
 import crypto from 'crypto';
 import { NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth/session';
+import {
+  RATE_LIMITS,
+  checkRateLimit,
+  rateLimitResponse,
+} from '@/lib/security/rate-limit';
 
 /**
  * GET /api/transfer/preview?token=<rawToken>
@@ -19,6 +24,12 @@ export async function GET(req: Request) {
       await requireUser();
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Prices a transfer using our rate and RPC calls.
+    {
+      const limit = await checkRateLimit(RATE_LIMITS.read, null);
+      if (!limit.allowed) return rateLimitResponse(limit);
     }
     const { searchParams } = new URL(req.url);
     const token = searchParams.get('token');

@@ -21,6 +21,11 @@ import { ensureStellarUsdcReceivable } from '@/lib/stellar/privy-wallet';
 import { isAlreadyDeliveredError } from '@/lib/stellar/delivery';
 import { CCTP_DOMAINS } from '@/lib/circle/gateway';
 import { requireUser } from '@/lib/auth/session';
+import {
+  RATE_LIMITS,
+  checkRateLimit,
+  rateLimitResponse,
+} from '@/lib/security/rate-limit';
 
 const STELLAR_RPC_URL = process.env.NEXT_PUBLIC_STELLAR_RPC_URL || 'https://soroban-rpc.mainnet.stellar.gateway.fm';
 const STELLAR_CCTP_FORWARDER = 'CBZL2IH7F6BIDAA3WBNXYKIXSATJGMSW7K5P5MJ6STX5RXN47TZJDF5T';
@@ -70,6 +75,12 @@ export async function POST(req: Request) {
       await requireUser();
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Every call spends our XLM on the fee bump.
+    {
+      const limit = await checkRateLimit(RATE_LIMITS.sponsor, null);
+      if (!limit.allowed) return rateLimitResponse(limit);
     }
     const { txHash, sourceChain, walletId, stellarAddress } = await req.json() as {
       txHash: string;

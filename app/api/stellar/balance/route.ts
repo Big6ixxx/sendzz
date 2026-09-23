@@ -8,6 +8,11 @@
 import { getStellarUsdcBalance, getStellarXlmBalance } from '@/lib/stellar/transactions';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth/session';
+import {
+  RATE_LIMITS,
+  checkRateLimit,
+  rateLimitResponse,
+} from '@/lib/security/rate-limit';
 
 export async function GET(req: NextRequest) {
 
@@ -19,6 +24,12 @@ export async function GET(req: NextRequest) {
       await requireUser();
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Our RPC quota, spent per call.
+    {
+      const limit = await checkRateLimit(RATE_LIMITS.read, null);
+      if (!limit.allowed) return rateLimitResponse(limit);
     }
   const address = req.nextUrl.searchParams.get('address');
 

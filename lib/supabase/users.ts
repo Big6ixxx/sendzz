@@ -29,6 +29,7 @@
  */
 
 import { requireUser } from '@/lib/auth/session';
+import { RATE_LIMITS, checkRateLimit } from '@/lib/security/rate-limit';
 import {
   readSmartAccountAddress,
   writeUserAddresses,
@@ -96,10 +97,9 @@ export async function registerMyStellarAddress(input: {
  * somebody OTHER than the caller. What it gains is a session requirement, which turns an open
  * email-to-wallet oracle into one that costs an account.
  *
- * That is a real but partial mitigation, and worth being precise about: a signed-in attacker
- * can still probe addresses one email at a time. Closing that properly needs rate limiting,
- * which is a separate piece of work — this removes the anonymous bulk case, not the patient
- * authenticated one.
+ * A session alone would only remove the anonymous bulk case, so it is also rate limited per
+ * account: probing one address at a time is still probing, and the whole value of this to an
+ * attacker is volume.
  *
  * Returns null for an unknown email, which is inherent to the feature: the sender has to know
  * whether to pre-generate a wallet for somebody who has never signed in.
@@ -108,7 +108,16 @@ export async function lookupRecipientAddress(
   email: string,
   accessToken?: string,
 ): Promise<string | null> {
-  await requireUser(accessToken);
+  const caller = await requireUser(accessToken);
+
+  const limit = await checkRateLimit(RATE_LIMITS.recipientLookup, caller.email);
+  if (!limit.allowed) {
+    // Thrown rather than returned as null: null means "no wallet yet", and the caller acts on
+    // that by creating one. Silently turning a refusal into that answer would have us
+    // pre-generating wallets for addresses we declined to look up.
+    throw new Error('Too many lookups. Please wait a moment and try again.');
+  }
+
   return readSmartAccountAddress(email);
 }
 

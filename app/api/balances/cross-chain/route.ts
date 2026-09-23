@@ -6,6 +6,11 @@ import { USDC_ADDRESSES, SOURCE_CHAINS, type SupportedChain } from '@/lib/circle
 import { Connection, PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 import { requireUser } from '@/lib/auth/session';
+import {
+  RATE_LIMITS,
+  checkRateLimit,
+  rateLimitResponse,
+} from '@/lib/security/rate-limit';
 
 const BALANCE_ABI = [
   {
@@ -92,6 +97,12 @@ export async function GET(req: NextRequest) {
       await requireUser();
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Our RPC quota, spent per call.
+    {
+      const limit = await checkRateLimit(RATE_LIMITS.read, null);
+      if (!limit.allowed) return rateLimitResponse(limit);
     }
   const address = req.nextUrl.searchParams.get('address');
   const paramSol = req.nextUrl.searchParams.get('solanaAddress');

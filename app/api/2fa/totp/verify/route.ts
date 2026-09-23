@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/session";
+import {
+  RATE_LIMITS,
+  checkRateLimit,
+  rateLimitResponse,
+} from "@/lib/security/rate-limit";
 import { supabaseAdmin } from "@/lib/supabase/adminClient";
 import { verifyTOTPToken } from "@/lib/totp";
 import { decrypt } from "@/lib/encryption";
@@ -18,6 +23,13 @@ export async function POST(req: Request) {
       ({ email } = await requireUser());
     } catch {
       return NextResponse.json({ error: "Please sign in again." }, { status: 401 });
+    }
+
+    // Six digits, and a fresh valid code every 30 seconds — so unbounded guessing is genuinely
+    // worth an attacker's time.
+    {
+      const limit = await checkRateLimit(RATE_LIMITS.codeVerify, email);
+      if (!limit.allowed) return rateLimitResponse(limit);
     }
 
     if (!email || !token) {

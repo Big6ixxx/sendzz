@@ -3,6 +3,11 @@ import { requireUser } from "@/lib/auth/session";
 import { supabaseAdmin } from "@/lib/supabase/adminClient";
 import type { Json } from "@/types/database";
 import {
+  RATE_LIMITS,
+  checkRateLimit,
+  rateLimitResponse,
+} from "@/lib/security/rate-limit";
+import {
   generatePasskeyAuthenticationOptions,
   resolveRp,
   verifyPasskeyAuthentication,
@@ -32,6 +37,13 @@ export async function POST(req: Request) {
       ({ email } = await requireUser());
     } catch {
       return NextResponse.json({ error: "Please sign in again." }, { status: 401 });
+    }
+
+    // A passkey challenge is cheap for us and cheap for an attacker. Bounded so a stolen session
+    // cannot grind attempts against a device it does not have.
+    {
+      const limit = await checkRateLimit(RATE_LIMITS.codeVerify, email);
+      if (!limit.allowed) return rateLimitResponse(limit);
     }
 
     if (!email) {

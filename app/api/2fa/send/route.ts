@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/session";
+import {
+  RATE_LIMITS,
+  checkRateLimit,
+  rateLimitResponse,
+} from "@/lib/security/rate-limit";
 import { generateAndSend2FA } from "@/lib/twoFactor";
 
 export async function POST(req: Request) {
@@ -15,6 +20,13 @@ export async function POST(req: Request) {
       ({ email } = await requireUser());
     } catch {
       return NextResponse.json({ error: "Please sign in again." }, { status: 401 });
+    }
+
+    // Each of these lands in somebody's inbox. Unbounded, it is a way to make Sendzz spam a
+    // user until they stop trusting our mail.
+    {
+      const limit = await checkRateLimit(RATE_LIMITS.codeSend, email);
+      if (!limit.allowed) return rateLimitResponse(limit);
     }
 
 

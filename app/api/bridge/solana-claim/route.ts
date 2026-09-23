@@ -24,6 +24,11 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import { buildReceiveMessageOnSolanaTx } from '@/lib/circle/solana-gateway';
 import { fetchAttestation } from '@/lib/circle/gateway';
 import { requireUser } from '@/lib/auth/session';
+import {
+  RATE_LIMITS,
+  checkRateLimit,
+  rateLimitResponse,
+} from '@/lib/security/rate-limit';
 
 const SOLANA_RPC =
   process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
@@ -56,6 +61,12 @@ export async function POST(req: Request) {
       await requireUser();
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Every call spends our SOL.
+    {
+      const limit = await checkRateLimit(RATE_LIMITS.sponsor, null);
+      if (!limit.allowed) return rateLimitResponse(limit);
     }
     const {
       burnTxHash,

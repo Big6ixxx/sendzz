@@ -3,6 +3,11 @@ import { initiateDeveloperControlledWalletsClient } from '@circle-fin/developer-
 import { Transaction, PublicKey } from '@solana/web3.js';
 import { Buffer } from 'buffer';
 import { requireUser } from '@/lib/auth/session';
+import {
+  RATE_LIMITS,
+  checkRateLimit,
+  rateLimitResponse,
+} from '@/lib/security/rate-limit';
 
 /**
  * Generic Solana gas sponsor: sets the Circle DCW fee-payer on an arbitrary transaction and
@@ -22,6 +27,12 @@ export async function POST(req: NextRequest) {
       await requireUser();
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Every call spends our SOL.
+    {
+      const limit = await checkRateLimit(RATE_LIMITS.sponsor, null);
+      if (!limit.allowed) return rateLimitResponse(limit);
     }
     const CIRCLE_API_KEY = process.env.CIRCLE_API_KEY;
     const CIRCLE_ENTITY_SECRET = process.env.CIRCLE_ENTITY_SECRET;

@@ -4,6 +4,11 @@ import { redactEmail } from '@/lib/log';
 import { computeCircleSmartAddress } from '@/lib/web3/circle-client';
 import { LinkedAccountEmbeddedWallet, PrivyClient } from '@privy-io/node';
 import { NextResponse } from 'next/server';
+import {
+  RATE_LIMITS,
+  checkRateLimit,
+  rateLimitResponse,
+} from '@/lib/security/rate-limit';
 
 const privy = new PrivyClient({
   appId: process.env.NEXT_PUBLIC_PRIVY_APP_ID || '',
@@ -31,6 +36,13 @@ export async function POST(req: Request) {
     const identity = await getVerifiedIdentity();
     if (!identity) {
       return NextResponse.json({ error: 'Please sign in again.' }, { status: 401 });
+    }
+
+    // Every call creates a Privy user and derives an address. A signed-in account should not be
+    // able to make us do that without limit.
+    {
+      const limit = await checkRateLimit(RATE_LIMITS.walletCreate, identity.email);
+      if (!limit.allowed) return rateLimitResponse(limit);
     }
 
     // 1. Create a "shell" user in Privy for this email

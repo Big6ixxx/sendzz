@@ -3,6 +3,11 @@ import { fetchSolanaAttestation } from '@/lib/circle/solana-gateway';
 import { fetchStellarAttestation } from '@/lib/circle/stellar-gateway';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth/session';
+import {
+  RATE_LIMITS,
+  checkRateLimit,
+  rateLimitResponse,
+} from '@/lib/security/rate-limit';
 
 type ExtendedChain = SupportedChain | 'solana' | 'stellar';
 
@@ -31,6 +36,12 @@ export async function GET(req: NextRequest) {
       await requireUser();
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Polls Circle on our key, per call.
+    {
+      const limit = await checkRateLimit(RATE_LIMITS.read, null);
+      if (!limit.allowed) return rateLimitResponse(limit);
     }
   const { searchParams } = new URL(req.url);
   const txHash = searchParams.get('txHash');
