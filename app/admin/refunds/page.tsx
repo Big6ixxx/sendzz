@@ -14,7 +14,7 @@
  */
 
 import { explorerTxUrl } from '@/lib/explorers';
-import { getPendingRefunds, markRefundPaid } from '@/lib/supabase/admin';
+import { getPendingRefunds, markFiatPayoutSent, markRefundPaid } from '@/lib/supabase/admin';
 import type { AdminPendingRefund } from '@/types/admin';
 import { usePrivy } from '@privy-io/react-auth';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -52,6 +52,26 @@ export default function AdminRefunds() {
       queryClient.invalidateQueries({ queryKey: ['admin-refunds'] });
     },
     onError: () => toast.error('Could not record the refund.'),
+  });
+
+  /**
+   * Settling by paying the bank instead of reversing.
+   *
+   * Confirmed separately from the reversal because the two are not interchangeable and cannot
+   * both be undone: one returns USDC, the other declares the withdrawal delivered.
+   */
+  const payFiat = useMutation({
+    mutationFn: async ({ id }: { id: string }) =>
+      markFiatPayoutSent(id, undefined, (await getAccessToken()) ?? undefined),
+    onSuccess: (res) => {
+      if (!res.ok) {
+        toast.error(res.reason ?? 'Could not record the payout.');
+        return;
+      }
+      toast.success('Payout recorded — the withdrawal now shows as completed and the user has been notified.');
+      queryClient.invalidateQueries({ queryKey: ['admin-refunds'] });
+    },
+    onError: () => toast.error('Could not record the payout.'),
   });
 
   const copy = (text: string, label: string) => {
@@ -144,6 +164,8 @@ export default function AdminRefunds() {
                 })
               }
               recording={record.isPending}
+              onPayFiat={() => payFiat.mutate({ id: r.withdrawalId })}
+              payingFiat={payFiat.isPending}
             />
           ))}
         </div>
@@ -161,6 +183,8 @@ function RefundCard({
   onCopy,
   onRecord,
   recording,
+  onPayFiat,
+  payingFiat,
 }: {
   refund: AdminPendingRefund;
   open: boolean;
@@ -170,6 +194,8 @@ function RefundCard({
   onCopy: (text: string, label: string) => void;
   onRecord: () => void;
   recording: boolean;
+  onPayFiat: () => void;
+  payingFiat: boolean;
 }) {
   const original = explorerTxUrl(r.chain, r.txHash);
 
@@ -272,6 +298,60 @@ function RefundCard({
           </div>
         )}
 
+        {/* Where the fiat was headed — the other way to settle this */}
+        <div className="flex flex-wrap items-center gap-2 text-[11px]">
+          <span style={{ color: 'rgba(248,248,246,0.35)' }}>Pay bank</span>
+          {r.payout.payable ? (
+            <>
+              <code
+                className="px-2 py-1 rounded-lg font-mono text-[10.5px] break-all"
+                style={{ background: 'rgba(255,255,255,0.05)' }}
+              >
+                {r.payout.accountNumber}
+              </code>
+              <button
+                type="button"
+                onClick={() => onCopy(r.payout.accountNumber!, 'Account number')}
+                className="opacity-40 hover:opacity-100 transition-opacity"
+                aria-label="Copy account number"
+              >
+                <Copy className="w-3 h-3" />
+              </button>
+              <span style={{ color: 'rgba(248,248,246,0.45)' }}>
+                {r.payout.bankName ?? 'bank unknown'}
+                {r.payout.accountName ? ` · ${r.payout.accountName}` : ''}
+              </span>
+              {r.payout.source === 'contact' && (
+                <span className="text-amber-400/80 text-[10px]">
+                  from a saved contact — check it matches
+                </span>
+              )}
+            </>
+          ) : (
+            <span className="text-amber-400">
+              not recoverable{r.payout.masked ? ` (only ${r.payout.masked} on file)` : ''} — reverse the USDC instead
+            </span>
+          )}
+        </div>
+
+        {/* Settle by paying the bank. Separate from the reversal below: they are different
+            outcomes, and neither can be undone. */}
+        {r.payout.payable && !open && (
+          <button
+            type="button"
+            onClick={onPayFiat}
+            disabled={payingFiat}
+            className="w-full py-2.5 rounded-xl text-[11.5px] font-bold transition-transform hover:scale-[1.01] disabled:opacity-40"
+            style={{ background: 'rgba(96,165,250,0.14)', color: '#60a5fa' }}
+          >
+            {payingFiat ? (
+              <Loader2 className="w-4 h-4 animate-spin mx-auto" />
+            ) : (
+              `I paid ${r.fiatAmount ?? ''} ${r.fiatCurrency} to this account`
+            )}
+          </button>
+        )}
+
         {/* Record the payment */}
         {!open ? (
           <button
@@ -280,7 +360,7 @@ function RefundCard({
             className="w-full mt-1 py-2.5 rounded-xl text-[11.5px] font-bold transition-transform hover:scale-[1.01]"
             style={{ background: 'rgba(0,232,122,0.13)', color: '#00e87a' }}
           >
-            Mark as refunded
+            Reverse in USDC
           </button>
         ) : (
           <div className="space-y-2 pt-1">

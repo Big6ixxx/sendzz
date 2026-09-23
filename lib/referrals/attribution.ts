@@ -3,7 +3,7 @@
  *
  * Attribution happens on the user's FIRST sign-in and is then frozen. It is frozen in two
  * places on purpose: here, where the code refuses to overwrite an existing value, and in the
- * database, where a trigger raises if the column ever changes (migration 053). The duplication
+ * database, where a trigger raises if the column ever changes (migration 054). The duplication
  * is deliberate. This column decides who gets paid for every future deposit the account makes,
  * so "the application is careful" is not a strong enough guarantee — one careless UPDATE on a
  * user row in some future endpoint would be enough to redirect somebody else's earnings.

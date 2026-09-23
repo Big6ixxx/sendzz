@@ -87,6 +87,20 @@ export interface AdminPendingRefund {
   provider: string | null;
   status: string;
   createdAt: string;
+  /**
+   * Where the fiat was headed, so an operator can pay it by hand instead of reversing.
+   *
+   * `payable` is false when only the masked number survived — the row then offers reversal
+   * only, rather than a button that cannot be honoured.
+   */
+  payout: {
+    accountNumber: string | null;
+    accountName: string | null;
+    bankName: string | null;
+    masked: string | null;
+    source: 'sealed' | 'contact' | 'masked';
+    payable: boolean;
+  };
   /** Set once paid; these drop out of the pending list. */
   refundTxHash: string | null;
   refundedAt: string | null;

@@ -41,12 +41,27 @@ export class AuthError extends Error {
 }
 
 /**
- * How long a session survives with no deliberate interaction.
+ * How long a session survives with no sign of the user.
  *
- * 24 hours: long enough that a daily user is never interrupted, short enough that a phone lost
- * overnight is locked before most people have replaced it.
+ * Seven days. It was 24 hours, and that number was measured against the wrong thing: the clock
+ * below only advanced on a TRANSACTION, so somebody who opened the app every day but last sent
+ * money on Monday was signed out on Tuesday. They experienced that as being logged out while
+ * actively using the product, which is exactly what it was.
+ *
+ * Presence now extends it too (see touchSessionIfStale), so this is genuinely a week of NOT
+ * SHOWING UP — not a week since the last payment.
  */
-export const SESSION_IDLE_LIMIT_MS = 24 * 60 * 60 * 1000;
+export const SESSION_IDLE_LIMIT_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * How stale the clock must be before merely being present rewrites it.
+ *
+ * Presence is checked about once a minute per open tab. Writing on each of those would be a
+ * database round trip a minute per device to move a number that only matters in days, so the
+ * write is skipped while the stamp is still fresh. An hour bounds it to roughly 24 writes a day
+ * per session while keeping the clock far more current than the seven-day limit needs.
+ */
+const PRESENCE_TOUCH_AFTER_MS = 60 * 60 * 1000;
 
 /**
  * The verified email behind this request, or null.
@@ -143,8 +158,9 @@ async function getSessionUser(accessToken?: string): Promise<SessionUser | null>
 /**
  * Find this device's session row, creating it on first sight, and decide whether it may proceed.
  *
- * Returns null when the session is revoked or has gone 24 hours without the user INITIATING a
- * transaction from it. Both are checked here so every requireUser() call site inherits them.
+ * Returns null when the session is revoked, or when nothing has been seen from it for
+ * SESSION_IDLE_LIMIT_MS — neither a transaction nor a visit. Both are checked here so every
+ * requireUser() call site inherits them.
  *
  * The clock is per-device on purpose. An account-level one would be refreshed by the owner's
  * laptop and would keep a thief's phone session alive — the exact case this exists to close.
@@ -206,10 +222,10 @@ async function resolveSession(
 /**
  * Extend one already-verified device session.
  *
- * For callers that have just verified the identity themselves: `getVerifiedIdentity` makes a
- * network call to Privy, and doing it twice on a payment path costs a round trip for an answer
- * already in hand. Takes a session id rather than a token so it cannot be used to extend a
- * session nobody proved they hold — the id has to have come out of a verified token.
+ * For callers that have already verified the identity: re-deriving it costs a token check and,
+ * on a cold email cache, a round trip to Privy — for an answer they are holding. Takes a session
+ * id rather than a token so it cannot be used to extend a session nobody proved they hold: the
+ * id has to have come out of a verified token.
  *
  * Never throws. A session clock that fails must not fail the payment that was already made.
  */
@@ -223,6 +239,34 @@ export async function touchSession(sessionId: string | undefined): Promise<void>
   } catch (err) {
     console.error('[Session] touchSession failed:', err);
   }
+}
+
+/**
+ * Extend a session because the user is *here*, not because they paid for something.
+ *
+ * `touchSession` answers "they moved money"; this answers "they are using the app". Both are
+ * evidence the account holder is present, and only counting the first is what made an active
+ * user look idle.
+ *
+ * What counts as "here" is deliberately narrow: a real input event, reported by the client as
+ * `active=1` (see hooks/useSessionActivity.ts). An open tab is not presence — something is
+ * always polling from one, so counting requests would let a forgotten background tab renew its
+ * own session forever, and "seven days of inactivity" would never arrive for anybody.
+ *
+ * Receiving money is not presence either: an incoming transfer arrives whether or not anyone is
+ * near the phone.
+ *
+ * `idleSeconds` is what the caller already read, so the common case — a user who was here
+ * minutes ago — costs no write at all; the clock only moves once it has drifted by
+ * PRESENCE_TOUCH_AFTER_MS.
+ */
+export async function touchSessionIfStale(
+  sessionId: string | undefined,
+  idleSeconds: number | null | undefined,
+): Promise<void> {
+  if (!sessionId) return;
+  if ((idleSeconds ?? 0) * 1000 < PRESENCE_TOUCH_AFTER_MS) return;
+  await touchSession(sessionId);
 }
 
 /**

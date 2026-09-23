@@ -175,7 +175,7 @@ export default function DevicesSettingsPage() {
         </div>
         <p className="text-[11px] text-white/40 leading-relaxed font-medium">
           Lost a phone? Sign it out here and it loses access immediately. Sessions also end on
-          their own after 24 hours without a transaction.
+          their own after a week without any sign of that device.
         </p>
       </div>
 

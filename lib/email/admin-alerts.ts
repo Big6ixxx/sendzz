@@ -35,6 +35,19 @@ export interface RefundOwedAlert {
   /** Where to send it back, when we hold a wallet for that chain. */
   refundAddress: string | null;
   provider: string | null;
+  /**
+   * Where the fiat was headed, so the alert says which of the two settlements is even possible.
+   *
+   * An operator reading this on their phone should not have to open the console to find out
+   * whether they can pay the bank or only reverse the USDC.
+   */
+  payout?: {
+    accountNumber: string | null;
+    accountName: string | null;
+    bankName: string | null;
+    masked: string | null;
+    payable: boolean;
+  } | null;
 }
 
 function esc(value: string): string {
@@ -91,6 +104,20 @@ export async function sendRefundOwedAlert(alert: RefundOwedAlert): Promise<void>
           : `no ${esc(alert.chain ?? '')} wallet on file — ask the user`,
       ],
     ];
+    // Where the money was going. Only worth rendering when we can actually reach it — a row
+    // saying "******6462" invites an operator to try, and there is nothing there to try with.
+    const p = alert.payout;
+    if (p?.payable && p.accountNumber) {
+      rows.push(['Pay bank', esc(p.accountNumber)]);
+      if (p.bankName) rows.push(['Bank', esc(p.bankName)]);
+      if (p.accountName) rows.push(['Account name', esc(p.accountName)]);
+    } else {
+      rows.push([
+        'Pay bank',
+        `not recoverable${p?.masked ? ` (only ${esc(p.masked)} on file)` : ''} — reverse the USDC instead`,
+      ]);
+    }
+
     if (alert.txHash) {
       rows.push([
         'Their deposit',
@@ -100,7 +127,7 @@ export async function sendRefundOwedAlert(alert: RefundOwedAlert): Promise<void>
       ]);
     }
 
-    const MONO = new Set(['Order', 'Send back to', 'Their deposit']);
+    const MONO = new Set(['Order', 'Send back to', 'Their deposit', 'Pay bank']);
     const tableRows = rows
       .map(
         ([label, value]) => `

@@ -5,14 +5,14 @@
  * things happened. That distinction is the whole point of the route.
  *
  *   revoked         — signed out from another device. Ours to act on: end it here too.
- *   expired         — 24 hours with no transaction from this device. Also ours to act on.
+ *   expired         — a week with no sign of this device at all. Also ours to act on.
  *   unauthenticated — the token did not verify. NOT ours to act on.
  *
  * The third one used to be reported as `expired`, and that conflation signed people out of
  * perfectly good sessions. A Privy access token is short-lived and refreshed in the background;
  * the client checks this route when a tab regains focus, which is exactly the moment a
  * just-woken tab still holds the old token. The answer was "expired", the client believed it
- * meant the 24-hour rule, and it called logout — on a session hours away from any limit.
+ * meant the inactivity rule, and it called logout — on a session hours away from any limit.
  *
  * So `unauthenticated` is reported plainly and the client ignores it. Either the SDK refreshes
  * the token a moment later and nothing happened, or the session really is dead and Privy ends
@@ -21,7 +21,11 @@
  */
 
 import { NextResponse } from 'next/server';
-import { getVerifiedIdentity, SESSION_IDLE_LIMIT_MS } from '@/lib/auth/session';
+import {
+  getVerifiedIdentity,
+  SESSION_IDLE_LIMIT_MS,
+  touchSessionIfStale,
+} from '@/lib/auth/session';
 import { supabaseAdmin } from '@/lib/supabase/adminClient';
 
 export const runtime = 'nodejs';
@@ -31,7 +35,7 @@ type Reason = 'revoked' | 'expired' | 'unauthenticated';
 const refuse = (reason: Reason) =>
   NextResponse.json({ error: 'Session ended', reason }, { status: 401 });
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     // Step 1: does the token verify? A "no" here says nothing about our session rules.
     const identity = await getVerifiedIdentity();
@@ -52,6 +56,18 @@ export async function GET() {
 
     if (data.revoked_at) return refuse('revoked');
     if ((data.idle_seconds ?? 0) * 1000 > SESSION_IDLE_LIMIT_MS) return refuse('expired');
+
+    // The clock moves only when the user actually did something — a tap, a click, a key —
+    // which the client reports as `active=1`. The check ITSELF is not evidence: it runs on a
+    // timer, so counting it meant a tab left open in the background renewed its own session
+    // forever and could never expire. See SESSION_IDLE_LIMIT_MS.
+    //
+    // Trusting the client here is safe because the flag can only ever EXTEND the caller's own
+    // session, and only while they hold a valid token. The worst a forged `active=1` achieves
+    // is keeping alive a session its holder already controls.
+    if (new URL(req.url).searchParams.get('active') === '1') {
+      await touchSessionIfStale(identity.sessionId, data.idle_seconds);
+    }
 
     return NextResponse.json({ ok: true });
   } catch (err) {

@@ -10,7 +10,7 @@
 -- that grows with volume.
 --
 -- So `users.referral_program` picks one. Everyone starts on 'retail' because it costs no cash;
--- 'merchant' is granted deliberately (migration 057) and switches the same referrer from credits
+-- 'merchant' is granted deliberately (migration 058) and switches the same referrer from credits
 -- to revenue share. Accrual reads this and takes exactly one branch.
 --
 -- --- Why benefits are a ledger, not two balance columns ----------------------
@@ -33,7 +33,7 @@ ALTER TABLE public.users
   CHECK (referral_program IN ('retail', 'merchant'));
 
 COMMENT ON COLUMN public.users.referral_program IS
-  'Which referral programme this user earns under as a REFERRER. retail = fee credits, merchant = revenue share. Never both — see migration 056.';
+  'Which referral programme this user earns under as a REFERRER. retail = fee credits, merchant = revenue share. Never both — see migration 057.';
 
 -- ── The benefits ledger ──────────────────────────────────────────────────────
 

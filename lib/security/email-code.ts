@@ -8,7 +8,7 @@
  *   pin_reset        somebody forgot the PIN. The PIN cannot be read back, so the only way
  *                    forward is to prove the mailbox and set a new one.
  *   security_change  somebody is weakening a protection. The PIN is deliberately NOT accepted
- *                    for this — see migration 058 — so email is the fallback for an account
+ *                    for this — see migration 059 — so email is the fallback for an account
  *                    with no authenticator and no passkey.
  *
  * The address is always the one on the account, never one supplied by the caller. A reset flow

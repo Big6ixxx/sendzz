@@ -198,11 +198,11 @@ export async function completeDeferredPayout(
     }
   }
 
-  // The payout now exists, so the sealed copy has done its job.
-  await supabaseAdmin
-    .from("withdrawals")
-    .update({ pending_beneficiary: null })
-    .eq("id", input.rowId);
+  // The sealed copy is deliberately NOT cleared here, even though the payout now exists.
+  // Creating a payout is not completing one: it can still fail afterwards, and that is exactly
+  // when an operator needs the destination to settle by hand. Clearing at this point left three
+  // of the first four such debts with only a masked account number. It is scrubbed once the
+  // withdrawal actually completes, in triggerWithdrawalNotifications.
 
   // ── Release it. The deposit is verified, so finalize needs no re-check ───
   for (let attempt = 1; attempt <= 15; attempt++) {

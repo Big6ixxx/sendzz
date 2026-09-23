@@ -50,7 +50,7 @@ export async function registerMyAddresses(input: {
   stellarSignerGranted?: boolean;
   /**
    * The referral code this browser was carrying, if any. Honoured only for an account with no
-   * referrer yet — see lib/referrals/attribution.ts, and migration 053 where the database
+   * referrer yet — see lib/referrals/attribution.ts, and migration 054 where the database
    * enforces the same rule again.
    */
   referralCode?: string | null;

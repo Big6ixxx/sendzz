@@ -62,7 +62,7 @@ export async function monthlyNetworkVolume(referrerId: string): Promise<number> 
  * Recomputing from today's configuration would quietly restate an old withdrawal's economics.
  *
  * Falls back to recomputing only when the columns are absent — an older row written before
- * migration 055, or one whose metadata never carried a fee.
+ * migration 056, or one whose metadata never carried a fee.
  */
 function withdrawalEconomics(withdrawal: {
   amount_usdc: number;

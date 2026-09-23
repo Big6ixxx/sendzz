@@ -5,7 +5,7 @@
  *
  * The Merchant track pays real cash out of the treasury where the retail track only discounts
  * our own margin, so joining it is a decision somebody makes rather than a threshold somebody
- * trips. See migration 057 for why volume alone is the wrong signal in both directions.
+ * trips. See migration 058 for why volume alone is the wrong signal in both directions.
  *
  * Identity always comes from the session, on both sides. An applicant cannot submit on
  * somebody else's behalf, and an approval is an admin action verified by `requireAdmin` —

@@ -2,7 +2,7 @@
 --
 -- --- Why the table is replaced rather than altered ---------------------------
 --
--- Migration 053 recorded a share of our revenue on fiat DEPOSITS. Deposits are now free
+-- Migration 054 recorded a share of our revenue on fiat DEPOSITS. Deposits are now free
 -- (migration in the same series removed that fee), so the event it keyed on no longer earns
 -- anything and every column describing it is meaningless. Nothing has been paid out under the
 -- old shape, so there is no history to preserve — replacing is honest where a rename would
