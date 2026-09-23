@@ -17,7 +17,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { PinInput } from "@/components/security/PinGate";
+import { PinInput } from "@/components/security/PinInput";
 
 type Step = "confirm" | "code";
 

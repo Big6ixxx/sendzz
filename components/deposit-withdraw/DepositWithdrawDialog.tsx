@@ -275,10 +275,15 @@ export function DepositWithdrawDialog({
                 : "email"
           }
           availableMethods={(() => {
-            const methods: ("email" | "totp" | "passkey" | "pin")[] = ["email"];
+            // Email, authenticator and passkey — never the PIN.
+            //
+            // The PIN was already entered to get here: it gates every outgoing transaction.
+            // Offering it again as the "second factor" on a large withdrawal would mean one
+            // secret satisfying both checks, which is one check wearing two hats. A second
+            // factor has to be something else you hold.
+            const methods: ("email" | "totp" | "passkey")[] = ["email"];
             if (withdrawHook.totpEnabled) methods.push("totp");
             if (withdrawHook.passkeyEnabled) methods.push("passkey");
-            if (withdrawHook.pinEnabled) methods.push("pin");
             return methods;
           })()}
           userEmail={userEmail}

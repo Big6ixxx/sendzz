@@ -1300,7 +1300,11 @@ export interface Database {
       withdrawal_verification_status: WithdrawalVerificationStatus;
       otp_purpose: OtpPurpose;
       webhook_provider: WebhookProvider;
-      transaction_otp_action: "transfer" | "withdrawal" | "pin_reset";
+      transaction_otp_action:
+        | "transfer"
+        | "withdrawal"
+        | "pin_reset"
+        | "security_change";
     };
     CompositeTypes: {
       [_ in never]: never;

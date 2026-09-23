@@ -1,0 +1,21 @@
+-- An emailed code for confirming a change to a security setting.
+--
+-- --- Why not the transaction PIN ---------------------------------------------
+--
+-- Weakening a protection used to be confirmed with the PIN. That was the wrong secret to ask
+-- for, for a reason worth writing down: the PIN already authorises every outgoing transaction,
+-- so using it here too means ONE secret satisfies both the payment check and the check that
+-- guards the payment check. Someone who learns it over a shoulder gets the money and the
+-- ability to switch off everything that would have stopped them.
+--
+-- Turning a protection off should cost one of the protections. So removing a passkey,
+-- unpairing an authenticator, turning verification off or raising its threshold is now
+-- confirmed with an emailed code, the authenticator app, or a passkey — never the PIN.
+--
+-- Email is the universal fallback: every Sendzz account signs in with one, so there is no user
+-- who could be locked out of their own settings by this. It is also a different thing to hold
+-- than the PIN, which is the entire point.
+--
+-- Added as its own statement and used only by application code in later transactions:
+-- Postgres refuses to use a new enum value in the transaction that added it.
+ALTER TYPE transaction_otp_action ADD VALUE IF NOT EXISTS 'security_change';

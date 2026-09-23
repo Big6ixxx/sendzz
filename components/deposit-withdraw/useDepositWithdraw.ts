@@ -1008,7 +1008,7 @@ export function useDepositWithdraw(
 
   const handleTwoFaSubmit = async (
     code: string,
-    method?: "email" | "totp" | "passkey" | "pin",
+    method?: "email" | "totp" | "passkey",
   ) => {
     setTwoFaLoading(true);
     setTwoFaError(null);
@@ -1022,19 +1022,7 @@ export function useDepositWithdraw(
         return;
       }
 
-      if (method === "pin") {
-        // Verified server-side against the stored scrypt hash, which also owns the attempt
-        // counter — a 4-digit secret is only defensible if guessing is rate limited there
-        // rather than here, where a caller could simply skip it.
-        res = await fetch("/api/2fa/pin", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${await freshToken()}`,
-          },
-          body: JSON.stringify({ action: "verify", pin: code }),
-        });
-      } else if (method === "totp") {
+      if (method === "totp") {
         // Use TOTP verification endpoint
         res = await fetch("/api/2fa/totp/verify", {
           method: "POST",

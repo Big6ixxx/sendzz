@@ -489,7 +489,7 @@ export function useCryptoTransfer({
 
   const handleTwoFaSubmit = async (
     code: string,
-    method?: "email" | "totp" | "passkey" | "pin",
+    method?: "email" | "totp" | "passkey",
   ) => {
     setTwoFaLoading(true);
     setTwoFaError(null);

@@ -40,7 +40,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ForgotPinDialog } from "@/components/security/ForgotPinDialog";
-import { PinInput } from "@/components/security/PinGate";
+import { PinInput } from "@/components/security/PinInput";
 import {
   confirmationNotice,
   durationEstimate,

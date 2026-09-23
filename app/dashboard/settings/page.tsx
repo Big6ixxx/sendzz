@@ -49,9 +49,9 @@ import { useRouter } from "next/navigation";
 import { TOTPSetupWizard } from "@/components/TOTPSetupWizard";
 import { PasskeySetupWizard } from "@/components/PasskeySetupWizard";
 import {
-  PinGate,
-  type PinGateRequest,
-} from "@/components/security/PinGate";
+  SecurityStepUp,
+  type StepUpRequest,
+} from "@/components/security/SecurityStepUp";
 import { ForgotPinDialog } from "@/components/security/ForgotPinDialog";
 import { Fingerprint } from "lucide-react";
 import { KycModal } from "@/components/kyc/KycModal";
@@ -135,7 +135,7 @@ export default function SettingsPage() {
   // The threshold is confirmed with the PIN and then typed into a second dialog, so the token
   // minted at confirmation has to survive until the value is actually submitted.
   const [thresholdAuthorization, setThresholdAuthorization] = useState<string | null>(null);
-  const [pinGate, setPinGate] = useState<PinGateRequest | null>(null);
+  const [stepUp, setStepUp] = useState<StepUpRequest | null>(null);
 
   // Notification Preferences
   const [pushEnabled, setPushEnabled] = useState(false);
@@ -369,19 +369,18 @@ export default function SettingsPage() {
   };
 
   /**
-   * Run `req.run()` only after the PIN is confirmed.
+   * Run `req.run()` only after a SECOND FACTOR is proven — not the PIN.
    *
-   * The PIN is the key every other security control is locked behind, so it has to exist
-   * before there is anything to lock: without one, this sends the user to set it rather than
-   * letting them add a factor that nothing can protect.
+   * The PIN authorises every outgoing payment. If it also switched protections off, one secret
+   * would open both doors: somebody who read it over a shoulder would get the money and the
+   * ability to disable everything that would have stopped them. So weakening a protection
+   * costs one of the protections — the authenticator app, a passkey, or a code emailed to the
+   * address on the account.
+   *
+   * Email is always available, so this can never lock somebody out of their own settings.
    */
-  const withPin = (req: PinGateRequest) => () => {
-    if (!pinEnabled) {
-      toast.error("Set your transaction PIN first — it protects every other change.");
-      setPinSetupOpen(true);
-      return;
-    }
-    setPinGate(req);
+  const withStepUp = (req: Omit<StepUpRequest, "totpEnabled" | "passkeyEnabled">) => () => {
+    setStepUp({ ...req, totpEnabled, passkeyEnabled });
   };
 
   /** Re-read every security method at once, so one setup flow cannot leave another stale. */
@@ -747,13 +746,13 @@ export default function SettingsPage() {
                     </span>
                     <PremiumToggle
                       checked={twoFaEnabled}
-                      onChange={withPin({
+                      onChange={withStepUp({
                         title: twoFaEnabled
                           ? "Turn off verification"
                           : "Turn on verification",
                         description: twoFaEnabled
-                          ? "Large withdrawals will stop asking for a second check. Confirm with your PIN."
-                          : "Large withdrawals will ask for a second check. Confirm with your PIN.",
+                          ? "Large withdrawals will stop asking for a second check. Confirm this first."
+                          : "Large withdrawals will ask for a second check. Confirm this first.",
                         confirmLabel: twoFaEnabled ? "Turn off" : "Turn on",
                         destructive: twoFaEnabled,
                         control: "two_fa",
@@ -774,10 +773,10 @@ export default function SettingsPage() {
                   className="p-6 flex items-center justify-between hover:bg-white/2 transition-colors cursor-pointer"
                   onClick={() => {
                     if (!twoFaEnabled) return;
-                    withPin({
+                    withStepUp({
                       title: "Change verification threshold",
                       description:
-                        "Raising the threshold means more can be withdrawn without a second check. Confirm with your PIN.",
+                        "Raising the threshold means more can be withdrawn without a second check. Confirm this first.",
                       confirmLabel: "Continue",
                       control: "threshold",
                       run: (authorization) => {
@@ -827,7 +826,7 @@ export default function SettingsPage() {
                   </div>
                   {totpEnabled ? (
                     <button
-                      onClick={withPin({
+                      onClick={withStepUp({
                         title: "Remove authenticator app",
                         description:
                           "Codes from your authenticator app will no longer be accepted. You can pair an app again at any time.",
@@ -842,7 +841,7 @@ export default function SettingsPage() {
                     </button>
                   ) : (
                     <button
-                      onClick={withPin({
+                      onClick={withStepUp({
                         title: "Add authenticator app",
                         description:
                           "Confirm it is you before adding a new way to approve withdrawals.",
@@ -873,7 +872,7 @@ export default function SettingsPage() {
                   </div>
                   {passkeyEnabled ? (
                     <button
-                      onClick={withPin({
+                      onClick={withStepUp({
                         title: "Remove passkey",
                         description:
                           "Every passkey on your account is removed. Withdrawals will fall back to your other methods.",
@@ -888,7 +887,7 @@ export default function SettingsPage() {
                     </button>
                   ) : (
                     <button
-                      onClick={withPin({
+                      onClick={withStepUp({
                         title: "Add passkey",
                         description:
                           "Confirm it is you before adding a new way to approve withdrawals.",
@@ -1247,8 +1246,8 @@ export default function SettingsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* One dialog for every security change that needs the PIN. */}
-      <PinGate request={pinGate} onClose={() => setPinGate(null)} />
+      {/* One dialog for every change that weakens a protection. */}
+      <SecurityStepUp request={stepUp} onClose={() => setStepUp(null)} />
 
       {/*
         Both mounts refresh BOTH methods. The wizard offers to add the other once one is set,

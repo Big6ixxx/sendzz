@@ -25,74 +25,18 @@
  * reset codes indefinitely and wait for one to be read on a shared screen.
  */
 
-import crypto from "node:crypto";
-
-import { decrypt, encrypt } from "@/lib/encryption";
 import { sendEmail } from "@/lib/email/sendEmail";
 import { pinResetTemplate } from "@/lib/email/templates";
-import { supabaseAdmin } from "@/lib/supabase/adminClient";
-
-/** How long a reset code is good for. Matches the other transaction codes. */
-const RESET_TTL_MS = 10 * 60 * 1000;
-
-/** The quiet period between reset codes, so an open session cannot spray a mailbox. */
-const RESEND_COOLDOWN_MS = 60 * 1000;
-
-function encryptionKey(): string {
-  const key = process.env.TOTP_ENCRYPTION_KEY;
-  if (!key) throw new Error("TOTP_ENCRYPTION_KEY is not configured.");
-  return key;
-}
+import { consumeEmailCode, issueEmailCode } from "./email-code";
 
 /**
  * Send a reset code to the account's own email address.
  *
- * The address is the one on the account, never one supplied by the caller — otherwise this
- * would be a way to redirect recovery to an attacker's mailbox, which is the single worst
- * thing a reset flow can get wrong.
+ * The address comes from the session, never from the caller. A reset that could be pointed at
+ * a supplied mailbox is a way to take over an account, not a way to recover one.
  */
 export async function requestPinReset(userEmail: string): Promise<string> {
-  const now = new Date().toISOString();
-
-  await supabaseAdmin
-    .from("transaction_otps")
-    .delete()
-    .lt("expires_at", now)
-    .eq("user_email", userEmail);
-
-  const since = new Date(Date.now() - RESEND_COOLDOWN_MS).toISOString();
-  const { data: recent } = await supabaseAdmin
-    .from("transaction_otps")
-    .select("id")
-    .eq("user_email", userEmail)
-    .eq("action_type", "pin_reset")
-    .gt("created_at", since)
-    .maybeSingle();
-
-  if (recent) {
-    throw new Error("A reset code was just sent. Check your inbox, or try again in a minute.");
-  }
-
-  const code = crypto.randomInt(100000, 999999).toString();
-
-  const { data, error } = await supabaseAdmin
-    .from("transaction_otps")
-    .insert({
-      user_email: userEmail,
-      // Stored encrypted, exactly as the transaction codes are: a database dump should not
-      // hand someone a live reset code for every account mid-flow.
-      otp_code: encrypt(code, encryptionKey()),
-      action_type: "pin_reset",
-      payload: {},
-      expires_at: new Date(Date.now() + RESET_TTL_MS).toISOString(),
-    })
-    .select("id")
-    .single();
-
-  if (error || !data) {
-    console.error("[PIN reset] could not store code:", error?.message);
-    throw new Error("Could not start the reset. Please try again.");
-  }
+  const { id, code } = await issueEmailCode({ userEmail, purpose: "pin_reset" });
 
   await sendEmail({
     to: userEmail,
@@ -100,39 +44,19 @@ export async function requestPinReset(userEmail: string): Promise<string> {
     html: pinResetTemplate(code),
   });
 
-  return data.id;
+  return id;
 }
 
-/**
- * Check a reset code and spend it.
- *
- * Deletes the row on success so one code sets one PIN. Returns false rather than throwing for
- * anything that simply did not match, so the caller answers every wrong code identically and
- * nothing distinguishes "expired" from "never existed" from "belongs to someone else".
- */
+/** Check a reset code and spend it, so one code sets one PIN. */
 export async function verifyPinResetCode(
   resetId: string,
   code: string,
   userEmail: string,
 ): Promise<boolean> {
-  try {
-    const { data: row } = await supabaseAdmin
-      .from("transaction_otps")
-      .select("id, user_email, otp_code, action_type, expires_at")
-      .eq("id", resetId)
-      .maybeSingle();
-
-    if (!row) return false;
-    if (row.action_type !== "pin_reset") return false;
-    if (row.user_email !== userEmail) return false;
-    if (new Date(row.expires_at) < new Date()) return false;
-
-    if (decrypt(row.otp_code, encryptionKey()) !== code) return false;
-
-    await supabaseAdmin.from("transaction_otps").delete().eq("id", row.id);
-    return true;
-  } catch (err) {
-    console.error("[PIN reset] verification failed:", (err as Error).message);
-    return false;
-  }
+  return consumeEmailCode({
+    id: resetId,
+    code,
+    userEmail,
+    purpose: "pin_reset",
+  });
 }

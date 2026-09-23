@@ -24,7 +24,7 @@ import {
   consumeAuthorization,
 } from '@/lib/security/transaction-auth';
 
-/** Mirrors SecurityControl in components/security/PinGate.tsx. */
+/** Mirrors SecurityControl in components/security/SecurityStepUp.tsx. */
 export type SecurityControl = 'two_fa' | 'threshold' | 'totp' | 'passkey' | 'pin';
 
 export interface SecurityChangeAuth {
@@ -46,7 +46,7 @@ export async function authorizeSecurityChange(params: {
   await consumeAuthorization({
     token: params.authorization,
     purpose: 'security_change',
-    // The same shape PinGate mints against. Amount is meaningless here and fixed at 0 so the
+    // The same shape the step-up route mints against. Amount is meaningless here and fixed at 0 so the
     // two sides cannot drift.
     payload: { destination: params.control, amount: 0 },
     accessToken: params.accessToken,

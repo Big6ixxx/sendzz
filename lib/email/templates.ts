@@ -713,6 +713,62 @@ export function referralEarningTemplate(
   `);
 }
 
+/**
+ * Confirming a change to a security setting.
+ *
+ * Deliberately names WHAT is being changed. A code that just says "here is your code" trains
+ * people to type it into whatever asked for it — which is exactly how a phishing page gets one.
+ * Somebody who reads "this will remove your passkey" and did not ask to remove their passkey
+ * has been told something useful, and the warning below tells them what to do about it.
+ */
+export function securityCodeTemplate(code: string, control: string): string {
+  const WHAT: Record<string, string> = {
+    two_fa: 'turn extra verification on or off',
+    threshold: 'change the amount that triggers extra verification',
+    totp: 'change your authenticator app',
+    passkey: 'change your passkey',
+    pin: 'change your transaction PIN',
+  };
+  const what = WHAT[control] ?? 'change a security setting';
+
+  const digitBoxes = code
+    .split('')
+    .map(
+      (d) => `
+    <td style="padding: 0 4px;">
+      <div style="width: 44px; height: 52px; border: 1.5px solid #006633; border-radius: 14px; font-size: 26px; font-weight: 700; color: #252525; text-align: center; line-height: 52px; font-family: 'Geist', sans-serif; background-color: #ffffff;">
+        ${d}
+      </div>
+    </td>
+  `,
+    )
+    .join('');
+
+  return baseTemplate(`
+    <div style="text-align: center;">
+      <p style="font-size: 15px; color: #555555; margin: 0 0 8px 0;">Security settings</p>
+      <h1 style="font-size: 32px; font-weight: 950; color: #111111; margin: 0 0 6px 0; letter-spacing: -1px;">Confirm this change</h1>
+      <p style="font-size: 14px; color: #888888; margin: 0 0 32px 0;">Someone is trying to ${esc(what)}</p>
+
+      <table align="center" border="0" cellpadding="0" cellspacing="0" style="margin: 0 auto 28px auto;">
+        <tr>${digitBoxes}</tr>
+      </table>
+
+      <p style="font-size: 14px; color: #555555; margin: 0 0 24px 0;">This code expires in <strong>10 minutes</strong>.</p>
+
+      <div style="text-align: left; background-color: #fff8f0; border: 1px solid #ffd9a8; border-radius: 14px; padding: 16px 18px;">
+        <p style="font-size: 14px; font-weight: 700; color: #111111; margin: 0 0 4px 0;">Didn't ask for this?</p>
+        <p style="font-size: 13px; color: #555555; margin: 0;">
+          Then somebody else is in your account and is trying to remove the protections on it.
+          Do not share this code. Sign out everywhere on your
+          <a href="${process.env.NEXT_PUBLIC_APP_URL ?? ''}/dashboard/settings/devices" style="color:#006633 !important;">devices page</a>
+          and change your PIN.
+        </p>
+      </div>
+    </div>
+  `);
+}
+
 export function securityAlertTemplate(title: string, body: string): string {
   return baseTemplate(`
     <div style="text-align: center;">

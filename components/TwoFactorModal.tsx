@@ -6,14 +6,21 @@ import {
   Smartphone,
   Mail,
   Fingerprint,
-  KeyRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createPortal } from "react-dom";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { toast } from "sonner";
 
-export type VerificationMethod = "email" | "totp" | "passkey" | "pin";
+/**
+ * The second factor on a large transaction.
+ *
+ * The PIN is deliberately not one of them. It is already required for EVERY outgoing
+ * transaction, so offering it again here would mean one secret satisfying both checks — one
+ * check wearing two hats. A second factor has to be something else you hold: your inbox, your
+ * phone, or your device.
+ */
+export type VerificationMethod = "email" | "totp" | "passkey";
 
 interface TwoFactorModalProps {
   isOpen: boolean;
@@ -106,9 +113,8 @@ export function TwoFactorModal({
     }
   };
 
-  // A PIN is 4 digits; email and authenticator codes are 6. The boxes and the submit gate
-  // both follow this, so switching method mid-flow cannot leave a 6-box grid asking for a PIN.
-  const codeLength = currentMethod === "pin" ? 4 : 6;
+  // Email and authenticator codes are both 6 digits.
+  const codeLength = 6;
 
   const handleSubmit = () => {
     onSubmit(code, currentMethod);
@@ -211,8 +217,6 @@ export function TwoFactorModal({
               <Smartphone className="w-10 h-10 text-accent" />
             ) : currentMethod === "passkey" ? (
               <Fingerprint className="w-10 h-10 text-accent" />
-            ) : currentMethod === "pin" ? (
-              <KeyRound className="w-10 h-10 text-accent" />
             ) : (
               <Mail className="w-10 h-10 text-accent" />
             )}
@@ -226,9 +230,7 @@ export function TwoFactorModal({
                 ? "Enter the 6-digit code from your authenticator app"
                 : currentMethod === "passkey"
                   ? "Use your passkey to verify"
-                  : currentMethod === "pin"
-                    ? "Enter your 4-digit PIN"
-                    : "Enter the 6-digit code sent to your email to complete this transaction"}
+                  : "Enter the 6-digit code sent to your email to complete this transaction"}
             </p>
           </div>
         </div>
@@ -261,20 +263,6 @@ export function TwoFactorModal({
               >
                 <Smartphone className="w-4 h-4" />
                 App
-              </button>
-            )}
-            {availableMethods.includes("pin") && (
-              <button
-                onClick={() => handleMethodChange("pin")}
-                className={cn(
-                  "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors",
-                  currentMethod === "pin"
-                    ? "bg-accent text-black"
-                    : "bg-white/5 text-white/60 hover:bg-white/10",
-                )}
-              >
-                <KeyRound className="w-4 h-4" />
-                PIN
               </button>
             )}
             {availableMethods.includes("passkey") && (

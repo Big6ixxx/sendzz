@@ -10,7 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Shield, Smartphone, CheckCircle2 } from "lucide-react";
+import { Shield, Smartphone, CheckCircle2, Check, Copy, KeyRound, LifeBuoy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { parseAppError } from "@/lib/errors/appErrors";
 
@@ -32,6 +32,10 @@ export function TOTPSetupWizard({
   const [step, setStep] = useState<Step>("intro");
   const [loading, setLoading] = useState(false);
   const [qrUri, setQrUri] = useState("");
+  // Returned by the setup endpoint and previously discarded. It is the only thing that lets
+  // somebody re-add the app on a new phone, and the only option when a camera cannot scan.
+  const [secret, setSecret] = useState("");
+  const [copied, setCopied] = useState(false);
   const [verificationCode, setVerificationCode] = useState("");
   const [error, setError] = useState("");
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -48,6 +52,7 @@ export function TOTPSetupWizard({
       if (!res.ok) throw new Error(data.error || "Setup failed");
 
       setQrUri(data.qrUri);
+      setSecret(data.secret ?? "");
       setStep("qr");
     } catch (err) {
       toast.error(parseAppError(err));
@@ -128,33 +133,43 @@ export function TOTPSetupWizard({
 
         {step === "intro" && (
           <div className="space-y-4 py-4">
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              An authenticator app shows a 6-digit code that changes every 30 seconds. We ask
+              for it on large withdrawals, so that someone who has your password still cannot
+              move your money without the phone in your pocket.
+            </p>
+
             <div className="flex items-start gap-3 p-4 rounded-lg bg-muted">
-              <Smartphone className="w-5 h-5 mt-0.5 text-primary" />
+              <Smartphone className="w-5 h-5 mt-0.5 text-primary shrink-0" />
               <div>
-                <p className="font-medium">Download an authenticator app</p>
+                <p className="font-medium">Get an app, if you have not got one</p>
                 <p className="text-sm text-muted-foreground">
-                  We recommend Google Authenticator or Authy
+                  Google Authenticator, Authy, 1Password and Bitwarden all work. Any of them
+                  is fine — the code is the same.
                 </p>
               </div>
             </div>
             <div className="flex items-start gap-3 p-4 rounded-lg bg-muted">
-              <Shield className="w-5 h-5 mt-0.5 text-primary" />
+              <Shield className="w-5 h-5 mt-0.5 text-primary shrink-0" />
               <div>
-                <p className="font-medium">Scan the QR code</p>
+                <p className="font-medium">Scan the code we show you</p>
                 <p className="text-sm text-muted-foreground">
-                  Link your app to your Sendzz account
+                  That links the app to this account. We will also show you a setup key to
+                  save — that key is what lets you set the app up again on a new phone.
                 </p>
               </div>
             </div>
             <div className="flex items-start gap-3 p-4 rounded-lg bg-muted">
-              <CheckCircle2 className="w-5 h-5 mt-0.5 text-primary" />
+              <LifeBuoy className="w-5 h-5 mt-0.5 text-primary shrink-0" />
               <div>
-                <p className="font-medium">Enter verification code</p>
+                <p className="font-medium">Losing your phone is not losing your account</p>
                 <p className="text-sm text-muted-foreground">
-                  Confirm the setup is working
+                  You can always get a code by email instead. Turning the app off later just
+                  needs one of those.
                 </p>
               </div>
             </div>
+
             <Button
               onClick={handleStartSetup}
               disabled={loading}
@@ -188,12 +203,78 @@ export function TOTPSetupWizard({
               <div className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-full border border-white/10">
                 <Smartphone className="w-4 h-4 text-accent" />
                 <span className="text-xs text-muted-foreground">
-                  Scan with Google Authenticator, Authy, or any TOTP app
+                  Scan with Google Authenticator, Authy, 1Password or Bitwarden
                 </span>
               </div>
             </div>
+
+            {/* The setup key, and what to do with it.
+                
+                Shown rather than hidden behind a "can't scan?" link, because it is not only
+                for people who cannot scan — it is the ONLY way back if the phone is lost, and
+                a key nobody noticed is a key nobody saved. */}
+            {secret && (
+              <div className="space-y-3 p-4 rounded-2xl border border-white/10 bg-white/[0.03]">
+                <div className="flex items-start gap-3">
+                  <KeyRound className="w-4 h-4 mt-0.5 text-accent shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-[13.5px] font-semibold text-brand-secondary">
+                      Save this setup key
+                    </p>
+                    <p className="text-[12px] text-muted-foreground leading-relaxed mt-0.5">
+                      Can&apos;t scan? Type it into the app instead. Either way, keep a copy —
+                      it is what lets you set this up again on a new phone.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 min-w-0 px-3 py-2.5 rounded-lg bg-black/30 border border-white/10 font-mono text-[12.5px] text-brand-secondary break-all">
+                    {secret}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(secret);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                      } catch {
+                        toast.error("Could not copy. Select the key and copy it manually.");
+                      }
+                    }}
+                    className="shrink-0 p-2.5 rounded-lg border border-white/10 hover:bg-white/5 transition-colors text-brand-secondary/60"
+                    aria-label="Copy setup key"
+                  >
+                    {copied ? (
+                      <Check className="w-4 h-4 text-accent" />
+                    ) : (
+                      <Copy className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
+
+                {/* Named specifically. "Store it securely" means nothing; the habits below
+                    are the ones people actually have. */}
+                <div className="space-y-1.5 pt-1 text-[12px] leading-relaxed">
+                  <p className="text-accent/80">
+                    <span className="font-semibold">Good places:</span> a password manager, or
+                    written on paper somewhere only you can reach.
+                  </p>
+                  <p className="text-orange-400/80">
+                    <span className="font-semibold">Not:</span> a screenshot in your camera
+                    roll, a note that syncs to an unlocked cloud account, or a message to
+                    yourself. Anyone who reads those can generate your codes.
+                  </p>
+                  <p className="text-muted-foreground">
+                    We will not show you this key again after setup.
+                  </p>
+                </div>
+              </div>
+            )}
+
             <Button onClick={() => setStep("verify")} className="w-full h-12">
-              I&apos;ve scanned the code
+              I&apos;ve scanned the code and saved the key
             </Button>
           </div>
         )}
@@ -272,9 +353,14 @@ export function TOTPSetupWizard({
         {step === "success" && (
           <div className="space-y-4 py-4 text-center">
             <CheckCircle2 className="w-16 h-16 mx-auto text-green-500" />
-            <p className="text-lg font-medium">Authenticator app enabled!</p>
-            <p className="text-sm text-muted-foreground">
-              Your account is now protected with 2FA
+            <p className="text-lg font-medium">Your authenticator app is on</p>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              We will ask for a code from it on large withdrawals, and before any change to
+              your security settings.
+            </p>
+            <p className="text-[12.5px] text-muted-foreground leading-relaxed">
+              If you lose the phone, you can still confirm by email — and if you saved the
+              setup key, you can add the app straight back on a new one.
             </p>
           </div>
         )}
