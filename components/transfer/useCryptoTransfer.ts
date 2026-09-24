@@ -8,6 +8,7 @@ import {
   useWallets as useSolanaWallets,
 } from '@privy-io/react-auth/solana';
 import { Connection } from '@solana/web3.js';
+import { solanaRpcUrl } from '@/lib/solana/rpc';
 import {
   executeCircleGaslessBatchTransfer,
   executeCircleGaslessTransfer,
@@ -90,10 +91,7 @@ export function useCryptoTransfer({
   const { wallets: solWallets } = useSolanaWallets();
   const { signTransaction } = useSignTransaction();
 
-  const solanaConnection = useMemo(() => new Connection(
-    process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com',
-    'confirmed'
-  ), []);
+  const solanaConnection = useMemo(() => new Connection(solanaRpcUrl(), 'confirmed'), []);
 
   const queryClient = useQueryClient();
   const { user } = usePrivy();

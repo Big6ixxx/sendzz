@@ -76,6 +76,19 @@ export async function registerUserAddress(
     .upsert(row, { onConflict: 'email' });
 
   if (error) throw new Error(`Failed to map address: ${error.message}`);
+
+  // Ask Alchemy to watch this address, so a deposit to it arrives as a webhook rather than
+  // waiting to be found by the next cron sweep.
+  //
+  // Not awaited into the caller's failure path: registration is best-effort, and a user with no
+  // wallet is a far worse outcome than a user whose first deposit is found by the cron instead.
+  // The periodic sync re-registers anything that fails here.
+  try {
+    const { watchAddress } = await import('@/lib/web3/alchemy-registry');
+    await watchAddress(address);
+  } catch (e) {
+    console.error('[Users] Alchemy address registration failed (non-fatal):', e);
+  }
 }
 
 export async function registerStellarAddress(

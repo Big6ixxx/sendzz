@@ -5,6 +5,7 @@ import { VIEM_CHAINS } from '@/lib/web3/multichain';
 import { USDC_ADDRESSES, SOURCE_CHAINS, type SupportedChain } from '@/lib/circle/gateway';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
+import { solanaRpcUrl } from '@/lib/solana/rpc';
 
 const BALANCE_ABI = [
   {
@@ -19,15 +20,9 @@ const BALANCE_ABI = [
 // Solana USDC mint (mainnet)
 const SOLANA_USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 
-// On the server (API routes), NEXT_PUBLIC_ vars ARE available in process.env,
-// but we prefer the private SOLANA_RPC_URL if set. Fall back in order:
-// 1. SOLANA_RPC_URL (private, server-only)
-// 2. NEXT_PUBLIC_SOLANA_RPC_URL (public, set in .env)
-// 3. Public fallback (often 403s from browsers but fine server-side)
-const SOLANA_RPC =
-  process.env.SOLANA_RPC_URL ??
-  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ??
-  'https://api.mainnet-beta.solana.com';
+// Endpoint choice lives in lib/solana/rpc — it was inlined here and at five other call sites
+// with two different fallback operators, so they could not be changed together.
+const SOLANA_RPC = solanaRpcUrl();
 
 /**
  * A public client per chain, built from VIEM_CHAINS rather than a second list.

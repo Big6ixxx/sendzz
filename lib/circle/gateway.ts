@@ -93,6 +93,28 @@ export const CHAIN_EXPLORERS: Record<SupportedChain, string> = {
 // This list also drives balance scanning in /api/balances/cross-chain, so a chain
 // removed here stops being tracked app-wide: no balance, no portfolio line, no spend
 // routing. Ethereum L1 is commented out for now — see BRIDGE_DISABLED_CHAINS below.
+/**
+ * Chains we look for incoming USDC deposits on — scanned by the reconcile cron, and watched by
+ * an Alchemy Address Activity webhook.
+ *
+ * The two mechanisms must cover the same chains: the webhook is how a deposit is normally
+ * noticed, and the scan is the backstop for whatever push delivery misses. A chain in one list
+ * but not the other would be either unwatched or uncovered, so there is deliberately one list.
+ *
+ * ethereum — commented out with the rest of the L1 switch-off. Scanning it was a seventh of the
+ *   entire Alchemy Transfers bill, for a chain users cannot bridge off, so anything found there
+ *   would be stranded anyway. Uncomment when L1 comes back.
+ */
+export const DEPOSIT_CHAINS: SupportedChain[] = [
+  // 'ethereum',
+  'arbitrum',
+  'avalanche',
+  'optimism',
+  'polygon',
+  'base',
+  'arc',
+];
+
 export const SOURCE_CHAINS: SupportedChain[] = [
   'arbitrum',
   'arc',

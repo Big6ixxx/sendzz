@@ -38,10 +38,9 @@ import { Connection } from "@solana/web3.js";
 import { ArrowDown, CheckCircle2, ExternalLink, Loader2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { solanaRpcUrl } from "@/lib/solana/rpc";
 
-const SOLANA_RPC =
-  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ??
-  "https://api.mainnet-beta.solana.com";
+const SOLANA_RPC = solanaRpcUrl();
 
 const CHAIN_DISPLAY_NAMES: Record<string, string> = {
   ...CHAIN_NAMES,

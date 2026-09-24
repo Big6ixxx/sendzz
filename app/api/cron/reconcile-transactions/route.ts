@@ -322,6 +322,24 @@ async function scanStaleUsers(): Promise<{ scanned: number; inserted: number }> 
     }
   }
 
+  // Keep Alchemy's watched-address list converging on reality.
+  //
+  // Registration also happens at wallet creation; this is the net underneath it, covering users
+  // who existed before webhooks were switched on, and any registration that failed at the time.
+  // Re-registering an address Alchemy already watches is a no-op at their end, so repeating it
+  // costs a request and nothing else — and because this rides the same rotating batch as the
+  // scan, every user is re-offered periodically without tracking who has been registered.
+  try {
+    const { watchAddresses } = await import('@/lib/web3/alchemy-registry');
+    await watchAddresses(
+      (users ?? [])
+        .map((u) => u.smart_account_address)
+        .filter((a): a is string => !!a),
+    );
+  } catch (e) {
+    console.error('[Reconcile Deposits] address registration failed:', e);
+  }
+
   console.log(`[Reconcile Deposits] scanned=${scanned} inserted=${inserted}`);
   return { scanned, inserted };
 }

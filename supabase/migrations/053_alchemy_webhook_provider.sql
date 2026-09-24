@@ -1,0 +1,14 @@
+-- ── Log Alchemy Address Activity webhooks ────────────────────────────────────
+--
+-- On-chain USDC deposits used to be found by polling `alchemy_getAssetTransfers`, once per user
+-- per chain, on a timer. That is the only Alchemy method in the app with no public-RPC
+-- fallback, so every call billed — and it was polling for something that happens a few times a
+-- day. Alchemy now pushes the arrival instead, and those deliveries are logged here like every
+-- other inbound webhook, so a replayed delivery is recognised by `event_id` and ignored.
+--
+-- `webhook_events.provider` is an enum, so a new sender has to be admitted explicitly — the
+-- same step Bitnob needed in migration 025.
+--
+-- Note: ALTER TYPE ... ADD VALUE cannot run inside a transaction block on older PostgreSQL. If
+-- your migration runner wraps statements in one, run this file on its own.
+ALTER TYPE public.webhook_provider ADD VALUE IF NOT EXISTS 'alchemy';
