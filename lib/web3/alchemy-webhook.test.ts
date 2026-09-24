@@ -102,6 +102,47 @@ describe('isIncomingUsdc', () => {
     const a: AlchemyActivity = { category: 'external', value: 1.5 };
     expect(isIncomingUsdc(a, 'base')).toBe(false);
   });
+
+  // ── The three shapes Arc reports one send as ──────────────────────────────
+  // Taken from a real delivery: one 0.1 USDC payment arrived as `external`, as `internal`
+  // DELEGATECALL traces, and as a `token` transfer against a system pseudo-contract. Exactly one
+  // of them may be credited.
+
+  it('rejects Arc internal traces, which are execution steps and not payments', () => {
+    const a: AlchemyActivity = {
+      category: 'internal',
+      value: 0.1,
+      rawContract: { rawValue: '0x16345785d8a0000', decimals: 18 },
+    };
+    expect(isIncomingUsdc(a, 'arc')).toBe(false);
+  });
+
+  it('rejects the Arc system pseudo-contract, which reports no decimals', () => {
+    // The dangerous one. It carries an 18-decimal raw value with NO `decimals` field, so the
+    // amount maths falls back to 6 and 0.1 USDC would be credited as 100,000,000,000.
+    const a: AlchemyActivity = {
+      category: 'token',
+      rawContract: { address: '0xfffffffffffffffffffffffffffffffffffffffe', rawValue: '0x16345785d8a0000' },
+    };
+    expect(isIncomingUsdc(a, 'arc')).toBe(false);
+
+    // Proof of what rejecting it avoids, had it been let through.
+    expect(transferAmountUsdc(toAlchemyTransfer(a))).toBeCloseTo(100_000_000_000, 0);
+  });
+
+  it('accepts exactly one of the three, so the payment is credited once', () => {
+    const hash = '0xca3a0785152f01b63d72cdbea5f70d9595cbf7d1726b287649fcfc4006efa0c3';
+    const raw = { rawValue: '0x16345785d8a0000', decimals: 18 };
+    const shapes: AlchemyActivity[] = [
+      { hash, category: 'external', value: 0.1, rawContract: raw },
+      { hash, category: 'internal', value: 0.1, rawContract: raw },
+      { hash, category: 'token', rawContract: { address: '0xfffffffffffffffffffffffffffffffffffffffe', rawValue: raw.rawValue } },
+    ];
+    const accepted = shapes.filter((a) => isIncomingUsdc(a, 'arc'));
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0].category).toBe('external');
+    expect(transferAmountUsdc(toAlchemyTransfer(accepted[0]))).toBeCloseTo(0.1, 9);
+  });
 });
 
 describe('toAlchemyTransfer — the decimals conversion', () => {

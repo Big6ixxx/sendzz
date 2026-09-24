@@ -8,10 +8,17 @@
  * nothing we care about. Alchemy retries non-2xx, and retrying a well-formed event we have
  * correctly decided to ignore just bills us twice to reach the same conclusion. A 4xx is
  * reserved for "this did not come from Alchemy", a 5xx for "we failed to store it".
+ *
+ * Deliveries are NOT written to `webhook_events`. Most of them are not deposits — money leaving,
+ * and on Arc the same send reported three ways — so logging them filled the admin log with rows
+ * nobody needs to read. They go to stdout instead, where the reconcile output already lives.
+ * Nothing is lost by that: replay safety comes from the deposits table, whose unique
+ * (user_id, tx_hash) index makes a repeated delivery a no-op no matter how often it arrives.
  */
 
 import crypto from 'crypto';
 import { NextResponse } from 'next/server';
+import { getAddress } from 'viem';
 import { supabaseAdmin } from '@/lib/supabase/adminClient';
 import { USDC_ADDRESSES } from '@/lib/circle/gateway';
 import { transferAmountUsdc } from '@/lib/web3/deposit-amount';
@@ -73,43 +80,57 @@ export async function POST(req: Request) {
       return new Response('Invalid signature', { status: 401 });
     }
 
-    // ── Idempotency ───────────────────────────────────────────────────────────
-    // Alchemy retries until it gets a 2xx, so the same event id can arrive several times. The
-    // unique index on (provider, event_id) makes the duplicate lose here rather than downstream.
-    const eventId = payload.id ?? `alchemy-${chain}-${crypto.randomUUID()}`;
-    const { error: dupeError } = await supabaseAdmin.from('webhook_events').insert({
-      provider: 'alchemy',
-      event_id: eventId,
-      event_type: `${payload.type ?? 'ADDRESS_ACTIVITY'}:${chain}`,
-      payload_json: JSON.parse(rawBody),
-    });
-    if (dupeError) {
-      // 23505 = unique violation: seen already, and the first delivery did the work.
-      if (dupeError.code === '23505') {
-        console.log(`${tag} ${eventId} already processed — acknowledging`);
-        return NextResponse.json({ ok: true, duplicate: true });
-      }
-      console.error(`${tag} could not record event: ${dupeError.message}`);
-      return new Response('Internal error', { status: 500 });
+    const eventId = payload.id ?? '(no id)';
+    const activities = payload.event?.activity ?? [];
+
+    // ── Keep only what could be an incoming USDC payment ──────────────────────
+    //
+    // Done BEFORE any database work, because most deliveries are not deposits at all. An Address
+    // Activity webhook fires on everything the address touches — money going OUT, and on Arc the
+    // same native send reported three ways (external, internal, and a `token` entry against the
+    // system contract). Filtering first means an outgoing send costs one cheap pass and no query.
+    const candidates = activities.filter(
+      (a) =>
+        !!a.hash &&
+        !!a.toAddress &&
+        isIncomingUsdc(a, chain) &&
+        // Minted in, not paid in — a bridge delivery, recorded as a bridge elsewhere.
+        a.fromAddress?.toLowerCase() !== ZERO_ADDRESS,
+    );
+
+    if (candidates.length === 0) {
+      // Logged, not silent. "Nothing here for us" and "we never got called" look identical in a
+      // log that only speaks on success, and that is exactly what made the first live delivery
+      // impossible to diagnose.
+      console.log(
+        `${tag} ${chain}: ${activities.length} activity item(s), none an incoming USDC payment ` +
+          `(event ${eventId})`,
+      );
+      return NextResponse.json({ ok: true, credited: 0 });
     }
 
-    const activities = payload.event?.activity ?? [];
-    if (activities.length === 0) return NextResponse.json({ ok: true, credited: 0 });
-
     // ── Who do these belong to? ───────────────────────────────────────────────
-    // One lookup for every address in the batch. The smart-account address is the same on every
-    // EVM chain, so this is a plain address match with no per-chain handling.
-    const recipients = Array.from(
-      new Set(
-        activities
-          .map((a) => a.toAddress?.toLowerCase())
-          .filter((a): a is string => !!a),
-      ),
-    );
+    //
+    // Alchemy sends addresses lowercased; `smart_account_address` is stored EIP-55 checksummed,
+    // as Circle returns it. Querying one against the other matches nothing — silently, because
+    // an address that is not ours is a normal thing for this route to see. That is what made the
+    // first live deposit fall through to the cron with no error anywhere. Both spellings are
+    // asked for, so the match works whichever way a row was written and still uses the index.
+    const recipients = new Set<string>();
+    for (const a of candidates) {
+      const raw = a.toAddress!;
+      recipients.add(raw.toLowerCase());
+      try {
+        recipients.add(getAddress(raw));
+      } catch {
+        // Not a valid address; the lowercase form is still worth asking for.
+      }
+    }
+
     const { data: users, error: userError } = await supabaseAdmin
       .from('users')
       .select('id, smart_account_address')
-      .in('smart_account_address', recipients);
+      .in('smart_account_address', Array.from(recipients));
 
     if (userError) {
       console.error(`${tag} user lookup failed: ${userError.message}`);
@@ -127,23 +148,15 @@ export async function POST(req: Request) {
     const rows: DepositRow[] = [];
     const seen = new Set<string>();
 
-    for (const activity of activities) {
-      const to = activity.toAddress?.toLowerCase();
-      const userId = to ? userByAddress.get(to) : undefined;
-      // Not one of ours. Alchemy watches an address list we control, so this is normal right
-      // after a user is removed, and never an error.
-      if (!userId || !activity.hash) continue;
-
-      if (!isIncomingUsdc(activity, chain)) continue;
-
-      // Minted in, not paid in — a bridge delivery, recorded as a bridge elsewhere.
-      if (activity.fromAddress?.toLowerCase() === ZERO_ADDRESS) continue;
+    for (const activity of candidates) {
+      const userId = userByAddress.get(activity.toAddress!.toLowerCase());
+      // Watched, but not one of ours — normal right after a user is removed from the list.
+      if (!userId) continue;
 
       const amount = transferAmountUsdc(toAlchemyTransfer(activity));
       if (amount === null) {
         // Crediting an amount we cannot establish would write a wrong number into the ledger.
-        // Skipping is safe — the cron backstop re-derives it from the Transfers API — but it is
-        // silent, so say so.
+        // Skipping is safe — the cron backstop re-derives it — but it must not be silent.
         console.error(
           `${tag} ${chain} ${activity.hash}: no usable amount ` +
             `(value=${activity.value}, raw=${activity.rawContract?.rawValue ?? 'none'}). ` +
@@ -153,13 +166,13 @@ export async function POST(req: Request) {
       }
       if (amount <= 0) continue;
 
-      const key = `${userId}:${activity.hash.toLowerCase()}`;
+      const key = `${userId}:${activity.hash!.toLowerCase()}`;
       if (seen.has(key)) continue;
       seen.add(key);
 
       rows.push({
         user_id: userId,
-        tx_hash: activity.hash.toLowerCase(),
+        tx_hash: activity.hash!.toLowerCase(),
         amount_usdc: amount,
         network: chain,
         provider: 'onchain',
@@ -173,14 +186,16 @@ export async function POST(req: Request) {
       });
     }
 
-    if (rows.length === 0) return NextResponse.json({ ok: true, credited: 0 });
-
-    // One line per arrival, with the figures someone reading production logs actually needs:
-    // what was credited, to whom, and the hash to check on chain.
-    for (const r of rows) {
+    if (rows.length === 0) {
       console.log(
-        `${tag} ${chain} <- ${r.amount_usdc} USDC to ${r.user_id} tx=${r.tx_hash}`,
+        `${tag} ${chain}: ${candidates.length} incoming USDC payment(s), none to a known address ` +
+          `(event ${eventId})`,
       );
+      return NextResponse.json({ ok: true, credited: 0 });
+    }
+
+    for (const r of rows) {
+      console.log(`${tag} ${chain} <- ${r.amount_usdc} USDC to ${r.user_id} tx=${r.tx_hash}`);
     }
 
     // The same insert the scanner uses: upsert on (user_id, tx_hash), so an arrival the cron

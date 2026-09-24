@@ -46,12 +46,11 @@ export interface AlchemyActivity {
   };
 }
 
+/** Only the fields this route reads. Alchemy sends more (type, createdAt, network, log). */
 export interface AlchemyWebhookPayload {
   webhookId?: string;
   id?: string;
-  createdAt?: string;
-  type?: string;
-  event?: { network?: string; activity?: AlchemyActivity[] };
+  event?: { activity?: AlchemyActivity[] };
 }
 
 const ENV_SUFFIX: Record<SupportedChain, string> = {
@@ -125,11 +124,21 @@ export function isIncomingUsdc(activity: AlchemyActivity, chain: SupportedChain)
 
   if (contract && usdc && contract === usdc) return true;
 
-  if (category === 'external' || category === 'internal') {
+  if (category === 'external') {
     const nativeIsUsdc = VIEM_CHAINS[chain]?.nativeCurrency?.symbol?.toUpperCase() === 'USDC';
     // A contract address on a native transfer means it was not really native — don't guess.
     return nativeIsUsdc && !contract;
   }
+
+  // `internal` is deliberately excluded, and `token` against a system pseudo-contract with it.
+  //
+  // Arc reports one ordinary USDC send three times over: as `external` (correct decimals), as
+  // `internal` DELEGATECALL traces that are execution steps rather than payments, and as a
+  // `token` transfer against `0xffff…fffe` — which carries NO `decimals` field. That last one is
+  // the dangerous shape: the amount maths falls back to 6 decimals for an 18-decimal raw value,
+  // so 0.1 USDC would be credited as 100,000,000,000. Taking only the `external` form gets the
+  // payment once, at the right scale, and matches the categories the Transfers API scanner asks
+  // for. Do not add `0xffff…fffe` to USDC_ADDRESSES to "fix" Arc.
   return false;
 }
 

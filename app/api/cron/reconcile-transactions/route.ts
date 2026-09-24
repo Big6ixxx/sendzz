@@ -290,10 +290,26 @@ export async function GET(req: Request) {
 
 /** Scan the least-recently-scanned users for new on-chain USDC deposits, within a time budget. */
 async function scanStaleUsers(): Promise<{ scanned: number; inserted: number }> {
+  // Once per user per day, measured from midnight UTC.
+  //
+  // The webhook is how a deposit is normally noticed now; this sweep only catches what push
+  // delivery missed, and a backstop does not need to run every two minutes. Each user costs one
+  // `alchemy_getAssetTransfers` call PER CHAIN — the one Alchemy method with no public-RPC
+  // fallback, so every call bills — which makes the whole sweep (users × chains) per day
+  // regardless of how often the cron fires.
+  //
+  // Anchored to midnight rather than "24h since last scan" so the day has a fixed edge: everyone
+  // falls due at 00:00, the cron works through the roster a batch at a time over the following
+  // few minutes, and then finds nothing until the next midnight. A rolling window would drift a
+  // little further into the day with every pass.
+  const midnightUtc = new Date();
+  midnightUtc.setUTCHours(0, 0, 0, 0);
+  const dueBefore = midnightUtc.toISOString();
   const { data: users, error } = await supabaseAdmin
     .from('users')
     .select('id, smart_account_address, solana_address, stellar_address')
     .or('smart_account_address.not.is.null,solana_address.not.is.null,stellar_address.not.is.null')
+    .or(`last_deposit_scan_at.is.null,last_deposit_scan_at.lt.${dueBefore}`)
     .order('last_deposit_scan_at', { ascending: true, nullsFirst: true })
     .limit(DEPOSIT_SCAN_BATCH);
 
@@ -340,6 +356,10 @@ async function scanStaleUsers(): Promise<{ scanned: number; inserted: number }> 
     console.error('[Reconcile Deposits] address registration failed:', e);
   }
 
-  console.log(`[Reconcile Deposits] scanned=${scanned} inserted=${inserted}`);
+  // Silent when nothing was due, which is the normal state for most of the day. A line every
+  // couple of minutes saying there was nothing to do buries the ones that matter.
+  if (scanned > 0) {
+    console.log(`[Reconcile Deposits] swept ${scanned} address set(s), ${inserted} new deposit(s)`);
+  }
   return { scanned, inserted };
 }
