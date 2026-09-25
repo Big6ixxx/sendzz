@@ -86,9 +86,9 @@ export default function PrivacyPage() {
               <p className="text-sm text-brand-secondary/50 leading-relaxed">
                 When you create an account, we collect your email address and
                 basic device information to secure your account using MPC
-                technology. If you use fiat on-ramps, our partners (like
-                Paycrest) may collect KYC information as required by law. Sendzz
-                does not store your government-issued IDs on our own servers.
+                technology. If you use fiat on-ramps, our partners may collect
+                KYC information as required by law. Sendzz does not store your
+                government-issued IDs on our own servers.
               </p>
             </section>
 
