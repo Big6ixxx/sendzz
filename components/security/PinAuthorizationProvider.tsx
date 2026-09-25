@@ -315,7 +315,7 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
               which is precisely what used to happen on a bridge. */}
 
           {/* ── What you are approving ─────────────────────────────────────── */}
-          <DialogHeader className="shrink-0 px-6 pt-6 pb-5 space-y-3 text-left border-b border-white/[0.06]">
+          <DialogHeader className="shrink-0 px-6 pt-5 pb-4 space-y-2.5 text-left border-b border-white/[0.06]">
             <DialogTitle className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-secondary/35">
               {purposeHeading(request?.purpose)}
             </DialogTitle>
@@ -398,25 +398,16 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
           </div>
 
           {/* ── What we are asking for ──────────────────────────────────────── */}
-          <div className="shrink-0 px-6 pt-4 pb-6 space-y-3 border-t border-white/[0.06] bg-white/[0.015]">
-            <PinInput
-              value={pin}
-              onChange={(next) => {
-                setError(null);
-                setPin(next);
-              }}
-              onEnter={confirm}
-              error={error}
-              label="Enter your transaction PIN"
-              disabled={busy}
-              autoFocus
-            />
-
+          <div className="shrink-0 px-6 pt-4 pb-5 space-y-2.5 border-t border-white/[0.06] bg-white/[0.015]">
+            {/* The label and the way out share one row. They were two rows plus a sentence
+                explaining that the PIN approves only this payment — true, and worth saying
+                once during PIN setup, but restating it on every single payment cost a line
+                on a dialog that was already overflowing. The shield keeps the connotation. */}
             <div className="flex items-center justify-between gap-3">
-              <p className="flex items-center gap-1.5 text-[11.5px] text-brand-secondary/40">
-                <ShieldCheck className="w-3 h-3 shrink-0 text-accent/50" />
-                <span>Approves this payment only</span>
-              </p>
+              <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
+                <ShieldCheck className="w-3 h-3 shrink-0 text-accent/40" />
+                Enter your transaction PIN
+              </span>
               {/* Offered here, where the problem is actually discovered. Someone staring at a
                   prompt they cannot answer will not go looking through Settings for the way
                   out — they will give up, or write in. */}
@@ -431,6 +422,20 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
                 Forgot your PIN?
               </button>
             </div>
+
+            <PinInput
+              value={pin}
+              onChange={(next) => {
+                setError(null);
+                setPin(next);
+              }}
+              onEnter={confirm}
+              error={error}
+              label="Enter your transaction PIN"
+              srOnlyLabel
+              disabled={busy}
+              autoFocus
+            />
 
             <div className="flex flex-col-reverse sm:flex-row gap-2.5 pt-0.5">
               <button

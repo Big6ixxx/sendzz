@@ -988,7 +988,7 @@ export function useDepositWithdraw(
       destination: [bankDetails.accountName, bankDetails.bankName || bankDetails.bankCode]
         .filter(Boolean)
         .join(" · "),
-      warning: "Once the payout is sent to your bank it cannot be recalled.",
+      warning: "Cannot be recalled once it reaches your bank.",
       details: [
         { label: "Account", value: bankDetails.accountNumber },
         { label: "Total deducted", value: `${totalUsdcRequired.toFixed(2)} USDC` },

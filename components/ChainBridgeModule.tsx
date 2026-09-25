@@ -361,7 +361,7 @@ export function ChainBridgeModule({
       payload: { destination: dest, amount, chain: source },
       amount: `${parseFloat(amount || "0").toFixed(2)} USDC`,
       destination: `${CHAIN_DISPLAY_NAMES[source] ?? source} → ${CHAIN_DISPLAY_NAMES[dest] ?? dest}`,
-      warning: "Moving funds between networks cannot be undone once it starts.",
+      warning: "Cannot be undone once it starts.",
       // No detail rows. The amount and the route are the whole of it and they are already the
       // headline; the three rows this replaces restated the heading word for word.
       plan: describeBridge({ amount, sourceChain: source, destChain: dest }),

@@ -325,9 +325,7 @@ export function useCryptoTransfer({
       payload: { destination: recipientAddress, amount: sendAmount, chain },
       amount: `${parseFloat(sendAmount || "0").toFixed(2)} USDC`,
       destination: recipientAddress,
-      warning:
-        "Sending to a wallet address cannot be undone — check the address and the network " +
-        "before you confirm.",
+      warning: "Cannot be undone. Check the address and the network.",
       // The network is not in the headline and getting it wrong loses the money, so it stays.
       details: [{ label: "Network", value: chainLabel }],
       plan: describeCryptoSend({

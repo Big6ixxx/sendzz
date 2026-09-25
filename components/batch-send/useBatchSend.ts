@@ -112,8 +112,7 @@ export function useBatchSend(
       },
       amount: `$${total.toFixed(2)}`,
       destination: `${targets.length} ${targets.length === 1 ? "person" : "people"}`,
-      warning:
-        "Each person is paid separately, and payments that succeed cannot be reversed.",
+      warning: "Paid one by one. Payments that succeed cannot be reversed.",
       // The per-person figure is not derivable from the headline at a glance, so it stays.
       details: [
         { label: "Each receives", value: `$${amountUsd.toFixed(2)}` },
