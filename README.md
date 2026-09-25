@@ -27,6 +27,7 @@ Sendzz is live on both **Mainnet** and **Testnet**:
 - [Environment Variables](#environment-variables)
 - [Local Development Setup](#local-development-setup)
 - [Webhook Configuration](#webhook-configuration)
+  - [Alchemy Address Activity](#alchemy-address-activity)
 - [Admin Access](#admin-access)
 - [Testing](#testing)
 
@@ -372,6 +373,8 @@ What the groups are for:
 | `NEXT_PUBLIC_SUPABASE_*`, `SUPABASE_SERVICE_ROLE_KEY` | Database. The service key is server-only |
 | `NEXT_PUBLIC_PRIVY_APP_ID`, `PRIVY_APP_SECRET`, `PRIVY_AUTHORIZATION_PRIVATE_KEY` | Auth and embedded wallets |
 | `CIRCLE_API_KEY`, `CIRCLE_ENTITY_SECRET`, `CIRCLE_WALLET_SET_ID` | Smart accounts, and signing for payouts |
+| `NEXT_PUBLIC_CIRCLE_CLIENT_KEY`, `NEXT_PUBLIC_CIRCLE_READ_URL`, `NEXT_PUBLIC_CIRCLE_SEND_URL` | Browser-side Circle SDK |
+| `CIRCLE_SOLANA_FEEPAYER_WALLET_ID`, `CIRCLE_SOLANA_FEEPAYER_ADDRESS` | Gasless sends on Solana |
 | `NEXT_PUBLIC_CIRCLE_GAS_POLICY_*`       | Gasless sends, per chain                              |
 | `PAYCREST_*`, `BITNOB_*`                | The two fiat providers, including webhook secrets     |
 | `WITHDRAWAL_FEE_PERCENT[_<CUR>]`, `TRANSFER_FEE_PERCENT`, `BRIDGE_FEE_PERCENT` | What we charge |
@@ -382,7 +385,13 @@ What the groups are for:
 | `VAPID_*`, `RESEND_API_KEY`             | Push and email                                        |
 | `DIDIT_*`                               | KYC                                                   |
 | `*_RPC_URL`, `NEXT_PUBLIC_ALCHEMY_API_KEY` | Chain access                                       |
+| `ALCHEMY_WEBHOOK_ID_<CHAIN>`, `ALCHEMY_WEBHOOK_SECRET_<CHAIN>`, `ALCHEMY_NOTIFY_TOKEN` | Push deposit detection — see below |
 | `STELLAR_*`, `NEXT_PUBLIC_STELLAR_*`    | The Stellar rail                                      |
+| `PRIVY_KEY_QUORUM_ID`, `PRIVY_AUTHORIZATION_PRIVATE_KEY` | Signing on the Stellar rail            |
+| `CRON_SECRET`                           | Gates `/api/cron/*`. Unset means those routes refuse  |
+| `DUNE_API_KEY`                          | The Dune roster sync cron                             |
+| `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_SUPPORT_TELEGRAM_URL` | Links in emails and the UI           |
+| `NEXT_PUBLIC_SIMULATION_MODE`           | `false` for mainnet; anything else uses testnet       |
 | `ADMIN_EMAILS`                          | Admin fallback if `platform_admins` is unreachable    |
 
 Two worth knowing about before your first withdrawal:
@@ -474,6 +483,45 @@ Deliveries are recorded in `webhook_events`, unique on `event_id`, so a provider
 and they all do — cannot apply the same event twice. The Alchemy webhook additionally relies on
 the unique `(user_id, tx_hash)` index on `deposits`, which makes a repeat delivery a no-op
 however many times it arrives.
+
+### Alchemy Address Activity
+
+The other three providers are one endpoint and one secret. Alchemy is per chain, and needs three
+variables rather than one.
+
+| Variable                         | What it is                                                    |
+| -------------------------------- | ------------------------------------------------------------- |
+| `ALCHEMY_WEBHOOK_ID_<CHAIN>`     | The webhook's own id, from the dashboard                      |
+| `ALCHEMY_WEBHOOK_SECRET_<CHAIN>` | Its signing key — issued per webhook, so one per chain        |
+| `ALCHEMY_NOTIFY_TOKEN`           | Notify API auth token, account-wide. Adds addresses to watch  |
+
+`<CHAIN>` is one of `BASE`, `POLYGON`, `ARBITRUM`, `OPTIMISM`, `AVALANCHE`, `ARC` — the chains in
+`DEPOSIT_CHAINS`. Ethereum is deliberately not among them.
+
+**Setup, per chain:**
+
+1. Alchemy dashboard → Webhooks → create an **Address Activity** webhook on that network,
+   pointing at `https://<your-domain>/api/webhook/alchemy`.
+2. Copy its **webhook id** into `ALCHEMY_WEBHOOK_ID_<CHAIN>` and its **signing key** into
+   `ALCHEMY_WEBHOOK_SECRET_<CHAIN>`.
+3. Set `ALCHEMY_NOTIFY_TOKEN` once, from Alchemy's Notify API settings.
+
+The id does double duty: it is how an inbound delivery is matched back to a chain (the payload
+does not name one), and it is what `lib/web3/alchemy-registry.ts` PATCHes when a new wallet is
+created, so the address starts being watched.
+
+**All of it is optional, and the failure modes differ:**
+
+- **No `ALCHEMY_NOTIFY_TOKEN`, or no ids configured** — addresses are never registered, so no
+  deposit webhook ever fires. Nothing is lost: the deposit scanner cron still finds them on its
+  next sweep. It logs a warning saying so, once per attempt.
+- **An id set but the matching secret missing** — the route returns `500` and refuses to process
+  that chain. That is deliberate. An unverified path into the deposit ledger would let anyone
+  credit themselves any amount, so a half-configured chain fails closed rather than open.
+
+Registration is best-effort and off the caller's failure path: a wallet that cannot be registered
+with Alchemy is still a working wallet, whereas a sign-up that fails because a webhook API was
+briefly down is not. The periodic sync re-registers anything that missed.
 
 ---
 
