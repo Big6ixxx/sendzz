@@ -130,7 +130,25 @@ begin
 end;
 $function$;
 
--- ── 2. Drop the legacy provider-specific columns ─────────────────────────────
-DROP INDEX IF EXISTS public.idx_withdrawals_paycrest_order_id;
-ALTER TABLE public.withdrawals DROP COLUMN IF EXISTS paycrest_order_id;
-ALTER TABLE public.deposits    DROP COLUMN IF EXISTS paycrest_tx_id;
+-- ── 2. Drop the legacy provider-specific columns — WITHDRAWN ─────────────────
+--
+-- These three statements were never applied to production, and must not be: the columns they
+-- drop are still read by code that ships today.
+--
+--   lib/supabase/admin.ts selects `paycrest_order_id` from `withdrawals` and falls back to it
+--   when `provider_order_id` is null — which is exactly the case for every withdrawal made
+--   before the provider-agnostic ledger in migration 027. Dropping the column turns that query
+--   into an error, and the error is on the path that notifies a user their money has arrived.
+--
+-- The rename in 027 was meant to be followed by a backfill, and the backfill never happened, so
+-- the old column is still the only record for those rows. Dropping it would not be tidying up
+-- after a migration; it would be deleting the data the migration was supposed to move.
+--
+-- Left in place rather than deleted so the intent stays legible, and so nobody re-derives it
+-- from the same reasoning and writes it again. Before this can be reinstated: backfill
+-- `provider_order_id` from `paycrest_order_id` where it is null, then remove the fallback in
+-- admin.ts, then drop the columns — in that order, as three separate deploys.
+--
+-- DROP INDEX IF EXISTS public.idx_withdrawals_paycrest_order_id;
+-- ALTER TABLE public.withdrawals DROP COLUMN IF EXISTS paycrest_order_id;
+-- ALTER TABLE public.deposits    DROP COLUMN IF EXISTS paycrest_tx_id;

@@ -4,9 +4,24 @@
 --
 -- Migration 054 recorded a share of our revenue on fiat DEPOSITS. Deposits are now free
 -- (migration in the same series removed that fee), so the event it keyed on no longer earns
--- anything and every column describing it is meaningless. Nothing has been paid out under the
--- old shape, so there is no history to preserve — replacing is honest where a rename would
--- leave columns whose names no longer match what they hold.
+-- anything and every column describing it is meaningless. Replacing is honest where a rename
+-- would leave columns whose names no longer match what they hold.
+--
+-- READ THIS BEFORE APPLYING. Migration 054 IS LIVE IN PRODUCTION — `referral_earnings`,
+-- `referral_payouts` and the `users` referral columns all exist there. This file therefore
+-- drops a table that really is present, and a DROP TABLE takes its rows with it silently:
+-- nothing references `referral_earnings`, so there is no foreign key to raise an objection.
+--
+-- That is safe only because the table is empty. Confirmed empty on 2026-09-25, before this
+-- was applied. If any time has passed since, confirm it again:
+--
+--     select count(*) from public.referral_earnings;
+--     select count(*) from public.referral_payouts;
+--
+-- A non-zero count means somebody has accrued a commission under the deposit-based shape, and
+-- this file must not run as written — those rows need archiving into the new table, or into a
+-- table of their own, before anything is dropped. A commission that vanishes is not a schema
+-- change, it is money somebody is owed.
 --
 -- --- Share of volume, not share of fee --------------------------------------
 --
