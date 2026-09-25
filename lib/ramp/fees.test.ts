@@ -177,18 +177,31 @@ describe('getCorridorFee', () => {
     else process.env[k] = v;
   };
 
-  afterEach(() => {
-    set('BITNOB_CORRIDOR_FEE_RWF', undefined);
-    set('BITNOB_CORRIDOR_FEE_NGN', undefined);
+  const KEYS = [
+    'CORRIDOR_FEE_RWF', 'CORRIDOR_FEE_NGN', 'CORRIDOR_FEE_UGX',
+    'CORRIDOR_FEE_BITNOB_RWF', 'CORRIDOR_FEE_PAYCREST_RWF',
+    'BITNOB_CORRIDOR_FEE_RWF', 'BITNOB_CORRIDOR_FEE_NGN',
+  ];
+  afterEach(() => KEYS.forEach((k) => set(k, undefined)));
+
+  it('reads the per-currency amount for any provider', () => {
+    set('CORRIDOR_FEE_RWF', '0.3');
+    expect(getCorridorFee('bitnob', 'RWF')).toBe(0.3);
+    // The point of the rename: a corridor that costs something costs it whoever serves it,
+    // unless that provider is given its own rate.
+    expect(getCorridorFee('paycrest', 'RWF')).toBe(0.3);
   });
 
-  it('reads the configured amount for the currency', () => {
-    set('BITNOB_CORRIDOR_FEE_RWF', '0.3');
+  it('lets a provider-specific rate win over the per-currency one', () => {
+    set('CORRIDOR_FEE_RWF', '0.3');
+    set('CORRIDOR_FEE_PAYCREST_RWF', '0');
     expect(getCorridorFee('bitnob', 'RWF')).toBe(0.3);
+    // Settles the quoted amount in full, so it must not inherit the other provider's skim.
+    expect(getCorridorFee('paycrest', 'RWF')).toBe(0);
   });
 
   it('is case-insensitive on the currency', () => {
-    set('BITNOB_CORRIDOR_FEE_RWF', '0.3');
+    set('CORRIDOR_FEE_RWF', '0.3');
     expect(getCorridorFee('bitnob', 'rwf')).toBe(0.3);
   });
 
@@ -197,19 +210,28 @@ describe('getCorridorFee', () => {
   });
 
   it('is 0 for an explicitly free corridor', () => {
-    set('BITNOB_CORRIDOR_FEE_NGN', '0');
+    set('CORRIDOR_FEE_NGN', '0');
     expect(getCorridorFee('bitnob', 'NGN')).toBe(0);
   });
 
-  it('is always 0 for paycrest, which has no corridor fee', () => {
+  it('still reads the deprecated Bitnob key, and only for Bitnob', () => {
     set('BITNOB_CORRIDOR_FEE_RWF', '0.3');
+    expect(getCorridorFee('bitnob', 'RWF')).toBe(0.3);
+    // The old name only ever described Bitnob's deduction, so it must not start applying to
+    // a provider it was never about.
     expect(getCorridorFee('paycrest', 'RWF')).toBe(0);
   });
 
+  it('prefers the new key over the deprecated one', () => {
+    set('BITNOB_CORRIDOR_FEE_RWF', '0.3');
+    set('CORRIDOR_FEE_BITNOB_RWF', '0.1');
+    expect(getCorridorFee('bitnob', 'RWF')).toBe(0.1);
+  });
+
   it('falls back to 0 rather than throwing on a malformed value', () => {
-    set('BITNOB_CORRIDOR_FEE_RWF', 'abc');
+    set('CORRIDOR_FEE_RWF', 'abc');
     expect(getCorridorFee('bitnob', 'RWF')).toBe(0);
-    set('BITNOB_CORRIDOR_FEE_RWF', '-1');
+    set('CORRIDOR_FEE_RWF', '-1');
     expect(getCorridorFee('bitnob', 'RWF')).toBe(0);
   });
 });

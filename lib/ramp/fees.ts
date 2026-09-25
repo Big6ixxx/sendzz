@@ -105,28 +105,63 @@ const FEE_COLLECTION: Record<RampProviderName, Pick<ProviderFee, "collection">> 
 };
 
 /**
- * The provider's flat per-corridor fee in USDC, added on top of the base amount so the
- * provider's deduction is covered by the user's own deposit rather than our float.
+ * The flat per-corridor fee in USDC a payout provider deducts, added on top of the base amount
+ * so that deduction is covered by the user's own withdrawal rather than our float.
  *
- * Set `BITNOB_CORRIDOR_FEE_<CURRENCY>` per currency; unset means none. Configured rather than
- * read from the API because Bitnob reports `fees: "0"` on both the quote and the initialize
- * response for every corridor, yet still deducts on some (RWF mobile money took a flat 0.30 on
- * both a 1.01 and a 10.00 payout). Bitnob only — Paycrest settles the quoted amount.
+ * Configured rather than read from the API. Bitnob reports `fees: "0"` on both the quote and
+ * the initialize response for every corridor, yet still deducts on some — RWF mobile money took
+ * a flat 0.30 on both a 1.01 and a 10.00 payout. A provider that lies about its own fee cannot
+ * be the source of truth for it.
+ *
+ * Two keys, most specific first:
+ *
+ *   CORRIDOR_FEE_<PROVIDER>_<CURRENCY>   this provider, this corridor
+ *   CORRIDOR_FEE_<CURRENCY>              any provider serving this corridor
+ *
+ * Both rather than one, because the deduction belongs to the PROVIDER, not the currency. The
+ * same corridor can cost differently depending on who serves it — a single per-currency rate
+ * would quietly overcharge on a provider that settles the quoted amount in full. The plain
+ * per-currency form stays because it is the common case and is what most deployments will want.
+ *
+ * `BITNOB_CORRIDOR_FEE_<CURRENCY>` is still read for Bitnob so a deployment mid-rename keeps
+ * covering its deductions instead of eating them, and warns. The old name assumed one provider
+ * would always be the one skimming, which stopped being true the moment a second one existed.
  */
 export function getCorridorFee(provider: RampProviderName, currency: string): number {
-  if (provider !== "bitnob") return 0;
+  const cur = (currency || "").toUpperCase();
+  const prov = (provider || "").toUpperCase();
 
-  const envVar = `BITNOB_CORRIDOR_FEE_${(currency || "").toUpperCase()}`;
-  const raw = process.env[envVar];
-  if (raw == null || raw === "") return 0;
+  const candidates = [
+    `CORRIDOR_FEE_${prov}_${cur}`,
+    `CORRIDOR_FEE_${cur}`,
+    // Legacy, and Bitnob-only by construction: that is all the old name ever meant.
+    ...(provider === "bitnob" ? [`BITNOB_CORRIDOR_FEE_${cur}`] : []),
+  ];
 
-  const fee = Number(raw);
-  if (!Number.isFinite(fee) || fee < 0) {
-    // Loud but not fatal — a typo in one corridor must not take withdrawals down.
-    console.error(`[Fees] ${envVar} is not a valid amount (got ${JSON.stringify(raw)}) — using 0.`);
-    return 0;
+  for (const envVar of candidates) {
+    const raw = process.env[envVar];
+    // An empty string is "configured as nothing", not "not configured" — it stops the search,
+    // so a deployment can override a broader key back down to zero for one corridor.
+    if (raw == null) continue;
+    if (raw === "") return 0;
+
+    if (envVar.startsWith("BITNOB_")) {
+      console.warn(
+        `[Fees] Using deprecated ${envVar}. Rename it to CORRIDOR_FEE_BITNOB_${cur} — the fee ` +
+          "belongs to whichever provider serves the corridor, and Bitnob is no longer the only one.",
+      );
+    }
+
+    const fee = Number(raw);
+    if (!Number.isFinite(fee) || fee < 0) {
+      // Loud but not fatal — a typo in one corridor must not take withdrawals down.
+      console.error(`[Fees] ${envVar} is not a valid amount (got ${JSON.stringify(raw)}) — using 0.`);
+      return 0;
+    }
+    return fee;
   }
-  return fee;
+
+  return 0;
 }
 
 /**
