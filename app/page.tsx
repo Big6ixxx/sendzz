@@ -22,6 +22,7 @@ import { InstallAppPrompt } from '@/components/pwa/InstallAppPrompt';
 import { SiteFooter } from '@/components/layout/SiteFooter';
 import { useRouter } from 'next/navigation';
 import { useRef, useEffect, useState } from 'react';
+import { captureReferralFromUrl } from '@/lib/referrals/client';
 
 import { usePlatformFee } from '@/lib/hooks/usePlatformFee';
 
@@ -412,6 +413,13 @@ export default function Landing() {
   const router = useRouter();
   const heroRef = useRef<HTMLDivElement>(null);
   
+  // Grab `?ref=` before anything else can navigate away from it. Runs once, on mount, so it
+  // happens whether the visitor reads the page, signs in immediately, or bounces and returns
+  // days later — see lib/referrals/client.ts on why the code has to outlive this page view.
+  useEffect(() => {
+    captureReferralFromUrl();
+  }, []);
+
   // Track if they just logged in during this session
   const wasAuthenticatedRef = useRef(authenticated);
 

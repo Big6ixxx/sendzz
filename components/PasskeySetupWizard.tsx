@@ -9,7 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { PinInput } from "@/components/security/PinGate";
+import { PinInput } from "@/components/security/PinInput";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -20,7 +20,6 @@ import {
 interface PasskeySetupWizardProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  email: string;
   onComplete: () => void;
   /**
    * Skip the chooser and set up this method directly.
@@ -129,7 +128,6 @@ function explainPasskeyError(name: string, raw: string): string {
 export function PasskeySetupWizard({
   open,
   onOpenChange,
-  email,
   onComplete,
   initialMethod,
 }: PasskeySetupWizardProps) {
@@ -159,7 +157,7 @@ export function PasskeySetupWizard({
       const res = await fetch("/api/2fa/passkey/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, action: "generate-options" }),
+        body: JSON.stringify({ action: "generate-options" }),
       });
 
       const data = await res.json();
@@ -172,7 +170,6 @@ export function PasskeySetupWizard({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email,
           action: "verify-registration",
           credential: registrationResponse,
           challengeId,
@@ -237,9 +234,9 @@ export function PasskeySetupWizard({
         {/* ── Choose how to sign in ───────────────────────────────── */}
         {step === "choose" && (
           <div className="space-y-4 py-1">
-            <p className="text-sm text-brand-secondary/60">
-              Sign in and approve large withdrawals without a code. Pick how you
-              want to confirm it is you.
+            <p className="text-sm text-brand-secondary/60 leading-relaxed">
+              Approve large withdrawals with your fingerprint, face or a PIN on this device,
+              instead of waiting for a code. Pick how you want to confirm it is you.
             </p>
 
             {!webauthn && (
@@ -299,6 +296,36 @@ export function PasskeySetupWizard({
                 still use a passkey from your phone, or choose a PIN.
               </p>
             )}
+
+            {/* What a passkey IS.
+                
+                The word means nothing to most people, and the thing they assume — that it is
+                a password stored somewhere they can read — is wrong in a way that matters:
+                there is nothing to write down, so "where do I save it?" has a different
+                answer to every other credential in the product. */}
+            {webauthn && (
+              <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-4 space-y-2.5">
+                <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-brand-secondary/30">
+                  About passkeys
+                </p>
+                <p className="text-[12.5px] text-brand-secondary/55 leading-relaxed">
+                  A passkey is not a password. Nothing is written down and there is no code to
+                  save — the key stays on your device (or in your password manager, if you use
+                  one that syncs them), and unlocking it with your face, fingerprint or device
+                  PIN is what proves it is you.
+                </p>
+                <p className="text-[12.5px] text-brand-secondary/55 leading-relaxed">
+                  It also cannot be phished. A passkey only works on the real Sendzz site, so a
+                  convincing copy of this page gets nothing even if you try to use it there.
+                </p>
+                <p className="text-[12.5px] text-orange-400/80 leading-relaxed">
+                  <span className="font-semibold">If you lose the device:</span> a passkey
+                  that lives only on it goes with it. You will still get in — email codes keep
+                  working — but add a second method too, so one lost phone is an inconvenience
+                  rather than a scramble.
+                </p>
+              </div>
+            )}
           </div>
         )}
 
@@ -338,10 +365,10 @@ export function PasskeySetupWizard({
                   ? "Your PIN is set"
                   : "You can now approve with your passkey"}
               </p>
-              <p className="text-sm text-brand-secondary/50">
+              <p className="text-sm text-brand-secondary/50 leading-relaxed">
                 {chosen === "pin"
-                  ? "You will be asked for it on large withdrawals. Only you know it."
-                  : "Approve large withdrawals with a touch instead of a code."}
+                  ? "You will be asked for it on every payment. Only you know it — we store it scrambled and cannot read it back."
+                  : "Approve large withdrawals with a touch instead of a code. It works on this device; if you lose it, an email code still gets you in."}
               </p>
             </div>
 
@@ -450,7 +477,7 @@ function MethodCard({
  * component, is the authority on whether a PIN is acceptable — the check here is only to give
  * an answer instantly, and the same rules run again before anything is stored.
  */
-function PinSetup({ onDone }: { onDone: () => void }) {
+export function PinSetup({ onDone }: { onDone: () => void }) {
   const [phase, setPhase] = useState<"enter" | "confirm">("enter");
   const [first, setFirst] = useState("");
   const [second, setSecond] = useState("");

@@ -39,7 +39,10 @@ import {
   executeCircleGaslessTransfer,
   executeCircleGaslessBatchTransfer,
 } from "@/lib/web3/circle-actions";
-import { consolidateFundsToChain } from "@/lib/web3/bridge-actions";
+import {
+  consolidateFundsToChain,
+  selectConsolidationSources,
+} from "@/lib/web3/bridge-actions";
 import { bridgeStellarToBase } from "@/lib/web3/stellar-bridge";
 import {
   planWithdrawalRoute,
@@ -52,11 +55,15 @@ import {
 } from "@/lib/web3/routing";
 import { parseFriendlyError } from "@/components/transfer/useTransfer";
 import { ConnectedWallet, usePrivy } from "@privy-io/react-auth";
-import { calculatePaycrestBaseAmount } from "@/lib/paycrest/config";
 import { formatFiatShort, getCurrencySymbol } from "@/lib/currency-config";
-import { FIAT_ROUTING_PAD, totalDeducted } from "@/lib/ramp/fees";
+import { FIAT_ROUTING_PAD } from "@/lib/ramp/fees";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePinAuthorization } from "@/components/security/PinAuthorizationProvider";
+import { describeWithdrawal } from "@/lib/signing/describe";
+import { getReferralBenefitBalances } from "@/lib/actions/ramp";
+import { applyBenefits, type BenefitBalances } from "@/lib/referrals/benefit-math";
+import { type SigningPlan } from "@/lib/signing/plan";
 import { toast } from "sonner";
 import type { KycBlock } from "@/components/kyc/KycRequiredModal";
 import { useCurrencies } from "@/lib/hooks/useCurrencies";
@@ -103,6 +110,18 @@ export function useDepositWithdraw(
   // User Security Preferences
   const [twoFaEnabled, setTwoFaEnabled] = useState(false);
   const [twoFaThreshold, setTwoFaThreshold] = useState(500);
+  const { authorize } = usePinAuthorization();
+
+  // Referral benefits, as BALANCES rather than a priced quote, so the fee recomputes as the
+  // user types without a round trip per keystroke. The arithmetic is shared with the server
+  // (lib/referrals/benefit-math.ts), so what is shown here is what is charged.
+  const [benefits, setBenefits] = useState<BenefitBalances>({
+    waiverVolumeUsdc: 0,
+    feeCreditUsdc: 0,
+  });
+  // The plan the user approved, and how far through it we are.
+  const [activePlan, setActivePlan] = useState<SigningPlan | null>(null);
+  const [activeStep, setActiveStep] = useState(0);
 
   /**
    * The chains the off-ramp provider can settle on. Drives withdrawal routing.
@@ -326,12 +345,21 @@ export function useDepositWithdraw(
         }
 
         setOffRampProvider(provider);
-        getProviderFeePercent(provider).then(setFeePercent).catch(() => setFeePercent(0));
+        // Asked per corridor: a currency with its own rate must not be quoted at the
+        // standard one and then deducted at the other.
+        getProviderFeePercent(provider, fiatCurrency)
+          .then(setFeePercent)
+          .catch(() => setFeePercent(0));
         // Flat provider fee for this corridor (Bitnob only). Fetched alongside the provider so
         // it is known before the amount is validated, not after the order exists.
         getCorridorFeeAction(provider, fiatCurrency)
           .then(setCorridorFee)
           .catch(() => setCorridorFee(0));
+        getReferralBenefitBalances()
+          .then(setBenefits)
+          // Zero on failure means the full fee is quoted. The user is then charged less than
+          // shown, never more — the only safe direction for a number they are deciding on.
+          .catch(() => setBenefits({ waiverVolumeUsdc: 0, feeCreditUsdc: 0 }));
         setInstitutions(instRes.data);
       } catch (err) {
         console.error("Failed to fetch banks", err);
@@ -377,7 +405,7 @@ export function useDepositWithdraw(
       getUserBankContacts().then(setBankContacts).catch(console.error);
 
       // Fetch security preferences
-      fetch(`/api/user/preferences?email=${encodeURIComponent(userEmail)}`)
+      fetch("/api/user/preferences")
         .then((res) => res.json())
         .then((data) => {
           if (data && typeof data.two_fa_enabled === "boolean") {
@@ -581,11 +609,11 @@ export function useDepositWithdraw(
       return;
     }
 
-    // Check estimated USDC > 1 (after fees)
-    const baseAmount = calculatePaycrestBaseAmount(val, feePercent);
-    const estimatedUsdc = baseAmount / (rate || 1);
+    // Deposits carry no fee, so the whole amount converts. The floor is about the result
+    // being worth delivering on-chain at all, not about covering a deduction.
+    const estimatedUsdc = val / (rate || 1);
     if (estimatedUsdc <= 1) {
-      toast.error("That amount is too small after fees. Please enter a little more.");
+      toast.error("That amount is too small. Please enter a little more.");
       return;
     }
 
@@ -666,6 +694,25 @@ export function useDepositWithdraw(
     };
   }, [type, step, amount, inputMode, fiatCurrency, withdrawChain]);
 
+  /**
+   * What this withdrawal actually costs, benefits included.
+   *
+   * Every balance check and every displayed total goes through this. Using the raw rate
+   * anywhere would tell a referee inside their fee-free allowance that they cannot afford a
+   * withdrawal they can in fact make for nothing — which is exactly the audience the
+   * allowance exists for.
+   */
+  const feeBreakdown = useCallback(
+    (base: number) =>
+      applyBenefits({ volumeUsdc: base, feePercent, balances: benefits }),
+    [feePercent, benefits],
+  );
+
+  const totalRequired = useCallback(
+    (base: number) => base + feeBreakdown(base).feeUsdc + corridorFee,
+    [feeBreakdown, corridorFee],
+  );
+
   const handleWithdrawQuote = async () => {
     const typed = parseFloat(amount);
     let val = typed;
@@ -694,7 +741,7 @@ export function useDepositWithdraw(
     // base, so the fee is added on top of it.
     // base + our platform fee + the provider's corridor fee — all three leave the user's
     // wallet, so all three must be covered before we route or bridge anything.
-    const totalUsdcRequired = totalDeducted(val, feePercent, corridorFee);
+    const totalUsdcRequired = totalRequired(val);
 
     // The spinner starts here, before the first slow call.
     //
@@ -874,7 +921,7 @@ export function useDepositWithdraw(
     const amountUsdc = parseFloat(quoteUsdcAmount);
 
     // Total amount that will be deducted including the platform fee (provider-specific).
-    const totalUsdcRequired = totalDeducted(amountUsdc, feePercent, corridorFee);
+    const totalUsdcRequired = totalRequired(amountUsdc);
 
     if (totalUsdcRequired >= twoFaThreshold) {
       if (!twoFaEnabled) {
@@ -889,12 +936,77 @@ export function useDepositWithdraw(
       return;
     }
 
-    await executeWithdrawalActual();
+    await authorizeAndWithdraw();
+  };
+
+  /**
+   * Take the PIN, then run the withdrawal.
+   *
+   * Asked BEFORE the consolidation step inside executeWithdrawalActual, not after it. When a
+   * balance is spread across networks that step bridges funds onto the settlement chain, which
+   * is slow and costs real money — so it must be something the user approved, not something
+   * that happens while they are still deciding. The authorisation is minted with a longer life
+   * for exactly this reason; see AUTHORIZATION_TTL_MS in lib/security/transaction-auth.ts.
+   */
+  const authorizeAndWithdraw = async () => {
+    const amountUsdc = parseFloat(quoteUsdcAmount);
+    const totalUsdcRequired = totalRequired(amountUsdc);
+    const payout = quote?.payoutAmount;
+
+    const plan = describeWithdrawal({
+      amountLabel: payout
+        ? `${payout.toLocaleString()} ${fiatCurrency}`
+        : `${amountUsdc.toFixed(2)} USDC`,
+      bankLabel: bankDetails.accountName || bankDetails.accountNumber,
+      settlementChain: withdrawChain,
+      // Only the networks this withdrawal will actually pull from, taken from the same
+      // selection the consolidation step runs — so "you'll confirm twice" stays true when
+      // the balance is split, and stays absent when it is not.
+      gatherFrom: mustConsolidate
+        ? selectConsolidationSources({
+            targetChain: withdrawChain as SupportedChain | "stellar" | "solana",
+            requiredAmount: totalUsdcRequired.toFixed(6),
+            balances: chainBalances ?? {},
+            solanaBalance: solanaSource?.balance,
+            stellarBalance,
+          }).map((source) => source.chain as string)
+        : [],
+    });
+
+    const authorization = await authorize({
+      purpose: "withdrawal",
+      payload: {
+        destination: bankDetails.accountNumber,
+        amount: amountUsdc,
+        chain: withdrawChain,
+      },
+      // The headline is what LANDS in the bank, because that is the number someone set out to
+      // achieve. What it costs them is a row below, where it is still impossible to miss.
+      amount: payout
+        ? `${payout.toLocaleString()} ${fiatCurrency}`
+        : `${amountUsdc.toFixed(2)} USDC`,
+      destination: [bankDetails.accountName, bankDetails.bankName || bankDetails.bankCode]
+        .filter(Boolean)
+        .join(" · "),
+      warning: "Cannot be recalled once it reaches your bank.",
+      details: [
+        { label: "Account", value: bankDetails.accountNumber },
+        { label: "Total deducted", value: `${totalUsdcRequired.toFixed(2)} USDC` },
+      ],
+      plan,
+      confirmLabel: "Withdraw",
+    });
+
+    if (!authorization) return;
+
+    setActivePlan(plan);
+    setActiveStep(0);
+    await executeWithdrawalActual(authorization);
   };
 
   const handleTwoFaSubmit = async (
     code: string,
-    method?: "email" | "totp" | "passkey" | "pin",
+    method?: "email" | "totp" | "passkey",
   ) => {
     setTwoFaLoading(true);
     setTwoFaError(null);
@@ -904,29 +1016,16 @@ export function useDepositWithdraw(
       if (method === "passkey") {
         // Passkey is already verified, just proceed with the actual withdrawal
         setTwoFaModalOpen(false);
-        await executeWithdrawalActual();
+        await authorizeAndWithdraw();
         return;
       }
 
-      if (method === "pin") {
-        // Verified server-side against the stored scrypt hash, which also owns the attempt
-        // counter — a 4-digit secret is only defensible if guessing is rate limited there
-        // rather than here, where a caller could simply skip it.
-        res = await fetch("/api/2fa/pin", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${await freshToken()}`,
-          },
-          body: JSON.stringify({ action: "verify", pin: code }),
-        });
-      } else if (method === "totp") {
+      if (method === "totp") {
         // Use TOTP verification endpoint
         res = await fetch("/api/2fa/totp/verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            email: userEmail,
             token: code,
             method: "totp",
           }),
@@ -950,7 +1049,7 @@ export function useDepositWithdraw(
 
       setTwoFaModalOpen(false);
       setTwoFaOtpId(null);
-      await executeWithdrawalActual();
+      await authorizeAndWithdraw();
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : "Invalid code";
       setTwoFaError(errorMessage);
@@ -991,7 +1090,7 @@ export function useDepositWithdraw(
     }
   };
 
-  const executeWithdrawalActual = async () => {
+  const executeWithdrawalActual = async (authorization: string) => {
     if (!bankDetails.accountName) {
       toast.error("Please verify destination account");
       return;
@@ -1006,7 +1105,7 @@ export function useDepositWithdraw(
         // chain, so consolidating only the base strands the withdrawal a fee short — and after
         // a CCTP bridge, which is slow and not worth repeating.
         const required = (
-          totalDeducted(parseFloat(quoteUsdcAmount), feePercent, corridorFee)
+          totalRequired(parseFloat(quoteUsdcAmount))
         ).toFixed(6);
         // Honour the user's chosen networks (if any); otherwise pull from everything.
         const allBalances: ChainBalances & { solana?: number; stellar?: number } = {
@@ -1076,9 +1175,15 @@ export function useDepositWithdraw(
           solanaWallet: null,
           // Deliberately not surfaced: these read "Moving funds from Arbitrum to Base…".
           onStatus: undefined,
+          // The index, though, IS surfaced — that is what moves the tracker through the
+          // gathering legs the user was told about.
+          onSourceStart: setActiveStep,
         });
         toast.dismiss("consolidate");
       }
+
+      // Gathering done; the step the user confirms next is the settlement itself.
+      setActiveStep((current) => current + 1);
 
       // Submit via the pinned-provider flow using the CANONICAL bank identity (name, not
       // a raw code). executeOffRamp resolves the right bank_code per provider and falls
@@ -1103,6 +1208,10 @@ export function useDepositWithdraw(
         quoteId: quote?.quoteId,
         quoteReference: quote?.reference,
         quotedBy: quote?.provider,
+        // Refused by the action without this. The server re-derives the hash from the
+        // amount, account number and chain it is about to act on, so a token minted for a
+        // different account or a different figure does not open this door.
+        authorization,
       });
       setOrder(res);
 
@@ -1147,6 +1256,8 @@ export function useDepositWithdraw(
       toast.dismiss("consolidate");
       toast.error(parseFriendlyError(err));
     } finally {
+      setActivePlan(null);
+      setActiveStep(0);
       setLoading(false);
     }
   };
@@ -1683,6 +1794,11 @@ export function useDepositWithdraw(
     setTwoFaModalOpen,
     twoFaLoading,
     twoFaError,
+    activePlan,
+    activeStep,
+    benefits,
+    feeBreakdown,
+    totalRequired,
     handleTwoFaSubmit,
     handleTwoFaResend,
     totpEnabled,

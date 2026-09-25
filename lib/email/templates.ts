@@ -135,6 +135,56 @@ export function otpLoginTemplate(code: string): string {
 }
 
 /**
+ * Resetting a forgotten transaction PIN.
+ *
+ * Deliberately blunt about what the code does. A reset email that reads like every other
+ * verification email invites someone to type the code without registering that it changes the
+ * key to their money — so this one names the consequence, and says plainly what to do if they
+ * did not ask for it.
+ */
+export function pinResetTemplate(code: string): string {
+  const digitBoxes = code
+    .split('')
+    .map(
+      (d) => `
+    <td style="padding: 0 4px;">
+      <div style="width: 44px; height: 52px; border: 1.5px solid #006633; border-radius: 14px; font-size: 26px; font-weight: 700; color: #252525; text-align: center; line-height: 52px; font-family: 'Geist', sans-serif; background-color: #ffffff;">
+        ${d}
+      </div>
+    </td>
+  `,
+    )
+    .join('');
+
+  return baseTemplate(`
+    <div style="text-align: center;">
+      <p style="font-size: 15px; color: #555555; margin: 0 0 8px 0;">Transaction PIN</p>
+      <h1 style="font-size: 34px; font-weight: 950; color: #111111; margin: 0 0 6px 0; letter-spacing: -1px;">Choose a new PIN</h1>
+      <p style="font-size: 14px; color: #888888; margin: 0 0 32px 0;">Because you told us you forgot the old one</p>
+
+      <div style="text-align: left; margin: 0 0 28px 0;">
+        <p style="font-size: 15px; font-weight: 700; color: #111111; margin: 0 0 4px 0;">Your reset code</p>
+        <p style="font-size: 14px; color: #555555; margin: 0;">Enter this <strong>6-digit code</strong> in Sendzz to set a new transaction PIN. It expires in <strong>10 minutes</strong>.</p>
+      </div>
+
+      <table align="center" border="0" cellpadding="0" cellspacing="0" style="margin: 0 auto 32px auto;">
+        <tr>${digitBoxes}</tr>
+      </table>
+
+      <div style="text-align: left; background-color: #fff8f0; border: 1px solid #ffd9a8; border-radius: 14px; padding: 16px 18px; margin: 0 0 8px 0;">
+        <p style="font-size: 14px; font-weight: 700; color: #111111; margin: 0 0 4px 0;">Didn't ask for this?</p>
+        <p style="font-size: 13px; color: #555555; margin: 0;">
+          Someone with access to your Sendzz session is trying to change the PIN that approves payments from your account.
+          Do not share this code. Sign out on your <a href="${process.env.NEXT_PUBLIC_APP_URL ?? ''}/dashboard/settings/devices" style="color:#006633 !important;">devices page</a> and contact us.
+        </p>
+      </div>
+
+      <p style="font-size: 12px; color: #aaaaaa; margin: 20px 0 0 0;">Your current PIN keeps working until a new one is set.</p>
+    </div>
+  `);
+}
+
+/**
  * Unified Transaction OTP Template
  * Used for all 2FA-gated actions: transfers, withdrawals, on-chain sends.
  */
@@ -597,6 +647,128 @@ export function transferSentTemplate(
  * Security Alert Template
  * Used when a security setting changes (2FA on/off, passkey added/removed).
  */
+/** Minimal escape for values interpolated into these templates. */
+function esc(value: string): string {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * "You just earned something."
+ *
+ * The feedback loop that turns a casual referrer into an active one. It is sent the moment a
+ * commission is recorded, not at month end, because a balance that ticks up while you watch is
+ * what makes people share a link again — a monthly statement is a payroll slip, and nobody
+ * forwards a payroll slip to their group chat.
+ *
+ * Two numbers, deliberately: what this one earned, and what is waiting. The second is the one
+ * that grows, and watching it approach the payout threshold is the thing worth coming back for.
+ */
+export function referralEarningTemplate(
+  amountUsdc: number,
+  pendingUsdc: number,
+  tier: string,
+  minimumPayoutUsdc: number,
+): string {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
+  const toGo = Math.max(0, minimumPayoutUsdc - pendingUsdc);
+
+  return baseTemplate(`
+    <div style="text-align: center;">
+      <p style="font-size: 15px; color: #555555; margin: 0 0 8px 0;">Someone you invited just cashed out</p>
+      <h1 style="font-size: 44px; font-weight: 950; color: #006633; margin: 0 0 4px 0; letter-spacing: -2px;">+$${amountUsdc.toFixed(2)}</h1>
+      <p style="font-size: 14px; color: #888888; margin: 0 0 32px 0;">added to your referral balance</p>
+
+      <div style="background-color: #F4F7F4; border-radius: 16px; padding: 22px; margin: 0 0 24px 0;">
+        <p style="font-size: 11px; font-weight: 700; color: #707070; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 6px 0;">Waiting to be paid</p>
+        <p style="font-size: 30px; font-weight: 900; color: #111111; margin: 0; letter-spacing: -1px;">$${pendingUsdc.toFixed(2)}</p>
+        <p style="font-size: 13px; color: #707070; margin: 10px 0 0 0;">
+          ${
+            toGo > 0
+              ? `$${toGo.toFixed(2)} more and it goes straight to your Sendzz wallet.`
+              : 'This is on its way to your Sendzz wallet — nothing for you to claim.'
+          }
+        </p>
+      </div>
+
+      <p style="font-size: 14px; line-height: 1.7; color: #3f3f3f; margin: 0 0 24px 0;">
+        You are on <strong>${esc(tier)}</strong>. Every time someone you invited withdraws to
+        their bank, you earn a share — it comes out of what Sendzz makes, never out of theirs.
+      </p>
+
+      <table width="100%" border="0" cellpadding="0" cellspacing="0">
+        <tr>
+          <td align="center">
+            <a href="${appUrl}/dashboard/referrals" target="_blank" rel="noopener noreferrer"
+               style="background-color:#006633;color:#ffffff !important;padding:14px 32px;border-radius:12px;font-size:14px;font-weight:800;text-decoration:none;display:inline-block;">
+              See your referrals
+            </a>
+          </td>
+        </tr>
+      </table>
+    </div>
+  `);
+}
+
+/**
+ * Confirming a change to a security setting.
+ *
+ * Deliberately names WHAT is being changed. A code that just says "here is your code" trains
+ * people to type it into whatever asked for it — which is exactly how a phishing page gets one.
+ * Somebody who reads "this will remove your passkey" and did not ask to remove their passkey
+ * has been told something useful, and the warning below tells them what to do about it.
+ */
+export function securityCodeTemplate(code: string, control: string): string {
+  const WHAT: Record<string, string> = {
+    two_fa: 'turn extra verification on or off',
+    threshold: 'change the amount that triggers extra verification',
+    totp: 'change your authenticator app',
+    passkey: 'change your passkey',
+    pin: 'change your transaction PIN',
+  };
+  const what = WHAT[control] ?? 'change a security setting';
+
+  const digitBoxes = code
+    .split('')
+    .map(
+      (d) => `
+    <td style="padding: 0 4px;">
+      <div style="width: 44px; height: 52px; border: 1.5px solid #006633; border-radius: 14px; font-size: 26px; font-weight: 700; color: #252525; text-align: center; line-height: 52px; font-family: 'Geist', sans-serif; background-color: #ffffff;">
+        ${d}
+      </div>
+    </td>
+  `,
+    )
+    .join('');
+
+  return baseTemplate(`
+    <div style="text-align: center;">
+      <p style="font-size: 15px; color: #555555; margin: 0 0 8px 0;">Security settings</p>
+      <h1 style="font-size: 32px; font-weight: 950; color: #111111; margin: 0 0 6px 0; letter-spacing: -1px;">Confirm this change</h1>
+      <p style="font-size: 14px; color: #888888; margin: 0 0 32px 0;">Someone is trying to ${esc(what)}</p>
+
+      <table align="center" border="0" cellpadding="0" cellspacing="0" style="margin: 0 auto 28px auto;">
+        <tr>${digitBoxes}</tr>
+      </table>
+
+      <p style="font-size: 14px; color: #555555; margin: 0 0 24px 0;">This code expires in <strong>10 minutes</strong>.</p>
+
+      <div style="text-align: left; background-color: #fff8f0; border: 1px solid #ffd9a8; border-radius: 14px; padding: 16px 18px;">
+        <p style="font-size: 14px; font-weight: 700; color: #111111; margin: 0 0 4px 0;">Didn't ask for this?</p>
+        <p style="font-size: 13px; color: #555555; margin: 0;">
+          Then somebody else is in your account and is trying to remove the protections on it.
+          Do not share this code. Sign out everywhere on your
+          <a href="${process.env.NEXT_PUBLIC_APP_URL ?? ''}/dashboard/settings/devices" style="color:#006633 !important;">devices page</a>
+          and change your PIN.
+        </p>
+      </div>
+    </div>
+  `);
+}
+
 export function securityAlertTemplate(title: string, body: string): string {
   return baseTemplate(`
     <div style="text-align: center;">

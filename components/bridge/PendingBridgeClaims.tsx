@@ -181,9 +181,9 @@ export function PendingBridgeClaims({
         // hash later if the chain ever offers one.
         const delivered = await reportClaim(claim.burnTxHash, undefined);
         if (delivered) {
-          toast.success("This transfer has already arrived. Refreshing your balance...");
+          toast.success("This already arrived. Refreshing your balance…");
         } else {
-          toast.info("Your claim is still confirming. Your funds are safe — check back in a minute.");
+          toast.info("Still confirming. Your money is safe — check back in a minute.");
         }
         await settle();
       } else if (classified.category === "attestation_expired") {

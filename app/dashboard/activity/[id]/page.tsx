@@ -309,7 +309,7 @@ export default function ActivityDetailPage({
     try {
       const embeddedWallet = wallets.find((w) => w.walletClientType === 'privy');
       if (!embeddedWallet) {
-        toast.error('Embedded wallet not found. Please log in.');
+        toast.error("Your wallet isn't ready yet. Please sign in again.");
         return;
       }
       const sourceChain = activity.sourceChain?.toLowerCase();
@@ -322,14 +322,14 @@ export default function ActivityDetailPage({
         domain = CCTP_DOMAINS[sourceChain as keyof typeof CCTP_DOMAINS];
       }
       if (domain === null) {
-        toast.error('Invalid bridge source chain.');
+        toast.error("We couldn't tell which network this came from.");
         setIsClaiming(false);
         return;
       }
 
       // ── Fast path: already minted ────────────────────────────────────────
       if (activity.mintTxHash) {
-        toast.info('This bridge was already completed. Refreshing status...');
+        toast.info('This already arrived. Refreshing…');
         await fetch('/api/bridge/complete', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -342,7 +342,7 @@ export default function ActivityDetailPage({
       }
 
       // ── Fetch attestation (DB-cached by status route) ────────────────────
-      toast.info('Checking bridge status...');
+      toast.info('Checking on your transfer…');
       const res = await fetch(
         `/api/bridge/status?txHash=${activity.txHash}&sourceChain=${sourceChain}`,
       );
@@ -350,7 +350,7 @@ export default function ActivityDetailPage({
       const data = await res.json();
 
       if (!data || data.status === 'not_found') {
-        toast.error('Bridge transaction not found on-chain. Please check the transaction hash.');
+        toast.error("We couldn't find this transfer on the network yet. Check back shortly.");
         setIsClaiming(false);
         return;
       }
@@ -368,7 +368,7 @@ export default function ActivityDetailPage({
         return;
       }
       if (data.status !== 'complete') {
-        toast.error('Bridge is still processing. Please try again shortly.');
+        toast.error('Still on its way. Try again in a moment.');
         setIsClaiming(false);
         return;
       }
@@ -382,7 +382,7 @@ export default function ActivityDetailPage({
             throw new Error('Attestation data incomplete. Please try again in 30 seconds.');
           }
           // Check if Circle's relayer already minted before trying manually
-          toast.info('Finalising bridge on destination chain...');
+          toast.info('Delivering your money…');
           await new Promise(r => setTimeout(r, 3000));
           const recheckRes = await fetch(
             `/api/bridge/status?txHash=${activity.txHash}&sourceChain=${sourceChain}`,
@@ -402,7 +402,7 @@ export default function ActivityDetailPage({
         }
       } else if ((destChain as string) === 'stellar') {
         if (!mintTxHash) {
-          toast.info('Claiming USDC on Stellar (gas paid by sponsor)...');
+          toast.info('Delivering your money on Stellar — we cover the network fee.');
           const claimRes = await fetch('/api/stellar/claim', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -416,7 +416,7 @@ export default function ActivityDetailPage({
         }
       } else if ((destChain as string) === 'solana') {
         if (!mintTxHash) {
-          toast.info('Claiming USDC on Solana...');
+          toast.info('Delivering your money on Solana…');
           const solAccount = user?.linkedAccounts.find(
             (a) =>
               a.type === 'wallet' &&
@@ -455,7 +455,7 @@ export default function ActivityDetailPage({
         body: JSON.stringify({ burnTxHash: activity.txHash, mintTxHash }),
       }).catch(() => {});
 
-      toast.success('Bridge complete! USDC has arrived on the destination chain.');
+      toast.success('All done — your money has arrived.');
       setClaimSuccess(true);
       // Wait briefly then invalidate so the Mint Tx link replaces the pill
       setTimeout(() => {
@@ -472,7 +472,7 @@ export default function ActivityDetailPage({
 
       if (alreadyProcessed) {
         // Circle's relayer already minted — re-poll Iris to get the forwardTxHash
-        toast.info('Your USDC has already been delivered. Saving mint hash...');
+        toast.info('This already arrived. Updating your history…');
         try {
           const retryRes = await fetch(
             `/api/bridge/status?txHash=${activity.txHash}&sourceChain=${activity.sourceChain?.toLowerCase()}`,

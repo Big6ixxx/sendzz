@@ -398,7 +398,7 @@ export async function executeSmartBridge(
 
     if (!chain || !usdcAddress) throw new Error('Unsupported chain config');
 
-    toast.info(`Preparing gasless transfer on ${sourceChain}...`);
+    toast.info(`Preparing your transfer on ${sourceChain} — we cover the network fee.`);
     const ethereumProvider = await embeddedWallet.getEthereumProvider();
     const { bundlerClient, account } = await getCircleClient(ethereumProvider, sourceChain);
 
@@ -976,6 +976,70 @@ export async function bridgeAndDeliver(
 }
 
 /**
+ * Which networks a consolidation will pull from, and how much from each.
+ *
+ * Pure, and exported, for one reason: the confirmation screen has to tell the user how many
+ * times they will be asked to confirm BEFORE they agree to anything, and each source here
+ * costs exactly one confirmation. Re-deriving that count next to the UI would mean two
+ * implementations of the same greedy walk, and the first time this one changed the promise
+ * shown to the user would quietly become wrong — while still looking right.
+ *
+ * Largest balance first, so the fewest sources are touched: every extra source is another
+ * bridge, another wait, and another thing the user has to confirm.
+ */
+export interface ConsolidationSource {
+  type: 'evm' | 'solana' | 'stellar';
+  chain: SourceChainKey;
+  balance: number;
+  /** How much this source contributes. */
+  take: number;
+}
+
+export function selectConsolidationSources(params: {
+  targetChain: SupportedChain | 'stellar' | 'solana';
+  requiredAmount: string;
+  balances: ChainBalances;
+  solanaBalance?: number;
+  stellarBalance?: number;
+}): ConsolidationSource[] {
+  const { targetChain, requiredAmount, balances, solanaBalance, stellarBalance } = params;
+
+  const required = parseFloat(requiredAmount) || 0;
+  const have = balances[targetChain as keyof typeof balances] ?? 0;
+  // 1% buffer for CCTP fees — the same padding the transfer itself uses, so the preview and
+  // the execution agree about whether one more source is needed.
+  let remaining = (required - have) * 1.01;
+  if (remaining <= 0) return [];
+
+  const candidates: Omit<ConsolidationSource, 'take'>[] = [];
+
+  for (const c of EVM_CHAINS) {
+    if (c !== targetChain && (balances[c] ?? 0) > 0) {
+      candidates.push({ type: 'evm', chain: c, balance: balances[c]! });
+    }
+  }
+  if (targetChain !== 'solana' && (solanaBalance ?? 0) > 0) {
+    candidates.push({ type: 'solana', chain: 'solana', balance: solanaBalance! });
+  }
+  if (targetChain !== 'stellar' && (stellarBalance ?? 0) > 0) {
+    candidates.push({ type: 'stellar', chain: 'stellar', balance: stellarBalance! });
+  }
+
+  candidates.sort((a, b) => b.balance - a.balance);
+
+  const picked: ConsolidationSource[] = [];
+  for (const candidate of candidates) {
+    if (remaining <= 0) break;
+    const take = Math.min(candidate.balance, remaining);
+    if (take <= 0) continue;
+    picked.push({ ...candidate, take });
+    remaining -= take;
+  }
+
+  return picked;
+}
+
+/**
  * Move enough USDC onto `targetChain` to cover `requiredAmount`, by bridging from the
  * user's other chains (largest balances first, to minimise the number of hops). Used by
  * batch and off-ramp flows when funds are too fragmented to complete on a single chain.
@@ -994,6 +1058,15 @@ export async function consolidateFundsToChain(
     stellarRecipient?: string;
     solanaRecipient?: string;
     onStatus?: (status: string) => void;
+    /**
+     * Called with 0, 1, 2… as each source network begins moving.
+     *
+     * The progress tracker needs to know which leg is running, and it must not learn that by
+     * matching on the text of `onStatus`. Status strings are copy — they get reworded, and a
+     * tracker keyed on their wording silently stops advancing the first time somebody
+     * improves a sentence. An index is not copy.
+     */
+    onSourceStart?: (index: number) => void;
     /**
      * The wallets to DELIVER into, when the target is Stellar or Solana.
      *
@@ -1015,45 +1088,21 @@ export async function consolidateFundsToChain(
   },
 ): Promise<void> {
   const { targetChain, requiredAmount, balances, recipient, stellarRecipient, solanaRecipient, onStatus, solana, stellar, stellarWallet, solanaWallet } = params;
-  const required = parseFloat(requiredAmount) || 0;
-  const have = balances[targetChain as keyof typeof balances] ?? 0;
-  let remaining = (required - have) * 1.01; // 1% buffer for CCTP fees
-  if (remaining <= 0) return;
 
-  interface UnifiedSource {
-    type: 'evm' | 'solana' | 'stellar';
-    chain: SourceChainKey;
-    balance: number;
-  }
-
-  const allSources: UnifiedSource[] = [];
-
-  // Add EVM sources (excluding target chain if target is EVM)
-  for (const c of EVM_CHAINS) {
-    if (c !== targetChain && (balances[c] ?? 0) > 0) {
-      allSources.push({ type: 'evm', chain: c, balance: balances[c]! });
-    }
-  }
-
-  // Add Solana source (only if target is NOT Solana)
-  if (targetChain !== 'solana' && solana && solana.balance > 0) {
-    allSources.push({ type: 'solana', chain: 'solana', balance: solana.balance });
-  }
-
-  // Add Stellar source (only if target is NOT Stellar)
-  if (targetChain !== 'stellar' && stellar && stellar.balance > 0) {
-    allSources.push({ type: 'stellar', chain: 'stellar', balance: stellar.balance });
-  }
-
-  // Sort all sources descending by balance
-  allSources.sort((a, b) => b.balance - a.balance);
+  const picked = selectConsolidationSources({
+    targetChain,
+    requiredAmount,
+    balances,
+    solanaBalance: solana?.balance,
+    stellarBalance: stellar?.balance,
+  });
+  if (picked.length === 0) return;
 
   const targetName = targetChain === 'stellar' ? 'Stellar' : targetChain === 'solana' ? 'Solana' : CHAIN_NAMES[targetChain as SupportedChain] ?? targetChain;
 
-  for (const source of allSources) {
-    if (remaining <= 0) break;
-    const take = Math.min(source.balance, remaining);
-    if (take <= 0) continue;
+  for (const [index, source] of picked.entries()) {
+    const take = source.take;
+    params.onSourceStart?.(index);
 
     if (source.type === 'evm') {
       const evmChain = source.chain as SupportedChain;
@@ -1080,7 +1129,6 @@ export async function consolidateFundsToChain(
       onStatus?.(`Moving funds from Stellar to ${targetName}…`);
       await stellar.bridgeToBase(take.toFixed(6), recipient, onStatus, targetChain as SupportedChain);
     }
-    remaining -= take;
   }
 }
 

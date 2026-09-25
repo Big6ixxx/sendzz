@@ -1,0 +1,47 @@
+name: CI
+
+# Typecheck, lint, tests and a dependency check on every push and pull request.
+#
+# `audit:check` compares against audit-baseline.json rather than failing on the whole backlog.
+# Over a hundred advisories reach us through Privy, Circle, Solana, Next and eslint, and a
+# large share come via react-native — which never runs in a web build. A gate that failed on
+# all of them would fail on its first run, and a gate that fails on its first run gets switched
+# off. This fails on something NEW, which is the thing worth interrupting somebody for.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm exec tsc --noEmit
+
+      - name: Lint
+        run: pnpm exec eslint app components lib hooks
+
+      # Includes the two guards that stop the audit findings recurring: every 'use server'
+      # export must derive identity from the session, and every API route must have a gate.
+      - name: Tests
+        run: pnpm exec vitest run
+
+      - name: Dependency advisories
+        run: pnpm run audit:check

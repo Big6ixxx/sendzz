@@ -416,10 +416,18 @@ export async function recordWithdrawal(params: {
   bitnobQuoteId?: string;
   /** Bitnob deposit address — matches the `deposit.success` webhook to this withdrawal. */
   bitnobDepositAddress?: string;
-  /** Platform fee taken on this withdrawal, in USDC (for reporting). */
+  /** Platform fee taken on this withdrawal, in USDC. Our gross revenue on it. */
   feeUsdc?: number;
   /** Platform fee percentage applied (for reporting). */
   feePercent?: number;
+  /**
+   * Flat provider cost for this corridor, in USDC. A COST, not revenue.
+   *
+   * Recorded because referral commissions are capped against NET margin, and net cannot be
+   * reconstructed later: the rate in force when the order was created is the one that applied,
+   * and recomputing from today's config would restate an old withdrawal's economics.
+   */
+  corridorFeeUsdc?: number;
   /** Optional payment reference / memo (e.g. required for M-PESA / Kenya). */
   memo?: string;
   /**
@@ -472,6 +480,13 @@ export async function recordWithdrawal(params: {
     if (params.feeUsdc != null) metadata.fee_usdc = params.feeUsdc;
     if (params.feePercent != null) metadata.fee_percent = params.feePercent;
     if (Object.keys(metadata).length > 0) extra.provider_metadata = metadata;
+
+    // Also as first-class columns. They lived only in provider_metadata, which is awkward to
+    // aggregate and impossible to index — and referral accrual, tier rollups and revenue
+    // reporting all have to sum them. Dual-written, so the insert still succeeds by falling
+    // back to `baseRow` on a deployment where migration 056 has not run yet.
+    if (params.feeUsdc != null) extra.platform_fee_usdc = params.feeUsdc;
+    if (params.corridorFeeUsdc != null) extra.corridor_fee_usdc = params.corridorFeeUsdc;
 
     const chainRow =
       Object.keys(extra).length > 0 ? { ...baseRow, ...extra } : baseRow;

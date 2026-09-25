@@ -1,5 +1,5 @@
-import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
+import { requireUser } from "@/lib/auth/session";
 import { getUserKycStatus } from "@/lib/kyc";
 import { getWithdrawnAgainstAllowance } from "@/lib/kyc/supabase-kyc";
 import {
@@ -21,30 +21,26 @@ export const runtime = "nodejs";
  *   allowance: { total, used, remaining, percentage } | null,  // unverified users only
  * }
  */
-export async function GET(req: Request) {
+export async function GET() {
   try {
-    const { searchParams } = new URL(req.url);
-    const email = searchParams.get("email");
-
-    let userId: string | null = null;
-
-    if (email) {
-      const { supabaseAdmin } = await import("@/lib/supabase/adminClient");
-      const { data } = await supabaseAdmin
-        .from("users")
-        .select("id")
-        .eq("email", email.toLowerCase())
-        .maybeSingle();
-      userId = data?.id ?? null;
+    // ── Identity from the session ───────────────────────────────────────────
+    //
+    // This took an email from the request and fell back to Supabase Auth — which the rest of
+    // the app does not use, so in practice the email WAS the credential. KYC state governs how
+    // much a user may withdraw before verifying, so setting or reading it for an arbitrary
+    // address is a compliance control operated from outside.
+    //
+    // ensureUserRecord rather than requireUserId: somebody can reach verification before a
+    // `users` row exists, and refusing there would block the very step that creates it.
+    let email: string;
+    try {
+      ({ email } = await requireUser());
+    } catch {
+      return NextResponse.json({ error: "Please sign in again." }, { status: 401 });
     }
 
-    if (!userId) {
-      const supabase = await createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      userId = user?.id ?? null;
-    }
+    const { ensureUserRecord } = await import("@/lib/supabase/user-records");
+    const userId = await ensureUserRecord(email);
 
     if (!userId) {
       return NextResponse.json({ error: "Email or user ID required" }, { status: 400 });

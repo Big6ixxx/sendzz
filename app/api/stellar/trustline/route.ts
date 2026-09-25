@@ -13,10 +13,33 @@
 
 import { ensureStellarUsdcReceivable } from '@/lib/stellar/privy-wallet';
 import { NextResponse } from 'next/server';
+import { requireUser } from '@/lib/auth/session';
 
 export async function POST(req: Request) {
   try {
     const { walletId, address } = await req.json();
+
+    // ── The wallet must be the caller's own ────────────────────────────────
+    //
+    // This took a walletId and an address from the body and operated on whichever it was
+    // given. The blast radius was bounded by the server's key quorum, but the authorisation
+    // model was simply absent: the caller chose which wallet the server acted on.
+    //
+    // Checked against the record rather than trusted, so a signed-in caller cannot name
+    // somebody else's wallet either.
+    let email: string;
+    try {
+      ({ email } = await requireUser());
+    } catch {
+      return NextResponse.json({ error: 'Please sign in again.' }, { status: 401 });
+    }
+
+    const { readUserAddresses } = await import('@/lib/supabase/user-records');
+    const own = await readUserAddresses(email);
+    if (!own?.stellar_wallet_id || own.stellar_wallet_id !== walletId || own.stellar_address !== address) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    }
+
 
     if (!walletId || !address) {
       return NextResponse.json(

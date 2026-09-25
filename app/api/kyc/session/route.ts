@@ -1,5 +1,5 @@
-import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
+import { requireUser } from "@/lib/auth/session";
 import {
   createVerificationSession,
   getUserKycStatus,
@@ -17,29 +17,25 @@ export const runtime = "nodejs";
  * Idempotent: if the user already has an active (non-declined) session,
  * returns the existing session URL rather than creating a duplicate.
  */
-export async function POST(req: Request) {
+export async function POST() {
   try {
-    let email: string | null = null;
+    // ── Identity from the session ───────────────────────────────────────────
+    //
+    // This took an email from the body and fell back to Supabase Auth — which the rest of the
+    // app does not use, so in practice the email WAS the credential. KYC state governs how
+    // much a user may withdraw before verifying.
+    //
+    // ensureUserRecord rather than requireUserId: somebody can reach verification before a
+    // `users` row exists, and refusing there would block the step that creates it.
+    let email: string;
     try {
-      const body = await req.json();
-      email = body.email || null;
+      ({ email } = await requireUser());
     } catch {
-      // Body empty or invalid JSON
+      return NextResponse.json({ error: "Please sign in again." }, { status: 401 });
     }
 
-    let userId: string | null = null;
-    if (email) {
-      const { ensureUserInDatabase } = await import("@/lib/supabase/users");
-      userId = await ensureUserInDatabase(email);
-    }
-
-    if (!userId) {
-      const supabase = await createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      userId = user?.id ?? null;
-    }
+    const { ensureUserRecord } = await import("@/lib/supabase/user-records");
+    const userId = await ensureUserRecord(email);
 
     if (!userId) {
       return NextResponse.json({ error: "Email or user ID required" }, { status: 400 });

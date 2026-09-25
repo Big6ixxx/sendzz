@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireUser } from "@/lib/auth/session";
 import { supabaseAdmin } from "@/lib/supabase/adminClient";
 import {
   generatePasskeyRegistrationOptions,
@@ -22,7 +23,18 @@ export async function POST(req: Request) {
     // must agree on it, or a passkey made on one host is rejected when checked against another.
     const rp = resolveRp(req.headers.get("origin"));
     const body = await req.json();
-    const { email, action, credential } = body;
+    const { action, credential } = body;
+
+    // ── Identity from the session, never the body ───────────────────────────
+    //
+    // Registering a passkey grants persistent access. Taking the email from the body let
+    // anyone attach THEIR device to somebody else's account.
+    let email: string;
+    try {
+      ({ email } = await requireUser());
+    } catch {
+      return NextResponse.json({ error: "Please sign in again." }, { status: 401 });
+    }
 
     if (!email) {
       return NextResponse.json(

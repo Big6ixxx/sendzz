@@ -98,7 +98,7 @@ export function ReceiveCryptoFlow({
         if (data.trustlineReady) {
           setLocalTrustlineReady(true);
           queryClient.invalidateQueries({ queryKey: ['stellar-wallet', userId] });
-          toast.success("USDC trustline configured successfully!");
+          toast.success("Your Stellar account is ready to receive USDC.");
         } else {
           console.warn("Trustline setup is still pending on-chain.");
         }
@@ -181,9 +181,9 @@ export function ReceiveCryptoFlow({
           className="p-6 rounded-3xl text-center text-sm space-y-4"
           style={{ background: 'rgba(239,68,68,0.03)', border: '1px solid rgba(239,68,68,0.2)', color: '#f87171' }}
         >
-          <p className="font-bold text-base">⚠️ Stellar USDC Deposits Disabled</p>
+          <p className="font-bold text-base">⚠️ Stellar deposits paused</p>
           <p className="text-xs leading-relaxed text-red-300">
-            Your Stellar wallet&apos;s USDC trustline setup is currently pending on-chain. To protect your assets, deposits have been temporarily disabled.
+            Your Stellar account is still being set up to hold USDC. Until that finishes, anything sent here could be lost — so we have paused deposits to keep your money safe.
           </p>
           
           <button

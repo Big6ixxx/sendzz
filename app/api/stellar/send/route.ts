@@ -13,6 +13,10 @@
 import { getFeeTreasury, resolvePlatformFee } from '@/lib/fees/platform-fees';
 import { getVerifiedIdentity } from '@/lib/auth/session';
 import {
+  AuthorizationError,
+  consumeAuthorization,
+} from '@/lib/security/transaction-auth';
+import {
   signStellarTransaction,
   submitStellarTransaction,
   buildFeeBumpTransaction,
@@ -37,6 +41,7 @@ export async function POST(req: Request) {
       memo,
       feeAmount,
       withdrawalOrderId,
+      authorization,
     } = await req.json();
 
     if (!walletId || !senderAddress || !recipientAddress || !amount) {
@@ -56,6 +61,40 @@ export async function POST(req: Request) {
     const parsedAmount = parseFloat(amount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
       return NextResponse.json({ error: 'Invalid amount' }, { status: 400 });
+    }
+
+    // ── PIN authorisation ───────────────────────────────────────────────────
+    //
+    // This is one of the places the server genuinely holds the pen: it builds the envelope,
+    // asks Privy's TEE to sign it, and broadcasts. So the PIN is enforced here rather than
+    // merely recorded — without a token bound to THIS recipient and THIS amount, nothing is
+    // signed at all.
+    //
+    // The parameters hashed below are the ones this route is about to act on, not a summary
+    // handed over by the caller. A payload taken from the request body would authorise
+    // whatever the caller claimed to be doing, which is not a check.
+    //
+    // Withdrawals are exempt because they already spent a `withdrawal` authorisation when the
+    // order was created — `withdrawalOrderId` is only ever set by that path, and asking for a
+    // second PIN mid-settlement would strand a payout whose order already exists.
+    if (!withdrawalOrderId) {
+      try {
+        await consumeAuthorization({
+          token: authorization,
+          purpose: 'crypto_transfer',
+          payload: {
+            destination: recipientAddress,
+            amount: parsedAmount,
+            chain: 'stellar',
+          },
+        });
+      } catch (err) {
+        const message =
+          err instanceof AuthorizationError
+            ? err.message
+            : 'Could not verify your PIN. Please try again.';
+        return NextResponse.json({ error: message }, { status: 401 });
+      }
     }
 
     // Balance check
@@ -86,7 +125,7 @@ export async function POST(req: Request) {
     if (platformFeeUsdc > 0) {
       const treasury = getFeeTreasury('stellar');
       if (!treasury) {
-        console.error('[Stellar/Send] No fee treasury configured — set BITNOB_FEE_TREASURY_STELLAR');
+        console.error('[Stellar/Send] No fee treasury configured — set FEE_TREASURY_STELLAR');
         return NextResponse.json(
           { error: 'Sending on Stellar is unavailable right now. Please try another network.' },
           { status: 503 },

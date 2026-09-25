@@ -542,3 +542,44 @@ with check (false);
 -- =========================================
 -- DONE
 -- =========================================
+
+-- =========================================
+-- RECONSTRUCTED FROM PRODUCTION
+-- =========================================
+--
+-- These columns exist in the live database but were added by hand rather than by a migration,
+-- so until now the chain in this directory could not rebuild the schema it is supposed to
+-- describe: a fresh database got as far as migration 031 and failed on a missing `tx_hash`.
+-- That meant no staging environment, and no recovery from backup, using the repo alone.
+--
+-- They are appended here, guarded, rather than written into the CREATE TABLE statements above,
+-- because those statements are a record of what migration 001 originally did and editing them
+-- would misrepresent it. The guard is what makes this safe in production, where every one of
+-- these columns is already present and this file has long since been applied.
+--
+-- Types and nullability are taken from a `supabase db dump --schema-only` of production
+-- (2026-09-25), not inferred. Three were also confirmed independently by the unique indexes
+-- that later migrations build on them.
+--
+-- If you add a column through the dashboard, add it here too, or the next person to rebuild
+-- from scratch inherits this same problem.
+
+ALTER TABLE public.deposits
+  -- The on-chain transaction that funded this deposit. Migrations 031 and 035 both read it, and
+  -- 035 builds `deposits_user_tx_hash_uniq` on (user_id, tx_hash).
+  ADD COLUMN IF NOT EXISTS tx_hash text;
+
+ALTER TABLE public.withdrawals
+  -- The on-chain transaction that settled this withdrawal. Migration 037 builds a partial
+  -- unique index on it, which is why it is nullable: a withdrawal has no hash until it settles.
+  ADD COLUMN IF NOT EXISTS tx_hash text,
+  -- What the user actually received in local currency, and the rate used. Reconciled from the
+  -- payout provider's own settlement figures after the fact — see the Bitnob webhook, which
+  -- writes both once the payout lands.
+  ADD COLUMN IF NOT EXISTS fiat_amount numeric,
+  ADD COLUMN IF NOT EXISTS exchange_rate numeric;
+
+ALTER TABLE public.webhook_events
+  -- The provider's own name for the event, kept alongside the payload so the admin log can be
+  -- read without parsing JSON.
+  ADD COLUMN IF NOT EXISTS event_type text;

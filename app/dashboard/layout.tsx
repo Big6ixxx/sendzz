@@ -3,6 +3,8 @@
 import { Sidebar } from "@/components/layout/Sidebar";
 import { NotificationCenter } from "@/components/NotificationCenter";
 import { KycBanner } from "@/components/kyc/KycBanner";
+import { PinAuthorizationProvider } from "@/components/security/PinAuthorizationProvider";
+import { PinRequiredGate, usePinStatus } from "@/components/security/PinRequiredGate";
 import { usePrivy } from "@privy-io/react-auth";
 import { Menu } from "lucide-react";
 import Image from "next/image";
@@ -21,6 +23,12 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  // Asked for once, here, rather than per screen: the PIN gates every outgoing path, so the
+  // dashboard as a whole is what requires one. `hasPin` stays null until the answer is known,
+  // and the gate only opens on a definite "no" — a failed check must not throw a blocking,
+  // undismissable dialog at somebody who already has a PIN.
+  const { hasPin, setHasPin } = usePinStatus(ready && authenticated);
 
   useEffect(() => {
     if (ready && !authenticated) {
@@ -104,7 +112,9 @@ export default function DashboardLayout({
   }
 
   return (
+    <PinAuthorizationProvider>
     <div className="flex h-screen overflow-hidden" style={{ background: "#07070a" }}>
+      <PinRequiredGate open={hasPin === false} onComplete={() => setHasPin(true)} />
       {/* Ambient glow — subtle, dashboard version */}
       <div
         className="fixed inset-0 pointer-events-none overflow-hidden"
@@ -176,5 +186,6 @@ export default function DashboardLayout({
         </div>
       </main>
     </div>
+    </PinAuthorizationProvider>
   );
 }

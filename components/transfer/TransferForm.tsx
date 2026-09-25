@@ -1,4 +1,6 @@
 import React from 'react';
+import { SigningProgress } from "@/components/signing/SigningProgress";
+import { type SigningPlan } from "@/lib/signing/plan";
 import { CurrencySelector } from '@/components/CurrencySelector';
 import {
   Tooltip,
@@ -45,6 +47,9 @@ interface TransferFormProps {
   setSourcePref: (p: SourcePreference) => void;
   chainBalances: ChainBalances;
   solanaBalance: number;
+  /** The multi-step plan being worked through, when there is one. */
+  activePlan?: SigningPlan | null;
+  activeStep?: number;
 }
 
 export function TransferForm({
@@ -68,6 +73,8 @@ export function TransferForm({
   isOverBalance,
   isZeroBalance,
   handleTransfer,
+  activePlan,
+  activeStep = 0,
   smartAddress,
   balance,
   lastCompletedTransfer,
@@ -260,10 +267,17 @@ export function TransferForm({
           )}
         </button>
 
-        {status && (
-          <div className="p-4 rounded-xl text-xs font-bold uppercase tracking-tight text-center break-words animate-in fade-in slide-in-from-top-2 duration-300 bg-muted/50 text-muted-foreground">
-            {status}
-          </div>
+        {/* A send that only takes one step keeps the plain status line — a tracker for one
+            step is noise. Anything longer shows where it has got to, because the gap between
+            two confirmations is exactly where a spinner stops being reassuring. */}
+        {activePlan && activePlan.steps.length > 1 ? (
+          <SigningProgress plan={activePlan} current={activeStep} status={status} />
+        ) : (
+          status && (
+            <div className="p-4 rounded-xl text-xs font-bold uppercase tracking-tight text-center break-words animate-in fade-in slide-in-from-top-2 duration-300 bg-muted/50 text-muted-foreground">
+              {status}
+            </div>
+          )
         )}
 
         {lastCompletedTransfer && (

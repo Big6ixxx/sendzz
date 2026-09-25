@@ -5,6 +5,12 @@ import { VIEM_CHAINS } from '@/lib/web3/multichain';
 import { USDC_ADDRESSES, SOURCE_CHAINS, type SupportedChain } from '@/lib/circle/gateway';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
+import { requireUser } from '@/lib/auth/session';
+import {
+  RATE_LIMITS,
+  checkRateLimit,
+  rateLimitResponse,
+} from '@/lib/security/rate-limit';
 import { solanaRpcUrl } from '@/lib/solana/rpc';
 
 const BALANCE_ABI = [
@@ -76,6 +82,23 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, defaultValue: T):
 }
 
 export async function GET(req: NextRequest) {
+
+    // Signed-in callers only.
+    //
+    // These take an address and answer from public chain data, so nothing here is secret — what
+    // they cost is RPC quota, which was free to anyone who knew the URL. Requiring a session
+    // does not stop a determined signed-in caller, but it ends the anonymous case.
+    try {
+      await requireUser();
+    } catch {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Our RPC quota, spent per call.
+    {
+      const limit = await checkRateLimit(RATE_LIMITS.read, null);
+      if (!limit.allowed) return rateLimitResponse(limit);
+    }
   const address = req.nextUrl.searchParams.get('address');
   const paramSol = req.nextUrl.searchParams.get('solanaAddress');
   const paramStellar = req.nextUrl.searchParams.get('stellarAddress');

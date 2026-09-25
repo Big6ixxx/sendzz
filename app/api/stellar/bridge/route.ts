@@ -34,6 +34,10 @@ import {
   STELLAR_TOKEN_MESSENGER_CONTRACT,
 } from '@/lib/circle/stellar-gateway';
 import { buildUsdcPaymentTx } from '@/lib/stellar/transactions';
+import {
+  AuthorizationError,
+  consumeAuthorization,
+} from '@/lib/security/transaction-auth';
 import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
@@ -47,6 +51,8 @@ export async function POST(req: Request) {
       userEmail,
       chargeFee = true,
       consolidation = false,
+      internal = false,
+      authorization,
     } =
       await req.json() as {
         walletId: string;
@@ -66,6 +72,21 @@ export async function POST(req: Request) {
          * It decides where the burn is recorded: scratch table, not history.
          */
         consolidation?: boolean;
+        /**
+         * True when this bridge is a step inside some larger operation the user has already
+         * approved with a PIN — a transfer that has to gather funds first, a send that routes
+         * across networks. Set by lib/web3/stellar-bridge.ts for every one of its callers.
+         *
+         * Deliberately separate from `consolidation`, which answers a different question (where
+         * the burn is recorded) and is set by only one of those paths.
+         */
+        internal?: boolean;
+        /**
+         * Single-use proof that the transaction PIN was entered for THIS bridge. Required for
+         * a bridge the user came to perform; absent on the internal paths above, which run
+         * underneath an action that was already authorised.
+         */
+        authorization?: string;
       };
 
     const finalDestChain = destChain || 'base';
@@ -93,6 +114,40 @@ export async function POST(req: Request) {
     const parsedAmount = parseFloat(amount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
       return NextResponse.json({ error: 'Invalid amount' }, { status: 400 });
+    }
+
+    // ── PIN authorisation ───────────────────────────────────────────────────
+    //
+    // Enforced, not recorded: this route signs the burn with Privy's TEE and submits it to
+    // Horizon itself, so refusing here actually stops the transaction.
+    //
+    // Skipped for the nested paths, for the same structural reason `chargeFee` is: a bridge
+    // that runs underneath a transfer or a withdrawal is our plumbing, and that larger
+    // operation already took a PIN. Asking again mid-flight would interrupt something the user
+    // is not watching, after money has started moving.
+    //
+    // Both flags are honoured because they are set by different callers: `consolidation` by
+    // the withdrawal path, `internal` by every route through lib/web3/stellar-bridge.ts. A
+    // bridge the user came to perform reaches this route directly from the bridge screen with
+    // neither flag, and so must present a token.
+    if (!consolidation && !internal) {
+      try {
+        await consumeAuthorization({
+          token: authorization,
+          purpose: 'bridge',
+          payload: {
+            destination: finalDestChain,
+            amount: parsedAmount,
+            chain: 'stellar',
+          },
+        });
+      } catch (err) {
+        const message =
+          err instanceof AuthorizationError
+            ? err.message
+            : 'Could not verify your PIN. Please try again.';
+        return NextResponse.json({ error: message }, { status: 401 });
+      }
     }
 
     console.log(`[Stellar/Bridge] ${senderAddress.slice(0, 6)} → ${finalDestChain} ${recipientAddress.slice(0, 8)}, ${amount} USDC`);
@@ -195,7 +250,7 @@ export async function POST(req: Request) {
           console.log(`[Stellar/Bridge] Fee collected: ${feeResult.hash}`);
         } else if (feeAmount > 0) {
           console.error(
-            '[Stellar/Bridge] No fee treasury configured — set BITNOB_FEE_TREASURY_STELLAR',
+            '[Stellar/Bridge] No fee treasury configured — set FEE_TREASURY_STELLAR',
           );
         }
       } catch (feeErr) {

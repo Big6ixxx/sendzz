@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
+import { requireUser } from "@/lib/auth/session";
 import { supabaseAdmin } from "@/lib/supabase/adminClient";
 import type { Json } from "@/types/database";
+import {
+  RATE_LIMITS,
+  checkRateLimit,
+  rateLimitResponse,
+} from "@/lib/security/rate-limit";
 import {
   generatePasskeyAuthenticationOptions,
   resolveRp,
@@ -20,7 +26,25 @@ const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { email, action, credential } = body;
+    const { action, credential } = body;
+
+    // ── Identity from the session, never the body ───────────────────────────
+    //
+    // The proof this route returns is what the transaction flows treat as a factor, so an
+    // open version of it is a factor anyone can satisfy on anyone's behalf.
+    let email: string;
+    try {
+      ({ email } = await requireUser());
+    } catch {
+      return NextResponse.json({ error: "Please sign in again." }, { status: 401 });
+    }
+
+    // A passkey challenge is cheap for us and cheap for an attacker. Bounded so a stolen session
+    // cannot grind attempts against a device it does not have.
+    {
+      const limit = await checkRateLimit(RATE_LIMITS.codeVerify, email);
+      if (!limit.allowed) return rateLimitResponse(limit);
+    }
 
     if (!email) {
       return NextResponse.json(

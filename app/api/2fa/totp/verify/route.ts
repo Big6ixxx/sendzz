@@ -1,4 +1,10 @@
 import { NextResponse } from "next/server";
+import { requireUser } from "@/lib/auth/session";
+import {
+  RATE_LIMITS,
+  checkRateLimit,
+  rateLimitResponse,
+} from "@/lib/security/rate-limit";
 import { supabaseAdmin } from "@/lib/supabase/adminClient";
 import { verifyTOTPToken } from "@/lib/totp";
 import { decrypt } from "@/lib/encryption";
@@ -6,7 +12,25 @@ import { decrypt } from "@/lib/encryption";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { email, token } = body;
+    const { token } = body;
+
+    // ── Identity from the session, never the body ───────────────────────────
+    //
+    // Verifying somebody else's authenticator is only useful as an oracle: it tells an
+    // attacker whether a guessed code is right, six digits at a time.
+    let email: string;
+    try {
+      ({ email } = await requireUser());
+    } catch {
+      return NextResponse.json({ error: "Please sign in again." }, { status: 401 });
+    }
+
+    // Six digits, and a fresh valid code every 30 seconds — so unbounded guessing is genuinely
+    // worth an attacker's time.
+    {
+      const limit = await checkRateLimit(RATE_LIMITS.codeVerify, email);
+      if (!limit.allowed) return rateLimitResponse(limit);
+    }
 
     if (!email || !token) {
       return NextResponse.json(

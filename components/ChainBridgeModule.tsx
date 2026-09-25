@@ -37,6 +37,9 @@ import { Connection } from "@solana/web3.js";
 
 import { ArrowDown, CheckCircle2, ExternalLink, Loader2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { usePinAuthorization } from "@/components/security/PinAuthorizationProvider";
+import { noteTransactionAuthorization } from "@/lib/actions/transactionAuth";
+import { describeBridge } from "@/lib/signing/describe";
 import { toast } from "sonner";
 import { solanaRpcUrl } from "@/lib/solana/rpc";
 
@@ -77,6 +80,7 @@ export function ChainBridgeModule({
 
   const { wallets: solanaWallets } = useSolanaWallets();
   const { signTransaction } = useSignTransaction();
+  const { authorize } = usePinAuthorization();
   const solConn = useRef(new Connection(SOLANA_RPC, "confirmed"));
 
   const embeddedSolWallet =
@@ -195,9 +199,9 @@ export function ChainBridgeModule({
                 setBridgeStep("mint_sig");
 
                 if (monitor.destChain === "solana") {
-                  toast.info("Minting USDC on Solana...");
+                  toast.info("Delivering your money on Solana…");
                 } else if (monitor.destChain === "stellar") {
-                  toast.info("Minting USDC on Stellar...");
+                  toast.info("Delivering your money on Stellar…");
                 } else {
                   toast.info("Finalising bridge on destination chain...");
                   // Circle's relayer often mints on EVM before we get here — check first
@@ -347,6 +351,24 @@ export function ChainBridgeModule({
 
   const handleBridge = async () => {
     if (!canBridge || !source || !dest) return;
+
+    // The PIN comes before the fee quote and well before the burn. A bridge is irreversible
+    // the instant the burn lands, and the two-step burn-then-claim shape means a user who
+    // walks away mid-flow has already committed — so the approval belongs at the very front,
+    // where backing out still costs nothing.
+    const authorization = await authorize({
+      purpose: "bridge",
+      payload: { destination: dest, amount, chain: source },
+      amount: `${parseFloat(amount || "0").toFixed(2)} USDC`,
+      destination: `${CHAIN_DISPLAY_NAMES[source] ?? source} → ${CHAIN_DISPLAY_NAMES[dest] ?? dest}`,
+      warning: "Cannot be undone once it starts.",
+      // No detail rows. The amount and the route are the whole of it and they are already the
+      // headline; the three rows this replaces restated the heading word for word.
+      plan: describeBridge({ amount, sourceChain: source, destChain: dest }),
+      confirmLabel: "Start bridge",
+    });
+    if (!authorization) return;
+
     setPhase("submitting");
 
     // Resolve the fee BEFORE anything irreversible. A burn can't be undone, so discovering
@@ -370,6 +392,17 @@ export function ChainBridgeModule({
     }
 
     setBridgeStep("burn_sig");
+
+    // Solana and EVM burns are signed in the page, so this records the PIN rather than
+    // gating on it. The Stellar branch below hands the token to the server instead.
+    if (source !== "stellar") {
+      void noteTransactionAuthorization({
+        token: authorization,
+        purpose: "bridge",
+        payload: { destination: dest, amount, chain: source },
+      }).catch(() => undefined);
+    }
+
     mintingRef.current = false;
     claimErrorNotifiedRef.current = false;
     setMintTxHash(null);
@@ -427,6 +460,8 @@ export function ChainBridgeModule({
             // Explicit, user-initiated bridge — bill it. The consolidation path in
             // lib/web3/stellar-bridge omits this and is never charged.
             chargeFee: true,
+            // The server broadcasts this one, so it enforces the PIN rather than noting it.
+            authorization,
           }),
         });
         const data = await res.json();
@@ -438,7 +473,7 @@ export function ChainBridgeModule({
         }
         // Ethereum L1 disabled — was: dest === "ethereum" ? embeddedWallet!.address
         const recipient = smartAddress;
-        toast.info("Preparing gasless Solana transfer...");
+        toast.info("Preparing your transfer — we cover the network fee.");
         const { sponsoredTx } = await prepareSolanaBurnTx({
           connection: solConn.current,
           walletAddress: embeddedSolWallet.address,
@@ -568,23 +603,23 @@ export function ChainBridgeModule({
         <div className="space-y-2">
           <h3 className="text-xl font-display font-bold text-white tracking-tight">
             {isDone
-              ? "Bridge Complete"
+              ? "All done"
               : step2Active
-                ? "2/2 — Finalising on Destination"
-                : "1/2 — Burn & Verify"}
+                ? "Step 2 of 2 — Delivering"
+                : "Step 1 of 2 — Sending"}
           </h3>
           <p className="text-sm text-white/40 max-w-xs mx-auto">
+            {/* Two of these used to tell the user to approve a pop-up. There is no pop-up any
+                more — Privy's UIs are off and we take the confirmation ourselves before any of
+                this starts — so the instruction was not merely jargon, it was an instruction to
+                do something impossible while they waited. */}
             {isDone && monitor
-              ? `Your USDC has arrived on ${CHAIN_DISPLAY_NAMES[monitor.destChain]}.`
+              ? `Your money has arrived on ${CHAIN_DISPLAY_NAMES[monitor.destChain]}.`
               : bridgeStep === "burn_sig"
-                ? "Approve the signature popup to initiate the burn."
+                ? `Moving your money off ${source ? CHAIN_DISPLAY_NAMES[source] ?? source : "this network"}…`
                 : bridgeStep === "attestation"
-                  ? "Waiting for Circle to verify the burn (typically 1–3 min)..."
-                  : dest === "stellar"
-                    ? "Minting USDC on Stellar..."
-                    : dest === "solana"
-                      ? "Approve the popup to receive USDC on Solana."
-                      : "Circle is minting your USDC on the destination chain..."}
+                  ? "Both networks are confirming the move. Usually 1–3 minutes."
+                  : `Delivering your money on ${dest ? CHAIN_DISPLAY_NAMES[dest] ?? dest : "the other network"}…`}
           </p>
         </div>
 

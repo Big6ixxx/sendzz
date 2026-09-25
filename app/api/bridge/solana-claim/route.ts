@@ -24,6 +24,12 @@ import { initiateDeveloperControlledWalletsClient } from '@circle-fin/developer-
 import { Connection, PublicKey } from '@solana/web3.js';
 import { buildReceiveMessageOnSolanaTx } from '@/lib/circle/solana-gateway';
 import { fetchAttestation } from '@/lib/circle/gateway';
+import { requireUser } from '@/lib/auth/session';
+import {
+  RATE_LIMITS,
+  checkRateLimit,
+  rateLimitResponse,
+} from '@/lib/security/rate-limit';
 
 const SOLANA_RPC = solanaRpcUrl();
 
@@ -46,6 +52,22 @@ function isAlreadyClaimed(raw: string): boolean {
 
 export async function POST(req: Request) {
   try {
+
+    // Signed-in callers only.
+    //
+    // Signs the claim with our Circle wallet, so every call spends our SOL. Anonymous, it is a
+    // faucet for arbitrary transactions.
+    try {
+      await requireUser();
+    } catch {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Every call spends our SOL.
+    {
+      const limit = await checkRateLimit(RATE_LIMITS.sponsor, null);
+      if (!limit.allowed) return rateLimitResponse(limit);
+    }
     const {
       burnTxHash,
       sourceChain,

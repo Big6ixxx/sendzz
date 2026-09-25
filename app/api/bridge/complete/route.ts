@@ -2,6 +2,7 @@ import { updateBridgeStatus, verifyBridgeClaimSettled } from '@/lib/supabase/tra
 import { supabaseAdmin } from '@/lib/supabase/adminClient';
 import { NextRequest, NextResponse } from 'next/server';
 import { isPlaceholderHash, PLACEHOLDER_TX_HASH } from '@/lib/explorers';
+import { requireUser } from '@/lib/auth/session';
 
 /**
  * POST /api/bridge/complete
@@ -10,6 +11,16 @@ import { isPlaceholderHash, PLACEHOLDER_TX_HASH } from '@/lib/explorers';
  */
 export async function POST(req: NextRequest) {
   try {
+
+    // Signed-in callers only.
+    //
+    // Marks a bridge delivered in our ledger. Open, anyone could write history against a burn
+    // they did not make.
+    try {
+      await requireUser();
+    } catch {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     const { burnTxHash, mintTxHash, delivered } = await req.json();
 
     if (!burnTxHash) {

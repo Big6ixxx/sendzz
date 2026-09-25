@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 import { verifyBitnobSignature } from '@/lib/bitnob/webhook-signature';
 import { triggerWithdrawalNotifications } from '@/lib/supabase/transactions';
+import { accrueReferralEarning, voidReferralEarning } from '@/lib/referrals/accrue';
+import { releaseBenefitsForOrder } from '@/lib/referrals/benefits';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -444,6 +446,10 @@ export async function POST(req: Request) {
         console.error(`[Bitnob Webhook] [${requestId}] deposit update failed:`, error.message);
         return new Response('Internal error', { status: 500 });
       }
+
+      // No referral accrual here. Deposits are free — there is no fee on the way in any more,
+      // so there is nothing to share. Referral earnings come from withdrawals; see
+      // lib/referrals/accrue.ts.
       handled = true;
     } else if (wd?.provider_order_id) {
       // Payout (off-ramp) — the finalize RPCs match provider_order_id (or legacy id).
@@ -498,6 +504,11 @@ export async function POST(req: Request) {
           return new Response('Internal error', { status: 500 });
         }
         await triggerWithdrawalNotifications(rpcOrderId, 'completed');
+
+        // The money reached a bank, so it earned us a fee, so a referrer may be owed a share.
+        // Never throws and never fails this webhook; a redelivery is a no-op, because the
+        // earnings row is unique per withdrawal.
+        await accrueReferralEarning({ providerOrderId: rpcOrderId });
       } else {
         const { error } = await supabaseAdmin.rpc('finalize_withdrawal_failed', {
           p_paycrest_order_id: rpcOrderId,
@@ -515,6 +526,15 @@ export async function POST(req: Request) {
         } else {
           await triggerWithdrawalNotifications(rpcOrderId, 'failed');
         }
+
+        // A payout that did not happen earned nothing, so any commission accrued on it is
+        // released. Only touches rows still owed — one already paid out stays paid.
+        await voidReferralEarning({ providerOrderId: rpcOrderId });
+
+        // And give back any fee-free allowance or credit the order consumed. It was spent at
+        // creation so a concurrent withdrawal could not be quoted against it twice; this is
+        // the other half of that trade.
+        await releaseBenefitsForOrder(rpcOrderId);
       }
       handled = true;
     } else {

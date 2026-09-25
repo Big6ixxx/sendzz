@@ -18,7 +18,8 @@ import {
   ensureStellarUsdcReceivable,
   hasServerSigner,
 } from '@/lib/stellar/privy-wallet';
-import { getUserAddresses, registerStellarAddress } from '@/lib/supabase/users';
+import { readUserAddresses, writeUserAddresses } from '@/lib/supabase/user-records';
+import { getVerifiedIdentity } from '@/lib/auth/session';
 import { redactEmail } from '@/lib/log';
 import { NextResponse } from 'next/server';
 
@@ -46,20 +47,28 @@ function isSettled(address: string): boolean {
 
 export async function POST(req: Request) {
   try {
-    const { privyUserId, email } = await req.json();
+    const { privyUserId: claimedPrivyUserId } = await req.json();
 
-    if (!privyUserId || typeof privyUserId !== 'string') {
-      return NextResponse.json(
-        { error: 'privyUserId is required' },
-        { status: 400 },
-      );
+    // ── Identity from the session, never the body ───────────────────────────
+    //
+    // This route provisions a wallet and records it against an account. It used to take both
+    // the email and the Privy user id as arguments and trust them, which meant anyone could
+    // point it at somebody else's account — and the Privy id decides which TEE wallet the
+    // server derives, so the body chose both the victim and the key.
+    //
+    // Both now come from the verified token. `claimedPrivyUserId` is read only to be checked
+    // against it, so a mismatched call is refused rather than silently acting on whichever
+    // one happened to be used further down.
+    const identity = await getVerifiedIdentity();
+    if (!identity) {
+      return NextResponse.json({ error: 'Please sign in again.' }, { status: 401 });
     }
 
-    if (!email || typeof email !== 'string') {
-      return NextResponse.json(
-        { error: 'email is required' },
-        { status: 400 },
-      );
+    const { email, privyUserId } = identity;
+
+    if (claimedPrivyUserId && claimedPrivyUserId !== privyUserId) {
+      console.error('[Stellar/Provision] body privyUserId does not match the session — refusing.');
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
     console.log(`[Stellar/Provision] Provisioning/checking for: ${redactEmail(email)}`);
@@ -67,7 +76,7 @@ export async function POST(req: Request) {
     let trustlineError: string | null = null;
 
     // 1. Check if user already has Stellar wallet in database
-    const dbAddresses = await getUserAddresses(email, privyUserId);
+    const dbAddresses = await readUserAddresses(email);
     let walletId = dbAddresses?.stellar_wallet_id;
     let address = dbAddresses?.stellar_address;
     let trustlineReady = false;
@@ -104,10 +113,15 @@ export async function POST(req: Request) {
     const signerGranted =
       dbAddresses?.stellar_signer_granted || (await hasServerSigner(walletId));
 
-    if (!dbAddresses?.stellar_wallet_id) {
-      await registerStellarAddress(email, address, walletId, signerGranted, privyUserId);
-    } else if (dbAddresses.stellar_signer_granted !== signerGranted) {
-      await registerStellarAddress(email, address, walletId, signerGranted, privyUserId);
+    if (
+      !dbAddresses?.stellar_wallet_id ||
+      dbAddresses.stellar_signer_granted !== signerGranted
+    ) {
+      await writeUserAddresses(email, {
+        stellarAddress: address,
+        stellarWalletId: walletId,
+        stellarSignerGranted: signerGranted,
+      });
     }
 
     // 4. Finish setup — only possible once the server can sign.

@@ -1,5 +1,8 @@
 import { usePlatformFeePercent } from '@/lib/hooks/usePlatformFeePercent';
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { usePinAuthorization } from "@/components/security/PinAuthorizationProvider";
+import { noteTransactionAuthorization } from "@/lib/actions/transactionAuth";
+import { describeCryptoSend } from "@/lib/signing/describe";
 import { quoteFee } from "@/lib/actions/fees";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { ConnectedWallet, usePrivy, useSigners } from "@privy-io/react-auth";
@@ -90,6 +93,7 @@ export function useCryptoTransfer({
 
   const { wallets: solWallets } = useSolanaWallets();
   const { signTransaction } = useSignTransaction();
+  const { authorize } = usePinAuthorization();
 
   const solanaConnection = useMemo(() => new Connection(solanaRpcUrl(), 'confirmed'), []);
 
@@ -107,7 +111,7 @@ export function useCryptoTransfer({
   const ensureStellarSetup = useCallback(async () => {
     if (!privyUserId) return null;
     setIsSettingUpStellar(true);
-    setStatus("Checking Stellar wallet status...");
+    setStatus("Checking your Stellar account…");
     try {
       // 1. Get signer ID
       const signerRes = await fetch('/api/stellar/signer-id');
@@ -115,7 +119,7 @@ export function useCryptoTransfer({
       const { keyQuorumId } = await signerRes.json();
 
       // 2. Provision (creates wallet if needed)
-      setStatus("Provisioning Stellar wallet in TEE...");
+      setStatus("Setting up your Stellar account…");
       const provRes = await fetch('/api/stellar/provision', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -129,7 +133,7 @@ export function useCryptoTransfer({
       const isSignerGranted = provData.signerGranted || false;
 
       if (!isSignerGranted) {
-        setStatus("Authorizing signing access in Privy TEE...");
+        setStatus("Securing your Stellar account…");
         try {
           await addSigners({
             address: walletAddress,
@@ -137,8 +141,12 @@ export function useCryptoTransfer({
           });
           
           // Save in database that the signer is now granted
-          const { registerStellarAddress } = await import("@/lib/supabase/users");
-          await registerStellarAddress(senderEmail, walletAddress, walletId, true);
+          const { registerMyStellarAddress } = await import("@/lib/supabase/users");
+          await registerMyStellarAddress({
+            stellarAddress: walletAddress,
+            stellarWalletId: walletId,
+            stellarSignerGranted: true,
+          });
         } catch (err: unknown) {
           const errMsg = err instanceof Error ? err.message : String(err);
           if (!errMsg.toLowerCase().includes('duplicate')) {
@@ -148,7 +156,7 @@ export function useCryptoTransfer({
       }
 
       // Provision once more to ensure trustline and active state on-chain
-      setStatus("Activating account & setting trustline...");
+      setStatus("Activating your Stellar account…");
       const finalRes = await fetch('/api/stellar/provision', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -197,7 +205,7 @@ export function useCryptoTransfer({
   // Fetch security preferences
   useEffect(() => {
     if (senderEmail) {
-      fetch(`/api/user/preferences?email=${encodeURIComponent(senderEmail)}`)
+      fetch("/api/user/preferences")
         .then((res) => res.json())
         .then((data) => {
           if (data && typeof data.two_fa_enabled === "boolean") {
@@ -265,7 +273,7 @@ export function useCryptoTransfer({
     setLoading(true);
     // No KYC limit check. Sending is not rationed, and neither is depositing — the one limit in
     // the product is the unverified withdrawal allowance. See lib/kyc/limits.ts.
-    setStatus("Initiating transfer...");
+    setStatus("Starting your transfer…");
 
     await executeTransferFlow();
   };
@@ -286,6 +294,54 @@ export function useCryptoTransfer({
     }
 
     await proceedAfterAuth();
+  };
+
+  /**
+   * Take the PIN for this send, and hand back the token the server will ask for.
+   *
+   * Called from the two places that actually commit — a direct transfer, and a confirmed
+   * cross-chain send — rather than once up front. The bridge path puts its own confirmation
+   * modal in between, and a PIN taken before that modal would be a PIN taken for something
+   * the user had not yet agreed to.
+   *
+   * `chain` is part of what gets signed for: the same amount to the same address on a
+   * different network is a different transaction, and the token should not cover both.
+   */
+  const requireSendPin = async (
+    chain: string,
+    sendAmount: string,
+    /** Set when the funds have to cross networks to get there — two confirmations, not one. */
+    fromChain?: string,
+  ): Promise<string | null> => {
+    const chainLabel =
+      chain === "stellar"
+        ? "Stellar"
+        : chain === "solana"
+          ? "Solana"
+          : (CHAIN_NAMES[chain as SupportedChain] ?? chain);
+
+    const token = await authorize({
+      purpose: "crypto_transfer",
+      payload: { destination: recipientAddress, amount: sendAmount, chain },
+      amount: `${parseFloat(sendAmount || "0").toFixed(2)} USDC`,
+      destination: recipientAddress,
+      warning: "Cannot be undone. Check the address and the network.",
+      // The network is not in the headline and getting it wrong loses the money, so it stays.
+      details: [{ label: "Network", value: chainLabel }],
+      plan: describeCryptoSend({
+        amount: sendAmount,
+        recipient: recipientAddress,
+        destChain: chain,
+        sourceChain: fromChain,
+      }),
+      confirmLabel: "Send",
+    });
+
+    if (!token) {
+      setLoading(false);
+      setStatus("");
+    }
+    return token;
   };
 
   // Decide how to fulfil the send once auth (2FA) has passed: a direct same-chain
@@ -427,7 +483,7 @@ export function useCryptoTransfer({
 
   const handleTwoFaSubmit = async (
     code: string,
-    method?: "email" | "totp" | "passkey" | "pin",
+    method?: "email" | "totp" | "passkey",
   ) => {
     setTwoFaLoading(true);
     setTwoFaError(null);
@@ -445,7 +501,6 @@ export function useCryptoTransfer({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            email: senderEmail,
             token: code,
             method: "totp",
           }),
@@ -456,7 +511,6 @@ export function useCryptoTransfer({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            userEmail: senderEmail,
             otp_id: twoFaOtpId,
             otp_code: code,
           }),
@@ -486,7 +540,6 @@ export function useCryptoTransfer({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userEmail: senderEmail,
           actionType: "transfer",
           payload: {
             amount: valUsdc,
@@ -567,10 +620,25 @@ export function useCryptoTransfer({
     if (selectedChain !== "stellar" && selectedChain !== "solana" && !embeddedProvider) {
       return;
     }
+
+    const authorization = await requireSendPin(selectedChain, amount);
+    if (!authorization) return;
+
     setLoading(true);
-    setStatus("Requesting signature...");
+    setStatus("Confirming your transfer…");
 
     try {
+      // EVM and Solana sign in the page, so this records the PIN rather than enforcing it.
+      // The Stellar branch below is different: the server broadcasts there, so it is handed
+      // the token and refuses the send without it.
+      if (selectedChain !== "stellar") {
+        void noteTransactionAuthorization({
+          token: authorization,
+          purpose: "crypto_transfer",
+          payload: { destination: recipientAddress, amount, chain: selectedChain },
+        }).catch(() => undefined);
+      }
+
       let txHash: string;
 
       if (selectedChain === "stellar") {
@@ -584,7 +652,7 @@ export function useCryptoTransfer({
           currentWallet = ok;
         }
 
-        setStatus("Submitting Stellar transfer...");
+        setStatus("Sending on Stellar…");
         const res = await fetch("/api/stellar/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -594,6 +662,7 @@ export function useCryptoTransfer({
             recipientAddress,
             amount,
             memo: memo || undefined,
+            authorization,
           }),
         });
         const data = await res.json();
@@ -633,7 +702,7 @@ export function useCryptoTransfer({
           throw new Error("No Solana wallet found. Please link a Solana wallet first.");
         }
 
-        setStatus("Building Solana transfer transaction...");
+        setStatus("Preparing your transfer on Solana…");
         const { buildSolanaUsdcTransferTx } = await import("@/lib/web3/solana-bridge");
         const tx = await buildSolanaUsdcTransferTx({
           connection: solanaConnection,
@@ -643,7 +712,7 @@ export function useCryptoTransfer({
           platformFee: (await resolveTransferFee("solana", amount)) ?? undefined,
         });
 
-        setStatus("Confirming on Solana...");
+        setStatus("Confirming on Solana…");
         const { signedTransaction } = await signTransaction({
           transaction: tx.serialize({ requireAllSignatures: false }),
           wallet: solWallet,
@@ -743,10 +812,30 @@ export function useCryptoTransfer({
   const confirmBridgeSend = async () => {
     const info = bridgeConfirm;
     if (!info || !embeddedProvider) return;
+
+    // Asked for after the cross-chain confirmation, not before it — the PIN approves the send
+    // the user has just agreed to the shape of, including which network it lands on.
+    const authorization = await requireSendPin(
+      info.destChain,
+      info.amount,
+      info.sourceChain,
+    );
+    if (!authorization) return;
+
     setBridgeConfirm(null);
     setLoading(true);
 
     try {
+      void noteTransactionAuthorization({
+        token: authorization,
+        purpose: "crypto_transfer",
+        payload: {
+          destination: recipientAddress,
+          amount: info.amount,
+          chain: info.destChain,
+        },
+      }).catch(() => undefined);
+
       let txHash: string;
 
       if (info.consolidate) {
@@ -821,7 +910,7 @@ export function useCryptoTransfer({
           txHash = mintTxHash ?? burnTxHash;
         }
       } else if (info.sourceChain === "stellar") {
-        setStatus(`Bridging directly from Stellar to ${CHAIN_NAMES[info.destChain as SupportedChain]}…`);
+        setStatus(`Moving your money from Stellar to ${CHAIN_NAMES[info.destChain as SupportedChain]}…`);
         if (!stellarWallet?.address) throw new Error("Stellar wallet not connected.");
         const feePercent = transferFeePercent ?? 0;
         const totalAmountWithFee = (parseFloat(info.amount) * (1 + feePercent / 100)).toFixed(6);
@@ -837,7 +926,7 @@ export function useCryptoTransfer({
         txHash = mintTxHash ?? burnTxHash;
       } else {
         // A single EVM chain covers it — bridge straight to the recipient.
-        setStatus(`Bridging from ${CHAIN_NAMES[info.sourceChain]}…`);
+        setStatus(`Moving your money from ${CHAIN_NAMES[info.sourceChain]}…`);
         const { burnTxHash, mintTxHash } = await bridgeAndDeliver(embeddedProvider, {
           sourceChain: info.sourceChain,
           destChain: info.destChain as SupportedChain,

@@ -2,9 +2,30 @@ import { NextRequest, NextResponse } from 'next/server';
 import { initiateDeveloperControlledWalletsClient } from '@circle-fin/developer-controlled-wallets';
 import { Transaction, PublicKey } from '@solana/web3.js';
 import { Buffer } from 'buffer';
+import { requireUser } from '@/lib/auth/session';
+import {
+  RATE_LIMITS,
+  checkRateLimit,
+  rateLimitResponse,
+} from '@/lib/security/rate-limit';
 
 export async function POST(req: NextRequest) {
   try {
+
+    // Signed-in callers only.
+    //
+    // Signs with our Solana fee payer, so every call spends our SOL.
+    try {
+      await requireUser();
+    } catch {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Every call spends our SOL.
+    {
+      const limit = await checkRateLimit(RATE_LIMITS.sponsor, null);
+      if (!limit.allowed) return rateLimitResponse(limit);
+    }
     const CIRCLE_API_KEY = process.env.CIRCLE_API_KEY;
     const CIRCLE_ENTITY_SECRET = process.env.CIRCLE_ENTITY_SECRET;
     const FEEPAYER_WALLET_ID = process.env.CIRCLE_SOLANA_FEEPAYER_WALLET_ID;

@@ -3,7 +3,7 @@ import { resolvePlatformFee } from './platform-fees';
 
 /**
  * The rule that keeps one withdrawal from being priced differently on different chains.
- * Stellar used to derive its own fee here, so a withdrawal quoted at BITNOB_FEE_PERCENT was
+ * Stellar used to derive its own fee here, so a withdrawal quoted at the withdrawal rate was
  * billed at TRANSFER_FEE_PERCENT — a smaller number, against a larger base.
  */
 describe('resolvePlatformFee', () => {

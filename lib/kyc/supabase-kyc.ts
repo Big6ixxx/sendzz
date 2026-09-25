@@ -1,10 +1,22 @@
-"use server";
-
 /**
- * KYC Supabase Data Access Layer
+ * KYC Supabase Data Access Layer. SERVER ONLY, and deliberately NOT a server action.
  *
- * All database operations for KYC verification records.
  * Uses the admin (service-role) client so RLS does not block server mutations.
+ *
+ * --- Why the `'use server'` came off ------------------------------------------
+ *
+ * With it, all five exports were POST endpoints anyone could invoke once they knew an action
+ * id — including `upsertKycVerification({ userId, status })`, which sets the verification
+ * state that governs how much a user may withdraw before verifying. Setting somebody to
+ * `approved` from outside is not an information leak, it is lifting a compliance control.
+ *
+ * Nothing needed it to be an action. Every caller is server-side already: the Didit webhook
+ * (signature-verified), the KYC API routes, and the withdrawal guard in lib/kyc/guard.ts.
+ * Removing the directive makes the whole module unreachable from a browser, which is the
+ * strongest form of the fix — there is no endpoint left to authenticate.
+ *
+ * The `userId` arguments below are therefore internal plumbing, not caller-supplied identity.
+ * The routes that reach them still have to resolve identity themselves.
  */
 
 import { supabaseAdmin } from "@/lib/supabase/adminClient";

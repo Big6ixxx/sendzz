@@ -62,6 +62,10 @@ export interface Database {
           stellar_wallet_id: string | null;
           stellar_signer_granted: boolean;
           last_deposit_scan_at: string | null;
+          referral_code: string | null;
+          referral_program: "retail" | "merchant";
+          referred_by: string | null;
+          referred_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -74,6 +78,10 @@ export interface Database {
           stellar_wallet_id?: string | null;
           stellar_signer_granted?: boolean;
           last_deposit_scan_at?: string | null;
+          referral_code?: string | null;
+          referral_program?: "retail" | "merchant";
+          referred_by?: string | null;
+          referred_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -86,6 +94,217 @@ export interface Database {
           stellar_wallet_id?: string | null;
           stellar_signer_granted?: boolean;
           last_deposit_scan_at?: string | null;
+          referral_code?: string | null;
+          referral_program?: "retail" | "merchant";
+          referred_by?: string | null;
+          referred_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      rate_limits: {
+        Row: { key: string; window_start: string; count: number };
+        Insert: { key: string; window_start?: string; count?: number };
+        Update: { key?: string; window_start?: string; count?: number };
+        Relationships: [];
+      };
+      ops_alert_log: {
+        Row: {
+          key: string;
+          last_sent_at: string;
+        };
+        Insert: {
+          key: string;
+          last_sent_at?: string;
+        };
+        Update: {
+          key?: string;
+          last_sent_at?: string;
+        };
+        Relationships: [];
+      };
+      merchant_applications: {
+        Row: {
+          id: string;
+          user_id: string;
+          organisation: string | null;
+          audience: string | null;
+          expected_monthly_volume_usdc: number | null;
+          notes: string | null;
+          status: "pending" | "approved" | "rejected";
+          decision_note: string | null;
+          decided_by: string | null;
+          decided_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          organisation?: string | null;
+          audience?: string | null;
+          expected_monthly_volume_usdc?: number | null;
+          notes?: string | null;
+          status?: "pending" | "approved" | "rejected";
+          decision_note?: string | null;
+          decided_by?: string | null;
+          decided_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          organisation?: string | null;
+          audience?: string | null;
+          expected_monthly_volume_usdc?: number | null;
+          notes?: string | null;
+          status?: "pending" | "approved" | "rejected";
+          decision_note?: string | null;
+          decided_by?: string | null;
+          decided_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      referral_benefits: {
+        Row: {
+          id: string;
+          user_id: string;
+          kind: "waiver_volume" | "fee_credit";
+          delta_usdc: number;
+          withdrawal_id: string | null;
+          referee_id: string | null;
+          source: string;
+          dedupe_key: string | null;
+          status: "active" | "void";
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          kind: "waiver_volume" | "fee_credit";
+          delta_usdc: number;
+          withdrawal_id?: string | null;
+          referee_id?: string | null;
+          source: string;
+          dedupe_key?: string | null;
+          status?: "active" | "void";
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          kind?: "waiver_volume" | "fee_credit";
+          delta_usdc?: number;
+          withdrawal_id?: string | null;
+          referee_id?: string | null;
+          source?: string;
+          dedupe_key?: string | null;
+          status?: "active" | "void";
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      referral_earnings: {
+        Row: {
+          id: string;
+          referrer_id: string;
+          referee_id: string;
+          withdrawal_id: string;
+          volume_usdc: number;
+          tier: "bronze" | "silver" | "gold";
+          tier_rate_percent: number;
+          gross_fee_usdc: number;
+          corridor_cost_usdc: number;
+          net_fee_usdc: number;
+          uncapped_usdc: number;
+          capped: boolean;
+          amount_usdc: number;
+          status: "accrued" | "paid" | "void";
+          payout_id: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          referrer_id: string;
+          referee_id: string;
+          withdrawal_id: string;
+          volume_usdc: number;
+          tier: "bronze" | "silver" | "gold";
+          tier_rate_percent: number;
+          gross_fee_usdc: number;
+          corridor_cost_usdc?: number;
+          net_fee_usdc: number;
+          uncapped_usdc: number;
+          capped?: boolean;
+          amount_usdc: number;
+          status?: "accrued" | "paid" | "void";
+          payout_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          referrer_id?: string;
+          referee_id?: string;
+          withdrawal_id?: string;
+          volume_usdc?: number;
+          tier?: "bronze" | "silver" | "gold";
+          tier_rate_percent?: number;
+          gross_fee_usdc?: number;
+          corridor_cost_usdc?: number;
+          net_fee_usdc?: number;
+          uncapped_usdc?: number;
+          capped?: boolean;
+          amount_usdc?: number;
+          status?: "accrued" | "paid" | "void";
+          payout_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      referral_payouts: {
+        Row: {
+          id: string;
+          referrer_id: string;
+          amount_usdc: number;
+          destination: string;
+          chain: string;
+          status: "pending" | "paid" | "failed";
+          provider_tx_id: string | null;
+          tx_hash: string | null;
+          error: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          referrer_id: string;
+          amount_usdc: number;
+          destination: string;
+          chain: string;
+          status?: "pending" | "paid" | "failed";
+          provider_tx_id?: string | null;
+          tx_hash?: string | null;
+          error?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          referrer_id?: string;
+          amount_usdc?: number;
+          destination?: string;
+          chain?: string;
+          status?: "pending" | "paid" | "failed";
+          provider_tx_id?: string | null;
+          tx_hash?: string | null;
+          error?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -181,6 +400,42 @@ export interface Database {
           note?: string | null;
           created_at?: string;
           expires_at?: string;
+        };
+        Relationships: [];
+      };
+      transaction_authorizations: {
+        Row: {
+          id: string;
+          user_id: string;
+          session_id: string;
+          purpose: string;
+          payload_hash: string;
+          token_hash: string;
+          created_at: string;
+          expires_at: string;
+          consumed_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          session_id: string;
+          purpose: string;
+          payload_hash: string;
+          token_hash: string;
+          created_at?: string;
+          expires_at: string;
+          consumed_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          session_id?: string;
+          purpose?: string;
+          payload_hash?: string;
+          token_hash?: string;
+          created_at?: string;
+          expires_at?: string;
+          consumed_at?: string | null;
         };
         Relationships: [];
       };
@@ -458,6 +713,8 @@ export interface Database {
           provider: string | null;
           provider_order_id: string | null;
           provider_metadata: Json;
+          platform_fee_usdc: number | null;
+          corridor_fee_usdc: number | null;
           refund_owed_usdc: number | null;
           refund_tx_hash: string | null;
           refunded_at: string | null;
@@ -485,6 +742,8 @@ export interface Database {
           provider?: string | null;
           provider_order_id?: string | null;
           provider_metadata?: Json;
+          platform_fee_usdc?: number | null;
+          corridor_fee_usdc?: number | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -509,6 +768,8 @@ export interface Database {
           provider?: string | null;
           provider_order_id?: string | null;
           provider_metadata?: Json;
+          platform_fee_usdc?: number | null;
+          corridor_fee_usdc?: number | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -955,6 +1216,18 @@ export interface Database {
     };
     Functions: {
       // Extends a device session using Postgres `now()` (migration 048).
+      consume_rate_limit: {
+        Args: {
+          p_key: string;
+          p_limit: number;
+          p_window_ms: number;
+        };
+        Returns: {
+          allowed: boolean;
+          used: number;
+          reset_at: string;
+        }[];
+      };
       touch_user_session: {
         Args: { p_session_id: string };
         Returns: undefined;
@@ -1053,7 +1326,11 @@ export interface Database {
       withdrawal_verification_status: WithdrawalVerificationStatus;
       otp_purpose: OtpPurpose;
       webhook_provider: WebhookProvider;
-      transaction_otp_action: "transfer" | "withdrawal";
+      transaction_otp_action:
+        | "transfer"
+        | "withdrawal"
+        | "pin_reset"
+        | "security_change";
     };
     CompositeTypes: {
       [_ in never]: never;

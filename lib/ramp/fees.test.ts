@@ -5,14 +5,18 @@ import {
   feeFromBase,
   getCorridorFee,
   getProviderFee,
+  getWithdrawalFeePercent,
   totalFromBase,
+  treasuryFor,
 } from './fees';
 
 /**
- * The fee percentage is a pricing decision that has to land identically on every path —
- * deposits, withdrawals, both providers, the UI and the money math. These tests pin the two
- * properties that keep that true, so a future rate change can't half-apply the way `1.003`
- * once did: the conversions are exact inverses, and nothing carries its own copy of the rate.
+ * The fee percentage is a pricing decision that has to land identically on every path — both
+ * providers, every corridor, the UI and the money math. These tests pin the properties that
+ * keep that true, so a future rate change can't half-apply the way `1.003` once did: the
+ * conversions are exact inverses, and nothing carries its own copy of the rate.
+ *
+ * Deposits are absent on purpose. They no longer carry a fee at all.
  */
 describe('fee arithmetic', () => {
   const rates = [0, 0.3, 0.5, 1, 2.75];
@@ -32,7 +36,7 @@ describe('fee arithmetic', () => {
     expect(feeFromBase(100, 0.5)).toBeCloseTo(0.5, 9);
   });
 
-  it('backs the fee OUT of a fixed spend (Max button, Paycrest on-ramp)', () => {
+  it('backs the fee OUT of a fixed spend (the Max button)', () => {
     // Given a 100 USDC balance, the largest base whose base + fee still fits inside it.
     const base = baseFromTotal(100, 0.5);
     expect(base).toBeCloseTo(99.502488, 6);
@@ -47,9 +51,8 @@ describe('fee arithmetic', () => {
 
   it('applyFee agrees with the standalone helpers', () => {
     // Set explicitly: the suite doesn't load .env, and there is no compiled-in rate to fall
-    // back on — getProviderFee throws when unconfigured, which is the point.
-    process.env.PAYCREST_FEE_PERCENT = '0.5';
-    process.env.BITNOB_FEE_PERCENT = '0.5';
+    // back on — the resolver throws when unconfigured, which is the point.
+    process.env.WITHDRAWAL_FEE_PERCENT = '0.5';
     for (const provider of ['paycrest', 'bitnob'] as const) {
       const { percent } = getProviderFee(provider);
       const { base, fee, total } = applyFee(250, provider);
@@ -59,46 +62,85 @@ describe('fee arithmetic', () => {
     }
   });
 
-  /**
-   * The rate must come from env and nowhere else. A compiled-in fallback is what previously
-   * let the server charge one number while the UI displayed another.
-   */
-  it('reads each provider rate from its environment variable', () => {
-    const prev = { p: process.env.PAYCREST_FEE_PERCENT, b: process.env.BITNOB_FEE_PERCENT };
-    try {
-      process.env.PAYCREST_FEE_PERCENT = '1.25';
-      process.env.BITNOB_FEE_PERCENT = '0.75';
-      expect(getProviderFee('paycrest').percent).toBe(1.25);
-      expect(getProviderFee('bitnob').percent).toBe(0.75);
-    } finally {
-      process.env.PAYCREST_FEE_PERCENT = prev.p;
-      process.env.BITNOB_FEE_PERCENT = prev.b;
-    }
+  it('charges both providers the same rate', () => {
+    // They used to have separate variables, from when Paycrest skimmed its own partner fee.
+    // It no longer does, so a provider-specific rate would only be a way to drift apart.
+    process.env.WITHDRAWAL_FEE_PERCENT = '0.5';
+    expect(getProviderFee('paycrest').percent).toBe(getProviderFee('bitnob').percent);
+  });
+});
+
+/**
+ * Per-corridor pricing. Some corridors cost more to serve, and charging them all the cheapest
+ * rate means subsidising the expensive ones out of margin.
+ */
+describe('getWithdrawalFeePercent', () => {
+  const set = (k: string, v: string | undefined) => {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  };
+
+  afterEach(() => {
+    set('WITHDRAWAL_FEE_PERCENT_KES', undefined);
+    set('WITHDRAWAL_FEE_PERCENT', '0.5');
   });
 
-  it('throws rather than assuming a rate when the variable is missing or invalid', () => {
-    const prev = process.env.PAYCREST_FEE_PERCENT;
-    try {
-      for (const bad of [undefined, '', 'abc', '-1', '101']) {
-        if (bad === undefined) delete process.env.PAYCREST_FEE_PERCENT;
-        else process.env.PAYCREST_FEE_PERCENT = bad;
-        expect(() => getProviderFee('paycrest')).toThrow(/PAYCREST_FEE_PERCENT/);
-      }
-    } finally {
-      process.env.PAYCREST_FEE_PERCENT = prev;
+  it('uses the standard rate when a corridor has no override', () => {
+    set('WITHDRAWAL_FEE_PERCENT', '0.5');
+    expect(getWithdrawalFeePercent('NGN')).toBe(0.5);
+    expect(getWithdrawalFeePercent()).toBe(0.5);
+  });
+
+  it('prefers a corridor override where one is set', () => {
+    set('WITHDRAWAL_FEE_PERCENT', '0.5');
+    set('WITHDRAWAL_FEE_PERCENT_KES', '1');
+    expect(getWithdrawalFeePercent('KES')).toBe(1);
+    // And leaves every other corridor alone.
+    expect(getWithdrawalFeePercent('NGN')).toBe(0.5);
+  });
+
+  it('is case-insensitive on the currency', () => {
+    set('WITHDRAWAL_FEE_PERCENT_KES', '1');
+    expect(getWithdrawalFeePercent('kes')).toBe(1);
+  });
+
+  it('throws rather than assuming a rate when nothing is configured', () => {
+    for (const bad of [undefined, '', 'abc', '-1', '101']) {
+      set('WITHDRAWAL_FEE_PERCENT', bad);
+      expect(() => getWithdrawalFeePercent()).toThrow(/WITHDRAWAL_FEE_PERCENT/);
     }
   });
 
   it('picks up a change without a reload — the value is read per call', () => {
-    const prev = process.env.BITNOB_FEE_PERCENT;
-    try {
-      process.env.BITNOB_FEE_PERCENT = '0.5';
-      expect(getProviderFee('bitnob').percent).toBe(0.5);
-      process.env.BITNOB_FEE_PERCENT = '0.9';
-      expect(getProviderFee('bitnob').percent).toBe(0.9);
-    } finally {
-      process.env.BITNOB_FEE_PERCENT = prev;
-    }
+    set('WITHDRAWAL_FEE_PERCENT', '0.5');
+    expect(getWithdrawalFeePercent()).toBe(0.5);
+    set('WITHDRAWAL_FEE_PERCENT', '0.9');
+    expect(getWithdrawalFeePercent()).toBe(0.9);
+  });
+});
+
+/**
+ * One address map, shared by withdrawals, bridges and external sends. It used to be two
+ * hardcoded copies, so a chain added to one and not the other collected some fees and
+ * silently skipped others.
+ */
+describe('treasuryFor', () => {
+  const set = (k: string, v: string | undefined) => {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  };
+
+  afterEach(() => {
+    set('FEE_TREASURY_BASE', undefined);
+  });
+
+  it('reads the current name', () => {
+    set('FEE_TREASURY_BASE', '0xabc');
+    expect(treasuryFor('base')).toBe('0xabc');
+  });
+
+  it('is undefined for an unconfigured chain, so the caller can fail closed', () => {
+    expect(treasuryFor('base')).toBeUndefined();
   });
 });
 
@@ -113,18 +155,30 @@ describe('getCorridorFee', () => {
     else process.env[k] = v;
   };
 
-  afterEach(() => {
-    set('BITNOB_CORRIDOR_FEE_RWF', undefined);
-    set('BITNOB_CORRIDOR_FEE_NGN', undefined);
+  const KEYS = [
+    'CORRIDOR_FEE_RWF', 'CORRIDOR_FEE_NGN', 'CORRIDOR_FEE_UGX',
+    'CORRIDOR_FEE_BITNOB_RWF', 'CORRIDOR_FEE_PAYCREST_RWF',
+  ];
+  afterEach(() => KEYS.forEach((k) => set(k, undefined)));
+
+  it('reads the per-currency amount for any provider', () => {
+    set('CORRIDOR_FEE_RWF', '0.3');
+    expect(getCorridorFee('bitnob', 'RWF')).toBe(0.3);
+    // The point of the rename: a corridor that costs something costs it whoever serves it,
+    // unless that provider is given its own rate.
+    expect(getCorridorFee('paycrest', 'RWF')).toBe(0.3);
   });
 
-  it('reads the configured amount for the currency', () => {
-    set('BITNOB_CORRIDOR_FEE_RWF', '0.3');
+  it('lets a provider-specific rate win over the per-currency one', () => {
+    set('CORRIDOR_FEE_RWF', '0.3');
+    set('CORRIDOR_FEE_PAYCREST_RWF', '0');
     expect(getCorridorFee('bitnob', 'RWF')).toBe(0.3);
+    // Settles the quoted amount in full, so it must not inherit the other provider's skim.
+    expect(getCorridorFee('paycrest', 'RWF')).toBe(0);
   });
 
   it('is case-insensitive on the currency', () => {
-    set('BITNOB_CORRIDOR_FEE_RWF', '0.3');
+    set('CORRIDOR_FEE_RWF', '0.3');
     expect(getCorridorFee('bitnob', 'rwf')).toBe(0.3);
   });
 
@@ -133,19 +187,14 @@ describe('getCorridorFee', () => {
   });
 
   it('is 0 for an explicitly free corridor', () => {
-    set('BITNOB_CORRIDOR_FEE_NGN', '0');
+    set('CORRIDOR_FEE_NGN', '0');
     expect(getCorridorFee('bitnob', 'NGN')).toBe(0);
   });
 
-  it('is always 0 for paycrest, which has no corridor fee', () => {
-    set('BITNOB_CORRIDOR_FEE_RWF', '0.3');
-    expect(getCorridorFee('paycrest', 'RWF')).toBe(0);
-  });
-
   it('falls back to 0 rather than throwing on a malformed value', () => {
-    set('BITNOB_CORRIDOR_FEE_RWF', 'abc');
+    set('CORRIDOR_FEE_RWF', 'abc');
     expect(getCorridorFee('bitnob', 'RWF')).toBe(0);
-    set('BITNOB_CORRIDOR_FEE_RWF', '-1');
+    set('CORRIDOR_FEE_RWF', '-1');
     expect(getCorridorFee('bitnob', 'RWF')).toBe(0);
   });
 });

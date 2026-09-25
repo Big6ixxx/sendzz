@@ -6,10 +6,14 @@
  * audience, and wiring it into that base would put every customer email one edit away from an
  * internal message.
  *
- * The only alert here is the one that costs a user money: a withdrawal that failed AFTER their
- * deposit landed. Their USDC is gone from their wallet and no payout was made, so somebody has
- * to send it back by hand. Nothing surfaced these before — the first was found because the
- * user complained, hours later.
+ * Two alerts live here, and they are different shapes:
+ *
+ *   * A refund owed — an EVENT. It happens once, costs a user money, and needs somebody to
+ *     send USDC back by hand. Nothing surfaced these before; the first was found because the
+ *     user complained, hours later.
+ *   * A referral treasury running low — a CONDITION. It stays true until the wallet is topped
+ *     up, and the job that notices it runs hourly, so it goes through the cooldown in
+ *     lib/ops/alert-cooldown.ts rather than being sent on every run.
  */
 import { explorerTxUrl } from "@/lib/explorers";
 import { baseTemplate } from "./templates";
@@ -216,5 +220,155 @@ export async function sendRefundOwedAlert(alert: RefundOwedAlert): Promise<void>
     );
   } catch (err) {
     console.error("[AdminAlert] refund-owed alert threw:", err);
+  }
+}
+
+export interface ReferralTreasuryAlert {
+  /** USDC currently in the payout wallet. */
+  balanceUsdc: number;
+  /** Total owed to referrers right now, paid or not. */
+  pendingUsdc: number;
+  /** How many referrers are waiting on it. */
+  referrerCount: number;
+  /** The wallet the sweep spends from. */
+  walletId: string;
+  chain: string;
+  /** True when the balance cannot even cover what is owed today. */
+  blocking: boolean;
+}
+
+/**
+ * Tell the admins the referral payout wallet needs topping up.
+ *
+ * Sent BEFORE payouts start failing where possible, because the failure mode is otherwise
+ * invisible: a sweep that cannot pay releases its earnings and retries next run, so nothing
+ * breaks and nothing is lost — referral payments simply stop arriving, quietly, until somebody
+ * happens to look.
+ *
+ * Rate-limited by the caller, not here. This function sends what it is asked to send; deciding
+ * how often a standing condition is worth an email is a separate concern and lives in
+ * lib/ops/alert-cooldown.ts.
+ *
+ * Never throws, for the same reason the refund alert does not: an alert that failed to send
+ * must not take down the job that noticed the problem.
+ */
+export async function sendReferralTreasuryAlert(
+  alert: ReferralTreasuryAlert,
+): Promise<void> {
+  try {
+    const to = parseAdminRecipients(process.env.ADMIN_EMAILS);
+    if (to.length === 0) {
+      console.error(
+        "[AdminAlert] referral treasury low but NO admin recipients configured — set ADMIN_EMAILS. " +
+          `Balance ${alert.balanceUsdc.toFixed(2)} USDC against ${alert.pendingUsdc.toFixed(2)} owed.`,
+      );
+      return;
+    }
+
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://sendzz.io";
+    const shortfall = Math.max(0, alert.pendingUsdc - alert.balanceUsdc);
+
+    const rows: Array<[string, string]> = [
+      ["Balance", `${esc(alert.balanceUsdc.toFixed(2))} USDC`],
+      ["Owed to referrers", `${esc(alert.pendingUsdc.toFixed(2))} USDC`],
+      ["Referrers waiting", esc(String(alert.referrerCount))],
+      ["Shortfall", shortfall > 0 ? `${esc(shortfall.toFixed(2))} USDC` : "none yet"],
+      ["Wallet", esc(alert.walletId)],
+      ["Network", esc(alert.chain)],
+    ];
+
+    const MONO = new Set(["Wallet"]);
+    const tableRows = rows
+      .map(
+        ([label, value]) => `
+      <tr>
+        <td style="padding: 14px 0; font-size: 11px; font-weight: 700; color: #707070; text-transform: uppercase; border-bottom: 1px dashed #E2E8E0;">${label}</td>
+        <td style="padding: 14px 0; text-align: right; font-size: 13px; font-weight: 700; color: #111111; border-bottom: 1px dashed #E2E8E0; word-break: break-all;${MONO.has(label) ? " font-family: 'Courier New', Courier, monospace;" : ""}">${value}</td>
+      </tr>`,
+      )
+      .join("");
+
+    // Amber rather than red when it is only a warning. A heads-up that looks identical to an
+    // emergency teaches people that emergencies can wait.
+    const accent = alert.blocking ? "#B42318" : "#B54708";
+    const badge = alert.blocking ? "Payouts blocked" : "Top up soon";
+
+    const html = baseTemplate(`
+    <div>
+      <table width="100%" border="0" cellpadding="0" cellspacing="0" style="margin-bottom: 24px;">
+        <tr>
+          <td align="left" valign="middle">
+            <img src="${appUrl}/logo-black.svg" alt="Sendzz" width="90" style="display: block;">
+          </td>
+          <td align="right" valign="middle">
+            <span style="background-color: ${accent}; color: #ffffff !important; padding: 6px 14px; border-radius: 20px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; display: inline-block;">${badge}</span>
+          </td>
+        </tr>
+      </table>
+
+      <div style="text-align: center; margin: 32px 0;">
+        <h1 style="font-size: 38px; font-weight: 950; color: ${accent}; margin: 0; letter-spacing: -1.5px;">${esc(alert.balanceUsdc.toFixed(2))} USDC</h1>
+        <p style="font-size: 13px; color: #707070; margin: 6px 0 0 0;">left in the referral payout wallet</p>
+      </div>
+
+      <p style="font-size: 14px; line-height: 1.7; color: #3f3f3f; margin: 0 0 8px 0;">
+        ${
+          alert.blocking
+            ? "Referral payouts <strong>cannot be paid</strong> from this balance. Earnings are being held and retried each run, so nothing is lost — but referrers are not being paid until this wallet is topped up."
+            : "Referral payouts are still going through, but the balance is getting close to what is owed. Topping it up now avoids payouts stalling."
+        }
+      </p>
+
+      <p style="font-size: 14px; line-height: 1.7; color: #3f3f3f; margin: 0 0 8px 0;">
+        This wallet does not fill itself. Deposit revenue sits with Paycrest, and bridge and
+        withdrawal fees go to Bitnob-hosted addresses — none of it lands here. Topping up means
+        withdrawing from those and sending USDC to this wallet on ${esc(alert.chain)}.
+      </p>
+
+      <table width="100%" border="0" cellpadding="0" cellspacing="0" style="margin-top: 16px; margin-bottom: 8px;">
+        ${tableRows}
+      </table>
+
+      <p style="font-size: 12px; line-height: 1.7; color: #909090; margin: 20px 0 0 0; text-align: center;">
+        Nothing is lost while this is unfunded. Earnings keep accruing and the first run after a
+        top-up pays them.
+      </p>
+    </div>
+  `);
+
+    const text = [
+      `${alert.blocking ? "PAYOUTS BLOCKED" : "TOP UP SOON"} — referral payout wallet`,
+      ``,
+      `Balance:           ${alert.balanceUsdc.toFixed(2)} USDC`,
+      `Owed to referrers: ${alert.pendingUsdc.toFixed(2)} USDC`,
+      `Referrers waiting: ${alert.referrerCount}`,
+      `Shortfall:         ${shortfall > 0 ? `${shortfall.toFixed(2)} USDC` : "none yet"}`,
+      `Wallet:            ${alert.walletId}`,
+      `Network:           ${alert.chain}`,
+      ``,
+      `This wallet does not fill itself. Deposit revenue sits with Paycrest, and bridge and`,
+      `withdrawal fees go to Bitnob-hosted addresses — none of it lands here. Top up by`,
+      `withdrawing from those and sending USDC to this wallet on ${alert.chain}.`,
+      ``,
+      `Nothing is lost while it is unfunded: earnings keep accruing and the first run after`,
+      `a top-up pays them.`,
+    ].join("\n");
+
+    const res = await sendEmail({
+      to,
+      subject: alert.blocking
+        ? `[Action required] Referral payouts blocked — ${alert.balanceUsdc.toFixed(2)} USDC left`
+        : `[Heads up] Referral payout wallet low — ${alert.balanceUsdc.toFixed(2)} USDC left`,
+      html,
+      text,
+    });
+
+    if (!res.success) {
+      console.error(`[AdminAlert] referral-treasury email failed: ${res.error}`);
+      return;
+    }
+    console.log(`[AdminAlert] referral-treasury alert sent to ${to.length} admin(s)`);
+  } catch (err) {
+    console.error("[AdminAlert] referral-treasury alert threw:", err);
   }
 }

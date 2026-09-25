@@ -3,6 +3,11 @@ import { NextResponse, type NextRequest } from 'next/server';
 /**
  * Outer gate for /admin.
  *
+ * Named `proxy` because that is what Next 16 calls this file convention — it was `middleware`
+ * until the rename, and `next dev` now warns on the old name. Nothing about the behaviour
+ * changed: this still runs before the request reaches a route, and the export name has to
+ * match the filename for Next to find it. Do not read "proxy" as meaning it forwards anything.
+ *
  * This is a cheap, network-free first filter, NOT the security boundary — it only checks that
  * a Privy session cookie is present, which a determined caller could fake. The real check is
  * `requireAdmin()` in lib/admin/auth.ts, which every admin server action runs and which
@@ -14,7 +19,7 @@ import { NextResponse, type NextRequest } from 'next/server';
  * request, and would duplicate a rule that has to exist in the actions regardless — an action
  * is reachable directly, whether or not a page ever rendered.
  */
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const hasSession = Boolean(request.cookies.get('privy-token')?.value);
 
   if (!hasSession) {

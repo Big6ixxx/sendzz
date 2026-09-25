@@ -4,9 +4,13 @@ import { markSessionTransacted, requireUserId } from "@/lib/auth/session";
 import { toUserSafeMessage } from "@/lib/errors/sanitize";
 import { Ramp } from "@/lib/ramp";
 import { isBridgeable } from "@/lib/circle/gateway";
-import { applyFee, getCorridorFee, getProviderFee, resolveFeeTreasury } from "@/lib/ramp/fees";
+import { getCorridorFee, getProviderFee, resolveFeeTreasury } from "@/lib/ramp/fees";
 import { resolvePayoutFiat } from "@/lib/ramp/payout-figure";
 import { kycGuard } from "@/lib/kyc/guard";
+import { consumeAuthorization } from "@/lib/security/transaction-auth";
+import { benefitBalances, resolveWithdrawalFee, spendBenefits } from "@/lib/referrals/benefits";
+import type { BenefitBalances } from "@/lib/referrals/benefit-math";
+import { supabaseAdmin } from "@/lib/supabase/adminClient";
 import type {
   RampCurrency,
   RampNetwork,
@@ -15,13 +19,38 @@ import type {
 } from "@/lib/ramp";
 
 /**
- * Platform fee percentage for a provider — for UI (fee line, balance math). The actual fee
+ * Withdrawal fee percentage for a corridor — for UI (fee line, balance math). The actual fee
  * amount + treasury address are resolved server-side and embedded in the order (see below).
+ *
+ * `currency` matters: a corridor with a `WITHDRAWAL_FEE_PERCENT_<CURRENCY>` override is
+ * charged at that rate, and a UI that asked without it would quote the standard one and then
+ * deduct something else.
  */
 export async function getProviderFeePercent(
   provider: RampProviderName,
+  currency?: string,
 ): Promise<number> {
-  return getProviderFee(provider).percent;
+  return getProviderFee(provider, currency).percent;
+}
+
+/**
+ * This user's referral benefit balances, for pricing a withdrawal in the browser.
+ *
+ * Balances rather than a priced quote, so the screen can recompute instantly as the amount
+ * changes without a round trip per keystroke. The arithmetic is shared — see
+ * lib/referrals/benefit-math.ts — so the figure shown is the figure charged.
+ *
+ * Identity from the session. An endpoint that took a user id would report anyone's balances.
+ */
+export async function getReferralBenefitBalances(): Promise<BenefitBalances> {
+  try {
+    const { userId } = await requireUserId();
+    return await benefitBalances(userId);
+  } catch {
+    // Not signed in, or no account row yet. No benefits is the safe answer: the user is
+    // quoted the full fee and charged less, never the reverse.
+    return { waiverVolumeUsdc: 0, feeCreditUsdc: 0 };
+  }
 }
 
 /**
@@ -411,6 +440,11 @@ export async function executeOffRamp(params: {
    * or could not serve the corridor — its price does not apply and must not be recorded.
    */
   quotedBy?: RampProviderName;
+  /**
+   * Single-use proof that the transaction PIN was entered for THIS withdrawal, minted by
+   * /api/2fa/pin. Required — see the consumption below.
+   */
+  authorization?: string;
 }): Promise<{ order: RampOrderResponse; provider: RampProviderName }> {
   // ── Identity ────────────────────────────────────────────────────────────
   // Taken from the session, never from `params`. This action moves money and records it
@@ -420,6 +454,28 @@ export async function executeOffRamp(params: {
   const session = await requireUserId(params.accessToken);
   const userId = session.userId;
   const userEmail = session.email;
+
+  // ── PIN authorisation ───────────────────────────────────────────────────
+  //
+  // Before the KYC guard and before any provider is contacted, because this is the cheapest
+  // check and the one whose failure should cost nothing. A withdrawal is the single most
+  // valuable thing an open session can do — it turns a balance into money in somebody's bank
+  // account — so it is enforced here rather than merely noted.
+  //
+  // The payload is rebuilt from the arguments this action is about to act on. A token minted
+  // for a different account number or a different amount hashes differently and is refused,
+  // which is what stops an authorisation for a small withdrawal to the user's own bank being
+  // reused for a large one to somebody else's.
+  await consumeAuthorization({
+    token: params.authorization,
+    purpose: 'withdrawal',
+    payload: {
+      destination: params.bank.accountNumber,
+      amount: params.amountUsdc,
+      chain: params.network,
+    },
+    accessToken: params.accessToken,
+  });
 
   // ── KYC & Limit Guard ───────────────────────────────────────────────────
   const guard = await kycGuard(userId, params.amountUsdc);
@@ -451,7 +507,7 @@ export async function executeOffRamp(params: {
       // provider is skipped before an order exists, so nothing appears in the ledger and the
       // only trace is this log line. Name it explicitly — an unconfigured treasury looks
       // exactly like "the provider doesn't support this corridor" from the outside.
-      const feeCfg = getProviderFee(provider);
+      const feeCfg = getProviderFee(provider, params.fiatCurrency);
       let feeAddress: string | undefined;
       if (feeCfg.collection === "onchain" && feeCfg.percent > 0) {
         try {
@@ -537,14 +593,35 @@ export async function executeOffRamp(params: {
 
       // Platform fee on the base amount (resolved server-side so the client can execute it
       // without reading secret env). Embedded in the order for the transfer step.
-      const { fee } = applyFee(finalAmountUsdc, provider);
-      if (feeCfg.percent > 0) {
+      //
+      // Referral benefits are applied HERE, against the corridor's own rate, because this is
+      // the figure the order carries and the user is charged. A referee inside their fee-free
+      // allowance pays nothing; a referrer holding credits pays the remainder less those
+      // credits. See lib/referrals/benefits.ts for why the waiver is spent before the credit.
+      const benefit = await resolveWithdrawalFee({
+        userId,
+        volumeUsdc: finalAmountUsdc,
+        feePercent: feeCfg.percent,
+      });
+      const fee = benefit.feeUsdc;
+
+      // A fully waived fee means no fee leg at all, not a zero-value transfer to the
+      // treasury — which would burn gas to move nothing and show up as a transaction the
+      // user cannot explain.
+      if (fee > 0) {
         created.fee = {
           percent: feeCfg.percent,
           usdc: fee.toFixed(6),
           collection: feeCfg.collection,
           address: feeAddress,
         };
+      }
+
+      if (benefit.waivedVolumeUsdc > 0 || benefit.creditAppliedUsdc > 0) {
+        console.log(
+          `[Referrals] withdrawal ${created.id}: waived ${benefit.waivedVolumeUsdc} volume, ` +
+            `${benefit.creditAppliedUsdc} credit — fee ${benefit.standardFeeUsdc} -> ${fee}`,
+        );
       }
 
       // Seal where this money is going, for EVERY withdrawal.
@@ -592,8 +669,34 @@ export async function executeOffRamp(params: {
           created.provider === "bitnob" ? created.providerAccount?.receiveAddress : undefined,
         feeUsdc: feeCfg.percent > 0 ? fee : undefined,
         feePercent: feeCfg.percent > 0 ? feeCfg.percent : undefined,
+        // What the provider itself deducts on this corridor. Subtracted from our fee before a
+        // referral commission is worked out, so a corridor that costs more to serve cannot
+        // fund a commission out of margin that is not there.
+        corridorFeeUsdc: getCorridorFee(provider, params.fiatCurrency),
         memo: params.bank.memo || undefined,
       });
+
+      // Spend the benefits against the order that now exists. Done here rather than on
+      // settlement because the discounted fee is already baked into that order — leaving the
+      // balance intact until then would let a second withdrawal, started before this one
+      // finished, be quoted against the same allowance. A failed withdrawal gets it back;
+      // see releaseBenefits, wired into the payout webhooks.
+      if (benefit.waivedVolumeUsdc > 0 || benefit.creditAppliedUsdc > 0) {
+        const { data: row } = await supabaseAdmin
+          .from('withdrawals')
+          .select('id')
+          .eq('provider_order_id', created.id)
+          .maybeSingle();
+
+        if (row?.id) {
+          await spendBenefits({
+            userId,
+            withdrawalId: row.id,
+            waivedVolumeUsdc: benefit.waivedVolumeUsdc,
+            creditAppliedUsdc: benefit.creditAppliedUsdc,
+          });
+        }
+      }
 
       // A withdrawal is the clearest possible "the owner is here", so it extends THIS device's
       // session — and only this one. Money arriving never does.
@@ -898,7 +1001,13 @@ export async function settleDeferredBitnobPayoutAction(params: {
     .eq("provider_order_id", params.orderId)
     .maybeSingle();
 
-  if (!row || (userId && row.user_id !== userId)) {
+  // `!userId` is part of the condition, not a reason to skip it.
+  //
+  // This read `(userId && row.user_id !== userId)`, so a signed-in caller whose Supabase row
+  // could not be resolved short-circuited the comparison to false and settled whatever order
+  // id they passed — authenticated, but against somebody else's withdrawal. An identity we
+  // cannot resolve is a refusal, never a pass.
+  if (!row || !userId || row.user_id !== userId) {
     console.error(
       `[Action] settleDeferredBitnobPayout: ${params.orderId} does not belong to the caller — refusing.`,
     );

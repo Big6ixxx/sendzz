@@ -1,18 +1,31 @@
 /**
- * Platform (partner) fee configuration — provider-agnostic.
+ * Platform fee configuration for the fiat rails.
  *
- * Some providers collect the platform fee for us (Paycrest: a partner fee configured on their
- * dashboard; we just send `base × (1 + fee)` and they skim it). Others have no partner-fee
- * mechanism (Bitnob), so we collect it ourselves ON-CHAIN by routing the fee portion to our
- * own per-chain treasury address in the same transfer as the payout.
+ * --- Withdrawals only -------------------------------------------------------
  *
- * Every rate comes from the environment — PAYCREST_FEE_PERCENT and BITNOB_FEE_PERCENT. There
- * is no compiled-in default anywhere, so the charged fee and the displayed fee cannot diverge.
+ * Deposits are free. They used to carry a fee that Paycrest skimmed on their side (their
+ * partner-fee mechanism), and that has been removed entirely: the on-ramp now sends the user's
+ * full amount through. Money coming IN is not charged for. Everything in this file therefore
+ * prices withdrawals, and the only other fee-bearing paths in the product — bridges and sends
+ * to an external wallet — live in lib/fees/platform-fees.ts.
  *
- * To adjust fees:
- *   • change a percentage → set <PROVIDER>_FEE_PERCENT (no deploy needed for the value itself)
- *   • move a fee on/off the provider → flip `collection` in FEE_COLLECTION
- *   • add a self-collecting provider → add its <PROVIDER>_FEE_TREASURY_<CHAIN> vars
+ * --- One rate, one treasury -------------------------------------------------
+ *
+ * Both providers now collect the same way: on-chain, to OUR address, in the same transfer as
+ * the payout. Paycrest's partner fee is set to zero on their dashboard, so nothing is skimmed
+ * upstream any more. That collapses what used to be two provider-specific configurations into
+ * one, which is why the rate is no longer named after a provider:
+ *
+ *   WITHDRAWAL_FEE_PERCENT              the standard rate
+ *   WITHDRAWAL_FEE_PERCENT_<CURRENCY>   per-corridor override, when one corridor costs more
+ *   FEE_TREASURY_<CHAIN>                where it lands, per settlement network
+ *
+ * A per-corridor override changes what the USER pays. It deliberately does NOT change what a
+ * referrer earns — that is a fixed share of volume, resolved in lib/referrals, precisely so a
+ * corridor repricing cannot silently reprice the referral programme along with it.
+ *
+ * Every rate comes from the environment, with no compiled-in default, so the charged fee and
+ * the displayed fee cannot diverge.
  */
 import type { RampProviderName } from "./types";
 
@@ -31,94 +44,154 @@ export interface ProviderFee {
 }
 
 /**
- * Bitnob-hosted deposit addresses, one per chain — sending the fee here auto-credits our
- * Bitnob balance. Fill the ones you use; unset chains fail-closed at withdrawal time so we
- * never accidentally give the service away for free on an unconfigured chain.
- */
-const BITNOB_FEE_TREASURY: Record<string, string | undefined> = {
-  base: process.env.BITNOB_FEE_TREASURY_BASE,
-  arbitrum: process.env.BITNOB_FEE_TREASURY_ARBITRUM,
-  avalanche: process.env.BITNOB_FEE_TREASURY_AVALANCHE,
-  ethereum: process.env.BITNOB_FEE_TREASURY_ETHEREUM,
-  optimism: process.env.BITNOB_FEE_TREASURY_OPTIMISM,
-  polygon: process.env.BITNOB_FEE_TREASURY_POLYGON,
-  solana: process.env.BITNOB_FEE_TREASURY_SOLANA,
-  stellar: process.env.BITNOB_FEE_TREASURY_STELLAR, // coming soon
-};
-
-/** Env var holding each provider's fee percentage. There is no compiled-in rate. */
-const FEE_ENV_VAR: Record<RampProviderName, string> = {
-  paycrest: "PAYCREST_FEE_PERCENT",
-  bitnob: "BITNOB_FEE_PERCENT",
-};
-
-/**
- * How each provider's fee reaches us. The percentage is NOT here — see getProviderFee.
+ * Where fees land, per settlement network. A self-custodial wallet we hold the keys to.
  *
- *  • paycrest — skims its own partner fee, configured on their dashboard. PAYCREST_FEE_PERCENT
- *    MUST match that dashboard value, or the "send extra" reverse-calculation nets the wrong
- *    payout. Changing the env var alone is not enough for Paycrest.
- *  • bitnob — has no partner-fee mechanism, so we collect on-chain to our own treasury.
- */
-const FEE_COLLECTION: Record<RampProviderName, Pick<ProviderFee, "collection" | "treasury">> = {
-  paycrest: { collection: "provider" },
-  bitnob: { collection: "onchain", treasury: BITNOB_FEE_TREASURY },
-};
-
-/**
- * The provider's flat per-corridor fee in USDC, added on top of the base amount so the
- * provider's deduction is covered by the user's own deposit rather than our float.
+ * `FEE_TREASURY_<CHAIN>`, and nothing else. The address serves bridges and external sends as
+ * well as both ramp providers (see lib/fees/platform-fees.ts), so a provider's name in the
+ * variable was always a misnomer.
  *
- * Set `BITNOB_CORRIDOR_FEE_<CURRENCY>` per currency; unset means none. Configured rather than
- * read from the API because Bitnob reports `fees: "0"` on both the quote and the initialize
- * response for every corridor, yet still deducts on some (RWF mobile money took a flat 0.30 on
- * both a 1.01 and a 10.00 payout). Bitnob only — Paycrest settles the quoted amount.
+ * Fill the ones you use. An unset chain fails closed at withdrawal time rather than settling
+ * without collecting, so we never quietly give the service away on a chain nobody configured.
  */
-export function getCorridorFee(provider: RampProviderName, currency: string): number {
-  if (provider !== "bitnob") return 0;
+export function treasuryFor(chain: string): string | undefined {
+  return process.env[`FEE_TREASURY_${chain.toUpperCase()}`] || undefined;
+}
 
-  const envVar = `BITNOB_CORRIDOR_FEE_${(currency || "").toUpperCase()}`;
-  const raw = process.env[envVar];
-  if (raw == null || raw === "") return 0;
+const FEE_TREASURY_CHAINS = [
+  "base",
+  "arbitrum",
+  "avalanche",
+  "ethereum",
+  "optimism",
+  "polygon",
+  "arc",
+  "solana",
+  "stellar",
+] as const;
 
-  const fee = Number(raw);
-  if (!Number.isFinite(fee) || fee < 0) {
-    // Loud but not fatal — a typo in one corridor must not take withdrawals down.
-    console.error(`[Fees] ${envVar} is not a valid amount (got ${JSON.stringify(raw)}) — using 0.`);
-    return 0;
-  }
-  return fee;
+/** Resolved per call rather than at module load, so a config change needs no redeploy. */
+function feeTreasuryMap(): Record<string, string | undefined> {
+  return Object.fromEntries(FEE_TREASURY_CHAINS.map((chain) => [chain, treasuryFor(chain)]));
 }
 
 /**
- * The fee for a provider, read from its environment variable.
+ * How each provider's fee reaches us.
+ *
+ * Identical now, and that is the point: Paycrest's partner fee is zero on their dashboard, so
+ * neither provider skims anything upstream. We collect both on-chain, to our own treasury, in
+ * the same transfer as the payout — which means the fee either moves with the payout or
+ * neither happens.
+ *
+ * The map is kept, rather than collapsed into a constant, because it is the thing that would
+ * have to change if a provider ever started skimming again, and a per-provider shape makes
+ * that a one-line edit instead of a refactor.
+ */
+const FEE_COLLECTION: Record<RampProviderName, Pick<ProviderFee, "collection">> = {
+  paycrest: { collection: "onchain" },
+  bitnob: { collection: "onchain" },
+};
+
+/**
+ * The flat per-corridor fee in USDC a payout provider deducts, added on top of the base amount
+ * so that deduction is covered by the user's own withdrawal rather than our float.
+ *
+ * Configured rather than read from the API. Bitnob reports `fees: "0"` on both the quote and
+ * the initialize response for every corridor, yet still deducts on some — RWF mobile money took
+ * a flat 0.30 on both a 1.01 and a 10.00 payout. A provider that lies about its own fee cannot
+ * be the source of truth for it.
+ *
+ * Two keys, most specific first:
+ *
+ *   CORRIDOR_FEE_<PROVIDER>_<CURRENCY>   this provider, this corridor
+ *   CORRIDOR_FEE_<CURRENCY>              any provider serving this corridor
+ *
+ * Both rather than one, because the deduction belongs to the PROVIDER, not the currency. The
+ * same corridor can cost differently depending on who serves it — a single per-currency rate
+ * would quietly overcharge on a provider that settles the quoted amount in full. The plain
+ * per-currency form stays because it is the common case and is what most deployments will want.
+ */
+export function getCorridorFee(provider: RampProviderName, currency: string): number {
+  const cur = (currency || "").toUpperCase();
+  const prov = (provider || "").toUpperCase();
+
+  const candidates = [`CORRIDOR_FEE_${prov}_${cur}`, `CORRIDOR_FEE_${cur}`];
+
+  for (const envVar of candidates) {
+    const raw = process.env[envVar];
+    // An empty string is "configured as nothing", not "not configured" — it stops the search,
+    // so a deployment can override a broader key back down to zero for one corridor.
+    if (raw == null) continue;
+    if (raw === "") return 0;
+
+    const fee = Number(raw);
+    if (!Number.isFinite(fee) || fee < 0) {
+      // Loud but not fatal — a typo in one corridor must not take withdrawals down.
+      console.error(`[Fees] ${envVar} is not a valid amount (got ${JSON.stringify(raw)}) — using 0.`);
+      return 0;
+    }
+    return fee;
+  }
+
+  return 0;
+}
+
+/**
+ * The withdrawal fee rate for a corridor.
+ *
+ * `WITHDRAWAL_FEE_PERCENT_<CURRENCY>` wins where it is set, otherwise the global
+ * `WITHDRAWAL_FEE_PERCENT`. The per-corridor form exists because some corridors genuinely cost
+ * more to serve, and pricing them all at the cheapest one means subsidising the expensive ones
+ * out of margin.
  *
  * **Every rate comes from env — there is no hardcoded default.** A compiled-in fallback is
  * what let the app charge two different fees at once: the server honoured the env override
- * while deposits and the whole UI used the constant baked into the bundle. With one source
- * there is nothing to drift from.
+ * while the UI used the constant baked into the bundle. With one source there is nothing to
+ * drift from.
  *
  * Read lazily, per call, rather than once at module load, so a config change takes effect on
  * the next request instead of the next deploy — and so importing this module from a client
  * bundle (where process.env is empty) can't capture a wrong value at build time.
  *
- * Throws when the variable is missing or not a sane percentage. That is deliberate: a payout
- * whose fee we can't determine must fail loudly, exactly as a missing fee treasury does. It is
- * never silently treated as free.
+ * Throws when nothing is configured. A payout whose fee we cannot determine must fail loudly,
+ * exactly as a missing treasury does; it is never silently treated as free.
  */
-export function getProviderFee(provider: RampProviderName): ProviderFee {
-  const envVar = FEE_ENV_VAR[provider];
-  const raw = process.env[envVar];
+export function getWithdrawalFeePercent(currency?: string): number {
+  const perCorridor = currency
+    ? process.env[`WITHDRAWAL_FEE_PERCENT_${currency.toUpperCase()}`]
+    : undefined;
+
+  const raw = perCorridor ?? process.env.WITHDRAWAL_FEE_PERCENT;
+
   const percent = Number(raw);
 
   if (raw == null || raw === "" || !Number.isFinite(percent) || percent < 0 || percent > 100) {
     throw new Error(
-      `${envVar} is not configured (got ${JSON.stringify(raw)}). ` +
-        `Set it to the ${provider} fee percentage, e.g. ${envVar}=0.5`,
+      `No withdrawal fee rate is configured (got ${JSON.stringify(raw)}). ` +
+        "Set WITHDRAWAL_FEE_PERCENT, e.g. WITHDRAWAL_FEE_PERCENT=0.5" +
+        (currency ? `, or WITHDRAWAL_FEE_PERCENT_${currency.toUpperCase()} for this corridor.` : "."),
     );
   }
 
-  return { percent, ...FEE_COLLECTION[provider] };
+  return percent;
+}
+
+/**
+ * The fee configuration for a provider on a corridor.
+ *
+ * `currency` is optional only so the existing call sites that have no corridor in hand keep
+ * working on the standard rate. Anything pricing a real withdrawal should pass it — without
+ * it, a corridor with an override is quoted at the global rate and the user is charged the
+ * other one.
+ */
+export function getProviderFee(
+  provider: RampProviderName,
+  currency?: string,
+): ProviderFee {
+  return {
+    percent: getWithdrawalFeePercent(currency),
+    ...FEE_COLLECTION[provider],
+    treasury: feeTreasuryMap(),
+  };
 }
 
 // ── Fee arithmetic ───────────────────────────────────────────────────────────
@@ -165,9 +238,13 @@ export interface AppliedFee {
   total: number;
 }
 
-/** Split a base amount into base + platform fee + total for `provider`. */
-export function applyFee(base: number, provider: RampProviderName): AppliedFee {
-  const percent = getProviderFee(provider).percent;
+/** Split a base amount into base + platform fee + total for `provider` on `currency`. */
+export function applyFee(
+  base: number,
+  provider: RampProviderName,
+  currency?: string,
+): AppliedFee {
+  const percent = getProviderFee(provider, currency).percent;
   return { base, fee: feeFromBase(base, percent), total: totalFromBase(base, percent) };
 }
 
@@ -184,8 +261,8 @@ export function resolveFeeTreasury(provider: RampProviderName, chain: string): s
   const addr = cfg.treasury?.[chain.toLowerCase()];
   if (!addr) {
     throw new Error(
-      `No ${provider} fee treasury address configured for '${chain}'. Set ` +
-        `${provider.toUpperCase()}_FEE_TREASURY_${chain.toUpperCase()}.`,
+      `No fee treasury address configured for '${chain}'. Set ` +
+        `FEE_TREASURY_${chain.toUpperCase()}.`,
     );
   }
   return addr;

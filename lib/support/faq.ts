@@ -154,7 +154,7 @@ export const FAQ_SECTIONS: FaqSection[] = [
         id: "gas-sponsored",
         question: "Do I need gas to send?",
         answer:
-          "No. We sponsor the gas on supported networks, so you do not need to hold ETH, SOL, XLM or any other native token just to move your USDC. You will see 'gasless transfer supported' before you confirm when it applies.",
+          "No. We cover the network fee on supported networks, so you do not need to hold ETH, SOL, XLM or any other coin just to move your USDC. We tell you before you confirm when it applies.",
       },
     ],
   },
@@ -201,7 +201,7 @@ export const FAQ_SECTIONS: FaqSection[] = [
         id: "claim-failed",
         question: "My claim did not work, can I try again?",
         answer:
-          "Yes, as many times as you need. A claim that fails changes nothing: the amount stays waiting and stays yours. Failures are usually a busy network or a signature that was not completed, and trying again shortly afterwards normally works. If it keeps failing, message us on Telegram with the amount and the networks involved.",
+          "Yes, as many times as you need. A claim that fails changes nothing: the amount stays waiting and stays yours. Failures are usually a busy network or a confirmation that was not finished, and trying again shortly afterwards normally works. If it keeps failing, message us on Telegram with the amount and the networks involved.",
       },
       {
         id: "withdrawal-needed-move",

@@ -179,12 +179,12 @@ export default function HelpCenterPage() {
                 <div>
                   <p className="font-bold text-foreground">Platform Fee</p>
                   <p className="text-[11px] text-muted-foreground max-w-[260px] mt-1">
-                    Our fee for moving money between your wallet and your local bank account. The same rate applies to deposits and withdrawals.
+                    Our fee for cashing out to your local bank account. Adding money is free — you are only charged on the way out, and some corridors cost a little more than others.
                   </p>
                 </div>
                 <div className="text-right">
                   <p className="font-black text-xl text-accent">{platformFee ?? '—'}%</p>
-                  <p className="text-[10px] uppercase font-bold text-muted-foreground">Of deposit or withdrawal</p>
+                  <p className="text-[10px] uppercase font-bold text-muted-foreground">Of withdrawal</p>
                 </div>
               </div>
 

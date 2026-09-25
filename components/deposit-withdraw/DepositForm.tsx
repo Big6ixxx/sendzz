@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
-import { calculatePaycrestBaseAmount } from "@/lib/paycrest/config";
 
 import { BankSelector } from "./BankSelector";
 import { DepositNetworkAccordion } from "./DepositNetworkAccordion";
@@ -31,11 +30,10 @@ export function DepositForm({ hook }: DepositFormProps) {
   // A corridor can be supported for payouts yet have nobody selling USDC into it today.
   const { unavailable: depositUnavailable } = useOnRampAvailability(hook.fiatCurrency);
 
+  // Nothing is deducted on the way in, so the estimate is simply the amount at the rate.
   const estimatedUsdc =
     hook.rate && hook.amount
-      ? (
-          calculatePaycrestBaseAmount(parseFloat(hook.amount), hook.feePercent) / hook.rate
-        ).toFixed(4)
+      ? (parseFloat(hook.amount) / hook.rate).toFixed(4)
       : null;
 
   // Countdown timer for order
@@ -128,11 +126,12 @@ export function DepositForm({ hook }: DepositFormProps) {
                 )}
               </span>
             </div>
+            {/* Deposits are free. The row that used to sit here quoted the withdrawal rate,
+                which is now the only fee in the product — showing it on the way in told
+                people they were being charged twice. */}
             <div className="flex justify-between text-sm pt-2 border-t border-border">
-              <span className="text-muted-foreground">Platform Fee</span>
-              <span className="font-semibold text-foreground">
-                {hook.feePercent}%
-              </span>
+              <span className="text-muted-foreground">Deposit Fee</span>
+              <span className="font-semibold text-accent">Free</span>
             </div>
           </div>
         </div>
@@ -301,9 +300,7 @@ export function DepositForm({ hook }: DepositFormProps) {
       status: "confirmed",
       timestamp: new Date().toISOString(),
       amountUsdc:
-        hook.rate && hook.amount
-          ? calculatePaycrestBaseAmount(parseFloat(hook.amount), hook.feePercent) / hook.rate
-          : 0,
+        hook.rate && hook.amount ? parseFloat(hook.amount) / hook.rate : 0,
       fiatAmount: parseFloat(hook.amount),
       fiatCurrency: hook.fiatCurrency,
       exchangeRate: hook.rate ?? undefined,

@@ -49,10 +49,10 @@ import { useRouter } from "next/navigation";
 import { TOTPSetupWizard } from "@/components/TOTPSetupWizard";
 import { PasskeySetupWizard } from "@/components/PasskeySetupWizard";
 import {
-  PinGate,
-  PinInput,
-  type PinGateRequest,
-} from "@/components/security/PinGate";
+  SecurityStepUp,
+  type StepUpRequest,
+} from "@/components/security/SecurityStepUp";
+import { ForgotPinDialog } from "@/components/security/ForgotPinDialog";
 import { Fingerprint } from "lucide-react";
 import { KycModal } from "@/components/kyc/KycModal";
 import { InstallAppButton } from "@/components/pwa/InstallAppButton";
@@ -131,10 +131,11 @@ export default function SettingsPage() {
   // PIN is tracked separately from the passkey so each can be added or removed on its own.
   const [pinEnabled, setPinEnabled] = useState(false);
   const [pinSetupOpen, setPinSetupOpen] = useState(false);
-  const [pinRemoveOpen, setPinRemoveOpen] = useState(false);
-  const [pinConfirm, setPinConfirm] = useState("");
-  const [pinError, setPinError] = useState<string | null>(null);
-  const [pinGate, setPinGate] = useState<PinGateRequest | null>(null);
+  const [forgotPinOpen, setForgotPinOpen] = useState(false);
+  // The threshold is confirmed with the PIN and then typed into a second dialog, so the token
+  // minted at confirmation has to survive until the value is actually submitted.
+  const [thresholdAuthorization, setThresholdAuthorization] = useState<string | null>(null);
+  const [stepUp, setStepUp] = useState<StepUpRequest | null>(null);
 
   // Notification Preferences
   const [pushEnabled, setPushEnabled] = useState(false);
@@ -225,7 +226,7 @@ export default function SettingsPage() {
     setIsSecurityLoading(true);
     try {
       const res = await fetch(
-        `/api/user/preferences?email=${encodeURIComponent(userEmail)}`,
+        "/api/user/preferences",
       );
       if (res.ok) {
         const data = await res.json();
@@ -293,17 +294,21 @@ export default function SettingsPage() {
   const updateSecurityPrefs = async (
     enabled: boolean,
     threshold: string,
+    authorization: string,
   ): Promise<boolean> => {
     if (!userEmail) return false;
     setIsUpdatingSecurity(true);
     try {
+      // No email in the body — the server takes it from the session. The authorization is a
+      // single-use token minted when the PIN was accepted, which the server requires before
+      // it will weaken anything.
       const res = await fetch("/api/user/preferences", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: userEmail,
           two_fa_enabled: enabled,
           two_fa_threshold: parseFloat(threshold || "0"),
+          authorization,
         }),
       });
       if (!res.ok) throw new Error("Failed to update");
@@ -319,14 +324,14 @@ export default function SettingsPage() {
     }
   };
 
-  const handleDisableTotp = async () => {
+  const handleDisableTotp = async (authorization: string) => {
     if (!userEmail) return;
     setIsUpdatingSecurity(true);
     try {
       const res = await fetch("/api/2fa/totp/disable", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: userEmail }),
+        body: JSON.stringify({ authorization }),
       });
       if (!res.ok) throw new Error("Failed to disable");
       toast.success("Authenticator app disabled");
@@ -346,27 +351,36 @@ export default function SettingsPage() {
 
   /** Saving a threshold is the same write as the toggle, with the same revert on failure. */
   const handleThresholdUpdate = async () => {
+    // Spent here rather than at confirmation: the token is bound to the threshold control and
+    // single-use, so a dialog opened and abandoned simply expires unspent.
+    const authorization = thresholdAuthorization;
+    if (!authorization) {
+      toast.error("That took too long. Confirm with your PIN again.");
+      setThresholdModalOpen(false);
+      return;
+    }
+
     const previous = twoFaThreshold;
     setTwoFaThreshold(thresholdValue);
     setThresholdModalOpen(false);
-    const ok = await updateSecurityPrefs(twoFaEnabled, thresholdValue);
+    setThresholdAuthorization(null);
+    const ok = await updateSecurityPrefs(twoFaEnabled, thresholdValue, authorization);
     if (!ok) setTwoFaThreshold(previous);
   };
 
   /**
-   * Run `req.run()` only after the PIN is confirmed.
+   * Run `req.run()` only after a SECOND FACTOR is proven — not the PIN.
    *
-   * The PIN is the key every other security control is locked behind, so it has to exist
-   * before there is anything to lock: without one, this sends the user to set it rather than
-   * letting them add a factor that nothing can protect.
+   * The PIN authorises every outgoing payment. If it also switched protections off, one secret
+   * would open both doors: somebody who read it over a shoulder would get the money and the
+   * ability to disable everything that would have stopped them. So weakening a protection
+   * costs one of the protections — the authenticator app, a passkey, or a code emailed to the
+   * address on the account.
+   *
+   * Email is always available, so this can never lock somebody out of their own settings.
    */
-  const withPin = (req: PinGateRequest) => () => {
-    if (!pinEnabled) {
-      toast.error("Set your transaction PIN first — it protects every other change.");
-      setPinSetupOpen(true);
-      return;
-    }
-    setPinGate(req);
+  const withStepUp = (req: Omit<StepUpRequest, "totpEnabled" | "passkeyEnabled">) => () => {
+    setStepUp({ ...req, totpEnabled, passkeyEnabled });
   };
 
   /** Re-read every security method at once, so one setup flow cannot leave another stale. */
@@ -385,39 +399,15 @@ export default function SettingsPage() {
     }
   };
 
-  const handleRemovePin = async () => {
-    setIsUpdatingSecurity(true);
-    setPinError(null);
-    try {
-      const res = await fetch("/api/2fa/pin", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "remove", currentPin: pinConfirm }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setPinError(data.error ?? "Could not remove your PIN.");
-        return;
-      }
-      setPinEnabled(false);
-      setPinRemoveOpen(false);
-      setPinConfirm("");
-      toast.success("PIN removed.");
-    } catch {
-      setPinError("Could not reach the server. Try again.");
-    } finally {
-      setIsUpdatingSecurity(false);
-    }
-  };
 
-  const handleDisablePasskey = async () => {
+  const handleDisablePasskey = async (authorization: string) => {
     if (!userEmail) return;
     setIsUpdatingSecurity(true);
     try {
       const res = await fetch("/api/2fa/passkey/disable", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: userEmail }),
+        body: JSON.stringify({ authorization }),
       });
       if (!res.ok) throw new Error("Failed to disable passkey");
       setPasskeyEnabled(false);
@@ -427,7 +417,7 @@ export default function SettingsPage() {
       fetch("/api/notifications/security", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: userEmail, event: "passkey_disabled" }),
+        body: JSON.stringify({ event: "passkey_disabled" }),
       }).catch(() => {});
     } catch {
       toast.error("Failed to disable passkey. Please try again.");
@@ -756,19 +746,20 @@ export default function SettingsPage() {
                     </span>
                     <PremiumToggle
                       checked={twoFaEnabled}
-                      onChange={withPin({
+                      onChange={withStepUp({
                         title: twoFaEnabled
                           ? "Turn off verification"
                           : "Turn on verification",
                         description: twoFaEnabled
-                          ? "Large withdrawals will stop asking for a second check. Confirm with your PIN."
-                          : "Large withdrawals will ask for a second check. Confirm with your PIN.",
+                          ? "Large withdrawals will stop asking for a second check. Confirm this first."
+                          : "Large withdrawals will ask for a second check. Confirm this first.",
                         confirmLabel: twoFaEnabled ? "Turn off" : "Turn on",
                         destructive: twoFaEnabled,
-                        run: () => {
+                        control: "two_fa",
+                        run: (authorization) => {
                           const checked = !twoFaEnabled;
                           setTwoFaEnabled(checked);
-                          updateSecurityPrefs(checked, twoFaThreshold);
+                          updateSecurityPrefs(checked, twoFaThreshold, authorization);
                         },
                       })}
                       disabled={isUpdatingSecurity}
@@ -782,12 +773,14 @@ export default function SettingsPage() {
                   className="p-6 flex items-center justify-between hover:bg-white/2 transition-colors cursor-pointer"
                   onClick={() => {
                     if (!twoFaEnabled) return;
-                    withPin({
+                    withStepUp({
                       title: "Change verification threshold",
                       description:
-                        "Raising the threshold means more can be withdrawn without a second check. Confirm with your PIN.",
+                        "Raising the threshold means more can be withdrawn without a second check. Confirm this first.",
                       confirmLabel: "Continue",
-                      run: () => {
+                      control: "threshold",
+                      run: (authorization) => {
+                        setThresholdAuthorization(authorization);
                         setThresholdValue(twoFaThreshold);
                         setThresholdModalOpen(true);
                       },
@@ -833,12 +826,13 @@ export default function SettingsPage() {
                   </div>
                   {totpEnabled ? (
                     <button
-                      onClick={withPin({
+                      onClick={withStepUp({
                         title: "Remove authenticator app",
                         description:
                           "Codes from your authenticator app will no longer be accepted. You can pair an app again at any time.",
                         confirmLabel: "Remove app",
                         destructive: true,
+                        control: "totp",
                         run: handleDisableTotp,
                       })}
                       className="text-xs font-bold uppercase tracking-widest text-red-400 hover:text-red-300 transition-colors"
@@ -847,11 +841,12 @@ export default function SettingsPage() {
                     </button>
                   ) : (
                     <button
-                      onClick={withPin({
+                      onClick={withStepUp({
                         title: "Add authenticator app",
                         description:
                           "Confirm it is you before adding a new way to approve withdrawals.",
                         confirmLabel: "Continue",
+                        control: "totp",
                         run: () => setTotpSetupOpen(true),
                       })}
                       className="text-xs font-bold uppercase tracking-widest text-accent hover:text-accent/80 transition-colors"
@@ -877,12 +872,13 @@ export default function SettingsPage() {
                   </div>
                   {passkeyEnabled ? (
                     <button
-                      onClick={withPin({
+                      onClick={withStepUp({
                         title: "Remove passkey",
                         description:
                           "Every passkey on your account is removed. Withdrawals will fall back to your other methods.",
                         confirmLabel: "Remove passkey",
                         destructive: true,
+                        control: "passkey",
                         run: handleDisablePasskey,
                       })}
                       className="text-xs font-bold uppercase tracking-widest text-red-400 hover:text-red-300 transition-colors"
@@ -891,11 +887,12 @@ export default function SettingsPage() {
                     </button>
                   ) : (
                     <button
-                      onClick={withPin({
+                      onClick={withStepUp({
                         title: "Add passkey",
                         description:
                           "Confirm it is you before adding a new way to approve withdrawals.",
                         confirmLabel: "Continue",
+                        control: "passkey",
                         run: () => setPasskeySetupOpen(true),
                       })}
                       className="text-xs font-bold uppercase tracking-widest text-accent hover:text-accent/80 transition-colors"
@@ -905,8 +902,12 @@ export default function SettingsPage() {
                   )}
                 </div>
 
-                {/* Its own row, so a PIN can be added or removed without touching the
-                    passkey. Anything less means turning one off to reach the other. */}
+                {/* Its own row, so the PIN can be changed without touching the passkey.
+                    There is no longer a "remove" here: the PIN gates every outgoing
+                    transaction, so taking it away would not relax a setting — it would leave
+                    the account unable to send, withdraw or bridge at all. What people
+                    actually want from that button is covered by the two below: change it if
+                    you know it, reset it by email if you don't. */}
                 <div className="p-6 flex items-center justify-between hover:bg-white/2 transition-colors">
                   <div className="flex items-center gap-5">
                     <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-brand-secondary/40 border border-white/8">
@@ -922,12 +923,20 @@ export default function SettingsPage() {
                     </div>
                   </div>
                   {pinEnabled ? (
-                    <button
-                      onClick={() => setPinRemoveOpen(true)}
-                      className="text-xs font-bold uppercase tracking-widest text-red-400 hover:text-red-300 transition-colors"
-                    >
-                      Remove
-                    </button>
+                    <div className="flex items-center gap-5">
+                      <button
+                        onClick={() => setPinSetupOpen(true)}
+                        className="text-xs font-bold uppercase tracking-widest text-accent hover:text-accent/80 transition-colors"
+                      >
+                        Change
+                      </button>
+                      <button
+                        onClick={() => setForgotPinOpen(true)}
+                        className="text-xs font-bold uppercase tracking-widest text-brand-secondary/40 hover:text-brand-secondary/70 transition-colors"
+                      >
+                        Forgot it?
+                      </button>
+                    </div>
                   ) : (
                     <button
                       onClick={() => setPinSetupOpen(true)}
@@ -1163,7 +1172,6 @@ export default function SettingsPage() {
       <TOTPSetupWizard
         open={totpSetupOpen}
         onOpenChange={setTotpSetupOpen}
-        email={userEmail}
         onComplete={() => {
           fetchSecurityPrefs();
           toast.success("Authenticator app enabled");
@@ -1237,8 +1245,8 @@ export default function SettingsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* One dialog for every security change that needs the PIN. */}
-      <PinGate request={pinGate} onClose={() => setPinGate(null)} />
+      {/* One dialog for every change that weakens a protection. */}
+      <SecurityStepUp request={stepUp} onClose={() => setStepUp(null)} />
 
       {/*
         Both mounts refresh BOTH methods. The wizard offers to add the other once one is set,
@@ -1249,7 +1257,6 @@ export default function SettingsPage() {
       <PasskeySetupWizard
         open={passkeySetupOpen}
         onOpenChange={setPasskeySetupOpen}
-        email={userEmail}
         onComplete={refreshSecurityStatus}
       />
 
@@ -1257,66 +1264,18 @@ export default function SettingsPage() {
       <PasskeySetupWizard
         open={pinSetupOpen}
         onOpenChange={setPinSetupOpen}
-        email={userEmail}
         initialMethod="pin"
         onComplete={refreshSecurityStatus}
       />
 
-      {/* PIN Remove Modal */}
-      <Dialog
-        open={pinRemoveOpen}
-        onOpenChange={(v) => {
-          setPinRemoveOpen(v);
-          if (!v) {
-            setPinConfirm("");
-            setPinError(null);
-          }
-        }}
-      >
-        <DialogContent className="card-glass border-white/10 max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-xl text-brand-secondary">
-              Remove PIN
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4 py-2">
-            <p className="text-sm text-brand-secondary/70 leading-relaxed">
-              Withdrawals above your threshold will fall back to your other
-              methods. You can set a new PIN at any time.
-            </p>
-
-            {/* Proving you know the current PIN is what stops anyone who reaches an
-                open session from quietly stripping the factor that protects it. */}
-            <PinInput
-              label="Current PIN"
-              value={pinConfirm}
-              onChange={(v) => {
-                setPinError(null);
-                setPinConfirm(v);
-              }}
-              onEnter={handleRemovePin}
-              error={pinError}
-            />
-          </div>
-
-          <div className="flex flex-col-reverse sm:flex-row gap-3 pt-4">
-            <button
-              onClick={() => setPinRemoveOpen(false)}
-              className="btn-secondary flex-1"
-            >
-              Keep it
-            </button>
-            <button
-              onClick={handleRemovePin}
-              disabled={isUpdatingSecurity || pinConfirm.length < 4}
-              className="btn-primary flex-1 !bg-red-500 !text-white hover:!bg-red-600"
-            >
-              {isUpdatingSecurity ? "Removing..." : "Remove PIN"}
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <ForgotPinDialog
+        open={forgotPinOpen}
+        onOpenChange={setForgotPinOpen}
+        // Shown to the user ("code goes to ..."), not used to address the mail — the server
+        // sends to the session's own address regardless.
+        email={userEmail}
+        onReset={refreshSecurityStatus}
+      />
 
       {/* KYC Verification Modal */}
       <KycModal

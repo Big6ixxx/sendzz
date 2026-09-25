@@ -2,6 +2,12 @@ import { fetchAttestation, isEvmUsdcChain, type SupportedChain } from '@/lib/cir
 import { fetchSolanaAttestation } from '@/lib/circle/solana-gateway';
 import { fetchStellarAttestation } from '@/lib/circle/stellar-gateway';
 import { NextRequest, NextResponse } from 'next/server';
+import { requireUser } from '@/lib/auth/session';
+import {
+  RATE_LIMITS,
+  checkRateLimit,
+  rateLimitResponse,
+} from '@/lib/security/rate-limit';
 
 type ExtendedChain = SupportedChain | 'solana' | 'stellar';
 
@@ -22,6 +28,21 @@ async function getAttestation(sourceChain: ExtendedChain, txHash: string) {
  * Supports EVM chains (domain lookup), Solana (domain 5), and Stellar (domain 27).
  */
 export async function GET(req: NextRequest) {
+
+    // Signed-in callers only.
+    //
+    // Polls Circle's attestation service on our key. Free to anyone who knew the URL.
+    try {
+      await requireUser();
+    } catch {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Polls Circle on our key, per call.
+    {
+      const limit = await checkRateLimit(RATE_LIMITS.read, null);
+      if (!limit.allowed) return rateLimitResponse(limit);
+    }
   const { searchParams } = new URL(req.url);
   const txHash = searchParams.get('txHash');
   const sourceChain = searchParams.get('sourceChain') as ExtendedChain;

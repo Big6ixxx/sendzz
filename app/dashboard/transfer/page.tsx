@@ -94,7 +94,7 @@ export default function TransfersPage() {
       if (!user?.email?.address) return;
       try {
         const res = await fetch(
-          `/api/user/preferences?email=${encodeURIComponent(user.email.address)}`,
+          "/api/user/preferences",
         );
         if (res.ok) {
           const data = await res.json();

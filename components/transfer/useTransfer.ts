@@ -1,11 +1,18 @@
 import { useState, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { usePinAuthorization } from "@/components/security/PinAuthorizationProvider";
+import { noteTransactionAuthorization } from "@/lib/actions/transactionAuth";
+import { describeTransfer } from "@/lib/signing/describe";
+import { type SigningPlan } from "@/lib/signing/plan";
 import { useUserContacts } from "@/components/contacts/useContacts";
 import { useExchangeRate } from "@/lib/hooks/useExchangeRate";
 import { ConnectedWallet } from "@privy-io/react-auth";
 import { executeRoutedTransfer } from "@/lib/web3/circle-actions";
 import { recordSendIntent } from "@/lib/actions/pendingSend";
-import { consolidateFundsToChain } from "@/lib/web3/bridge-actions";
+import {
+  consolidateFundsToChain,
+  selectConsolidationSources,
+} from "@/lib/web3/bridge-actions";
 import {
   planTransferRoute,
   AUTO_SOURCE,
@@ -14,7 +21,7 @@ import {
   type SourcePreference,
 } from "@/lib/web3/routing";
 import { CHAIN_NAMES, type SupportedChain } from "@/lib/circle/gateway";
-import { sendTransferEmail } from "@/lib/email/sendEmail";
+import { notifyTransferSent } from "@/lib/email/notify";
 import { type FiatCurrencyCode } from "@/lib/currency-config";
 import { ReceiptData } from "@/lib/receipt/types";
 import { toast } from "sonner";
@@ -100,6 +107,10 @@ export function useTransfer({
   const [totpEnabled, setTotpEnabled] = useState(false);
   const [passkeyEnabled, setPasskeyEnabled] = useState(false);
   const [warningModalOpen, setWarningModalOpen] = useState(false);
+  // The plan the user agreed to, and where we are in it. Kept so the screen can show progress
+  // through a multi-step send instead of one spinner that never explains itself.
+  const [activePlan, setActivePlan] = useState<SigningPlan | null>(null);
+  const [activeStep, setActiveStep] = useState(0);
 
   // Cache recipient check results for 30s to avoid hammering on keystrokes
   const checkCacheRef = useRef<
@@ -112,6 +123,7 @@ export function useTransfer({
   const isFiat = currency !== "USD";
   const { data: exchangeRate = 1 } = useExchangeRate(isFiat ? currency : "USD");
   const queryClient = useQueryClient();
+  const { authorize } = usePinAuthorization();
 
   const { data: contacts = [] } = useUserContacts(senderEmail);
 
@@ -123,7 +135,7 @@ export function useTransfer({
 
     // Fetch security preferences
     if (senderEmail) {
-      fetch(`/api/user/preferences?email=${encodeURIComponent(senderEmail)}`)
+      fetch("/api/user/preferences")
         .then((res) => res.json())
         .then((data) => {
           if (data && typeof data.two_fa_enabled === "boolean") {
@@ -196,7 +208,7 @@ export function useTransfer({
 
     setLoading(true);
     // No KYC limit check — see the note in useCryptoTransfer. Limits live on the fiat edges.
-    setStatus("Checking transaction history...");
+    setStatus("Checking this recipient…");
 
     try {
       const emailLower = recipientEmail.toLowerCase().trim();
@@ -243,17 +255,79 @@ export function useTransfer({
         setLoading(false);
         return;
       }
-      // 2FA Required - open modal without sending OTP
+      // 2FA Required - open modal without sending OTP. The PIN comes after it, in
+      // authorizeAndSend — see the note there on why that order and not the reverse.
       setTwoFaModalOpen(true);
       return;
     }
 
-    await executeTransferActual();
+    await authorizeAndSend();
+  };
+
+  /**
+   * Take the PIN, then send.
+   *
+   * This is the LAST thing before money moves, and deliberately so. The email or authenticator
+   * check above can take a minute of hunting through an inbox, and the authorisation the PIN
+   * mints is only valid for a few minutes — putting the PIN first would mean the slow step
+   * routinely outliving the token it was supposed to protect. Asking last also matches what
+   * the user is doing: the PIN is the moment they commit, not a hurdle on the way to deciding.
+   */
+  const authorizeAndSend = async () => {
+    // The step list comes from the SAME selection the transfer will run, not from a guess
+    // made beside the UI. A balance spread over three networks means three extra
+    // confirmations, and the user is told that before they agree — not when the second
+    // unexpected prompt appears.
+    const balancesForRoute: ChainBalances =
+      chainBalances && Object.keys(chainBalances).length > 0
+        ? chainBalances
+        : { base: parseFloat(balance) || 0 };
+
+    const gatherFrom = selectConsolidationSources({
+      targetChain: "base",
+      requiredAmount: amountUsdc,
+      balances: balancesForRoute,
+      solanaBalance: solanaSource?.balance,
+      stellarBalance,
+    }).map((source) => source.chain as string);
+
+    const plan = describeTransfer({
+      amount: amountUsdc,
+      recipient: recipientEmail,
+      gatherFrom,
+      settlementChain: "base",
+    });
+
+    const authorization = await authorize({
+      purpose: "transfer",
+      payload: {
+        destination: recipientEmail,
+        amount: amountUsdc,
+      },
+      amount: `$${parseFloat(amountUsdc || "0").toFixed(2)}`,
+      destination: recipientEmail,
+      warning: "Once it is sent it cannot be reversed.",
+      // The note is the only thing the headline does not already carry.
+      details: memo ? [{ label: "Note", value: memo }] : undefined,
+      plan,
+      confirmLabel: "Send",
+    });
+
+    // Cancelling is an ordinary decision, not an error. The form goes back to how it was.
+    if (!authorization) {
+      setLoading(false);
+      setStatus("");
+      return;
+    }
+
+    setActivePlan(plan);
+    setActiveStep(0);
+    await executeTransferActual(authorization);
   };
 
   const handleTwoFaSubmit = async (
     code: string,
-    method?: "email" | "totp" | "passkey" | "pin",
+    method?: "email" | "totp" | "passkey",
   ) => {
     setTwoFaLoading(true);
     setTwoFaError(null);
@@ -261,9 +335,9 @@ export function useTransfer({
       let res;
 
       if (method === "passkey") {
-        // Passkey is already verified, just proceed with the actual transfer
+        // Passkey is already verified; the PIN is still required before anything moves.
         setTwoFaModalOpen(false);
-        await executeTransferActual();
+        await authorizeAndSend();
         return;
       }
 
@@ -273,7 +347,6 @@ export function useTransfer({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            email: senderEmail,
             token: code,
             method: "totp",
           }),
@@ -285,7 +358,6 @@ export function useTransfer({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            userEmail: senderEmail,
             otp_id: twoFaOtpId,
             otp_code: code,
           }),
@@ -297,7 +369,7 @@ export function useTransfer({
 
       setTwoFaModalOpen(false);
       setTwoFaOtpId(null);
-      await executeTransferActual();
+      await authorizeAndSend();
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : "Invalid code";
       setTwoFaError(errorMessage);
@@ -315,7 +387,6 @@ export function useTransfer({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userEmail: senderEmail,
           actionType: "transfer",
           payload: { amount: valUsdc, recipientEmail, note: memo },
         }),
@@ -332,20 +403,20 @@ export function useTransfer({
     }
   };
 
-  const executeTransferActual = async () => {
+  const executeTransferActual = async (authorization: string) => {
     if (!amount || !recipientEmail || !embeddedProvider) return;
     setLoading(true);
     setLastCompletedTransfer(null);
-    setStatus("Looking up recipient...");
+    setStatus("Looking up recipient…");
     setIsPendingClaim(false);
 
     try {
-      const { getUserAddressByEmail } = await import("@/lib/supabase/users");
-      let recipientAddress = await getUserAddressByEmail(recipientEmail);
+      const { lookupRecipientAddress } = await import("@/lib/supabase/users");
+      let recipientAddress = await lookupRecipientAddress(recipientEmail);
 
       if (!recipientAddress) {
         setIsPendingClaim(true);
-        setStatus("Recipient not found. Generating secure wallet...");
+        setStatus("New to Sendzz — setting up a secure wallet for them…");
 
         const res = await fetch("/api/wallets/pre-generate", {
           method: "POST",
@@ -360,10 +431,19 @@ export function useTransfer({
         }
 
         recipientAddress = data.address as string;
-        setStatus("Ready to send to new wallet...");
+        setStatus("Ready to send…");
       } else {
-        setStatus("Identity confirmed. Requesting signature...");
+        setStatus("Recipient confirmed. Sending…");
       }
+
+      // Spend the PIN authorisation before signing. This cannot stop the signature that
+      // follows — the browser talks to the bundler directly — but it records that the PIN was
+      // entered for these parameters, and spends the token so it cannot cover a second send.
+      void noteTransactionAuthorization({
+        token: authorization,
+        purpose: "transfer",
+        payload: { destination: recipientEmail, amount: amountUsdc },
+      }).catch(() => undefined);
 
       const provider = await embeddedProvider.getEthereumProvider();
 
@@ -451,6 +531,7 @@ export function useTransfer({
             solana: solanaSource,
             stellar: stellarSource,
             onStatus: setStatus,
+            onSourceStart: setActiveStep,
           });
           plan = {
             feasible: true,
@@ -463,6 +544,9 @@ export function useTransfer({
           throw new Error("Insufficient balance to complete this transfer.");
         }
       }
+
+      // Whatever gathering was needed is done; the last step is the send itself.
+      setActiveStep((current) => Math.max(current + 1, 0));
 
       setStatus(
         plan.multiSource
@@ -513,7 +597,11 @@ export function useTransfer({
       });
 
       // Notify recipient — fire-and-forget so a failed email never blocks the transfer
-      sendTransferEmail(recipientEmail, amountUsdc, senderEmail, {
+      // No sender argument — the server reads it from the session, so nobody can send mail
+      // over somebody else's name. See lib/email/notify.ts.
+      notifyTransferSent({
+        recipientEmail,
+        amountUsdc,
         isPendingClaim,
         note: memo || undefined,
       }).catch((err) =>
@@ -541,6 +629,8 @@ export function useTransfer({
       toast.error(parseFriendlyError(err));
       setStatus("");
     }
+    setActivePlan(null);
+    setActiveStep(0);
     setLoading(false);
   };
 
@@ -592,5 +682,7 @@ export function useTransfer({
     setWarningModalOpen,
     handleWarningConfirm,
     handleTwoFaClose,
+    activePlan,
+    activeStep,
   };
 }
