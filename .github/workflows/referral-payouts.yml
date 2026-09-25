@@ -1,0 +1,45 @@
+name: Referral payouts
+
+# Sweeps accrued referral earnings to each referrer's wallet. See
+# app/api/cron/referral-payouts/route.ts for why a batched sweep rather than a transfer per
+# commission, and for the claim-then-send ordering that stops two runs paying the same rows.
+#
+# Like the Dune sync and unlike the reconcile job, GitHub is the PRIMARY schedule here rather
+# than a backstop. Nothing about this is time-critical: no quote is expiring in the background,
+# and an amount that waits an extra hour is an amount that got larger. So there is no reason to
+# also configure it in Coolify.
+#
+# Hourly. More often would mean more Circle round trips to move amounts that are usually cents;
+# less often just delays money that is already owed and already counted.
+#
+# Setup: reuses the SAME two secrets the other two workflows use. Nothing new to add.
+#   • Secret  DEPLOY_URL   – deployment origin, e.g. https://app.sendzz.io
+#   • Secret  CRON_SECRET  – same value as the CRON_SECRET env var in Coolify
+#
+# The deployment also needs all four Circle payout variables set (Coolify → env):
+# CIRCLE_API_KEY, CIRCLE_ENTITY_SECRET, CIRCLE_PAYOUT_WALLET_ID, CIRCLE_PAYOUT_USDC_TOKEN_ID.
+# Without them the route returns 503 and this job fails loudly, which is deliberate: earnings
+# keep accruing safely either way, so a silent skip would let referral payments stop for weeks
+# while every dashboard looked healthy.
+#
+# The wallet does not refill itself. The route emails ADMIN_EMAILS before the balance runs dry;
+# a run that cannot pay releases its claimed earnings and retries next hour, so nothing is lost
+# or double-paid — it just quietly stops until someone tops it up.
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+jobs:
+  payout:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sweep accrued referral earnings
+        run: |
+          code=$(curl -sS -o /tmp/body -w '%{http_code}' \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.DEPLOY_URL }}/api/cron/referral-payouts")
+          echo "HTTP $code"
+          cat /tmp/body
+          test "$code" = "200"
