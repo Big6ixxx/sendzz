@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { base, baseSepolia } from 'viem/chains';
 import { VIEM_CHAINS } from '@/lib/web3/multichain';
+import { solanaRpcUrl } from '@/lib/solana/rpc';
 import { ReactNode, useState, useEffect } from 'react';
 import { BalanceVisibilityProvider } from '@/components/providers/BalanceVisibilityProvider';
 import { useSessionActivity } from '@/hooks/useSessionActivity';
@@ -111,11 +112,9 @@ export function Providers({ children }: { children: ReactNode }) {
             rpcs: {
               'solana:mainnet': {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                rpc: createSolanaRpc(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com') as any,
+                rpc: createSolanaRpc(solanaRpcUrl()) as any,
                 rpcSubscriptions: createSolanaRpcSubscriptions(
-                  (process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com')
-                    .replace('https', 'wss')
-                    .replace('http', 'ws')
+                  solanaRpcUrl().replace('https', 'wss').replace('http', 'ws'),
                 ),
               },
             },

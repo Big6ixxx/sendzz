@@ -1,0 +1,24 @@
+-- ── Log Alchemy Address Activity webhooks ────────────────────────────────────
+--
+-- On-chain USDC deposits used to be found by polling `alchemy_getAssetTransfers`, once per user
+-- per chain, on a timer. That is the only Alchemy method in the app with no public-RPC
+-- fallback, so every call billed — and it was polling for something that happens a few times a
+-- day. Alchemy now pushes the arrival instead, and those deliveries are logged here like every
+-- other inbound webhook, so a replayed delivery is recognised by `event_id` and ignored.
+--
+-- `webhook_events.provider` is an enum, so a new sender has to be admitted explicitly — the
+-- same step Bitnob needed in migration 025.
+--
+-- Note: ALTER TYPE ... ADD VALUE cannot run inside a transaction block on older PostgreSQL. If
+-- your migration runner wraps statements in one, run this file on its own.
+ALTER TYPE public.webhook_provider ADD VALUE IF NOT EXISTS 'alchemy';
+
+-- SUPERSEDED, and kept only because it has already been applied.
+--
+-- The webhook no longer records its deliveries here. Most of them are not deposits at all —
+-- money leaving, and on Arc the same send reported three ways — so they filled the admin log
+-- with rows nobody needed to read. They go to stdout instead, alongside the reconcile output.
+-- Replay safety never depended on this table: the unique (user_id, tx_hash) index on `deposits`
+-- makes a repeated delivery a no-op however many times it arrives.
+--
+-- The enum value is harmless and left in place so the type still matches what production has.

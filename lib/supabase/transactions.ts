@@ -1634,25 +1634,6 @@ export async function getUserActivities(accessToken?: string) {
         bridges: [],
       };
 
-    // Record any new on-chain USDC deposits BEFORE reading the deposits table, so freshly
-    // received crypto shows up in history. Best-effort + throttled — never blocks the load.
-    if (
-      userRecord?.smart_account_address ||
-      userRecord?.solana_address ||
-      userRecord?.stellar_address
-    ) {
-      try {
-        const { scanUsdcDeposits } = await import("@/lib/web3/deposit-scanner");
-        await scanUsdcDeposits({
-          userId: internalId,
-          address: userRecord.smart_account_address ?? "",
-          solanaAddress: userRecord.solana_address ?? undefined,
-          stellarAddress: userRecord.stellar_address ?? undefined,
-        });
-      } catch (e) {
-        console.error("[Supabase] deposit scan failed (non-fatal):", e);
-      }
-    }
 
     const [
       { data: sent },

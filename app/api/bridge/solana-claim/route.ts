@@ -18,6 +18,7 @@
  */
 
 import { NextResponse } from 'next/server';
+import { solanaRpcUrl } from '@/lib/solana/rpc';
 import { Buffer } from 'buffer';
 import { initiateDeveloperControlledWalletsClient } from '@circle-fin/developer-controlled-wallets';
 import { Connection, PublicKey } from '@solana/web3.js';
@@ -30,8 +31,7 @@ import {
   rateLimitResponse,
 } from '@/lib/security/rate-limit';
 
-const SOLANA_RPC =
-  process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
+const SOLANA_RPC = solanaRpcUrl();
 
 /** How long to wait for the mint to confirm before handing the retry back to the caller. */
 const CONFIRM_TIMEOUT_MS = 60_000;

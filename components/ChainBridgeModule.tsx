@@ -41,10 +41,9 @@ import { usePinAuthorization } from "@/components/security/PinAuthorizationProvi
 import { noteTransactionAuthorization } from "@/lib/actions/transactionAuth";
 import { describeBridge } from "@/lib/signing/describe";
 import { toast } from "sonner";
+import { solanaRpcUrl } from "@/lib/solana/rpc";
 
-const SOLANA_RPC =
-  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ??
-  "https://api.mainnet-beta.solana.com";
+const SOLANA_RPC = solanaRpcUrl();
 
 const CHAIN_DISPLAY_NAMES: Record<string, string> = {
   ...CHAIN_NAMES,

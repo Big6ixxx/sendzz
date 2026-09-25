@@ -40,7 +40,7 @@ export type WithdrawalVerificationStatus = "pending" | "verified" | "expired";
 
 export type OtpPurpose = "login" | "withdrawal_verification";
 
-export type WebhookProvider = "paycrest" | "bitnob";
+export type WebhookProvider = "paycrest" | "bitnob" | "alchemy";
 
 export type KycStatus =
   | "not_started"

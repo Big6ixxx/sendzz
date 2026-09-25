@@ -111,7 +111,7 @@ describe('server actions resolve identity from the session', () => {
  * a session, and cron endpoints a shared secret — different proofs, same obligation.
  */
 const ROUTE_GATES =
-  /\b(requireUser|requireUserId|requireAdmin|getVerifiedIdentity|rejectUnauthorizedCron|authorizeSecurityChange|consumeAuthorization|verifyBitnobSignature|verifyWebhookSignature)\b|x-paycrest-signature/;
+  /\b(requireUser|requireUserId|requireAdmin|getVerifiedIdentity|rejectUnauthorizedCron|authorizeSecurityChange|consumeAuthorization|verify\w*Signature)\b|x-paycrest-signature/;
 
 /**
  * Routes that are deliberately open, each with a reason.
