@@ -8,7 +8,7 @@ import type { RampProviderName } from '@/lib/ramp';
 /**
  * The fee percentage the server will actually charge.
  *
- * The rate lives in `PAYCREST_FEE_PERCENT` / `BITNOB_FEE_PERCENT`, which only the server can
+ * The rate lives in `WITHDRAWAL_FEE_PERCENT`, which only the server can
  * read. There is deliberately no client-side default: seeding one would show a number the
  * server may not charge, and a fee display that can be wrong is worse than one that's briefly
  * absent. Returns null until the server answers — render a placeholder for that moment.

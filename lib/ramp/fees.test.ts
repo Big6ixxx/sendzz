@@ -83,8 +83,6 @@ describe('getWithdrawalFeePercent', () => {
   afterEach(() => {
     set('WITHDRAWAL_FEE_PERCENT_KES', undefined);
     set('WITHDRAWAL_FEE_PERCENT', '0.5');
-    set('BITNOB_FEE_PERCENT', undefined);
-    set('PAYCREST_FEE_PERCENT', undefined);
   });
 
   it('uses the standard rate when a corridor has no override', () => {
@@ -104,14 +102,6 @@ describe('getWithdrawalFeePercent', () => {
   it('is case-insensitive on the currency', () => {
     set('WITHDRAWAL_FEE_PERCENT_KES', '1');
     expect(getWithdrawalFeePercent('kes')).toBe(1);
-  });
-
-  it('falls back to the legacy per-provider rate mid-rename', () => {
-    // So a deployment that has not yet set the new variable keeps charging rather than
-    // refusing every withdrawal at once.
-    set('WITHDRAWAL_FEE_PERCENT', undefined);
-    set('BITNOB_FEE_PERCENT', '0.5');
-    expect(getWithdrawalFeePercent()).toBe(0.5);
   });
 
   it('throws rather than assuming a rate when nothing is configured', () => {
@@ -180,7 +170,6 @@ describe('getCorridorFee', () => {
   const KEYS = [
     'CORRIDOR_FEE_RWF', 'CORRIDOR_FEE_NGN', 'CORRIDOR_FEE_UGX',
     'CORRIDOR_FEE_BITNOB_RWF', 'CORRIDOR_FEE_PAYCREST_RWF',
-    'BITNOB_CORRIDOR_FEE_RWF', 'BITNOB_CORRIDOR_FEE_NGN',
   ];
   afterEach(() => KEYS.forEach((k) => set(k, undefined)));
 
@@ -212,20 +201,6 @@ describe('getCorridorFee', () => {
   it('is 0 for an explicitly free corridor', () => {
     set('CORRIDOR_FEE_NGN', '0');
     expect(getCorridorFee('bitnob', 'NGN')).toBe(0);
-  });
-
-  it('still reads the deprecated Bitnob key, and only for Bitnob', () => {
-    set('BITNOB_CORRIDOR_FEE_RWF', '0.3');
-    expect(getCorridorFee('bitnob', 'RWF')).toBe(0.3);
-    // The old name only ever described Bitnob's deduction, so it must not start applying to
-    // a provider it was never about.
-    expect(getCorridorFee('paycrest', 'RWF')).toBe(0);
-  });
-
-  it('prefers the new key over the deprecated one', () => {
-    set('BITNOB_CORRIDOR_FEE_RWF', '0.3');
-    set('CORRIDOR_FEE_BITNOB_RWF', '0.1');
-    expect(getCorridorFee('bitnob', 'RWF')).toBe(0.1);
   });
 
   it('falls back to 0 rather than throwing on a malformed value', () => {

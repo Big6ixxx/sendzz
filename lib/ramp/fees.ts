@@ -122,21 +122,12 @@ const FEE_COLLECTION: Record<RampProviderName, Pick<ProviderFee, "collection">> 
  * same corridor can cost differently depending on who serves it — a single per-currency rate
  * would quietly overcharge on a provider that settles the quoted amount in full. The plain
  * per-currency form stays because it is the common case and is what most deployments will want.
- *
- * `BITNOB_CORRIDOR_FEE_<CURRENCY>` is still read for Bitnob so a deployment mid-rename keeps
- * covering its deductions instead of eating them, and warns. The old name assumed one provider
- * would always be the one skimming, which stopped being true the moment a second one existed.
  */
 export function getCorridorFee(provider: RampProviderName, currency: string): number {
   const cur = (currency || "").toUpperCase();
   const prov = (provider || "").toUpperCase();
 
-  const candidates = [
-    `CORRIDOR_FEE_${prov}_${cur}`,
-    `CORRIDOR_FEE_${cur}`,
-    // Legacy, and Bitnob-only by construction: that is all the old name ever meant.
-    ...(provider === "bitnob" ? [`BITNOB_CORRIDOR_FEE_${cur}`] : []),
-  ];
+  const candidates = [`CORRIDOR_FEE_${prov}_${cur}`, `CORRIDOR_FEE_${cur}`];
 
   for (const envVar of candidates) {
     const raw = process.env[envVar];
@@ -144,13 +135,6 @@ export function getCorridorFee(provider: RampProviderName, currency: string): nu
     // so a deployment can override a broader key back down to zero for one corridor.
     if (raw == null) continue;
     if (raw === "") return 0;
-
-    if (envVar.startsWith("BITNOB_")) {
-      console.warn(
-        `[Fees] Using deprecated ${envVar}. Rename it to CORRIDOR_FEE_BITNOB_${cur} — the fee ` +
-          "belongs to whichever provider serves the corridor, and Bitnob is no longer the only one.",
-      );
-    }
 
     const fee = Number(raw);
     if (!Number.isFinite(fee) || fee < 0) {
@@ -189,14 +173,7 @@ export function getWithdrawalFeePercent(currency?: string): number {
     ? process.env[`WITHDRAWAL_FEE_PERCENT_${currency.toUpperCase()}`]
     : undefined;
 
-  // The legacy per-provider names are still read, so a deployment mid-rename keeps charging
-  // rather than refusing every withdrawal at once. They are equal in practice — both were 0.5
-  // — and Paycrest's no longer means what it used to now that its partner fee is zero.
-  const raw =
-    perCorridor ??
-    process.env.WITHDRAWAL_FEE_PERCENT ??
-    process.env.BITNOB_FEE_PERCENT ??
-    process.env.PAYCREST_FEE_PERCENT;
+  const raw = perCorridor ?? process.env.WITHDRAWAL_FEE_PERCENT;
 
   const percent = Number(raw);
 
