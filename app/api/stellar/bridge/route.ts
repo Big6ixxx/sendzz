@@ -250,7 +250,7 @@ export async function POST(req: Request) {
           console.log(`[Stellar/Bridge] Fee collected: ${feeResult.hash}`);
         } else if (feeAmount > 0) {
           console.error(
-            '[Stellar/Bridge] No fee treasury configured — set BITNOB_FEE_TREASURY_STELLAR',
+            '[Stellar/Bridge] No fee treasury configured — set FEE_TREASURY_STELLAR',
           );
         }
       } catch (feeErr) {

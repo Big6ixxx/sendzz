@@ -125,7 +125,7 @@ export async function POST(req: Request) {
     if (platformFeeUsdc > 0) {
       const treasury = getFeeTreasury('stellar');
       if (!treasury) {
-        console.error('[Stellar/Send] No fee treasury configured — set BITNOB_FEE_TREASURY_STELLAR');
+        console.error('[Stellar/Send] No fee treasury configured — set FEE_TREASURY_STELLAR');
         return NextResponse.json(
           { error: 'Sending on Stellar is unavailable right now. Please try another network.' },
           { status: 503 },
