@@ -61,6 +61,15 @@ function DialogContent({
         data-slot="dialog-content"
         className={cn(
           'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-2xl p-6 shadow-2xl duration-200 outline-none sm:max-w-lg',
+          // A centred fixed element with no height bound grows past BOTH edges of the screen
+          // once its content is taller than the viewport — and because it is fixed, the page
+          // cannot be scrolled to reach what is off-screen. The buttons at the bottom of a
+          // confirmation dialog become genuinely unclickable, not merely clipped.
+          //
+          // dvh rather than vh: on mobile Safari and Chrome, vh is the viewport with the
+          // browser chrome RETRACTED, so a vh-bound dialog is still cut off while the address
+          // bar is showing — which is exactly when someone is reading it.
+          'max-h-[calc(100dvh-2rem)] overflow-y-auto',
           'bg-[oklch(0.10_0.020_280/0.95)] backdrop-blur-3xl border border-white/10',
           '[box-shadow:0_0_0_1px_oklch(0.62_0.28_290/25%),0_24px_64px_oklch(0_0_0/60%)]',
           className,

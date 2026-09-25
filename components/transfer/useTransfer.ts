@@ -304,14 +304,11 @@ export function useTransfer({
         destination: recipientEmail,
         amount: amountUsdc,
       },
-      title: `Send $${parseFloat(amountUsdc || "0").toFixed(2)} to ${recipientEmail}`,
-      description:
-        "Enter your PIN to approve this transfer. Once it is sent it cannot be reversed.",
-      details: [
-        { label: "Amount", value: `$${parseFloat(amountUsdc || "0").toFixed(2)}` },
-        { label: "To", value: recipientEmail },
-        ...(memo ? [{ label: "Note", value: memo }] : []),
-      ],
+      amount: `$${parseFloat(amountUsdc || "0").toFixed(2)}`,
+      destination: recipientEmail,
+      warning: "Once it is sent it cannot be reversed.",
+      // The note is the only thing the headline does not already carry.
+      details: memo ? [{ label: "Note", value: memo }] : undefined,
       plan,
       confirmLabel: "Send",
     });

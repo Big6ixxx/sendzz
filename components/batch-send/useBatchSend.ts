@@ -110,14 +110,13 @@ export function useBatchSend(
         destination: [...targets].map((e) => e.toLowerCase()).sort().join(","),
         amount: total,
       },
-      title: `Send $${total.toFixed(2)} to ${targets.length} ${targets.length === 1 ? "person" : "people"}`,
-      description:
-        "Enter your PIN to approve this batch. Each person is paid separately, and payments " +
-        "that succeed cannot be reversed.",
+      amount: `$${total.toFixed(2)}`,
+      destination: `${targets.length} ${targets.length === 1 ? "person" : "people"}`,
+      warning:
+        "Each person is paid separately, and payments that succeed cannot be reversed.",
+      // The per-person figure is not derivable from the headline at a glance, so it stays.
       details: [
         { label: "Each receives", value: `$${amountUsd.toFixed(2)}` },
-        { label: "Recipients", value: String(targets.length) },
-        { label: "Total", value: `$${total.toFixed(2)}` },
         ...(note ? [{ label: "Note", value: note }] : []),
       ],
       plan: describeBatch({

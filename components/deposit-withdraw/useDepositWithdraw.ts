@@ -980,19 +980,17 @@ export function useDepositWithdraw(
         amount: amountUsdc,
         chain: withdrawChain,
       },
-      title: `Withdraw to ${bankDetails.accountName || bankDetails.accountNumber}`,
-      description:
-        "Enter your PIN to approve this withdrawal. Once the payout is sent to your bank it " +
-        "cannot be recalled.",
+      // The headline is what LANDS in the bank, because that is the number someone set out to
+      // achieve. What it costs them is a row below, where it is still impossible to miss.
+      amount: payout
+        ? `${payout.toLocaleString()} ${fiatCurrency}`
+        : `${amountUsdc.toFixed(2)} USDC`,
+      destination: [bankDetails.accountName, bankDetails.bankName || bankDetails.bankCode]
+        .filter(Boolean)
+        .join(" · "),
+      warning: "Once the payout is sent to your bank it cannot be recalled.",
       details: [
-        {
-          label: "They receive",
-          value: payout
-            ? `${payout.toLocaleString()} ${fiatCurrency}`
-            : `${amountUsdc.toFixed(2)} USDC`,
-        },
         { label: "Account", value: bankDetails.accountNumber },
-        { label: "Bank", value: bankDetails.bankName || bankDetails.bankCode || "—" },
         { label: "Total deducted", value: `${totalUsdcRequired.toFixed(2)} USDC` },
       ],
       plan,

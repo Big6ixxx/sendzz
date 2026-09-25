@@ -359,15 +359,11 @@ export function ChainBridgeModule({
     const authorization = await authorize({
       purpose: "bridge",
       payload: { destination: dest, amount, chain: source },
-      title: `Move ${parseFloat(amount || "0").toFixed(2)} USDC to ${CHAIN_DISPLAY_NAMES[dest] ?? dest}`,
-      description:
-        "Enter your PIN to approve this bridge. Moving funds between networks cannot be " +
-        "undone once it starts.",
-      details: [
-        { label: "Amount", value: `${parseFloat(amount || "0").toFixed(2)} USDC` },
-        { label: "From", value: CHAIN_DISPLAY_NAMES[source] ?? source },
-        { label: "To", value: CHAIN_DISPLAY_NAMES[dest] ?? dest },
-      ],
+      amount: `${parseFloat(amount || "0").toFixed(2)} USDC`,
+      destination: `${CHAIN_DISPLAY_NAMES[source] ?? source} → ${CHAIN_DISPLAY_NAMES[dest] ?? dest}`,
+      warning: "Moving funds between networks cannot be undone once it starts.",
+      // No detail rows. The amount and the route are the whole of it and they are already the
+      // headline; the three rows this replaces restated the heading word for word.
       plan: describeBridge({ amount, sourceChain: source, destChain: dest }),
       confirmLabel: "Start bridge",
     });

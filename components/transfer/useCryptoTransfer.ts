@@ -323,15 +323,13 @@ export function useCryptoTransfer({
     const token = await authorize({
       purpose: "crypto_transfer",
       payload: { destination: recipientAddress, amount: sendAmount, chain },
-      title: `Send ${parseFloat(sendAmount || "0").toFixed(2)} USDC`,
-      description:
-        "Enter your PIN to approve this transfer. Sending to a wallet address cannot be undone — " +
-        "check the address and the network before you confirm.",
-      details: [
-        { label: "Amount", value: `${parseFloat(sendAmount || "0").toFixed(2)} USDC` },
-        { label: "To", value: recipientAddress },
-        { label: "Network", value: chainLabel },
-      ],
+      amount: `${parseFloat(sendAmount || "0").toFixed(2)} USDC`,
+      destination: recipientAddress,
+      warning:
+        "Sending to a wallet address cannot be undone — check the address and the network " +
+        "before you confirm.",
+      // The network is not in the headline and getting it wrong loses the money, so it stays.
+      details: [{ label: "Network", value: chainLabel }],
       plan: describeCryptoSend({
         amount: sendAmount,
         recipient: recipientAddress,
