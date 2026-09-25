@@ -132,23 +132,11 @@ describe('treasuryFor', () => {
 
   afterEach(() => {
     set('FEE_TREASURY_BASE', undefined);
-    set('BITNOB_FEE_TREASURY_BASE', undefined);
   });
 
   it('reads the current name', () => {
     set('FEE_TREASURY_BASE', '0xabc');
     expect(treasuryFor('base')).toBe('0xabc');
-  });
-
-  it('falls back to the legacy name so a mid-rename deploy keeps collecting', () => {
-    set('BITNOB_FEE_TREASURY_BASE', '0xlegacy');
-    expect(treasuryFor('base')).toBe('0xlegacy');
-  });
-
-  it('prefers the current name when both are set', () => {
-    set('FEE_TREASURY_BASE', '0xnew');
-    set('BITNOB_FEE_TREASURY_BASE', '0xlegacy');
-    expect(treasuryFor('base')).toBe('0xnew');
   });
 
   it('is undefined for an unconfigured chain, so the caller can fail closed', () => {

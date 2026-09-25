@@ -46,28 +46,15 @@ export interface ProviderFee {
 /**
  * Where fees land, per settlement network. A self-custodial wallet we hold the keys to.
  *
- * `BITNOB_FEE_TREASURY_<CHAIN>` is read as a fallback so a deployment mid-rename keeps
- * collecting rather than failing closed on every chain at once. The old name was always a
- * misnomer — the same addresses serve bridges and external sends too (see
- * lib/fees/platform-fees.ts), and now both ramp providers as well — so new deployments should
- * set `FEE_TREASURY_<CHAIN>` and the legacy name can be dropped once nothing reads it.
+ * `FEE_TREASURY_<CHAIN>`, and nothing else. The address serves bridges and external sends as
+ * well as both ramp providers (see lib/fees/platform-fees.ts), so a provider's name in the
+ * variable was always a misnomer.
  *
  * Fill the ones you use. An unset chain fails closed at withdrawal time rather than settling
  * without collecting, so we never quietly give the service away on a chain nobody configured.
  */
 export function treasuryFor(chain: string): string | undefined {
-  const key = chain.toUpperCase();
-  const current = process.env[`FEE_TREASURY_${key}`];
-  if (current) return current;
-
-  const legacy = process.env[`BITNOB_FEE_TREASURY_${key}`];
-  if (legacy) {
-    console.warn(
-      `[Fees] Using deprecated BITNOB_FEE_TREASURY_${key}. Rename it to FEE_TREASURY_${key} — ` +
-        "the address serves bridges, external sends and both ramp providers, not just Bitnob.",
-    );
-  }
-  return legacy;
+  return process.env[`FEE_TREASURY_${chain.toUpperCase()}`] || undefined;
 }
 
 const FEE_TREASURY_CHAINS = [
