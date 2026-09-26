@@ -1,6 +1,10 @@
 {
   "name": "sendzz",
   "version": "1.0.0",
+  "packageManager": "pnpm@12.5.1",
+  "engines": {
+    "node": ">=22"
+  },
   "private": true,
   "scripts": {
     "dev": "next dev",
