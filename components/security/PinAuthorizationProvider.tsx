@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/dialog";
 import { ForgotPinDialog } from "@/components/security/ForgotPinDialog";
 import { PinInput } from "@/components/security/PinInput";
+import { PinSetup } from "@/components/PasskeySetupWizard";
 import {
   durationEstimate,
   signatureCount,
@@ -224,6 +225,7 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
   const [busy, setBusy] = useState(false);
   const [forgotOpen, setForgotOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
+  const [needsSetup, setNeedsSetup] = useState(false);
 
   // The promise the caller is awaiting. Held in a ref because resolving it must not depend on
   // a re-render having happened — the dialog closes and the payment continues in the same tick.
@@ -235,6 +237,7 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
     setRequest(null);
     setPin("");
     setError(null);
+    setNeedsSetup(false);
     setBusy(false);
     resolve?.(token);
   }, []);
@@ -252,6 +255,7 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
         resolverRef.current = resolve;
         setPin("");
         setError(null);
+        setNeedsSetup(false);
 
         // Decided once, here, as the prompt opens — not in an effect reacting to it. Flipping
         // the disclosure under somebody who has started reading would be worse than either
@@ -281,6 +285,19 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
         }),
       });
       const data = await res.json();
+
+      // No PIN exists yet. Every other rejection here means "you typed the wrong one", and
+      // showing this one the same way leaves somebody retyping a PIN that was never set —
+      // which is exactly what happens when the setup gate on the dashboard has not run, for
+      // whatever reason. The payment is not abandoned: the request stays pending, they set a
+      // PIN here, and then approve with it.
+      if (data.code === "no_pin") {
+        setNeedsSetup(true);
+        setPin("");
+        setError(null);
+        setBusy(false);
+        return;
+      }
 
       if (!res.ok || !data.authorization) {
         // The server's wording carries the attempts left, or how long a lockout has to run.
@@ -329,6 +346,28 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
             </div>
           </DialogHeader>
 
+          {needsSetup ? (
+            /* No PIN exists, and we only found out at the moment of paying. Rather than
+               reject and drop them back to the form, the pending authorisation is held open
+               and setup happens right here — then they approve with the PIN they just chose.
+               The alternative is a dead end: an error under four empty boxes, and no way from
+               there to the screen that would fix it. */
+            <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-4">
+              <p className="text-[13px] text-brand-secondary/60 leading-relaxed">
+                You have not set a transaction PIN yet. Choose one now — it takes a moment, and
+                this payment carries on straight after.
+              </p>
+              <PinSetup onDone={() => setNeedsSetup(false)} />
+              <button
+                type="button"
+                onClick={() => settle(null)}
+                className="w-full text-[12.5px] text-brand-secondary/45 hover:text-brand-secondary/80 transition-colors"
+              >
+                Cancel this payment
+              </button>
+            </div>
+          ) : (
+            <>
           {/* ── The detail, which is the only part allowed to scroll ────────── */}
           <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-3">
             {request?.warning && (
@@ -456,6 +495,8 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
               </button>
             </div>
           </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 

@@ -36,16 +36,33 @@ export function usePinStatus(enabled: boolean) {
     if (!enabled) return;
     let cancelled = false;
 
-    fetch("/api/2fa/pin")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (cancelled || !data) return;
-        setHasPin(!!data.enabled);
-      })
-      // A failed check leaves this null rather than false. Guessing "no PIN" on a network
-      // blip would throw the setup screen at someone who already has one, and there is no
-      // way for them to dismiss it.
-      .catch(() => undefined);
+    // Retried, because giving up once is giving up for the whole session.
+    //
+    // A failed check leaves `hasPin` null, and null keeps the gate SHUT — the right call on
+    // its own terms, since guessing "no PIN" would throw an undismissable setup screen at
+    // somebody who already has one. But it also means a single bad response, at the one
+    // moment this runs, silently costs that user the setup prompt entirely. They then meet
+    // the PIN at the till instead, asked for something nobody told them to create.
+    //
+    // The window is real: this fires the instant Privy reports ready, which is also when the
+    // session cookie is newest and the account row may still be being written.
+    let attempt = 0;
+    const check = () => {
+      fetch("/api/2fa/pin")
+        .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+        .then((data) => {
+          if (cancelled) return;
+          setHasPin(!!data.enabled);
+        })
+        .catch(() => {
+          if (cancelled || attempt >= 3) return;
+          attempt += 1;
+          // 1s, 2s, 4s. Long enough to outlast a cold start, short enough to land before
+          // anyone has navigated to a payment screen.
+          setTimeout(check, 1000 * 2 ** (attempt - 1));
+        });
+    };
+    check();
 
     return () => {
       cancelled = true;

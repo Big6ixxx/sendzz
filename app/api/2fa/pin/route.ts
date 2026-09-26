@@ -79,7 +79,13 @@ async function checkPin(
   profile: PinProfile,
 ): Promise<NextResponse | null> {
   if (!profile?.pin_hash) {
-    return NextResponse.json({ error: "No PIN is set up." }, { status: 400 });
+    // `code` so the client can act on this rather than parse the sentence. It is the one
+    // rejection here that is not "you got it wrong" — there is nothing to get right yet, so a
+    // caller that only shows `error` leaves somebody retyping a PIN that does not exist.
+    return NextResponse.json(
+      { error: "You have not set a transaction PIN yet.", code: "no_pin" },
+      { status: 400 },
+    );
   }
 
   const state = {
