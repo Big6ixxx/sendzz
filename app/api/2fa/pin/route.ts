@@ -179,21 +179,55 @@ export async function POST(req: Request) {
         }
       }
 
+      // Upsert, not update, and the row is counted afterwards.
+      //
+      // An UPDATE that matches nothing is not an error in Postgres — it is a successful
+      // statement that changed zero rows. This used to `.update().eq("email", …)` against a
+      // `user_profiles` row that, for accounts created after migration 022, frequently does
+      // not exist: profiles were only ever created by a trigger on `auth.users`, and Privy
+      // means nothing has inserted into `auth.users` since. So the write silently did
+      // nothing, this returned `{ success: true }`, the user was congratulated on setting a
+      // PIN, and then could not spend their own money — every payment asked for a PIN that
+      // was never stored.
+      //
+      // `id` is required because it is the primary key with no default. It is the same id as
+      // `public.users`, which is what migration 022 backfilled and what emailPrefs already
+      // assumes.
+      if (!userId) {
+        // No account row at all is a different failure, and not one to paper over: a profile
+        // keyed to nothing would break every later lookup in a harder-to-find way.
+        console.error(`[PIN] no users row for ${email}; refusing to create an orphan profile.`);
+        return NextResponse.json({ error: "Could not save your PIN." }, { status: 500 });
+      }
+
       const { hash } = await hashPin(pin);
-      const { error } = await supabaseAdmin
+      const { data: saved, error } = await supabaseAdmin
         .from("user_profiles")
-        .update({
-          pin_hash: hash,
-          pin_set_at: new Date().toISOString(),
-          pin_failed_attempts: 0,
-          pin_locked_until: null,
-        })
-        .eq("email", email);
+        .upsert(
+          {
+            id: userId,
+            email,
+            pin_hash: hash,
+            pin_set_at: new Date().toISOString(),
+            pin_failed_attempts: 0,
+            pin_locked_until: null,
+          },
+          { onConflict: "id" },
+        )
+        .select("id");
 
       if (error) {
         console.error("[PIN] failed to store:", error.message);
         return NextResponse.json({ error: "Could not save your PIN." }, { status: 500 });
       }
+
+      // The point of the select: "no error" and "wrote something" are different claims, and
+      // telling somebody their PIN is set when it is not is the whole bug above.
+      if (!saved || saved.length === 0) {
+        console.error(`[PIN] upsert affected no rows for ${email}`);
+        return NextResponse.json({ error: "Could not save your PIN." }, { status: 500 });
+      }
+
       return NextResponse.json({ success: true });
     }
 

@@ -39,6 +39,34 @@ function normalize(email: string): string {
 }
 
 /** The account row for this email, creating one if it does not exist yet. */
+/**
+ * The `user_profiles` row that every account is supposed to have.
+ *
+ * Kept next to account creation because that is the only moment it is guaranteed to happen.
+ * The original mechanism was a trigger on `auth.users` (migration 001) — which has never
+ * fired here: Privy is the identity, so nothing writes to Supabase's auth schema. Migration
+ * 022 backfilled everyone who existed at the time, and after that profiles appeared only by
+ * accident, when somebody happened to save notification preferences.
+ *
+ * That gap is not cosmetic. `user_profiles` holds pin_hash, totp_secret and the passkey list,
+ * so an account without one cannot hold a transaction PIN — and setting a PIN wrote through
+ * an UPDATE, which matches no rows and reports no error, so people were told they had one and
+ * then could not send money.
+ *
+ * Best-effort on purpose: the caller is usually mid-signup or mid-payment, and a profile that
+ * fails to materialise is recoverable later, whereas a sign-in that throws is not. Failures
+ * are logged rather than raised.
+ */
+async function ensureProfileRow(userId: string, email: string): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from('user_profiles')
+    .upsert({ id: userId, email }, { onConflict: 'id', ignoreDuplicates: true });
+
+  if (error) {
+    console.error(`[Users] could not ensure user_profiles for ${email}:`, error.message);
+  }
+}
+
 export async function ensureUserRecord(
   email: string,
   referralCode?: string | null,
@@ -52,6 +80,11 @@ export async function ensureUserRecord(
     .maybeSingle();
 
   if (existing?.id) {
+    // Also for an EXISTING row, not only a new one. Every account created between migration
+    // 022 and this change is missing its profile, and sign-in is the reliable moment to
+    // notice — waiting for a migration to reach production leaves those people unable to set
+    // a PIN in the meantime.
+    await ensureProfileRow(existing.id, normalizedEmail);
     // Attribution still runs for an existing row, because a user can be created by somebody
     // ELSE sending them money — pre-generate makes the row before they have ever signed in —
     // and this may be the first moment a code they clicked can be honoured.
@@ -74,12 +107,14 @@ export async function ensureUserRecord(
       .eq('email', normalizedEmail)
       .single();
     if (retry?.id) {
+      await ensureProfileRow(retry.id, normalizedEmail);
       if (referralCode) await attributeReferral({ userId: retry.id, code: referralCode });
       return retry.id;
     }
     throw new Error(`Failed to ensure user in DB: ${error?.message}`);
   }
 
+  await ensureProfileRow(inserted.id, normalizedEmail);
   if (referralCode) await attributeReferral({ userId: inserted.id, code: referralCode });
   return inserted.id;
 }
