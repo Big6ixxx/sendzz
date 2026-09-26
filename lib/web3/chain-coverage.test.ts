@@ -13,6 +13,11 @@ import { VIEM_CHAINS } from '@/lib/web3/multichain';
 import { ALCHEMY_SUBDOMAIN, rpcUrls } from '@/lib/web3/rpc';
 import { EXPLORER_TX_BASE, explorerTxUrl } from '@/lib/explorers';
 import { EVM_CHAINS, RAMP_NETWORKS } from '@/lib/web3/routing';
+// Imported statically, not with `await import()` inside each test. Loading this module pulls in
+// viem, the Solana kit and the Stellar SDK, which took ~3.9s — charged against the first test's
+// 5s budget, so the whole file passed or failed on how warm the module cache happened to be.
+// At the top it is collection cost, which is measured separately and shared by every case.
+import { claimBridgeOnDestination } from './bridge-claim';
 
 /**
  * Every EVM chain must be registered everywhere, not just in the maps the compiler checks.
@@ -42,7 +47,6 @@ describe('chain registration is complete', () => {
     //
     // With no wallet supplied, a routed chain fails at the wallet check and an unrouted one
     // fails with "not supported". Only the second means the chain is unreachable.
-    const { claimBridgeOnDestination } = await import('./bridge-claim');
     const err = await claimBridgeOnDestination({
       destChain: chain,
       messageBytes: '0xdead',
@@ -58,7 +62,6 @@ describe('chain registration is complete', () => {
 
   it('still refuses a chain it genuinely cannot claim to', async () => {
     // Negative control: proves the assertion above can actually fail.
-    const { claimBridgeOnDestination } = await import('./bridge-claim');
     const err = await claimBridgeOnDestination({
       destChain: 'notachain',
       messageBytes: '0xdead',

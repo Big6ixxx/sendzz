@@ -41,15 +41,23 @@ export interface BridgeClaimParams {
 const CLAIM_TIMEOUT_MS = 120_000;
 
 function withClaimTimeout<T>(work: Promise<T>): Promise<T> {
-  return Promise.race([
-    work,
-    new Promise<never>((_, reject) =>
-      setTimeout(
-        () => reject(new Error('The claim is taking longer than expected. Please try again.')),
-        CLAIM_TIMEOUT_MS,
-      ),
-    ),
-  ]);
+  // The timer is cleared when the race settles, which is the whole point of holding a handle
+  // to it. `Promise.race` abandons the loser but does not cancel it, so the previous version
+  // left a two-minute timer pending on every claim — including the ones that returned in
+  // milliseconds, and including the ones that failed on the wallet check before doing any
+  // work at all. Harmless to the result, and a leak: enough of them keep an event loop from
+  // going idle, which is how this first showed up, as tests timing out on a code path that
+  // never touches the network.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const expiry = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error('The claim is taking longer than expected. Please try again.')),
+      CLAIM_TIMEOUT_MS,
+    );
+  });
+
+  return Promise.race([work, expiry]).finally(() => clearTimeout(timer));
 }
 
 /**
