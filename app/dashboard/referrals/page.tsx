@@ -23,6 +23,8 @@ import { toast } from 'sonner';
 import { explorerTxUrl } from '@/lib/explorers';
 import { getMyMerchantApplication, type MerchantApplication } from '@/lib/actions/merchant';
 import { MerchantApplicationCard } from '@/components/referrals/MerchantApplicationCard';
+import { referralsEnabled } from '@/lib/features';
+import { ComingSoon } from '@/components/ComingSoon';
 
 interface PayoutRow {
   id: string;
@@ -52,7 +54,27 @@ interface ReferralSummary {
   payouts: PayoutRow[];
 }
 
+/**
+ * The gate, kept in a wrapper rather than an early return inside the component below.
+ *
+ * An early return before the hooks is what rules-of-hooks exists to catch, and the rule is
+ * right even here: the flag happens to be a build-time constant, so the order could not
+ * actually vary, but a reader has to know that to know the code is safe. A wrapper needs no
+ * such argument — the real component either mounts with all its hooks or does not mount.
+ */
 export default function ReferralsPage() {
+  if (!referralsEnabled()) {
+    return (
+      <ComingSoon
+        title="Refer & Earn"
+        body="Earn a share of what the people you bring to Sendzz withdraw. We are finishing the payout side before opening it up — nothing is lost in the meantime."
+      />
+    );
+  }
+  return <ReferralsDashboard />;
+}
+
+function ReferralsDashboard() {
   const { ready, authenticated } = usePrivy();
   const [data, setData] = useState<ReferralSummary | null>(null);
   const [application, setApplication] = useState<MerchantApplication | null>(null);

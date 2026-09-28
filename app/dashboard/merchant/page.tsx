@@ -37,6 +37,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { referralsEnabled } from '@/lib/features';
+import { ComingSoon } from '@/components/ComingSoon';
 
 /**
  * The single series colour.
@@ -87,7 +89,27 @@ function monthLabel(key: string): string {
   });
 }
 
+/**
+ * The gate, kept in a wrapper rather than an early return inside the component below.
+ *
+ * An early return before the hooks is what rules-of-hooks exists to catch, and the rule is
+ * right even here: the flag happens to be a build-time constant, so the order could not
+ * actually vary, but a reader has to know that to know the code is safe. A wrapper needs no
+ * such argument — the real component either mounts with all its hooks or does not mount.
+ */
 export default function MerchantPage() {
+  if (!referralsEnabled()) {
+    return (
+      <ComingSoon
+        title="Merchants"
+        body="The Merchant track pays a higher rate for bringing a community to Sendzz. It opens alongside Refer & Earn."
+      />
+    );
+  }
+  return <MerchantDashboard />;
+}
+
+function MerchantDashboard() {
   const { ready, authenticated } = usePrivy();
   const [data, setData] = useState<MerchantData | null>(null);
   const [loading, setLoading] = useState(true);

@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { referralsEnabled } from "@/lib/features";
 import {
   Bell,
   ChevronLeft,
@@ -24,7 +25,7 @@ const NAV_ITEMS = [
   { name: "Transfer", href: "/dashboard/transfer", icon: Send },
   { name: "Bridge", href: "/dashboard/bridge", icon: Repeat },
   { name: "History", href: "/dashboard/history", icon: History },
-  { name: "Refer & Earn", href: "/dashboard/referrals", icon: Gift },
+  { name: "Refer & Earn", href: "/dashboard/referrals", icon: Gift, feature: "referrals" },
   { name: "Notifications", href: "/dashboard/notifications", icon: Bell },
   { name: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
@@ -163,6 +164,44 @@ export function Sidebar({
           <nav className="flex-1 space-y-1">
             {NAV_ITEMS.map((item) => {
               const active = pathname === item.href;
+
+              // Not ready yet: shown, labelled, and inert. Rendered as a div rather than a
+              // Link so there is nothing to click, nothing to middle-click into a new tab,
+              // and nothing for a keyboard to focus — a disabled-looking anchor that still
+              // navigates is worse than no treatment at all.
+              if (item.feature === "referrals" && !referralsEnabled()) {
+                return (
+                  <div
+                    key={item.name}
+                    title={isCollapsed ? `${item.name} — coming soon` : undefined}
+                    aria-disabled="true"
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium relative cursor-default select-none",
+                      isCollapsed && "lg:justify-center lg:px-0",
+                    )}
+                    style={{ color: "rgba(248,248,246,0.22)" }}
+                  >
+                    <item.icon className="w-4.5 h-4.5 shrink-0" />
+                    <span className={cn("transition-all duration-300", isCollapsed ? "lg:hidden" : "inline")}>
+                      {item.name}
+                    </span>
+                    <span
+                      className={cn(
+                        "absolute top-1 right-2 text-[9px] font-bold uppercase tracking-[0.12em] px-1.5 py-0.5 rounded-full",
+                        isCollapsed && "lg:hidden",
+                      )}
+                      style={{
+                        color: "rgba(0,232,122,0.75)",
+                        background: "rgba(0,232,122,0.10)",
+                        border: "1px solid rgba(0,232,122,0.20)",
+                      }}
+                    >
+                      Soon
+                    </span>
+                  </div>
+                );
+              }
+
               return (
                 <Link
                   key={item.name}
