@@ -2,7 +2,7 @@ import { Database, Json } from '@/types/database';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 import { verifyBitnobSignature } from '@/lib/bitnob/webhook-signature';
-import { triggerWithdrawalNotifications } from '@/lib/supabase/transactions';
+import { clearOnchainDepositShadow, triggerWithdrawalNotifications } from '@/lib/supabase/transactions';
 import { accrueReferralEarning, voidReferralEarning } from '@/lib/referrals/accrue';
 import { releaseBenefitsForOrder } from '@/lib/referrals/benefits';
 
@@ -438,6 +438,17 @@ export async function POST(req: Request) {
       // Fiat deposit (on-ramp)
       const txHash = (data?.txHash || data?.hash || null) as string | null;
       const status = isSuccess ? 'confirmed' : isReversal ? 'reversed' : 'failed';
+
+      // A fiat deposit settles by sending USDC on chain, which the scanner and the Alchemy
+      // webhook both see as an ordinary arrival — so the same money can already be sitting
+      // there as an unattributed on-chain deposit. Drop that shadow before this row takes the
+      // hash, or the user is shown one deposit twice, the second time described as something
+      // they never did.
+      //
+      // Dormant for now: fiat deposits run through Paycrest only, which has always done this,
+      // and Bitnob is used for payouts. Kept so the day this branch goes live it is not a bug.
+      if (txHash) await clearOnchainDepositShadow(orderId, txHash);
+
       const { error } = await supabaseAdmin
         .from('deposits')
         .update({ status, ...(txHash ? { tx_hash: txHash } : {}) })

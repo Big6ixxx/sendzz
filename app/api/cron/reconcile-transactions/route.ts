@@ -219,7 +219,11 @@ export async function GET(req: Request) {
     }
   }
 
-  console.log(`[Reconcile Bitnob] checked=${stuck?.length ?? 0}`, JSON.stringify(results));
+  // Silent when there was nothing stuck to look at, which is the normal state. A line every two
+  // minutes saying nothing happened is what buries the one that says something did.
+  if (stuck && stuck.length > 0) {
+    console.log(`[Reconcile Bitnob] checked=${stuck.length}`, JSON.stringify(results));
+  }
 
   // ── Sends that were broadcast but never confirmed back to us ───────────────
   //
@@ -236,7 +240,10 @@ export async function GET(req: Request) {
   const { pruneDeadSessions } = await import('@/lib/auth/session');
   const sessionsPruned = await pruneDeadSessions();
 
-  // ── On-chain deposit indexing for a rotating batch of stale users ───────────
+  // ── Stellar deposits: every run, because nothing else watches them ─────────
+  const stellar = await sweepStellar();
+
+  // ── Full on-chain sweep: once per user per day ─────────────────────────────
   const deposits = await scanStaleUsers();
 
   // ── Money we owe, and money with nowhere to go ─────────────────────────────
@@ -281,6 +288,7 @@ export async function GET(req: Request) {
     checked: stuck?.length ?? 0,
     results,
     deposits,
+    stellar,
     sends,
     sessionsPruned,
     refundsOutstanding: { count: owed?.length ?? 0, totalUsdc: owedTotal },
@@ -289,6 +297,117 @@ export async function GET(req: Request) {
 }
 
 /** Scan the least-recently-scanned users for new on-chain USDC deposits, within a time budget. */
+/**
+ * Stellar addresses swept per run.
+ *
+ * This is the whole cost of the pass, and it does NOT grow with the user base: 20 Horizon
+ * requests every couple of minutes whether there are 20 Stellar users or 2,000. What grows
+ * instead is how long a full lap takes — users ÷ 20 runs — which only sets how stale the
+ * BACKSTOP can be. Opening the app scans that user's own address immediately (see
+ * getUserActivities), so this pass only has to cover people who are not looking.
+ */
+const STELLAR_SWEEP_BATCH = 20;
+
+/**
+ * Move a Stellar address to the back of the sweep queue.
+ *
+ * Called BEFORE the scan, not after, for two reasons: a scan that then advances the cursor
+ * overwrites this row with the correct value anyway, and a scan that throws has still given up
+ * its turn instead of blocking the queue behind it.
+ *
+ * `deposit_sync_state` is reused as the rotation key rather than adding a column. On its own it
+ * would be a poor one — it is a CURSOR, written only when a scan finds something new, so a quiet
+ * account would never move and would be handed back forever. Touching it on every sweep is what
+ * turns it into "when did we last look", which is the question the ordering actually asks.
+ *
+ * It updates the timestamp and NEVER the cursor. An upsert carrying a cursor read at the top of
+ * the sweep would write that value back — and a scan triggered from the app in the meantime may
+ * already have moved it on, so the sweep would quietly rewind another scan's progress and re-read
+ * a window it had finished with. Only the row's absence is worth writing, and then with no cursor
+ * at all, which reads as "never scanned".
+ */
+async function touchStellarSweep(userId: string): Promise<void> {
+  const { data, error } = await supabaseAdmin
+    .from('deposit_sync_state')
+    .update({ updated_at: new Date().toISOString() })
+    .eq('user_id', userId)
+    .eq('chain', 'stellar')
+    .select('user_id');
+
+  if (error) {
+    console.error('[Reconcile Stellar] could not touch sweep cursor:', error.message);
+    return;
+  }
+  if (data && data.length > 0) return;
+
+  // No row yet: this address has never been scanned. Claim its turn without inventing a cursor.
+  const { error: insertError } = await supabaseAdmin
+    .from('deposit_sync_state')
+    .insert({ user_id: userId, chain: 'stellar', cursor: null });
+  // A concurrent run inserting first is a duplicate-key error and is not worth reporting.
+  if (insertError && insertError.code !== '23505') {
+    console.error('[Reconcile Stellar] could not claim sweep turn:', insertError.message);
+  }
+}
+
+/**
+ * Sweep the least-recently-checked Stellar addresses for incoming USDC.
+ *
+ * Why Stellar gets its own pass at all: see the `rails` option in lib/web3/deposit-scanner.
+ * Horizon is free but rate-limited per IP, which is what the fixed batch above protects.
+ */
+async function sweepStellar(): Promise<{ scanned: number; inserted: number }> {
+  const [{ data: users, error }, { data: state }] = await Promise.all([
+    supabaseAdmin.from('users').select('id, stellar_address').not('stellar_address', 'is', null),
+    supabaseAdmin.from('deposit_sync_state').select('user_id, updated_at').eq('chain', 'stellar'),
+  ]);
+
+  if (error) {
+    console.error('[Reconcile Stellar] user query failed:', error.message);
+    return { scanned: 0, inserted: 0 };
+  }
+  if (!users || users.length === 0) return { scanned: 0, inserted: 0 };
+
+  const lastSwept = new Map((state ?? []).map((r) => [r.user_id, r]));
+
+  // Never swept first, then longest ago. A user with no row at all has never been looked at, so
+  // they outrank everyone — that is also every user on the first run after this ships.
+  const due = [...users]
+    .sort((a, b) => {
+      const ta = lastSwept.get(a.id)?.updated_at;
+      const tb = lastSwept.get(b.id)?.updated_at;
+      if (!ta && !tb) return 0;
+      if (!ta) return -1;
+      if (!tb) return 1;
+      return Date.parse(ta) - Date.parse(tb);
+    })
+    .slice(0, STELLAR_SWEEP_BATCH);
+
+  const { scanUsdcDeposits } = await import('@/lib/web3/deposit-scanner');
+  let scanned = 0;
+  let inserted = 0;
+
+  for (const u of due) {
+    try {
+      await touchStellarSweep(u.id);
+      inserted += await scanUsdcDeposits({
+        userId: u.id,
+        address: '',
+        stellarAddress: u.stellar_address ?? undefined,
+        rails: 'stellar',
+      });
+      scanned++;
+    } catch (e) {
+      console.error('[Reconcile Stellar] sweep failed:', e instanceof Error ? e.message : e);
+    }
+  }
+
+  if (inserted > 0) {
+    console.log(`[Reconcile Stellar] swept ${scanned} address(es), ${inserted} new deposit(s)`);
+  }
+  return { scanned, inserted };
+}
+
 async function scanStaleUsers(): Promise<{ scanned: number; inserted: number }> {
   // Once per user per day, measured from midnight UTC.
   //

@@ -518,6 +518,12 @@ async function scanStellar(
     const res = await fetch(url);
     // account not funded yet — nothing to scan
     if (res.status === 404) return { chain: 'stellar', rows: [], nextCursor: null };
+    // 429 named explicitly: it is the one Horizon failure that means "slow down" rather than
+    // "something is wrong", and it is what a sweep of every Stellar address would hit first.
+    // The scan aborts without advancing its cursor, so the next run re-reads the same window.
+    if (res.status === 429) {
+      throw new Error('Horizon rate limit (429) — Stellar sweep backing off, will retry next run');
+    }
     if (!res.ok) throw new Error(`Horizon payments ${res.status}`);
 
     const json = (await res.json()) as { _embedded?: { records?: HorizonPayment[] } };
@@ -573,11 +579,22 @@ export async function scanUsdcDeposits(params: {
   address: string;
   solanaAddress?: string;
   stellarAddress?: string;
+  /**
+   * Which rails to sweep.
+   *
+   * 'all' is the daily backstop. 'stellar' is the frequent pass, and exists because Stellar has
+   * no deposit webhook — Alchemy does not cover it, so this sweep is the only thing that ever
+   * sees a Stellar payment. The EVM chains are left out of it deliberately: they ARE watched by
+   * a webhook, and every EVM chain in a sweep costs one billed `alchemy_getAssetTransfers` call.
+   */
+  rails?: 'all' | 'stellar';
 }): Promise<number> {
+  const rails = params.rails ?? 'all';
   const { userId } = params;
   const address = params.address?.toLowerCase();
   const apiKey = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || '';
   if (!address && !params.solanaAddress && !params.stellarAddress) return 0;
+  if (rails === 'stellar' && !params.stellarAddress) return 0;
 
   const throttleKey = address || params.solanaAddress || params.stellarAddress!;
   const now = Date.now();
@@ -590,7 +607,7 @@ export async function scanUsdcDeposits(params: {
 
   const scans = await Promise.all([
     // EVM chains (parallel, per-chain best-effort)
-    ...(apiKey && address
+    ...(rails === 'all' && apiKey && address
       ? DEPOSIT_CHAINS.map(async (chain) => {
           try {
             return await scanEvmChain(userId, chain, address, apiKey, cursors.get(chain) ?? null, known);
@@ -600,7 +617,7 @@ export async function scanUsdcDeposits(params: {
           }
         })
       : []),
-    // Solana — SWITCHED OFF, see SOLANA_SCAN_DISABLED below.
+    // Solana — SWITCHED OFF, see the note above ALCHEMY_SUBDOMAIN.
     // params.solanaAddress
     //   ? (async () => {
     //       try {
@@ -660,11 +677,18 @@ export async function scanUsdcDeposits(params: {
       .map((b) => writeCursor(userId, b.chain, b.nextCursor!)),
   );
 
-  // Mark this user scanned so the reconcile cron rotates fairly (least-recently-scanned first).
-  await supabaseAdmin
-    .from('users')
-    .update({ last_deposit_scan_at: new Date().toISOString() })
-    .eq('id', userId);
+  // Mark this user scanned so the daily sweep rotates fairly (least-recently-scanned first).
+  //
+  // Only the full sweep claims that slot. A Stellar-only pass deliberately stamps NOTHING: it
+  // visits every Stellar address on every run rather than a rotating batch, so it needs no
+  // rotation key of its own — and stamping this one would make the user look freshly scanned,
+  // so their EVM chains would never come due and six chains would go dark at once.
+  if (rails === 'all') {
+    await supabaseAdmin
+      .from('users')
+      .update({ last_deposit_scan_at: new Date().toISOString() })
+      .eq('id', userId);
+  }
 
   if (inserted > 0) console.log(`[DepositScan] recorded ${inserted} new deposit(s) for ${userId}`);
   return inserted;

@@ -199,6 +199,38 @@ export async function recordTransfer(params: {
       console.error("[Supabase] Failed to record transfer:", insertError);
     }
 
+    // ── Remove a deposit the same transaction may already have been credited as ─
+    //
+    // The webhook and this function race. A Sendzz-to-Sendzz send is an ordinary incoming USDC
+    // transfer on chain, so Alchemy reports it within seconds — often before the browser gets
+    // here to write the transfer row. The webhook now skips hashes it can already see on the
+    // ledger, but it cannot skip a row that does not exist yet, so whichever side loses the race
+    // has to clean up. This is that side.
+    //
+    // Scoped hard: the recipient's own row, this exact hash, and only `provider = 'onchain'`,
+    // which is the scanner/webhook's own marker. A real fiat deposit is never touched.
+    if (transferId && params.txHash && recipient?.id) {
+      try {
+        const { data: removed } = await supabaseAdmin
+          .from("deposits")
+          .delete()
+          .eq("user_id", recipient.id)
+          .eq("tx_hash", params.txHash.toLowerCase())
+          .eq("provider", "onchain")
+          .select("id");
+        if (removed?.length) {
+          console.log(
+            `[Supabase] ${params.txHash.slice(0, 14)} was credited as a deposit before this ` +
+              `transfer was recorded — removed ${removed.length} duplicate(s).`,
+          );
+        }
+      } catch (e) {
+        // Non-fatal. The transfer is the record that matters; a surviving duplicate is visible
+        // in the admin ledger and can be removed by hand.
+        console.error("[Supabase] could not clear duplicate deposit:", e);
+      }
+    }
+
     if (!insertError) {
       console.log("[Supabase] Transfer recorded successfully");
 
@@ -1634,6 +1666,29 @@ export async function getUserActivities(accessToken?: string) {
         bridges: [],
       };
 
+    // Sweep this user's STELLAR address before reading the ledger, so a payment that just
+    // arrived is in this response rather than the next one.
+    //
+    // Stellar only. Sweeping the EVM chains from here is what made the Alchemy bill — every open
+    // tab swept six chains twice a minute, one billed call each — and they are covered by a
+    // webhook now. Stellar is not, and costs nothing to check. See `rails` in
+    // lib/web3/deposit-scanner.
+    //
+    // Throttled to 30s per address inside the scanner, so a polling client cannot turn this into
+    // a request per poll, and never blocks the history load on failure.
+    if (userRecord?.stellar_address) {
+      try {
+        const { scanUsdcDeposits } = await import("@/lib/web3/deposit-scanner");
+        await scanUsdcDeposits({
+          userId: internalId,
+          address: "",
+          stellarAddress: userRecord.stellar_address,
+          rails: "stellar",
+        });
+      } catch (e) {
+        console.error("[Supabase] stellar deposit scan failed (non-fatal):", e);
+      }
+    }
 
     const [
       { data: sent },

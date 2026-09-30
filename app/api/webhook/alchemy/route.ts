@@ -194,21 +194,77 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, credited: 0 });
     }
 
-    for (const r of rows) {
+    // ── Drop anything already on the ledger under another name ────────────────
+    //
+    // An incoming USDC transfer is not automatically a deposit. Three things arrive looking
+    // exactly like one, and all three are already recorded under a truer name:
+    //
+    //   a Sendzz-to-Sendzz send   → a transfer
+    //   a CCTP delivery           → a bridge
+    //   a fiat on-ramp settling   → a deposit the user made in their own currency
+    //
+    // The last one matters most for what the user is told. Someone who paid in naira did not
+    // make an on-chain deposit; the provider merely settled it on chain. Recording that second
+    // leg as its own deposit doubles the figure and describes something that never happened.
+    //
+    // The scanner has always checked the first two (see `knownHashes` in
+    // lib/web3/deposit-scanner); the webhook checked none, which is how one Base transfer showed
+    // up as a transfer AND a deposit. The `deposits` unique index does not help: it stops a
+    // duplicate row for the same (user, hash), and a fiat row carries a different provider.
+    const hashes = rows.map((r) => r.tx_hash);
+    const [{ data: received }, { data: minted }, { data: ramped }] = await Promise.all([
+      supabaseAdmin
+        .from('transfers')
+        .select('tx_hash, recipient_id')
+        .in('tx_hash', hashes)
+        .not('recipient_id', 'is', null),
+      supabaseAdmin
+        .from('bridge_transactions')
+        .select('mint_tx_hash, user_id')
+        .in('mint_tx_hash', hashes),
+      supabaseAdmin
+        .from('deposits')
+        .select('tx_hash, user_id')
+        .in('tx_hash', hashes)
+        .neq('provider', 'onchain'),
+    ]);
+
+    const alreadyLedgered = new Set<string>();
+    for (const r of received ?? []) {
+      if (r.tx_hash && r.recipient_id) alreadyLedgered.add(`${r.recipient_id}:${r.tx_hash.toLowerCase()}`);
+    }
+    for (const b of minted ?? []) {
+      if (b.mint_tx_hash && b.user_id) alreadyLedgered.add(`${b.user_id}:${b.mint_tx_hash.toLowerCase()}`);
+    }
+    for (const d of ramped ?? []) {
+      if (d.tx_hash && d.user_id) alreadyLedgered.add(`${d.user_id}:${d.tx_hash.toLowerCase()}`);
+    }
+
+    const fresh = rows.filter((r) => !alreadyLedgered.has(`${r.user_id}:${r.tx_hash}`));
+    const skipped = rows.length - fresh.length;
+    if (skipped > 0) {
+      console.log(
+        `${tag} ${chain}: ${skipped} arrival(s) already recorded as a transfer, bridge or ` +
+          `fiat deposit — not credited again`,
+      );
+    }
+    if (fresh.length === 0) return NextResponse.json({ ok: true, credited: 0 });
+
+    for (const r of fresh) {
       console.log(`${tag} ${chain} <- ${r.amount_usdc} USDC to ${r.user_id} tx=${r.tx_hash}`);
     }
 
     // The same insert the scanner uses: upsert on (user_id, tx_hash), so an arrival the cron
     // already found is a no-op rather than a duplicate credit, and the deposit email fires once.
-    const credited = await insertDeposits(rows);
+    const credited = await insertDeposits(fresh);
 
     // `credited` counts rows that actually landed. Fewer than we saw is normal and not a
     // failure — it means the cron backstop got there first — but the two must be distinguishable
     // in the logs, because "webhook ran and stored nothing" and "webhook stored it" look
     // identical otherwise.
     console.log(
-      `${tag} ${chain}: ${rows.length} arrival(s), ${credited} CREDITED, ` +
-        `${rows.length - credited} already recorded`,
+      `${tag} ${chain}: ${fresh.length} arrival(s), ${credited} CREDITED, ` +
+        `${fresh.length - credited} already recorded`,
     );
 
     return NextResponse.json({ ok: true, credited });
