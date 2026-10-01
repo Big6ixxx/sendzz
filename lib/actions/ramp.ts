@@ -847,8 +847,11 @@ export async function getOnRampCurrencies() {
  * Whether a deposit in this currency can be filled right now. Supported does not mean liquid —
  * see Ramp.isOnRampAvailable.
  */
-export async function isOnRampAvailable(currency: RampCurrency): Promise<boolean> {
-  return await Ramp.isOnRampAvailable(currency);
+export async function isOnRampAvailable(
+  currency: RampCurrency,
+  amountUsdc?: number,
+): Promise<boolean> {
+  return await Ramp.isOnRampAvailable(currency, amountUsdc);
 }
 
 /**

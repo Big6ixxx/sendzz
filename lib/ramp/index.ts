@@ -489,14 +489,29 @@ export const Ramp = {
    * return true: blocking a deposit because a rate lookup blipped is worse than letting the
    * order attempt and fail with a real message.
    */
+  /**
+   * Can a deposit of this size actually be filled right now?
+   *
+   * The size is the whole question, not a detail. Paycrest quotes per amount, and a corridor
+   * that is perfectly alive will return no `buy` rate for a size nobody is quoting: NGN answers
+   * at 20 USDC and goes quiet at 30, while remaining open for business throughout. Probing a
+   * fixed 100 and calling the result "NGN deposits are paused" turned one unquoted size into a
+   * closed currency, and sent people away from a corridor that would have taken their money.
+   *
+   * The default is deliberately small. With no amount to check, the only answerable question is
+   * "is this corridor alive at all", and the smallest probe is the one most likely to be quoted.
+   */
   async isOnRampAvailable(
     currency: RampCurrency,
-    amount = 100,
+    amountUsdc = 1,
   ): Promise<boolean> {
     try {
+      const amount = Math.max(1, Math.ceil(amountUsdc));
       const rates = await withFallback("onRamp", (p) => p.getRates(amount, currency));
       return rates.data.buy != null;
     } catch (err) {
+      // Fail open: a provider we cannot reach is not the same as a corridor that is closed, and
+      // blocking a deposit on our own outage is the worse mistake.
       console.error(`[Ramp] buy-availability check failed for ${currency}:`, err);
       return true;
     }

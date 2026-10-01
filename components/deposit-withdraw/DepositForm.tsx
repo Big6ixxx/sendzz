@@ -27,14 +27,18 @@ interface DepositFormProps {
 
 export function DepositForm({ hook }: DepositFormProps) {
   const [secondsLeft, setSecondsLeft] = React.useState<number | null>(null);
-  // A corridor can be supported for payouts yet have nobody selling USDC into it today.
-  const { unavailable: depositUnavailable } = useOnRampAvailability(hook.fiatCurrency);
-
   // Nothing is deducted on the way in, so the estimate is simply the amount at the rate.
   const estimatedUsdc =
     hook.rate && hook.amount
       ? (parseFloat(hook.amount) / hook.rate).toFixed(4)
       : null;
+
+  // Checked at the size being deposited, not a fixed one: a corridor quotes some amounts and not
+  // others, and only the user's own figure answers "can this go through".
+  const { unavailable: depositUnavailable, checkedAmount } = useOnRampAvailability(
+    hook.fiatCurrency,
+    estimatedUsdc ? parseFloat(estimatedUsdc) : undefined,
+  );
 
   // Countdown timer for order
   React.useEffect(() => {
@@ -58,11 +62,12 @@ export function DepositForm({ hook }: DepositFormProps) {
             </div>
             <div className="space-y-1">
               <h5 className="text-xs font-bold text-amber-400 uppercase tracking-widest">
-                Deposits Unavailable
+                {checkedAmount ? "Amount Unavailable" : "Deposits Unavailable"}
               </h5>
               <p className="text-[11px] text-white/40 leading-relaxed font-medium">
-                {hook.fiatCurrency} deposits are paused right now. Try another currency or check
-                back shortly.
+                {checkedAmount
+                  ? `Nobody is quoting this amount in ${hook.fiatCurrency} right now. Try a smaller amount.`
+                  : `${hook.fiatCurrency} deposits are paused right now. Try another currency or check back shortly.`}
               </p>
             </div>
           </div>
