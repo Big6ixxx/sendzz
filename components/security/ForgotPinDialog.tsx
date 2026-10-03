@@ -143,7 +143,7 @@ export function ForgotPinDialog({
                 type="button"
                 onClick={() => close(false)}
                 disabled={busy}
-                className="btn-secondary flex-1"
+                className="btn-secondary w-full sm:w-auto sm:flex-1"
               >
                 Cancel
               </button>
@@ -151,7 +151,7 @@ export function ForgotPinDialog({
                 type="button"
                 onClick={sendCode}
                 disabled={busy}
-                className="btn-primary flex-1"
+                className="btn-primary w-full sm:w-auto sm:flex-1"
               >
                 {busy ? "Sending…" : "Email me a code"}
               </button>
@@ -208,7 +208,7 @@ export function ForgotPinDialog({
                 type="button"
                 onClick={() => close(false)}
                 disabled={busy}
-                className="btn-secondary flex-1"
+                className="btn-secondary w-full sm:w-auto sm:flex-1"
               >
                 Cancel
               </button>
@@ -216,7 +216,7 @@ export function ForgotPinDialog({
                 type="button"
                 onClick={submit}
                 disabled={busy || code.length < 6 || pin.length < 4 || confirmPin.length < 4}
-                className="btn-primary flex-1"
+                className="btn-primary w-full sm:w-auto sm:flex-1"
               >
                 {busy ? "Saving…" : "Set new PIN"}
               </button>

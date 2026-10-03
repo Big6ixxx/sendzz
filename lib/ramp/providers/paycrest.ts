@@ -294,9 +294,13 @@ export class PaycrestProvider implements RampProvider {
     return mapOrder(await paycrest.getOrder(orderId));
   }
 
-  async getRates(amount: number, fiat: RampCurrency): Promise<RampRateResponse> {
+  async getRates(
+    amount: number,
+    fiat: RampCurrency,
+    network = "base",
+  ): Promise<RampRateResponse> {
     const paycrest = getPaycrestClient();
-    const res = await paycrest.getRates("base", "USDC", amount, fiat);
+    const res = await paycrest.getRates(network, "USDC", amount, fiat);
     // Map rather than pass through: Paycrest returns `rate` as a string and `providerIds` as an
     // array, while RampRate wants a number and a single `provider_id`. The old spread silently
     // produced `provider_id: undefined`, which is why priceSource always read "ramp".

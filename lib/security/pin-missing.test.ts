@@ -57,7 +57,11 @@ describe('a missing PIN is recoverable at the point of payment', () => {
     // A single failed status check used to leave hasPin null, which keeps the gate shut —
     // so one bad response at the wrong moment cost that user the setup prompt entirely.
     const gate = read('components/security/PinRequiredGate.tsx');
-    expect(gate).toMatch(/attempt\s*>=\s*3/);
+    // The property is that it keeps trying, not the exact count — pinning the number made
+    // raising it (to ride out a token refresh) look like a regression.
+    const cap = gate.match(/attempt\s*>=\s*(\d+)/);
+    expect(cap).not.toBeNull();
+    expect(Number(cap![1])).toBeGreaterThanOrEqual(3);
     expect(gate).toMatch(/setTimeout\(check/);
   });
 });

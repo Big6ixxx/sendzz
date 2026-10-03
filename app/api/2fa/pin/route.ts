@@ -14,7 +14,7 @@
  */
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/adminClient";
-import { getVerifiedIdentity, requireUser } from "@/lib/auth/session";
+import { getVerifiedIdentity, requireUserId } from "@/lib/auth/session";
 import {
   mintAuthorization,
   type AuthorizationPayload,
@@ -74,7 +74,7 @@ type PinProfile = {
  * mistyping never accumulates towards a lockout across days.
  */
 async function checkPin(
-  email: string,
+  userId: string,
   pin: unknown,
   profile: PinProfile,
 ): Promise<NextResponse | null> {
@@ -114,7 +114,7 @@ async function checkPin(
         pin_failed_attempts: next.failedAttempts,
         pin_locked_until: next.lockedUntil,
       })
-      .eq("email", email);
+      .eq("id", userId);
 
     if (next.lockedUntil) {
       return NextResponse.json(
@@ -143,7 +143,7 @@ async function checkPin(
       pin_failed_attempts: CLEARED_LOCKOUT.failedAttempts,
       pin_locked_until: CLEARED_LOCKOUT.lockedUntil,
     })
-    .eq("email", email);
+    .eq("id", userId);
 
   return null;
 }
@@ -152,13 +152,27 @@ export async function POST(req: Request) {
   try {
     const { action, pin, currentPin, purpose, payload, resetId, resetCode } =
       await req.json();
-    const { email, userId } = await requireUser(token(req));
+    const { email, userId } = await requireUserId(token(req));
 
-    const { data: profile } = await supabaseAdmin
+    // Keyed on `id`, the same column the PIN is written under, and the error is NOT discarded.
+    //
+    // This read decides whether an account has a PIN at all, so every way it can quietly answer
+    // "no" is a way to tell someone their PIN is gone. It used to look up by email while the
+    // write used id: a profile row whose email differed by so much as capitalisation — and
+    // migration 063 records three accounts that existed twice for exactly that reason — stored
+    // the PIN in one row and looked for it in another. Two rows sharing an address also made
+    // `.maybeSingle()` fail, and with the error dropped on the floor that arrived as "no PIN"
+    // too.
+    const { data: profile, error: profileError } = await supabaseAdmin
       .from("user_profiles")
       .select("pin_hash, pin_failed_attempts, pin_locked_until")
-      .eq("email", email)
+      .eq("id", userId)
       .maybeSingle();
+
+    if (profileError) {
+      console.error("[PIN] profile lookup failed:", profileError.message);
+      return NextResponse.json({ error: "Something went wrong." }, { status: 500 });
+    }
 
     // ── Set or change ──────────────────────────────────────────────────────
     if (action === "set") {
@@ -170,7 +184,26 @@ export async function POST(req: Request) {
       // Changing a PIN requires the current one. Without this, anyone who reaches an open
       // session can silently replace the factor that protects the account.
       if (profile?.pin_hash) {
-        const ok = await verifyPin(currentPin ?? "", profile.pin_hash);
+        // A client that sent no current PIN believes this account has none — it was shown the
+        // first-time setup screen. Saying "that is not your current PIN" to someone who was
+        // never asked for one is the most confusing reply available: they are told the PIN they
+        // are in the middle of choosing is wrong.
+        //
+        // `code` lets the client recover by showing the change-PIN form, or sending the user to
+        // Forgot PIN if they do not remember it, instead of leaving them retyping.
+        if (typeof currentPin !== "string" || currentPin.length === 0) {
+          return NextResponse.json(
+            {
+              error:
+                "This account already has a transaction PIN. Enter your current one to change " +
+                "it, or use Forgot PIN if you do not remember it.",
+              code: "pin_already_set",
+            },
+            { status: 409 },
+          );
+        }
+
+        const ok = await verifyPin(currentPin, profile.pin_hash);
         if (!ok) {
           return NextResponse.json(
             { error: "That is not your current PIN." },
@@ -242,7 +275,7 @@ export async function POST(req: Request) {
     // what makes four digits defensible at all: a second code path that forgot to increment it
     // would hand an attacker unlimited guesses through the endpoint that happened to skip it.
     if (action === "verify" || action === "authorize") {
-      const failure = await checkPin(email, pin, profile);
+      const failure = await checkPin(userId, pin, profile);
       if (failure) return failure;
 
       if (action === "verify") return NextResponse.json({ success: true });
@@ -323,18 +356,27 @@ export async function POST(req: Request) {
       }
 
       const { hash } = await hashPin(pin);
+      // Upsert by id, for the same reason the `set` path above does: an UPDATE that matches no
+      // row is a successful statement that changes nothing, so a reset against a missing or
+      // differently-keyed profile told the user their new PIN was saved and kept the old one.
+      // Someone who has just proved control of their mailbox must not be left with the PIN they
+      // came here because they could not use.
       const { error } = await supabaseAdmin
         .from("user_profiles")
-        .update({
-          pin_hash: hash,
-          pin_set_at: new Date().toISOString(),
-          // A reset clears the lockout too. Someone who reached this point proved control of
-          // the mailbox, and leaving them locked out by the counter that sent them here would
-          // make the recovery they just completed useless for another quarter of an hour.
-          pin_failed_attempts: 0,
-          pin_locked_until: null,
-        })
-        .eq("email", email);
+        .upsert(
+          {
+            id: userId,
+            email,
+            pin_hash: hash,
+            pin_set_at: new Date().toISOString(),
+            // A reset clears the lockout too. Someone who reached this point proved control of
+            // the mailbox, and leaving them locked out by the counter that sent them here would
+            // make the recovery they just completed useless for another quarter of an hour.
+            pin_failed_attempts: 0,
+            pin_locked_until: null,
+          },
+          { onConflict: "id" },
+        );
 
       if (error) {
         console.error("[PIN] failed to store after reset:", error.message);
@@ -359,7 +401,7 @@ export async function POST(req: Request) {
           pin_failed_attempts: 0,
           pin_locked_until: null,
         })
-        .eq("email", email);
+        .eq("id", userId);
 
       if (error) {
         console.error("[PIN] failed to remove:", error.message);
@@ -376,21 +418,44 @@ export async function POST(req: Request) {
   }
 }
 
-/** Whether a PIN exists, for rendering settings. Never returns the hash. */
+/**
+ * Whether a PIN exists, for rendering settings. Never returns the hash.
+ *
+ * "I do not know" must never be answered as "there is no PIN".
+ *
+ * This used to catch everything and return `{ enabled: false }` with a 200. A Privy token that
+ * had not refreshed yet — which is exactly the state a page is in the instant it loads, when
+ * this runs — made `requireUser` throw, and the answer came back as a confident "this account
+ * has no PIN". The client only retries on a non-OK status, so a 200 was taken as truth: people
+ * who had set a PIN months ago were shown the first-time setup screen, on whichever device
+ * happened to ask at the wrong moment. Then setting one failed, because the server could see
+ * the PIN the client had just been told did not exist.
+ *
+ * So the two cases are answered differently: 401 when we could not establish who is asking,
+ * 500 when the lookup itself failed. Both leave the client's state unknown, which keeps the
+ * setup prompt shut, and both are retried.
+ */
 export async function GET(req: Request) {
+  let userId: string;
   try {
-    const { email } = await requireUser(token(req));
-    const { data } = await supabaseAdmin
-      .from("user_profiles")
-      .select("pin_hash, pin_set_at")
-      .eq("email", email)
-      .maybeSingle();
-
-    return NextResponse.json({
-      enabled: !!data?.pin_hash,
-      setAt: data?.pin_set_at ?? null,
-    });
+    ({ userId } = await requireUserId(token(req)));
   } catch {
-    return NextResponse.json({ enabled: false, setAt: null });
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const { data, error } = await supabaseAdmin
+    .from("user_profiles")
+    .select("pin_hash, pin_set_at")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[PIN] status lookup failed:", error.message);
+    return NextResponse.json({ error: "Could not read PIN status." }, { status: 500 });
+  }
+
+  return NextResponse.json({
+    enabled: !!data?.pin_hash,
+    setAt: data?.pin_set_at ?? null,
+  });
 }

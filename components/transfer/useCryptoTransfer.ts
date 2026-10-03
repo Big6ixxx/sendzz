@@ -855,7 +855,14 @@ export function useCryptoTransfer({
         const feePercent = transferFeePercent ?? 0;
         const totalRequiredAmount = (parseFloat(info.amount) * (1 + feePercent / 100)).toFixed(6);
 
-        setStatus("Gathering your funds onto Base…");
+        // `onStatus` is withheld from every bridge call below.
+        //
+        // The engine narrates itself — "Burn confirmed! Minting on Polygon…", "Delivering on
+        // Arbitrum…" — and none of that is the transaction the user started. They asked to send
+        // money to someone; the networks it crossed on the way are our plumbing, and naming them
+        // only invites "what is Arbitrum and why is my money on it?". The step INDEX is still
+        // surfaced, which is what moves the tracker.
+        setStatus("Preparing your transfer…");
         await consolidateFundsToChain(embeddedProvider, {
           targetChain: "base",
           requiredAmount: totalRequiredAmount,
@@ -877,7 +884,7 @@ export function useCryptoTransfer({
               });
             },
           } : undefined,
-          onStatus: setStatus,
+          onStatus: undefined,
         });
 
         if (info.destChain === "base") {
@@ -905,12 +912,12 @@ export function useCryptoTransfer({
             destChain: info.destChain as SupportedChain,
             amountUSDC: info.amount,
             recipient: info.recipient,
-            onStatus: setStatus,
+            onStatus: undefined,
           });
           txHash = mintTxHash ?? burnTxHash;
         }
       } else if (info.sourceChain === "stellar") {
-        setStatus(`Moving your money from Stellar to ${CHAIN_NAMES[info.destChain as SupportedChain]}…`);
+        setStatus(`Sending on ${CHAIN_NAMES[info.destChain as SupportedChain]}…`);
         if (!stellarWallet?.address) throw new Error("Stellar wallet not connected.");
         const feePercent = transferFeePercent ?? 0;
         const totalAmountWithFee = (parseFloat(info.amount) * (1 + feePercent / 100)).toFixed(6);
@@ -921,18 +928,18 @@ export function useCryptoTransfer({
           recipientEvm: info.recipient,
           evmWallet: embeddedProvider,
           destChain: info.destChain as SupportedChain,
-          onStatus: setStatus,
+          onStatus: undefined,
         });
         txHash = mintTxHash ?? burnTxHash;
       } else {
         // A single EVM chain covers it — bridge straight to the recipient.
-        setStatus(`Moving your money from ${CHAIN_NAMES[info.sourceChain]}…`);
+        setStatus(`Sending on ${CHAIN_NAMES[info.destChain as SupportedChain]}…`);
         const { burnTxHash, mintTxHash } = await bridgeAndDeliver(embeddedProvider, {
           sourceChain: info.sourceChain,
           destChain: info.destChain as SupportedChain,
           amountUSDC: info.amount,
           recipient: info.recipient,
-          onStatus: setStatus,
+          onStatus: undefined,
         });
         txHash = mintTxHash ?? burnTxHash;
       }

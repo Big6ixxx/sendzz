@@ -31,7 +31,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
-import { AlertTriangle, ChevronRight, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ChevronRight, Loader2 } from "lucide-react";
 
 import {
   Dialog,
@@ -323,7 +323,7 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
 
       <Dialog open={!!request} onOpenChange={(open) => !open && settle(null)}>
         <DialogContent
-          className="card-glass border-white/10 max-w-md p-0 gap-0 overflow-hidden flex flex-col"
+          className="bg-[#0d0d0f] border-white/10 rounded-2xl shadow-2xl max-w-md p-0 gap-0 overflow-hidden flex flex-col"
           showCloseButton={false}
         >
           {/* Three zones, fixed on purpose. The headline says what is being approved and the
@@ -332,18 +332,32 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
               which is precisely what used to happen on a bridge. */}
 
           {/* ── What you are approving ─────────────────────────────────────── */}
-          <DialogHeader className="shrink-0 px-6 pt-5 pb-4 space-y-2.5 text-left border-b border-white/[0.06]">
-            <DialogTitle className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-secondary/35">
+          {/* The amount is the hero. What someone needs to read before typing a PIN is how much
+              is leaving and where it is going — the kind of action is an eyebrow above it, not
+              the biggest thing on the dialog. */}
+          <DialogHeader className="shrink-0 px-6 pt-7 pb-5 space-y-3 text-center border-b border-white/[0.06]">
+            <DialogTitle className="text-[10px] font-bold uppercase tracking-[0.22em] text-brand-secondary/35">
               {purposeHeading(request?.purpose)}
             </DialogTitle>
-            <div className="space-y-1">
-              <p className="text-[26px] leading-none font-black tracking-tight text-brand-secondary">
-                {request?.amount}
-              </p>
-              <p className="text-[13px] text-brand-secondary/55 break-all leading-snug">
-                {request?.destination}
-              </p>
-            </div>
+
+            <p className="text-[34px] leading-none font-black tracking-tighter text-brand-secondary tabular-nums">
+              {request?.amount}
+            </p>
+
+            {/* Boxed rather than left as a line of prose, because this is a VALUE to check, not
+                a sentence to read. A 42-character address set as body text wraps mid-word and
+                gets skimmed; the whole string is kept — nothing is truncated on a screen whose
+                job is confirming where money goes. */}
+            {request?.destination && (
+              <div className="pt-0.5">
+                <span className="block text-[9.5px] font-bold uppercase tracking-[0.2em] text-brand-secondary/25 mb-1.5">
+                  To
+                </span>
+                <p className="mx-auto max-w-full rounded-lg bg-white/[0.04] border border-white/[0.06] px-3 py-2 text-[12.5px] font-medium text-brand-secondary/75 break-all leading-relaxed">
+                  {request.destination}
+                </p>
+              </div>
+            )}
           </DialogHeader>
 
           {needsSetup ? (
@@ -352,8 +366,8 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
                and setup happens right here — then they approve with the PIN they just chose.
                The alternative is a dead end: an error under four empty boxes, and no way from
                there to the screen that would fix it. */
-            <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-4">
-              <p className="text-[13px] text-brand-secondary/60 leading-relaxed">
+            <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-5">
+              <p className="text-sm font-medium text-brand-secondary/55 leading-relaxed text-center">
                 You have not set a transaction PIN yet. Choose one now — it takes a moment, and
                 this payment carries on straight after.
               </p>
@@ -361,7 +375,7 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
               <button
                 type="button"
                 onClick={() => settle(null)}
-                className="w-full text-[12.5px] text-brand-secondary/45 hover:text-brand-secondary/80 transition-colors"
+                className="w-full text-[12.5px] font-medium text-brand-secondary/40 hover:text-brand-secondary/80 transition-colors"
               >
                 Cancel this payment
               </button>
@@ -443,9 +457,8 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
                 once during PIN setup, but restating it on every single payment cost a line
                 on a dialog that was already overflowing. The shield keeps the connotation. */}
             <div className="flex items-center justify-between gap-3">
-              <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
-                <ShieldCheck className="w-3 h-3 shrink-0 text-accent/40" />
-                Enter your transaction PIN
+              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/35">
+                Enter your PIN
               </span>
               {/* Offered here, where the problem is actually discovered. Someone staring at a
                   prompt they cannot answer will not go looking through Settings for the way
@@ -462,6 +475,9 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
               </button>
             </div>
 
+            {/* Submits itself on the fourth digit. A 4-digit PIN has nothing to review and no
+                reason to need a second tap — every phone unlock works this way, and the Confirm
+                button stays for anyone who reaches it by keyboard or after an error. */}
             <PinInput
               value={pin}
               onChange={(next) => {
@@ -469,6 +485,7 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
                 setPin(next);
               }}
               onEnter={confirm}
+              onComplete={confirm}
               error={error}
               label="Enter your transaction PIN"
               srOnlyLabel
@@ -476,12 +493,12 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
               autoFocus
             />
 
-            <div className="flex flex-col-reverse sm:flex-row gap-2.5 pt-0.5">
+            <div className="flex flex-col-reverse sm:flex-row gap-2.5 pt-1">
               <button
                 type="button"
                 onClick={() => settle(null)}
                 disabled={busy}
-                className="btn-secondary flex-1"
+                className="btn-secondary w-full sm:w-auto sm:flex-1 h-14 text-sm font-bold tracking-wide"
               >
                 Cancel
               </button>
@@ -489,9 +506,16 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
                 type="button"
                 onClick={confirm}
                 disabled={busy || pin.length < 4}
-                className="btn-primary flex-1"
+                className="btn-primary w-full sm:w-auto sm:flex-1 h-14 text-sm font-bold tracking-wide"
               >
-                {busy ? "Confirming…" : (request?.confirmLabel ?? "Confirm")}
+                {busy ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <Loader2 className="animate-spin w-5 h-5" />
+                    Confirming…
+                  </span>
+                ) : (
+                  (request?.confirmLabel ?? "Confirm")
+                )}
               </button>
             </div>
           </div>

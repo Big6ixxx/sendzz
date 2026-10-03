@@ -46,6 +46,14 @@ export function usePinStatus(enabled: boolean) {
     //
     // The window is real: this fires the instant Privy reports ready, which is also when the
     // session cookie is newest and the account row may still be being written.
+    // A 401 here is the expected shape of the race this retry exists for: Privy reports ready a
+    // moment before the token it issues will verify, so the first ask can arrive unauthenticated
+    // on a perfectly good session. It is retried like any other failure, and `hasPin` stays null
+    // until a real answer arrives — which keeps the setup prompt shut rather than throwing it at
+    // somebody who has had a PIN for months.
+    //
+    // More attempts than before, because giving up is not neutral: it costs that user the setup
+    // prompt for the whole session, and they meet the PIN at the till instead.
     let attempt = 0;
     const check = () => {
       fetch("/api/2fa/pin")
@@ -55,10 +63,9 @@ export function usePinStatus(enabled: boolean) {
           setHasPin(!!data.enabled);
         })
         .catch(() => {
-          if (cancelled || attempt >= 3) return;
+          if (cancelled || attempt >= 5) return;
           attempt += 1;
-          // 1s, 2s, 4s. Long enough to outlast a cold start, short enough to land before
-          // anyone has navigated to a payment screen.
+          // 1s, 2s, 4s, 8s, 16s — long enough to outlast a token refresh or a cold start.
           setTimeout(check, 1000 * 2 ** (attempt - 1));
         });
     };

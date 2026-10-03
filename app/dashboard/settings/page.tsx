@@ -1230,14 +1230,14 @@ export default function SettingsPage() {
           <div className="flex flex-col-reverse sm:flex-row gap-3 pt-4">
             <button
               onClick={() => setThresholdModalOpen(false)}
-              className="btn-secondary flex-1"
+              className="btn-secondary w-full sm:w-auto sm:flex-1"
             >
               Cancel
             </button>
             <button
               onClick={handleThresholdUpdate}
               disabled={isUpdatingSecurity}
-              className="btn-primary flex-1"
+              className="btn-primary w-full sm:w-auto sm:flex-1"
             >
               {isUpdatingSecurity ? "Saving..." : "Save threshold"}
             </button>

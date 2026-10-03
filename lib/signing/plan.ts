@@ -42,6 +42,15 @@ export interface SigningStep {
    * "2 confirmations" becomes another thing that turns out not to be true.
    */
   signature: boolean;
+  /**
+   * How many confirmations this one step actually asks for, when it is more than one.
+   *
+   * Gathering a split balance is one line to read and several confirmations to give. Listing it
+   * as several steps named the networks it crossed, which is plumbing the user did not ask
+   * about; collapsing it to one step without this would have promised fewer confirmations than
+   * they get. Defaults to 1.
+   */
+  signatures?: number;
   /** Roughly how long this step takes, for the estimate. Omitted when it is effectively instant. */
   estimateSeconds?: number;
 }
@@ -54,7 +63,10 @@ export interface SigningPlan {
 
 /** How many times this flow will ask the user to confirm. */
 export function signatureCount(plan: SigningPlan): number {
-  return plan.steps.filter((step) => step.signature).length;
+  return plan.steps.reduce(
+    (total, step) => total + (step.signature ? (step.signatures ?? 1) : 0),
+    0,
+  );
 }
 
 /**

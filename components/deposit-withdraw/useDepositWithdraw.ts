@@ -13,6 +13,7 @@ import {
   getProviderFeePercent,
   getRampNetworks,
   initiateOnRamp,
+  pickDepositNetwork,
   verifyBankAccount,
 } from "@/lib/actions/ramp";
 import type { RampProviderName } from "@/lib/ramp";
@@ -47,7 +48,6 @@ import { bridgeStellarToBase } from "@/lib/web3/stellar-bridge";
 import {
   planWithdrawalRoute,
   AUTO_SOURCE,
-  RAMP_NETWORKS,
   type ChainBalances,
   type SolanaSource,
   type SourceChainKey,
@@ -105,7 +105,6 @@ export function useDepositWithdraw(
   const [fiatCurrency, setFiatCurrency] = useState<FiatCurrencyCode>("NGN");
   const [quoteUsdcAmount, setQuoteUsdcAmount] = useState<string>("");
   // On-ramp landing chain. Defaults to Base; advanced users may pick another supported chain.
-  const [depositNetwork, setDepositNetwork] = useState<RampNetwork>("base");
 
   // User Security Preferences
   const [twoFaEnabled, setTwoFaEnabled] = useState(false);
@@ -621,6 +620,9 @@ export function useDepositWithdraw(
     // way out, and charging it here would mean topping up made it harder to take anything out.
     setLoading(true);
     try {
+      // Chosen, not asked — see `Ramp.pickDepositNetwork` for why.
+      const network = await pickDepositNetwork(estimatedUsdc, fiatCurrency);
+
       const res = await initiateOnRamp({
         amountFiat: val,
         userAddress,
@@ -630,7 +632,7 @@ export function useDepositWithdraw(
           accountName: bankDetails.accountName,
         },
         fiatCurrency,
-        network: depositNetwork,
+        network: network as RampNetwork,
         accessToken: await freshToken(),
       });
       setOrder(res);
@@ -1175,9 +1177,10 @@ export function useDepositWithdraw(
           solanaWallet: null,
           // Deliberately not surfaced: these read "Moving funds from Arbitrum to Base…".
           onStatus: undefined,
-          // The index, though, IS surfaced — that is what moves the tracker through the
-          // gathering legs the user was told about.
-          onSourceStart: setActiveStep,
+          // Pinned, not advanced per source: `onSourceStart` emits the source index, and every
+          // source now belongs to the same single gather step. Forwarding it would march the
+          // tracker on while the gathering was still running.
+          onSourceStart: () => setActiveStep(0),
         });
         toast.dismiss("consolidate");
       }
@@ -1775,10 +1778,7 @@ export function useDepositWithdraw(
     // total the wallet is actually debited — it is a third outflow alongside base + platform
     // fee, and leaving it out of "Total Deducted" understated every mobile-money withdrawal.
     corridorFee,
-    depositNetwork,
-    setDepositNetwork,
     // On-ramp (Paycrest) lands USDC on these chains; default Base.
-    depositNetworks: RAMP_NETWORKS,
     userEmail,
     userAddress,
     handleSelectContact,
@@ -1838,7 +1838,6 @@ export function useDepositWithdraw(
       setMustConsolidate(false);
       setSourcePref(AUTO_SOURCE);
       setConsolidateFrom(null);
-      setDepositNetwork("base");
       setBankDetails({
         accountNumber: "",
         bankCode: "",

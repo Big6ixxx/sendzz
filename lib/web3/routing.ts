@@ -116,6 +116,17 @@ export interface SolanaSource {
  */
 export const RAMP_NETWORKS: SupportedChain[] = ['base', 'polygon' /* , 'ethereum' */];
 
+/**
+ * Chains a FIAT DEPOSIT may settle on, in preference order.
+ *
+ * Deliberately separate from `RAMP_NETWORKS`, which governs withdrawals: a withdrawal has to
+ * settle somewhere we can also consolidate TO, which is a narrower question than "who is quoting
+ * right now". Which one a deposit lands on never reaches the user.
+ *
+ * Picked per order rather than assumed — see `Ramp.pickDepositNetwork`.
+ */
+export const DEPOSIT_NETWORKS: SupportedChain[] = ['base', 'polygon', 'arbitrum'];
+
 export interface RouteLeg {
   chain: SupportedChain;
   /** Decimal USDC string, e.g. "12.5". */

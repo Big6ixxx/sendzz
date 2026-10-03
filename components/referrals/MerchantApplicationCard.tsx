@@ -192,13 +192,13 @@ function Form({
       />
 
       <div className="flex flex-col-reverse sm:flex-row gap-3">
-        <button onClick={onCancel} disabled={busy} className="btn-secondary flex-1">
+        <button onClick={onCancel} disabled={busy} className="btn-secondary w-full sm:w-auto sm:flex-1">
           Cancel
         </button>
         <button
           onClick={onSubmit}
           disabled={busy || !form.organisation.trim()}
-          className="btn-primary flex-1 gap-2"
+          className="btn-primary w-full sm:w-auto sm:flex-1 gap-2"
         >
           {busy && <Loader2 className="w-4 h-4 animate-spin" />}
           {busy ? "Sending…" : "Send application"}

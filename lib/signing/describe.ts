@@ -25,21 +25,32 @@ export function chainLabel(chain: string): string {
 /**
  * Gathering funds that are spread across networks, before anything can be sent.
  *
- * One confirmation per source, because that is literally what happens: each network holding a
- * piece of the balance has to be asked separately. This is the step that surprises people
- * most — they asked to send once and are asked to confirm three times — so it is always
- * spelled out with the networks named.
+ * One line, however many networks it touches.
+ *
+ * This used to be one step per source, each naming the two networks it moved between. That was
+ * written when the user felt every leg — a separate confirmation each time — so the networks
+ * were worth spelling out. They no longer sign per leg, which leaves the names as plumbing:
+ * someone withdrawing to their bank does not need to learn that their money sat on Arbitrum,
+ * and being told invites "why is my money on Arbitrum?" at the worst possible moment.
+ *
+ * What is still true is kept. `signatures` carries the real number so the plan never promises
+ * fewer confirmations than it asks for, and the estimate still grows with each source, because
+ * a balance spread over three networks genuinely takes longer to bring together.
  */
-function gatherSteps(sources: string[], target: string): SigningStep[] {
-  return sources.map((source) => ({
-    kind: 'gather' as const,
-    title: `Move your money from ${chainLabel(source)} to ${chainLabel(target)}`,
-    detail:
-      'Your balance is spread across networks, so it has to be brought together before it ' +
-      'can be sent. This part moves your own money between your own accounts.',
-    signature: true,
-    estimateSeconds: 90,
-  }));
+function gatherSteps(sources: string[]): SigningStep[] {
+  if (sources.length === 0) return [];
+
+  return [
+    {
+      kind: 'gather' as const,
+      title: 'Bring your balance together',
+      detail:
+        'Your balance sits in more than one place.',
+      signature: true,
+      signatures: sources.length,
+      estimateSeconds: 60 * sources.length,
+    },
+  ];
 }
 
 /** Sending to another Sendzz user by email. */
@@ -48,14 +59,13 @@ export function describeTransfer(params: {
   recipient: string;
   /** Networks that have to be consolidated first. Empty when one chain already covers it. */
   gatherFrom?: string[];
-  settlementChain?: string;
 }): SigningPlan {
-  const { amount, recipient, gatherFrom = [], settlementChain = 'base' } = params;
+  const { amount, recipient, gatherFrom = [] } = params;
 
   return {
     summary: `Sending $${parseFloat(amount || '0').toFixed(2)} to ${recipient}`,
     steps: [
-      ...gatherSteps(gatherFrom, settlementChain),
+      ...gatherSteps(gatherFrom),
       {
         kind: 'send',
         title: `Send $${parseFloat(amount || '0').toFixed(2)} to ${recipient}`,
@@ -79,7 +89,7 @@ export function describeCryptoSend(params: {
   const short = `${recipient.slice(0, 6)}…${recipient.slice(-4)}`;
   const crossChain = !!sourceChain && sourceChain !== destChain;
 
-  const steps: SigningStep[] = [...gatherSteps(gatherFrom, sourceChain ?? destChain)];
+  const steps: SigningStep[] = [...gatherSteps(gatherFrom)];
 
   if (crossChain) {
     steps.push(
@@ -178,7 +188,7 @@ export function describeWithdrawal(params: {
   return {
     summary: `Withdrawing ${amountLabel} to ${bankLabel}`,
     steps: [
-      ...gatherSteps(gatherFrom, settlementChain),
+      ...gatherSteps(gatherFrom),
       {
         kind: 'settle',
         title: 'Send your money on its way',
@@ -210,14 +220,13 @@ export function describeBatch(params: {
   recipientCount: number;
   total: number;
   gatherFrom?: string[];
-  settlementChain?: string;
 }): SigningPlan {
-  const { recipientCount, total, gatherFrom = [], settlementChain = 'base' } = params;
+  const { recipientCount, total, gatherFrom = [] } = params;
 
   return {
     summary: `Paying ${recipientCount} ${recipientCount === 1 ? 'person' : 'people'} $${total.toFixed(2)} in total`,
     steps: [
-      ...gatherSteps(gatherFrom, settlementChain),
+      ...gatherSteps(gatherFrom),
       {
         kind: 'send',
         title: `Pay all ${recipientCount} recipients`,

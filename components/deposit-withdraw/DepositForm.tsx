@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   Clock,
   Copy,
+  Info,
   Loader2,
   Plus,
 } from "lucide-react";
@@ -15,7 +16,6 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import { BankSelector } from "./BankSelector";
-import { DepositNetworkAccordion } from "./DepositNetworkAccordion";
 import { useDepositWithdraw } from "./useDepositWithdraw";
 import { useOnRampAvailability } from "@/lib/hooks/useOnRampAvailability";
 import { ReceiptActions } from "@/components/receipt/ReceiptActions";
@@ -141,7 +141,17 @@ export function DepositForm({ hook }: DepositFormProps) {
           </div>
         </div>
 
-        <div className="pt-4 border-t border-border">
+        <div className="pt-4 border-t border-border space-y-3">
+          {/* Above the field, not under it: being asked for a bank account while money is
+              arriving reads as a mistake until you know it is the refund route. */}
+          <div className="flex items-start gap-2.5 rounded-xl border border-accent/20 bg-accent/[0.06] px-3.5 py-3">
+            <Info className="w-4 h-4 mt-[1px] shrink-0 text-accent" />
+            <p className="text-[12.5px] leading-relaxed text-foreground/80">
+              Where should we send your money back if anything goes wrong? Give an account in
+              your own name — refunds are only ever returned here.
+            </p>
+          </div>
+
           <BankSelector
             label="Bank"
             institutions={hook.institutions}
@@ -168,17 +178,14 @@ export function DepositForm({ hook }: DepositFormProps) {
             contacts={hook.bankContacts}
             userEmail={hook.userEmail}
             onContactsChanged={hook.refreshBankContacts}
+            // Without these the field was a controlled input whose value never changed and
+            // whose onChange went nowhere — it looked editable and swallowed every keystroke.
+            memo={hook.bankDetails.memo}
+            onMemoChange={(val) =>
+              hook.setBankDetails({ ...hook.bankDetails, memo: val })
+            }
           />
-          <p className="text-[10px] text-muted-foreground mt-2 px-1">
-            * In case of any issues, funds will be returned to this account.
-          </p>
         </div>
-
-        <DepositNetworkAccordion
-          networks={hook.depositNetworks}
-          value={hook.depositNetwork}
-          onChange={(c) => hook.setDepositNetwork(c as typeof hook.depositNetwork)}
-        />
 
         <button
           onClick={() => hook.handleDepositInitiate()}

@@ -8,6 +8,7 @@
  *
  * The app never imports a concrete provider — only `getRamp()`.
  */
+import { DEPOSIT_NETWORKS } from "@/lib/web3/routing";
 import { BitnobProvider } from "./providers/bitnob";
 import { PaycrestProvider } from "./providers/paycrest";
 import { RampUnsupportedError, type RampProvider } from "./provider";
@@ -419,8 +420,33 @@ export const Ramp = {
     return byName(provider).getOrder(orderId);
   },
 
-  getRates(amount: number, fiat: RampCurrency): Promise<RampRateResponse> {
-    return withFallback("rates", (p) => p.getRates(amount, fiat));
+  getRates(amount: number, fiat: RampCurrency, network?: string): Promise<RampRateResponse> {
+    return withFallback("rates", (p) => p.getRates(amount, fiat, network));
+  },
+
+  /**
+   * Which chain can actually settle this deposit.
+   *
+   * Deposits used to be pinned to Base, with the chain offered as a picker nobody could answer:
+   * the settlement network is a detail of how the provider fills the order, and the only wrong
+   * answer is one nobody is quoting. Liquidity moves per chain AND per amount — NGN answers on
+   * one and goes quiet on another — so the question is asked rather than assumed.
+   *
+   * First chain that quotes a buy rate for this size wins; `DEPOSIT_NETWORKS` is in preference
+   * order. Falls back to the first entry when none answer, so the order is still attempted and
+   * fails with the provider's own reason rather than ours.
+   */
+  async pickDepositNetwork(amount: number, currency: RampCurrency): Promise<string> {
+    for (const network of DEPOSIT_NETWORKS) {
+      try {
+        const rates = await withFallback("onRamp", (p) => p.getRates(amount, currency, network));
+        if (rates.data.buy != null) return network;
+      } catch (err) {
+        console.warn(`[Ramp] ${network} rate lookup failed for ${currency}:`, err);
+      }
+    }
+    console.warn(`[Ramp] no network quoted ${currency} at ${amount} — trying ${DEPOSIT_NETWORKS[0]}`);
+    return DEPOSIT_NETWORKS[0];
   },
 
   verifyAccount(

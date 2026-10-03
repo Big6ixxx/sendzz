@@ -52,8 +52,13 @@ export interface RampProvider {
   /** Look up an order this provider created. */
   getOrder(orderId: string): Promise<RampOrderResponse>;
 
-  /** Live buy/sell rates for `amount` of USDC ↔ `fiat`. */
-  getRates(amount: number, fiat: RampCurrency): Promise<RampRateResponse>;
+  /**
+   * Live buy/sell rates for `amount` of USDC ↔ `fiat`.
+   *
+   * `network` asks about one settlement chain specifically — a corridor can be quoted on one and
+   * silent on another, which is what `pickDepositNetwork` is built on.
+   */
+  getRates(amount: number, fiat: RampCurrency, network?: string): Promise<RampRateResponse>;
 
   /** Resolve a bank account number to its owner's name. */
   verifyAccount(

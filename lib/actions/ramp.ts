@@ -74,6 +74,14 @@ export async function getCorridorFeeAction(
  * provider serves each call and which provider owns each created order.
  */
 
+/** Which chain this deposit should settle on — see `Ramp.pickDepositNetwork`. */
+export async function pickDepositNetwork(
+  amountUsdc: number,
+  currency: RampCurrency,
+): Promise<string> {
+  return await Ramp.pickDepositNetwork(amountUsdc, currency);
+}
+
 /**
  * ON-RAMP — buy USDC with fiat. Returns the bank/virtual account the user funds.
  */

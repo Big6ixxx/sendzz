@@ -295,7 +295,6 @@ export function useTransfer({
       amount: amountUsdc,
       recipient: recipientEmail,
       gatherFrom,
-      settlementChain: "base",
     });
 
     const authorization = await authorize({
@@ -502,7 +501,7 @@ export function useTransfer({
         const solBal = solanaSource?.balance ?? 0;
         const stelBal = stellarBalance ?? 0;
         if (plan.totalAvailable + solBal + stelBal + 1e-9 >= parseFloat(amountUsdc)) {
-          setStatus("Preparing your funds across networks…");
+          setStatus("Preparing your transfer…");
 
           const stellarSource = (stellarAddress && stellarWalletId && stelBal > 0)
             ? {
@@ -530,8 +529,14 @@ export function useTransfer({
             recipient: smartAddress,
             solana: solanaSource,
             stellar: stellarSource,
-            onStatus: setStatus,
-            onSourceStart: setActiveStep,
+            // Not forwarded: the bridge engine narrates its own legs ("Bridging from base…",
+            // "Delivering on Arbitrum…") and that is not the transaction the user started. The
+            // step INDEX is still surfaced, which is what advances the tracker they were shown.
+            onStatus: undefined,
+            // Pinned, not advanced per source: `onSourceStart` emits the source index, and every
+            // source now belongs to the same single gather step. Forwarding it would march the
+            // tracker on while the gathering was still running.
+            onSourceStart: () => setActiveStep(0),
           });
           plan = {
             feasible: true,
