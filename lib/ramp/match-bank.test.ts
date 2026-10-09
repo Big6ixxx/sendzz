@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { matchBank } from './index';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { matchBank, pickBank } from './index';
 import type { RampInstitution } from './types';
 
 /**
@@ -61,5 +63,49 @@ describe('matchBank', () => {
 
   it('returns null against an empty institution list instead of throwing', () => {
     expect(matchBank([], 'Access Bank')).toBeNull();
+  });
+});
+
+describe('pickBank — one bank, two providers, two codes', () => {
+  const BITNOB: RampInstitution[] = NGN;
+  const PAYCREST: RampInstitution[] = [
+    { name: 'Guaranty Trust Bank', code: 'GTBINGLA', institutionCode: 'GTBINGLA', currency: 'NGN' },
+    { name: 'Access Bank', code: 'ABNGNGLA', institutionCode: 'ABNGNGLA', currency: 'NGN' },
+    { name: 'Kuda Microfinance Bank', code: 'KUDANGPC', institutionCode: 'KUDANGPC', currency: 'NGN' },
+  ];
+  const gtb = { code: '000013', name: 'Guaranty Trust Bank' };
+
+  it('keeps the picked code at the provider it came from', () => {
+    expect(pickBank(BITNOB, gtb)).toEqual({ code: '000013', name: 'Guaranty Trust Bank' });
+  });
+
+  it("translates it to the other provider's code for the same bank", () => {
+    expect(pickBank(PAYCREST, gtb)).toEqual({ code: 'GTBINGLA', name: 'Guaranty Trust Bank' });
+    expect(pickBank(BITNOB, { code: 'KUDANGPC', name: 'Kuda Microfinance Bank' })).toEqual({ code: '090267', name: 'Kuda Microfinance Bank' });
+  });
+
+  it('never sends a foreign code through, even when the name is missing', () => {
+    expect(pickBank(PAYCREST, { code: '000013' })).toBeNull();
+  });
+
+  it('does not trust a code that names a different bank here', () => {
+    // A code shared by accident across providers must not override the bank the user chose.
+    const clash: RampInstitution[] = [
+      { name: 'Access Bank', code: '000013', institutionCode: '000013', currency: 'NGN' },
+      { name: 'Guaranty Trust Bank', code: 'GTB', institutionCode: 'GTB', currency: 'NGN' },
+    ];
+    expect(pickBank(clash, gtb)).toEqual({ code: 'GTB', name: 'Guaranty Trust Bank' });
+  });
+});
+
+describe('verification and payout address the bank the same way', () => {
+  const src = readFileSync(resolve(process.cwd(), 'lib/actions/ramp.ts'), 'utf8');
+
+  it('verification resolves per provider before asking it', () => {
+    expect(src).toMatch(/Ramp\.resolveBank\(p, \{ code: institution, name: bankName \}, fiat\)[\s\S]{0,300}verifyAccountFor\(p, bank\.code,/);
+  });
+
+  it('payout resolves with the picked code and name', () => {
+    expect(src).toMatch(/Ramp\.resolveBank\(\s*provider,\s*\{ code: params\.bank\.bankCode, name: params\.bank\.bankName \}/);
   });
 });

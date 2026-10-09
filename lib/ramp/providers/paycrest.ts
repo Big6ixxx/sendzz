@@ -6,7 +6,23 @@
 import { getPaycrestClient } from "@/lib/paycrest/client";
 import type { PaycrestNetwork, PaycrestOrderResponse, PaycrestRate } from "@/lib/paycrest/types";
 import type { RampProvider } from "../provider";
+
+/**
+ * Paycrest's currencies, each mapped to the one country that uses it.
+ *
+ * Safe only because every currency Paycrest supports is single-country. Do not extend this with
+ * a shared currency like XOF — there is no single right answer, and guessing one is how a
+ * payout meant for Senegal gets built for Côte d'Ivoire.
+ */
+const PAYCREST_CURRENCY_COUNTRY: Record<string, { code: string; name: string }> = {
+  NGN: { code: "NG", name: "Nigeria" },
+  KES: { code: "KE", name: "Kenya" },
+  UGX: { code: "UG", name: "Uganda" },
+  TZS: { code: "TZ", name: "Tanzania" },
+  GHS: { code: "GH", name: "Ghana" },
+};
 import type {
+  RampCountry,
   CreateOffRampParams,
   CreateOnRampParams,
   QuoteOffRampParams,
@@ -324,6 +340,35 @@ export class PaycrestProvider implements RampProvider {
   async getCurrencies(): Promise<{ data: RampCurrencyDetail[] }> {
     const paycrest = getPaycrestClient();
     return paycrest.getCurrencies();
+  }
+
+  /**
+   * The countries Paycrest pays into.
+   *
+   * Derived, because Paycrest's catalogue is a currency list with no country field. Each of its
+   * currencies belongs to exactly one country, so the mapping is unambiguous — unlike Bitnob's
+   * XOF, which spans eight. A currency that cannot be mapped is dropped rather than guessed at.
+   */
+  async getPayoutCountries(): Promise<{ data: RampCountry[] }> {
+    const { data } = await this.getCurrencies();
+
+    return {
+      data: data.flatMap((c) => {
+        const code = c.code?.toUpperCase();
+        const country = code ? PAYCREST_CURRENCY_COUNTRY[code] : undefined;
+        if (!code || !country) return [];
+        return [
+          {
+            code: country.code,
+            name: country.name,
+            currency: code,
+            // Paycrest does not describe rails; the institutions list is what the recipient
+            // screen offers, and it returns banks and operators together.
+            channels: ["bank"],
+          },
+        ];
+      }),
+    };
   }
 
   async getSettlementNetworks(): Promise<string[]> {

@@ -10,6 +10,7 @@ import type {
   RampPayoutQuote,
   RampCapabilities,
   RampCurrency,
+  RampCountry,
   RampCurrencyDetail,
   RampInstitution,
   RampOrderResponse,
@@ -68,10 +69,19 @@ export interface RampProvider {
   ): Promise<RampVerifyAccountResponse>;
 
   /** Supported banks/institutions for a currency. */
-  getInstitutions(currency: RampCurrency): Promise<{ data: RampInstitution[] }>;
+  /** Banks/operators for a corridor. `country` disambiguates a currency shared by several. */
+  getInstitutions(currency: RampCurrency, country?: string): Promise<{ data: RampInstitution[] }>;
 
   /** Supported fiat currencies. */
   getCurrencies(): Promise<{ data: RampCurrencyDetail[] }>;
+
+  /**
+   * Payout destinations at country granularity.
+   *
+   * Optional: a provider that only knows currencies simply omits it, and the router falls back
+   * to deriving destinations from `getCurrencies`.
+   */
+  getPayoutCountries?(): Promise<{ data: RampCountry[] }>;
 
   /**
    * Chains this provider can settle USDC on for fiat off-ramp (dynamic, not hardcoded).

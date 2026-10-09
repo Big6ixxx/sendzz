@@ -197,7 +197,7 @@ export function HistoryModule({
         {!hideHeader && (
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-2">
             <div className="space-y-1">
-              <h2 className="text-3xl font-display font-bold tracking-tight text-brand-secondary">
+              <h2 className="text-2xl sm:text-3xl font-display font-bold tracking-tight text-brand-secondary">
                 Activity
               </h2>
               <p className="text-[10px] font-bold text-brand-secondary/30 uppercase tracking-[0.2em]">
@@ -246,7 +246,7 @@ export function HistoryModule({
       {!hideHeader && (
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-2">
           <div className="space-y-1">
-            <h2 className="text-3xl font-display font-bold tracking-tight text-brand-secondary">
+            <h2 className="text-2xl sm:text-3xl font-display font-bold tracking-tight text-brand-secondary">
               Activity
             </h2>
             <p className="text-[10px] font-bold text-brand-secondary/30 uppercase tracking-[0.2em]">

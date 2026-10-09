@@ -430,9 +430,12 @@ export async function executeOffRamp(params: {
   fiatAmount?: number;
   exchangeRate?: number;
   inputMode: "fiat" | "usdc";
-  bank: { accountNumber: string; accountName: string; bankName: string; memo?: string };
+  /** `bankCode` is from whichever provider's list the user picked from; see `pickBank`. */
+  bank: { accountNumber: string; accountName: string; bankName: string; bankCode?: string; memo?: string };
   userRefundAddress: string;
   fiatCurrency: RampCurrency;
+  /** ISO-3166 payout country, when the user chose one. */
+  payoutCountry?: string;
   network: RampNetwork;
   consolidated?: boolean;
   accessToken?: string;
@@ -537,12 +540,12 @@ export async function executeOffRamp(params: {
       // provider's own validation happens too late to protect them: a bad code surfaces as
       // "Invalid beneficiary bank_code" with the money already in and no payout to show for it.
       //
-      // This resolve IS that pre-flight. `matchBank` only ever returns a code taken from this
+      // This resolve IS that pre-flight. `pickBank` only ever returns a code taken from this
       // provider's own institution list, so a non-null result is proof the provider can address
       // it; null means it cannot, and we move to the next provider with nothing deposited.
-      const resolved = await Ramp.resolveBankCode(
+      const resolved = await Ramp.resolveBank(
         provider,
-        params.bank.bankName,
+        { code: params.bank.bankCode, name: params.bank.bankName },
         params.fiatCurrency,
       );
       if (!resolved) {
@@ -569,6 +572,7 @@ export async function executeOffRamp(params: {
         userRefundAddress: params.userRefundAddress,
         userEmail: userEmail,
         fiatCurrency: params.fiatCurrency,
+        payoutCountry: params.payoutCountry,
         network: params.network,
         // Only the provider the quote was struck with can reuse it; a fallback provider
         // re-quotes from scratch, and the order carries whatever IT will pay out.
@@ -754,6 +758,8 @@ export async function verifyBankAccount(
    * check and then had the payout rejected by a different provider, after depositing.
    */
   network?: string,
+  /** The bank's name, so a provider other than the one `institution` came from can find it. */
+  bankName?: string,
 ) {
   const fiat = currency ?? "NGN";
 
@@ -771,7 +777,14 @@ export async function verifyBankAccount(
   const failures: { provider: RampProviderName; message: string }[] = [];
   for (const p of candidates) {
     try {
-      const result = await Ramp.verifyAccountFor(p, institution, accountNumber, fiat);
+      // Each provider is asked with ITS code for the bank, the same one a payout through it
+      // would use — the raw code is only ever valid at the provider whose list it came from.
+      const bank = await Ramp.resolveBank(p, { code: institution, name: bankName }, fiat);
+      if (!bank) {
+        failures.push({ provider: p, message: `does not list "${bankName || institution}"` });
+        continue;
+      }
+      const result = await Ramp.verifyAccountFor(p, bank.code, accountNumber, fiat);
       const name =
         typeof result?.data === "string" ? result.data : result?.data?.accountName;
       if (name) return result;
@@ -801,7 +814,7 @@ export async function verifyBankAccount(
 
 /**
  * Ordered list of off-ramp providers to try for a currency (pinned flow). The withdraw
- * flow uses the first; on failure it re-resolves the bank for the next via resolveBankCode.
+ * flow uses the first; on failure it re-resolves the bank for the next (see `pickBank`).
  */
 export async function getOffRampProviderOrder(
   currency: string = "NGN",
@@ -810,27 +823,17 @@ export async function getOffRampProviderOrder(
 }
 
 /**
- * Resolve a provider-specific bank code from a canonical bank name — the primitive that
- * makes saved accounts + provider fallback portable (bank codes differ per provider).
- */
-export async function resolveBankCode(
-  provider: RampProviderName,
-  bankName: string,
-  currency: string = "NGN",
-): Promise<{ code: string; name: string } | null> {
-  return Ramp.resolveBankCode(provider, bankName, currency);
-}
-
-/**
  * UTILITIES
  */
 export async function getInstitutions(
   currency: string = "NGN",
   provider?: RampProviderName,
+  /** ISO-3166 country the user chose — disambiguates a currency shared by several. */
+  country?: string,
 ) {
   if (provider) {
     try {
-      const res = await Ramp.institutionsFor(provider, currency);
+      const res = await Ramp.institutionsFor(provider, currency, country);
       if (res.data && res.data.length > 0) return res;
     } catch (err) {
       console.warn(
@@ -839,11 +842,16 @@ export async function getInstitutions(
       );
     }
   }
-  return await Ramp.getInstitutions(currency);
+  return await Ramp.getInstitutions(currency, country);
 }
 
 export async function getCurrencies() {
   return await Ramp.getCurrencies();
+}
+
+/** Payout destinations as countries — see `Ramp.getPayoutCountries`. */
+export async function getPayoutCountries() {
+  return await Ramp.getPayoutCountries();
 }
 
 /** Currencies the deposit (on-ramp) form may offer — only corridors a provider can fulfil. */

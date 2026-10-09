@@ -244,11 +244,11 @@ export default function Dashboard() {
 
         {/* Balance Header */}
         <section>
-          <div className="card-glass p-8 md:p-10 rounded-3xl">
+          <div className="card-glass p-5 sm:p-8 md:p-10 rounded-3xl">
             <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-8 flex-wrap">
               <div className="space-y-4 min-w-0">
                 {/* Header row: label + eye toggle on the same line */}
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                   <p
                     className="text-[10px] font-bold uppercase tracking-[0.25em]"
                     style={{ color: "rgba(248,248,246,0.35)" }}
@@ -301,9 +301,9 @@ export default function Dashboard() {
                   </button>
                 </div>
                 {/* Balance + USDC label + refresh — all on one baseline */}
-                <div className="flex items-baseline gap-3 min-w-0">
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 min-w-0">
                   <h2
-                    className="font-display text-5xl md:text-7xl font-bold tracking-tighter leading-none truncate"
+                    className="font-display text-[clamp(2.25rem,11vw,4.5rem)] font-bold tracking-tighter leading-none tabular-nums"
                     style={{ color: "#f8f8f6" }}
                   >
                     $
@@ -314,7 +314,7 @@ export default function Dashboard() {
                   </h2>
                   <div className="flex items-center gap-1.5 pb-1">
                     <span
-                      className="text-xl font-bold uppercase tracking-tighter shrink-0"
+                      className="text-base sm:text-xl font-bold uppercase tracking-tighter shrink-0"
                       style={{ color: "rgba(248,248,246,0.2)" }}
                     >
                       USDC
@@ -415,7 +415,7 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 w-full xl:w-auto">
                 <button
                   onClick={() => openRamp("deposit")}
                   className="btn-accent flex-1 sm:flex-none h-14 md:h-16 px-6 md:px-10 gap-3 rounded-2xl text-sm md:text-base transition-all"
@@ -441,7 +441,7 @@ export default function Dashboard() {
                   }}
                 >
                   <ArrowUp className="w-4 h-4 md:w-5 md:h-5" />
-                  <span className="uppercase tracking-tight">Withdraw</span>
+                  <span className="uppercase tracking-tight">To Bank</span>
                 </button>
               </div>
             </div>
@@ -489,8 +489,8 @@ export default function Dashboard() {
         )}
 
         {/* Main Grid: Clean & Segmented */}
-        <div className="grid lg:grid-cols-12 gap-12 items-start">
-          <div className="lg:col-span-7 space-y-10">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-start">
+          <div className="lg:col-span-7 space-y-8 lg:space-y-10 min-w-0">
             <div className="space-y-4">
               <div className="flex items-center gap-2 px-1">
                 <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-muted-foreground">
@@ -521,7 +521,7 @@ export default function Dashboard() {
             </div>
 
             <div
-              className="card-glass p-8 rounded-3xl space-y-6 group overflow-hidden relative"
+              className="card-glass p-5 sm:p-8 rounded-3xl space-y-6 group overflow-hidden relative"
               style={{ border: "1px solid rgba(255,255,255,0.08)" }}
             >
               <Users
@@ -530,7 +530,7 @@ export default function Dashboard() {
               />
               <div className="space-y-2 relative z-10">
                 <h3
-                  className="text-2xl font-display font-bold tracking-tight"
+                  className="text-xl sm:text-2xl font-display font-bold tracking-tight"
                   style={{ color: "#f8f8f6" }}
                 >
                   Batch Payroll

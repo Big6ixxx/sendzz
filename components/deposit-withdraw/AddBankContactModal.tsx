@@ -142,7 +142,7 @@ export function AddBankContactModal({
 
                           if (newAccountNumber.length === 10) {
                             setIsVerifyingNew(true);
-                            verifyBankAccount(inst.institutionCode || inst.code, newAccountNumber, fiatCurrency)
+                            verifyBankAccount(inst.institutionCode || inst.code, newAccountNumber, fiatCurrency, undefined, undefined, inst.name)
                               .then((res) => {
                                 const name = typeof res.data === 'string' ? res.data : res.data?.accountName;
                                 setNewAccountName(name || '');
@@ -180,7 +180,7 @@ export function AddBankContactModal({
                   setNewAccountNumber(val);
                   if (val.length >= 8 && newBank) {
                     setIsVerifyingNew(true);
-                    verifyBankAccount(newBank.code, val, fiatCurrency)
+                    verifyBankAccount(newBank.code, val, fiatCurrency, undefined, undefined, newBank.name)
                       .then((res) => {
                         const rawName = typeof res.data === 'string' ? res.data : res.data?.accountName;
                         const name = (!rawName || rawName.trim().toUpperCase() === 'OK')

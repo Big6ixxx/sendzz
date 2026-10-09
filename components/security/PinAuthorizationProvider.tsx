@@ -498,7 +498,7 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
                 type="button"
                 onClick={() => settle(null)}
                 disabled={busy}
-                className="btn-secondary w-full sm:w-auto sm:flex-1 h-14 text-sm font-bold tracking-wide"
+                className="btn-secondary w-full sm:w-auto h-14 text-sm font-bold tracking-wide"
               >
                 Cancel
               </button>

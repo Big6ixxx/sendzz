@@ -58,7 +58,8 @@ import { ConnectedWallet, usePrivy } from "@privy-io/react-auth";
 import { formatFiatShort, getCurrencySymbol } from "@/lib/currency-config";
 import { FIAT_ROUTING_PAD } from "@/lib/ramp/fees";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { matchContactBank } from "./contact-bank";
 import { usePinAuthorization } from "@/components/security/PinAuthorizationProvider";
 import { describeWithdrawal } from "@/lib/signing/describe";
 import { getReferralBenefitBalances } from "@/lib/actions/ramp";
@@ -103,6 +104,15 @@ export function useDepositWithdraw(
   const [kycBlock, setKycBlock] = useState<KycBlock | null>(null);
   const [error] = useState<string | null>(null);
   const [fiatCurrency, setFiatCurrency] = useState<FiatCurrencyCode>("NGN");
+  /**
+   * The payout country the user chose, when they chose one.
+   *
+   * Not derivable from the currency: XOF covers eight countries, and without this the provider
+   * resolved the corridor by scanning for the first match — so a payout to Senegal was built
+   * against Benin's banks and Benin's beneficiary. Null means "no preference", which is the old
+   * behaviour and still correct for a currency only one country uses.
+   */
+  const [payoutCountry, setPayoutCountry] = useState<string | null>(null);
   const [quoteUsdcAmount, setQuoteUsdcAmount] = useState<string>("");
   // On-ramp landing chain. Defaults to Base; advanced users may pick another supported chain.
 
@@ -324,8 +334,26 @@ export function useDepositWithdraw(
   const [passkeyEnabled, setPasskeyEnabled] = useState(false);
   const [pinEnabled, setPinEnabled] = useState(false);
 
-  // Fetch institutions & rates when fiatCurrency changes
+  // Fetch institutions & rates when the destination changes.
   useEffect(() => {
+    // Every response below belongs to ONE destination, and only the latest may land.
+    //
+    // There was no guard, and the hook starts on NGN — whose bank list (367 banks) is the
+    // slowest call of all. Pick Kenya within a second and Kenya's operators arrive first, then
+    // Nigeria's banks arrive last and overwrite them. That is why every corridor showed
+    // Nigerian banks. The same race could overwrite the RATE, the fee percent, the corridor fee
+    // and the quote with Nigeria's figures while the user is looking at Kenya — a pricing bug,
+    // not just a list bug. It was always latent; putting the country picker first, where people
+    // change it immediately, made it fire every time.
+    let cancelled = false;
+
+    // A withdrawal asks for its destination first, and nothing country-specific is fetched
+    // until there is one. Loading on mount meant fetching NIGERIA by default — the hook's
+    // starting currency — for a user who had not chosen anything, and that request (367 banks,
+    // the slowest there is) was exactly the one that later landed on top of their real choice.
+    // Deposits are unaffected: they have no destination step.
+    const awaitingDestination = type === "withdraw" && !payoutCountry;
+
     const init = async () => {
       setInstitutionsLoading(true);
       try {
@@ -337,23 +365,24 @@ export function useDepositWithdraw(
             () => ["paycrest"] as RampProviderName[],
           );
           provider = order[0] || "paycrest";
-          instRes = await getInstitutions(fiatCurrency).catch(() => ({ data: [] }));
+          instRes = await getInstitutions(fiatCurrency, undefined, payoutCountry ?? undefined).catch(() => ({ data: [] }));
         } else {
           provider = "paycrest";
-          instRes = await getInstitutions(fiatCurrency, provider).catch(() => ({ data: [] }));
+          instRes = await getInstitutions(fiatCurrency, provider, payoutCountry ?? undefined).catch(() => ({ data: [] }));
         }
 
+        if (cancelled) return;
         setOffRampProvider(provider);
         // Asked per corridor: a currency with its own rate must not be quoted at the
         // standard one and then deducted at the other.
         getProviderFeePercent(provider, fiatCurrency)
-          .then(setFeePercent)
-          .catch(() => setFeePercent(0));
+          .then((v) => { if (!cancelled) setFeePercent(v); })
+          .catch(() => { if (!cancelled) setFeePercent(0); });
         // Flat provider fee for this corridor (Bitnob only). Fetched alongside the provider so
         // it is known before the amount is validated, not after the order exists.
         getCorridorFeeAction(provider, fiatCurrency)
-          .then(setCorridorFee)
-          .catch(() => setCorridorFee(0));
+          .then((v) => { if (!cancelled) setCorridorFee(v); })
+          .catch(() => { if (!cancelled) setCorridorFee(0); });
         getReferralBenefitBalances()
           .then(setBenefits)
           // Zero on failure means the full fee is quoted. The user is then charged less than
@@ -363,10 +392,15 @@ export function useDepositWithdraw(
       } catch (err) {
         console.error("Failed to fetch banks", err);
       } finally {
-        setInstitutionsLoading(false);
+        if (!cancelled) setInstitutionsLoading(false);
       }
     };
-    init();
+    if (awaitingDestination) {
+      setInstitutions([]);
+      setInstitutionsLoading(false);
+    } else {
+      init();
+    }
 
     // Reset bank details when currency changes
     setBankDetails({
@@ -377,24 +411,28 @@ export function useDepositWithdraw(
     });
     setRate(null);
 
-    setRateLoading(true);
-    if (type === "deposit") {
-      getOnRampRate(fiatCurrency)
-        .then(setRate)
-        .catch(() => setRate(null))
-        .finally(() => setRateLoading(false));
+    if (awaitingDestination) {
+      setRateLoading(false);
     } else {
-      getOffRampRate(fiatCurrency)
-        .then(setRate)
-        .catch(() => setRate(null))
-        .finally(() => setRateLoading(false));
+      setRateLoading(true);
+      if (type === "deposit") {
+        getOnRampRate(fiatCurrency)
+          .then((r) => { if (!cancelled) setRate(r); })
+          .catch(() => { if (!cancelled) setRate(null); })
+          .finally(() => { if (!cancelled) setRateLoading(false); });
+      } else {
+        getOffRampRate(fiatCurrency)
+          .then((r) => { if (!cancelled) setRate(r); })
+          .catch(() => { if (!cancelled) setRate(null); })
+          .finally(() => { if (!cancelled) setRateLoading(false); });
 
-      if (quoteUsdcAmount) {
-        const val = parseFloat(quoteUsdcAmount);
-        if (!isNaN(val) && val > 0) {
-          getOffRampQuote(val, fiatCurrency, withdrawChain)
-            .then(setQuote)
-            .catch(() => {});
+        if (quoteUsdcAmount) {
+          const val = parseFloat(quoteUsdcAmount);
+          if (!isNaN(val) && val > 0) {
+            getOffRampQuote(val, fiatCurrency, withdrawChain)
+              .then((q) => { if (!cancelled) setQuote(q); })
+              .catch(() => {});
+          }
         }
       }
     }
@@ -426,9 +464,24 @@ export function useDepositWithdraw(
         .then((data) => setPinEnabled(!!data?.enabled))
         .catch(() => setPinEnabled(false));
     }
-  }, [type, fiatCurrency, userEmail]);
 
-  // Dynamic bank code resolution for saved contacts across different providers
+    return () => {
+      cancelled = true;
+    };
+    // `payoutCountry` included so Ivory Coast → Senegal (both XOF) refetches: the currency does
+    // not change, so without it the previous country's operators stayed on screen.
+  }, [type, fiatCurrency, payoutCountry, userEmail]);
+
+  // Saved contacts whose bank pays out in the chosen country. The rest are hidden rather than
+  // offered and then failing: picking one would address a payout to a bank this corridor lacks.
+  const countryContacts = useMemo(
+    () =>
+      bankContacts.filter(
+        (c) => matchContactBank(institutions, { bankCode: c.bank_code, bankName: c.bank_name }) != null,
+      ),
+    [bankContacts, institutions],
+  );
+
   const handleSelectContact = useCallback(
     (contact: {
       bankCode: string;
@@ -436,90 +489,8 @@ export function useDepositWithdraw(
       accountNumber: string;
       accountName: string;
     }) => {
-      const normalizeBankName = (s: string): string => {
-        const normalized = (s || "")
-          .toLowerCase()
-          .replace(/\b(bank|plc|ltd|limited|nigeria|microfinance|mfb|company)\b/g, "")
-          .replace(/[^a-z0-9]/g, "");
-
-        // Map common abbreviations and aliases to a single canonical term
-        if (
-          normalized === "gtb" ||
-          normalized === "gt" ||
-          normalized === "gtbank" ||
-          normalized === "guarantytrust" ||
-          normalized === "guarantytrustbank"
-        ) {
-          return "gtb";
-        }
-        if (normalized === "uba" || normalized === "unitedbankforafrica") {
-          return "uba";
-        }
-        if (normalized === "fcmb" || normalized === "firstcitymonument") {
-          return "fcmb";
-        }
-        if (normalized === "first" || normalized === "firstbank" || normalized === "fbn") {
-          return "firstbank";
-        }
-        if (normalized === "stanbic" || normalized === "stanbicibtc" || normalized === "ibtc") {
-          return "stanbic";
-        }
-        if (normalized === "access" || normalized === "accessbank") {
-          return "access";
-        }
-        if (normalized === "zenith" || normalized === "zenithbank") {
-          return "zenith";
-        }
-        if (normalized === "sterling" || normalized === "sterlingbank") {
-          return "sterling";
-        }
-        if (normalized === "wema" || normalized === "wemabank") {
-          return "wema";
-        }
-        if (normalized === "union" || normalized === "unionbank") {
-          return "union";
-        }
-        if (normalized === "keystone" || normalized === "keystonebank") {
-          return "keystone";
-        }
-        if (normalized === "polaris" || normalized === "polarisbank") {
-          return "polaris";
-        }
-        if (normalized === "fidelity" || normalized === "fidelitybank") {
-          return "fidelity";
-        }
-        if (normalized === "ecobank") {
-          return "ecobank";
-        }
-
-        return normalized;
-      };
-
-      const resolveBankCodeFromInstitutions = (
-        insts: RampInstitution[],
-        bankName: string,
-        fallbackCode: string,
-      ): { code: string; name: string } => {
-        const target = normalizeBankName(bankName);
-        if (!target) return { code: fallbackCode, name: bankName };
-
-        const exact = insts.find((b) => normalizeBankName(b.name) === target);
-        if (exact) return { code: exact.code, name: exact.name };
-
-        const partial = insts.find((b) => {
-          const n = normalizeBankName(b.name);
-          return n.length > 2 && (n.includes(target) || target.includes(n));
-        });
-        if (partial) return { code: partial.code, name: partial.name };
-
-        return { code: fallbackCode, name: bankName };
-      };
-
-      const resolved = resolveBankCodeFromInstitutions(
-        institutions,
-        contact.bankName,
-        contact.bankCode,
-      );
+      const resolved = matchContactBank(institutions, contact);
+      if (!resolved) return;
       setBankDetails({
         bankCode: resolved.code,
         bankName: resolved.name,
@@ -549,6 +520,7 @@ export function useDepositWithdraw(
         fiatCurrency,
         offRampProvider,
         withdrawChain,
+        details.bankName,
       );
       let name =
         typeof res.data === "string" ? res.data : res.data?.accountName;
@@ -1200,10 +1172,14 @@ export function useDepositWithdraw(
           accountNumber: bankDetails.accountNumber,
           accountName: bankDetails.accountName,
           bankName: bankDetails.bankName || bankDetails.bankCode,
+          bankCode: bankDetails.bankCode,
           memo: bankDetails.memo,
         },
         userRefundAddress: userAddress,
         fiatCurrency,
+        // The country the user picked, so the corridor is built for it rather than for
+        // whichever country the provider lists first under this currency.
+        payoutCountry: payoutCountry ?? undefined,
         network: withdrawChain,
         consolidated: mustConsolidate,
         accessToken: await freshToken(),
@@ -1741,6 +1717,8 @@ export function useDepositWithdraw(
     error,
     fiatCurrency,
     setFiatCurrency,
+    payoutCountry,
+    setPayoutCountry,
     institutions,
     institutionsLoading,
     rate,
@@ -1756,6 +1734,7 @@ export function useDepositWithdraw(
     txFailed,
     withdrawalTxHash,
     bankContacts,
+    countryContacts,
     showSavePrompt,
     setShowSavePrompt,
     quoteUsdcAmount,
@@ -1838,6 +1817,7 @@ export function useDepositWithdraw(
       setMustConsolidate(false);
       setSourcePref(AUTO_SOURCE);
       setConsolidateFrom(null);
+      setPayoutCountry(null);
       setBankDetails({
         accountNumber: "",
         bankCode: "",

@@ -1230,7 +1230,7 @@ export default function SettingsPage() {
           <div className="flex flex-col-reverse sm:flex-row gap-3 pt-4">
             <button
               onClick={() => setThresholdModalOpen(false)}
-              className="btn-secondary w-full sm:w-auto sm:flex-1"
+              className="btn-secondary w-full sm:w-auto"
             >
               Cancel
             </button>

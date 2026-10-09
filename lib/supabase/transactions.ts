@@ -1880,11 +1880,14 @@ export async function getUserActivities(accessToken?: string) {
                   "completed",
                 );
               }
+            } else if (statusLower === "refunded" && provider === "paycrest") {
+              const { recordPaycrestRefund } = await import("@/lib/ramp/provider-refund");
+              const refund = await recordPaycrestRefund(w.provider_order_id!, null);
+              if (refund.ok) w.status = "reversed";
+              else console.error("[Supabase] recordPaycrestRefund failed (polling):", refund.error);
             } else if (
               statusLower &&
-              ["refunded", "expired", "failed", "refunding"].includes(
-                statusLower,
-              )
+              ["refunded", "expired", "failed"].includes(statusLower)
             ) {
               const { error } = await supabaseAdmin.rpc(
                 "finalize_withdrawal_failed",
@@ -1899,11 +1902,7 @@ export async function getUserActivities(accessToken?: string) {
                   error.message,
                 );
               } else {
-                const finalStatus = ["refunded", "refunding"].includes(
-                  statusLower,
-                )
-                  ? "reversed"
-                  : "failed";
+                const finalStatus = statusLower === "refunded" ? "reversed" : "failed";
                 if (finalStatus === "reversed") {
                   await updateWithdrawalStatus(
                     w.provider_order_id!,
@@ -2058,14 +2057,26 @@ export async function reconcileOrderStatus(
       }
       await triggerWithdrawalNotifications(orderId, "completed");
       return { ok: true, newStatus: "completed" };
-    } else if (
-      ["refunded", "expired", "failed", "refunding"].includes(statusLower)
-    ) {
+    } else if (["refunded", "expired", "failed"].includes(statusLower)) {
       const { data: currentW } = await supabaseAdmin
         .from("withdrawals")
-        .select("status")
+        .select("status, provider, provider_order_id, paycrest_order_id")
         .eq("provider_order_id", orderId)
         .maybeSingle();
+
+      // The browser supplies this status, so a "refunded" is confirmed with Paycrest before
+      // it can settle a debt.
+      if (statusLower === "refunded" && currentW) {
+        const { resolveLedgerProvider } = await import("@/lib/ramp");
+        if (resolveLedgerProvider(currentW) === "paycrest") {
+          const { getOrderStatus } = await import("@/lib/actions/ramp");
+          const live = await getOrderStatus(orderId, "paycrest");
+          if (live?.status?.toLowerCase() !== "refunded") return { ok: true };
+          const { recordPaycrestRefund } = await import("@/lib/ramp/provider-refund");
+          const refund = await recordPaycrestRefund(orderId, null);
+          return refund.ok ? { ok: true, newStatus: "reversed" } : { ok: false, error: refund.error };
+        }
+      }
 
       if (currentW && currentW.status !== "processing") {
         return { ok: true, newStatus: currentW.status };
@@ -2082,9 +2093,7 @@ export async function reconcileOrderStatus(
         );
         return { ok: false, error: error.message };
       }
-      const finalStatus = ["refunded", "refunding"].includes(statusLower)
-        ? "reversed"
-        : "failed";
+      const finalStatus = statusLower === "refunded" ? "reversed" : "failed";
       if (finalStatus === "reversed") {
         await updateWithdrawalStatus(orderId, "reversed");
       } else {

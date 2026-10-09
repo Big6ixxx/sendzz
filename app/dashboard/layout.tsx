@@ -113,7 +113,7 @@ export default function DashboardLayout({
 
   return (
     <PinAuthorizationProvider>
-    <div className="flex h-screen overflow-hidden" style={{ background: "#07070a" }}>
+    <div className="flex h-dvh overflow-hidden" style={{ background: "#07070a" }}>
       <PinRequiredGate open={hasPin === false} onComplete={() => setHasPin(true)} />
       {/* Ambient glow — subtle, dashboard version */}
       <div
@@ -178,7 +178,7 @@ export default function DashboardLayout({
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden">
           <KycBanner userEmail={user?.email?.address || ""} />
           <div className="p-4 md:p-6 lg:p-8">
             {children}

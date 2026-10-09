@@ -192,7 +192,7 @@ function Form({
       />
 
       <div className="flex flex-col-reverse sm:flex-row gap-3">
-        <button onClick={onCancel} disabled={busy} className="btn-secondary w-full sm:w-auto sm:flex-1">
+        <button onClick={onCancel} disabled={busy} className="btn-secondary w-full sm:w-auto">
           Cancel
         </button>
         <button

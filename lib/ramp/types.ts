@@ -62,6 +62,25 @@ export interface RampCurrencyDetail {
   channels: string[];
 }
 
+/**
+ * One payout destination, at the granularity people actually think in.
+ *
+ * Distinct from `RampCurrencyDetail`, which is deduped by CURRENCY: XOF covers eight West
+ * African countries and collapses to a single entry there, so a list built from it cannot offer
+ * Senegal and Benin as separate choices — and the payout silently resolved to whichever the
+ * provider listed first. This keeps the country, which is what the banks lookup and the
+ * beneficiary both need.
+ */
+export interface RampCountry {
+  /** ISO-3166 alpha-2, e.g. "SN". */
+  code: string;
+  name: string;
+  /** The currency a payout to this country lands in. */
+  currency: string;
+  /** Rails available here — bank, mobile_money, paybill, paytill. */
+  channels: string[];
+}
+
 export interface RampRecipient {
   institution?: string;
   accountIdentifier?: string;
@@ -202,6 +221,14 @@ export interface CreateOffRampParams {
   userRefundAddress: string;
   userEmail: string;
   fiatCurrency: RampCurrency;
+  /**
+   * ISO-3166 country the payout is going to, when the user chose one.
+   *
+   * A currency does not identify a country — XOF covers eight — and without this the corridor
+   * was resolved by taking the first country that quoted the currency, so the beneficiary was
+   * built for the wrong one.
+   */
+  payoutCountry?: string;
   /** Paycrest-style: the chain the user will send USDC from. */
   network: RampNetwork;
   /**
@@ -223,6 +250,8 @@ export interface QuoteOffRampParams {
   fiatCurrency: RampCurrency;
   /** Chain the USDC will settle on — providers can price per chain. */
   network: RampNetwork;
+  /** ISO-3166 payout country, when chosen. See `CreateOffRampParams.payoutCountry`. */
+  payoutCountry?: string;
 }
 
 /**

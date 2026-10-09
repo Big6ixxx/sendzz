@@ -140,9 +140,9 @@ export async function completeDeferredPayout(
 
   if (!bankCode) {
     // Only for rows that predate this, or a sealed beneficiary replayed without a row code.
-    const resolved = await Ramp.resolveBankCode(
+    const resolved = await Ramp.resolveBank(
       "bitnob",
-      input.bank.bankName,
+      { name: input.bank.bankName },
       input.fiatCurrency,
     );
     if (!resolved) {

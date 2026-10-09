@@ -75,3 +75,20 @@ describe('the loser of the race cleans up', () => {
     expect(block).toMatch(/eq\("provider", "onchain"\)/);
   });
 });
+
+describe('a send from another Sendzz account is never a deposit', () => {
+  const route = read('app/api/webhook/alchemy/route.ts');
+
+  it('looks the sender up alongside the recipient', () => {
+    expect(route).toMatch(/for \(const raw of \[a\.toAddress!, a\.fromAddress\]\)/);
+  });
+
+  it('skips it before a deposit row (and its email) can exist', () => {
+    // The ledger check above cannot catch this: the transfer row is usually written AFTER the
+    // webhook lands. The cleanup removed the row, but the deposit email had already gone out.
+    const skip = route.indexOf('userByAddress.has(activity.fromAddress.toLowerCase())');
+    expect(skip).toBeGreaterThan(-1);
+    expect(skip).toBeLessThan(route.indexOf('rows.push('));
+    expect(route.slice(skip, skip + 120)).toMatch(/continue;/);
+  });
+});

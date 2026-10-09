@@ -164,7 +164,10 @@
     align-items: center;
     justify-content: center;
     height: 3.5rem;
-    padding: 0 2rem;
+    /* Labels stay on one line: a wrapped label in a fixed-height pill looks broken. The
+       padding gives way on narrow buttons instead. */
+    padding: 0 clamp(1rem, 3vw, 2rem);
+    white-space: nowrap;
     background-color: var(--foreground);
     color: var(--background);
     font-weight: 600;
@@ -197,7 +200,8 @@
     align-items: center;
     justify-content: center;
     height: 3.5rem;
-    padding: 0 2rem;
+    padding: 0 clamp(1rem, 3vw, 2rem);
+    white-space: nowrap;
     background-color: var(--accent);
     color: #0a0a0b;
     font-weight: 700;
@@ -233,7 +237,8 @@
     align-items: center;
     justify-content: center;
     height: 3.5rem;
-    padding: 0 2rem;
+    padding: 0 clamp(1rem, 3vw, 2rem);
+    white-space: nowrap;
     background-color: var(--muted);
     color: var(--foreground);
     font-weight: 600;

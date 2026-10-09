@@ -157,14 +157,14 @@ export function DepositWithdrawDialog({
           onEscapeKeyDown={(e) => {
             if (isBusy || withdrawHook.twoFaModalOpen) e.preventDefault();
           }}
-          className="sm:max-w-md p-0 overflow-hidden border-none rounded-4xl shadow-[0_32px_80px_rgba(0,0,0,0.5)] card-glass bg-brand-primary/90 backdrop-blur-3xl flex flex-col max-h-[90vh]"
+          className="sm:max-w-md p-0 overflow-hidden border-none rounded-4xl shadow-[0_32px_80px_rgba(0,0,0,0.5)] card-glass bg-brand-primary/90 backdrop-blur-3xl flex flex-col max-h-[90dvh]"
         >
-          <DialogHeader className="p-8 pb-0 flex flex-row items-center justify-between">
-            <div className="space-y-1.5">
-              <DialogTitle className="text-4xl font-display font-bold tracking-tight text-brand-secondary flex items-center gap-3">
+          <DialogHeader className="p-5 sm:p-8 pb-0 sm:pb-0 flex flex-row items-center justify-between gap-3">
+            <div className="space-y-1.5 min-w-0">
+              <DialogTitle className="text-2xl sm:text-4xl font-display font-bold tracking-tight text-brand-secondary flex items-center gap-3">
                 <div
                   className={cn(
-                    "w-12 h-12 rounded-2xl flex items-center justify-center shrink-0",
+                    "w-10 h-10 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center shrink-0",
                     type === "deposit"
                       ? "bg-accent/10 text-accent border border-accent/20"
                       : "bg-blue-400/10 text-blue-400 border border-blue-400/20",
@@ -176,12 +176,12 @@ export function DepositWithdrawDialog({
                     <ArrowUpRight className="w-6 h-6" />
                   )}
                 </div>
-                {type === "deposit" ? "Deposit" : "Withdraw"}
+                {type === "deposit" ? "Deposit" : "Transfer to Bank"}
               </DialogTitle>
               <DialogDescription className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
                 {type === "deposit"
                   ? "Fund your digital wallet"
-                  : "Withdraw to your bank"}
+                  : "Send money to a bank account"}
               </DialogDescription>
             </div>
             {/*
@@ -201,7 +201,7 @@ export function DepositWithdrawDialog({
 
           <div className="flex-1 flex flex-col min-h-0">
             {type === "deposit" && (
-              <div className="px-8 pt-8 pb-4 shrink-0">
+              <div className="px-5 sm:px-8 pt-5 sm:pt-8 pb-4 shrink-0">
                 {/* Tab Switcher */}
                 <div className="flex bg-white/5 p-1 rounded-2xl border border-white/5">
                   <button
@@ -232,8 +232,8 @@ export function DepositWithdrawDialog({
 
             <div
               className={cn(
-                "px-8 pb-8 overflow-y-auto flex-1",
-                type === "withdraw" && "pt-8",
+                "px-5 sm:px-8 pb-5 sm:pb-8 overflow-y-auto flex-1",
+                type === "withdraw" && "pt-5 sm:pt-8",
               )}
             >
               {type === "deposit" ? (

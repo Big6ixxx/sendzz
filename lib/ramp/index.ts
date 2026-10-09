@@ -20,6 +20,7 @@ import type {
   RampPayoutQuote,
   RampCapabilities,
   RampCurrency,
+  RampCountry,
   RampCurrencyDetail,
   RampInstitution,
   RampOrderResponse,
@@ -199,6 +200,32 @@ export function matchBank(
 }
 
 /**
+ * The bank the user picked, as THIS provider addresses it.
+ *
+ * Each provider codes the same bank differently (Bitnob "000013", Paycrest "GTBINGLA"), and the
+ * list the user picked from may belong to either. The picked code is kept when it is this
+ * provider's and names the same bank — exact, no name matching involved. Otherwise the bank is
+ * found by name in this provider's own list, so the code returned is always one it can address.
+ */
+export function pickBank(
+  institutions: RampInstitution[],
+  bank: { code?: string; name?: string },
+): { code: string; name: string } | null {
+  const code = bank.code?.trim().toUpperCase();
+  if (code && bank.name) {
+    const hit = institutions.find(
+      (b) =>
+        b.code?.trim().toUpperCase() === code ||
+        b.institutionCode?.trim().toUpperCase() === code,
+    );
+    if (hit && normalizeBankName(hit.name) === normalizeBankName(bank.name)) {
+      return { code: hit.code, name: hit.name };
+    }
+  }
+  return matchBank(institutions, bank.name || bank.code || "");
+}
+
+/**
  * Corridors a provider must not be offered for, whatever its own API claims it supports.
  *
  * A provider's capability list says what it serves in general. This says what it is serving
@@ -309,8 +336,8 @@ export const Ramp = {
     return out;
   },
 
-  institutionsFor(provider: RampProviderName, currency: RampCurrency) {
-    return byName(provider).getInstitutions(currency);
+  institutionsFor(provider: RampProviderName, currency: RampCurrency, country?: string) {
+    return byName(provider).getInstitutions(currency, country);
   },
 
   verifyAccountFor(
@@ -369,7 +396,7 @@ export const Ramp = {
   },
 
   /**
-   * The reverse of `resolveBankCode`: a provider's bank_code back to the bank's display name.
+   * The reverse of `resolveBank`: a provider's bank_code back to the bank's display name.
    *
    * Receipts hold the code, because that is what a payout is addressed with — but "000013" tells
    * a user nothing about where their money went. The name is derived here, from the provider's
@@ -401,14 +428,14 @@ export const Ramp = {
   },
 
 
-  /** Resolve a provider-specific bank_code from a canonical bank name (best match). */
-  async resolveBankCode(
+  /** `pickBank` against this provider's own list. Used by verification and payout alike. */
+  async resolveBank(
     provider: RampProviderName,
-    bankName: string,
+    bank: { code?: string; name?: string },
     currency: RampCurrency,
   ): Promise<{ code: string; name: string } | null> {
     const { data } = await byName(provider).getInstitutions(currency);
-    return matchBank(data, bankName);
+    return pickBank(data, bank);
   },
 
   createOffRampOrder(params: CreateOffRampParams): Promise<RampOrderResponse> {
@@ -459,22 +486,33 @@ export const Ramp = {
     );
   },
 
-  async getInstitutions(currency: RampCurrency): Promise<{ data: RampInstitution[] }> {
+  async getInstitutions(
+    currency: RampCurrency,
+    country?: string,
+  ): Promise<{ data: RampInstitution[] }> {
+    // One row per bank. Providers spell the same bank differently ("GTBank Plc", "Guaranty Trust
+    // Bank"), so a later provider's entry is dropped when it names a bank already listed — by
+    // the same matching `pickBank` uses, which then maps the pick to whichever provider pays.
+    // Only ACROSS providers: two entries in one provider's own list are kept, since that
+    // provider distinguishes them.
     const combined: RampInstitution[] = [];
-    const seen = new Set<string>();
+    const listed = new Set<string>();
 
     for (const p of allProviders()) {
       if (!p.capabilities.institutions) continue;
       try {
-        const res = await p.getInstitutions(currency);
-        if (res.data && res.data.length > 0) {
-          for (const inst of res.data) {
-            const key = (inst.name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-            if (!key || seen.has(key)) continue;
-            seen.add(key);
-            combined.push(inst);
-          }
+        const res = await p.getInstitutions(currency, country);
+        const fromThis = new Set<string>();
+        const spelled = new Set<string>();
+        for (const inst of res.data ?? []) {
+          const key = normalizeBankName(inst.name || "");
+          const exact = (inst.name || "").trim().toLowerCase();
+          if (!key || listed.has(key) || spelled.has(exact)) continue;
+          spelled.add(exact);
+          fromThis.add(key);
+          combined.push(inst);
         }
+        fromThis.forEach((k) => listed.add(k));
       } catch (err) {
         console.warn(
           `[Ramp] ${p.name} failed to getInstitutions for ${currency}:`,
@@ -487,6 +525,69 @@ export const Ramp = {
 
   getCurrencies(): Promise<{ data: RampCurrencyDetail[] }> {
     return withFallback("currencies", (p) => p.getCurrencies());
+  },
+
+  /**
+   * Payout destinations as COUNTRIES, which is how people pick them.
+   *
+   * `getCurrencies` above is deduped by currency, so XOF is one row covering eight countries —
+   * a list no one can choose Senegal from, and a payout that quietly resolved to whichever
+   * country the provider listed first.
+   *
+   * Falls back to deriving one destination per currency when no provider can answer at country
+   * level, so the picker degrades to the old behaviour rather than emptying.
+   */
+  async getPayoutCountries(): Promise<{ data: RampCountry[] }> {
+    // Every provider is asked, and the results are merged.
+    //
+    // Not first-wins: Bitnob and Paycrest cover overlapping but different sets, and taking only
+    // the first to answer hid whole corridors the other could serve. A country offered by
+    // either is a country we can pay.
+    const merged = new Map<string, RampCountry>();
+
+    for (const provider of allProviders()) {
+      if (!provider.getPayoutCountries) continue;
+      try {
+        const { data } = await provider.getPayoutCountries();
+        for (const country of data) {
+          const key = country.code?.toUpperCase();
+          if (!key) continue;
+          const existing = merged.get(key);
+          if (!existing) {
+            merged.set(key, { ...country, code: key });
+            continue;
+          }
+          // Seen already: keep it, and remember every rail either provider offers.
+          merged.set(key, {
+            ...existing,
+            channels: Array.from(new Set([...existing.channels, ...country.channels])),
+          });
+        }
+      } catch (err) {
+        console.error(`[Ramp] ${provider.name} country list failed:`, err);
+      }
+    }
+
+    if (merged.size > 0) {
+      return {
+        data: Array.from(merged.values()).sort((a, b) => a.name.localeCompare(b.name)),
+      };
+    }
+
+    // Nothing answered. One row per currency is all a currency-level catalogue can say, and the
+    // picker shows that rather than emptying — but a shared currency cannot be split by country.
+    console.warn(
+      "[Ramp] no provider returned payout countries — falling back to the currency list.",
+    );
+    const { data } = await this.getCurrencies();
+    return {
+      data: data.map((c) => ({
+        code: c.country || c.code,
+        name: c.name,
+        currency: c.code,
+        channels: c.channels ?? [],
+      })),
+    };
   },
 
   /**

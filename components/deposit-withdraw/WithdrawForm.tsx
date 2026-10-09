@@ -1,6 +1,5 @@
 "use client";
 
-import { CurrencySelector } from "@/components/CurrencySelector";
 import { SigningProgress } from "@/components/signing/SigningProgress";
 import { maxWithdrawableBase } from "@/lib/referrals/benefit-math";
 import { formatFiat, getCurrencySymbol } from "@/lib/currency-config";
@@ -14,6 +13,7 @@ import {
 } from "lucide-react";
 import { balanceOfChain, type SourceChainKey } from "@/lib/web3/routing";
 import { BankSelector } from "./BankSelector";
+import { DestinationPicker } from "./DestinationPicker";
 import { SourceSelector } from "@/components/SourceSelector";
 import { OrderAdvancedDetails } from "./OrderAdvancedDetails";
 import { CHAIN_NAMES, type SupportedChain } from "@/lib/circle/gateway";
@@ -24,6 +24,7 @@ import { useDepositWithdraw } from "./useDepositWithdraw";
 import { ReceiptActions } from "@/components/receipt/ReceiptActions";
 import { ReceiptData } from "@/lib/receipt/types";
 import { cn } from "@/lib/utils";
+import { getCurrencyFlag } from "@/lib/currency-config";
 import { useEffect, useState } from "react";
 import { KycRequiredModal } from "@/components/kyc/KycRequiredModal";
 import { SettlementCountdown } from "./SettlementCountdown";
@@ -33,7 +34,66 @@ interface WithdrawFormProps {
   hook: ReturnType<typeof useDepositWithdraw>;
 }
 
+/**
+ * A country's name from its ISO code, in the user's language where the browser supports it.
+ *
+ * Read from the platform rather than carried on the hook: the hook holds only the code, and
+ * every browser this app supports ships the names. Falls back to the code itself.
+ */
+function countryName(code: string): string {
+  try {
+    return new Intl.DisplayNames(undefined, { type: "region" }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
+type Phase = "recipient" | "amount";
+
+const PHASES: { id: Phase; label: string }[] = [
+  { id: "recipient", label: "Recipient" },
+  { id: "amount", label: "Amount" },
+];
+
+/** Where you are, and how many steps are left. */
+function PhaseHeader({ phase }: { phase: Phase }) {
+  const index = PHASES.findIndex((p) => p.id === phase);
+
+  return (
+    <div className="space-y-2.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">
+          {PHASES[index].label}
+        </span>
+        <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60 tabular-nums">
+          Step {index + 1} of {PHASES.length}
+        </span>
+      </div>
+      <div className="flex gap-1.5" aria-hidden>
+        {PHASES.map((p, i) => (
+          <span
+            key={p.id}
+            className={cn(
+              "h-1 flex-1 rounded-full transition-colors",
+              i <= index ? "bg-accent" : "bg-white/10",
+            )}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function WithdrawForm({ hook }: WithdrawFormProps) {
+  // Which step is on screen. Local, not in the hook: it is a property of
+  // this form's presentation, and the hook's `step` already owns the real transaction stages.
+  const [phase, setPhase] = useState<Phase>("recipient");
+  // Back to the country list. The bank list is per country, so a bank picked under the old one
+  // goes with it.
+  const clearDestination = () => {
+    hook.setPayoutCountry(null);
+    hook.setBankDetails({ accountNumber: "", bankCode: "", accountName: "", bankName: "" });
+  };
   // Track whether user is typing in USD or their local fiat currency
   const [amountCurrency, setAmountCurrency] = useState<"usd" | "fiat">("usd");
   // Which withdrawal the user waved the save-contact offer away for. Keyed by order id so it
@@ -185,10 +245,8 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
   ]);
 
   const amountError = (() => {
-    if (!parsedAmount || !hook.rate) return null;
-    if (usdcBase > 0 && usdcBase < 1) {
-      return "Minimum withdrawal is 1 USDC equivalent.";
-    }
+    if (!hook.amount || !hook.rate) return null;
+    if (usdcBase < 1) return "Minimum transfer is 1 USDC equivalent.";
     if (isOverBalance) {
       const maxLabel =
         amountCurrency === "usd"
@@ -209,6 +267,119 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
   if (hook.step === 1) {
     return (
       <div className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        {/* Who is being paid (country, then account), then how much — and the next screen is
+            purely the summary, so nothing is still being filled in on the last look at it. */}
+
+        <PhaseHeader phase={phase} />
+
+        {phase === "recipient" && (
+          <div className="space-y-5">
+            <div className="space-y-1">
+              <h3 className="text-base font-bold">Who are you sending to?</h3>
+              <p className="text-[12.5px] text-muted-foreground leading-relaxed">
+                {hook.payoutCountry
+                  ? "Choose their bank or mobile-money provider and enter the account number."
+                  : "Start with the country their account is in."}
+              </p>
+            </div>
+
+            {/* The bank list waits for the country: it is per country, and loading it first
+                meant fetching Nigeria by default for someone who had picked nothing. */}
+            {hook.payoutCountry ? (
+              <div className="flex items-center gap-3 rounded-xl border border-white/[0.07] bg-white/[0.02] px-3.5 py-3">
+                <span className="text-xl leading-none shrink-0" aria-hidden>
+                  {getCurrencyFlag(hook.fiatCurrency)}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold truncate">
+                    {countryName(hook.payoutCountry)}
+                  </span>
+                  <span className="block text-[11.5px] font-medium text-muted-foreground">
+                    Pays out in {hook.fiatCurrency}
+                  </span>
+                </span>
+              </div>
+            ) : (
+              <DestinationPicker
+                onSelect={(country) => {
+                  hook.setPayoutCountry(country.code);
+                  hook.setFiatCurrency(country.currency);
+                  // Cleared on purpose: an amount typed against one currency means something
+                  // different against the next, and carrying it over silently re-prices it.
+                  hook.setAmount("");
+                }}
+              />
+            )}
+
+            {hook.payoutCountry && (
+            <BankSelector
+              label="Bank"
+              institutions={hook.institutions}
+              selectedBankCode={hook.bankDetails.bankCode}
+              onSelect={(b) =>
+                hook.setBankDetails({
+                  ...hook.bankDetails,
+                  bankCode: b.code,
+                  bankName: b.name,
+                  accountName: "",
+                })
+              }
+              onSelectContact={hook.handleSelectContact}
+              accountNumber={hook.bankDetails.accountNumber}
+              onAccountNumberChange={(val) =>
+                hook.setBankDetails({
+                  ...hook.bankDetails,
+                  accountNumber: val,
+                  accountName: "",
+                })
+              }
+              accountName={hook.bankDetails.accountName}
+              onAccountNameChange={(name) =>
+                hook.setBankDetails({
+                  ...hook.bankDetails,
+                  accountName: name,
+                })
+              }
+              memo={hook.bankDetails.memo}
+              onMemoChange={(val) =>
+                hook.setBankDetails({
+                  ...hook.bankDetails,
+                  memo: val,
+                })
+              }
+              isVerifying={hook.verifyingBank}
+              contacts={hook.countryContacts}
+              userEmail={hook.userEmail}
+              fiatCurrency={hook.fiatCurrency}
+              onContactsChanged={hook.refreshBankContacts}
+            />
+            )}
+
+            <div className="flex flex-col-reverse sm:flex-row gap-2.5">
+              {hook.payoutCountry && (
+                <button
+                  type="button"
+                  onClick={clearDestination}
+                  className="btn-secondary w-full sm:w-auto"
+                >
+                  Back
+                </button>
+              )}
+              <button
+                onClick={() => setPhase("amount")}
+                disabled={
+                  !hook.payoutCountry || !hook.bankDetails.accountName || hook.verifyingBank
+                }
+                className="btn-primary w-full sm:w-auto sm:flex-1"
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        )}
+
+        {phase === "amount" && (
+          <div className="space-y-5">
         {/* ── Currency mode toggle ──────────────────────────────────── */}
         <div className="flex items-center gap-3">
           <span className="text-xs font-semibold text-muted-foreground">
@@ -261,18 +432,6 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
             </button>
           </div>
 
-          {/* Currency selector (local fiat picker) always visible */}
-          <div className="ml-auto">
-            <CurrencySelector
-              selected={hook.fiatCurrency}
-              onChange={(c) => {
-                hook.setFiatCurrency(c);
-                hook.setAmount("");
-              }}
-              includeUsd={false}
-              size="sm"
-            />
-          </div>
         </div>
 
         {/* ── Amount input ──────────────────────────────────────────── */}
@@ -375,24 +534,38 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
             />
           )}
 
-        <button
-          onClick={hook.handleWithdrawQuote}
-          disabled={
-            hook.loading || hook.rateLoading || !hook.amount || amountError != null
-          }
-          className="btn-primary w-full gap-2"
-        >
-          {hook.loading ? (
-            <>
-              <Loader2 className="w-5 h-5 animate-spin" />
-              Checking…
-            </>
-          ) : isOverBalance ? (
-            "Insufficient Balance"
-          ) : (
-            "Get Quote"
-          )}
-        </button>
+            <div className="flex flex-col-reverse sm:flex-row gap-2.5">
+              <button
+                onClick={() => setPhase("recipient")}
+                disabled={hook.loading}
+                className="btn-secondary w-full sm:w-auto"
+              >
+                Back
+              </button>
+              <button
+                onClick={hook.handleWithdrawQuote}
+                disabled={
+                  hook.loading ||
+                  hook.rateLoading ||
+                  usdcBase < 1 ||
+                  amountError != null
+                }
+                className="btn-primary w-full sm:w-auto sm:flex-1 gap-2"
+              >
+                {hook.loading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Checking…
+                  </>
+                ) : isOverBalance ? (
+                  "Insufficient funds"
+                ) : (
+                  "Review transfer"
+                )}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Refused for the allowance: explain it and offer the way out, in place. */}
         <KycRequiredModal
@@ -516,102 +689,38 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
           })()}
         </div>
 
-        <div className="space-y-4">
-          {/* Destination Country / Currency Selector List */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em]">
-                Select Destination Country
-              </label>
-              <span className="text-[10px] font-bold text-accent uppercase tracking-wider flex items-center gap-1.5">
-                {hook.institutionsLoading ? (
-                  <>
-                    <Loader2 className="w-3 h-3 animate-spin text-accent" />
-                    Fetching banks…
-                  </>
-                ) : hook.institutions.length > 0 ? (
-                  `${hook.institutions.length} banks available`
-                ) : null}
+        {/* Read back, not re-asked. The details were given on the previous screen; this is
+            the last look before money moves, so it shows what was entered rather than
+            inviting it to be changed here. */}
+        <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] divide-y divide-white/[0.05]">
+          {hook.payoutCountry && (
+            <div className="flex items-baseline justify-between gap-4 px-3.5 py-2.5">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground shrink-0">
+                Country
+              </span>
+              <span className="text-[12.5px] font-semibold text-right">
+                {getCurrencyFlag(hook.fiatCurrency)} {countryName(hook.payoutCountry)}
               </span>
             </div>
-
-            <div className="flex flex-wrap gap-2">
-              {[
-                { code: "NGN", flag: "🇳🇬" },
-                { code: "KES", flag: "🇰🇪" },
-                { code: "GHS", flag: "🇬🇭" },
-                { code: "UGX", flag: "🇺🇬" },
-                { code: "TZS", flag: "🇹🇿" },
-                { code: "XOF", flag: "🇨🇮" },
-                { code: "XAF", flag: "🇨🇲" },
-                { code: "RWF", flag: "🇷🇼" },
-                { code: "GMD", flag: "🇬🇲" },
-                { code: "BRL", flag: "🇧🇷" },
-              ].map((c) => {
-                const isSelected = hook.fiatCurrency === c.code;
-                return (
-                  <button
-                    key={c.code}
-                    type="button"
-                    onClick={() => hook.setFiatCurrency(c.code)}
-                    className={cn(
-                      "flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider border transition-all duration-200 group select-none",
-                      isSelected
-                        ? "bg-accent/15 border-accent text-foreground shadow-md shadow-accent/10"
-                        : "bg-white/[0.04] border-white/10 text-muted-foreground hover:bg-white/[0.08] hover:border-white/20 hover:text-foreground"
-                    )}
-                  >
-                    <span className="text-base leading-none transition-transform group-hover:scale-110">
-                      {c.flag}
-                    </span>
-                    <span>{c.code}</span>
-                  </button>
-                );
-              })}
-            </div>
+          )}
+          <div className="flex items-baseline justify-between gap-4 px-3.5 py-2.5">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground shrink-0">
+              To
+            </span>
+            <span className="text-[12.5px] font-semibold text-right break-all">
+              {hook.bankDetails.accountName || "—"}
+            </span>
           </div>
-
-          <BankSelector
-            label="Bank"
-            institutions={hook.institutions}
-            selectedBankCode={hook.bankDetails.bankCode}
-            onSelect={(b) =>
-              hook.setBankDetails({
-                ...hook.bankDetails,
-                bankCode: b.code,
-                bankName: b.name,
-                accountName: "",
-              })
-            }
-            onSelectContact={hook.handleSelectContact}
-            accountNumber={hook.bankDetails.accountNumber}
-            onAccountNumberChange={(val) =>
-              hook.setBankDetails({
-                ...hook.bankDetails,
-                accountNumber: val,
-                accountName: "",
-              })
-            }
-            accountName={hook.bankDetails.accountName}
-            onAccountNameChange={(name) =>
-              hook.setBankDetails({
-                ...hook.bankDetails,
-                accountName: name,
-              })
-            }
-            memo={hook.bankDetails.memo}
-            onMemoChange={(val) =>
-              hook.setBankDetails({
-                ...hook.bankDetails,
-                memo: val,
-              })
-            }
-            isVerifying={hook.verifyingBank}
-            contacts={hook.bankContacts}
-            userEmail={hook.userEmail}
-            fiatCurrency={hook.fiatCurrency}
-            onContactsChanged={hook.refreshBankContacts}
-          />
+          <div className="flex items-baseline justify-between gap-4 px-3.5 py-2.5">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground shrink-0">
+              Account
+            </span>
+            <span className="text-[12.5px] font-semibold text-right break-all">
+              {hook.bankDetails.bankName
+                ? `${hook.bankDetails.bankName} · ${hook.bankDetails.accountNumber}`
+                : hook.bankDetails.accountNumber}
+            </span>
+          </div>
         </div>
 
         {/* The single authorisation point: this press creates the order AND sends the funds,
@@ -661,7 +770,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
 
         <div className="space-y-2">
           <h3 className="text-2xl font-black uppercase tracking-tighter">
-            {hook.transferError ? "Transfer Didn't Go Through" : "Sending Your Withdrawal"}
+            {hook.transferError ? "Transfer Didn't Go Through" : "Sending Your Transfer"}
           </h3>
           <p className="text-sm text-muted-foreground">
             {hook.transferError
@@ -844,7 +953,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
               <p className="text-sm text-muted-foreground">
                 {hook.withdrawalTxHash
                   ? "Your transfer went out but the payout could not be completed. We are returning your funds — you'll receive them back shortly, and we've alerted our team."
-                  : "Your withdrawal could not be completed. Your funds are still in your wallet — nothing was sent."}
+                  : "Your transfer could not be completed. Your funds are still in your wallet — nothing was sent."}
               </p>
               {hook.txStatus && (
                 <p className="text-[10px] text-muted-foreground uppercase font-bold">

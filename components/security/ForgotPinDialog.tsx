@@ -143,7 +143,7 @@ export function ForgotPinDialog({
                 type="button"
                 onClick={() => close(false)}
                 disabled={busy}
-                className="btn-secondary w-full sm:w-auto sm:flex-1"
+                className="btn-secondary w-full sm:w-auto"
               >
                 Cancel
               </button>
@@ -208,7 +208,7 @@ export function ForgotPinDialog({
                 type="button"
                 onClick={() => close(false)}
                 disabled={busy}
-                className="btn-secondary w-full sm:w-auto sm:flex-1"
+                className="btn-secondary w-full sm:w-auto"
               >
                 Cancel
               </button>

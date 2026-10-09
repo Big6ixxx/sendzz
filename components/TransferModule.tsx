@@ -109,13 +109,13 @@ export function TransferModule({
   });
 
   return (
-    <div className="card-elegant p-8 md:p-12 bg-background border-border relative overflow-hidden">
-      <div className="flex items-center gap-4 mb-8 border-b border-border/50 pb-6">
+    <div className="card-elegant p-5 sm:p-8 md:p-12 bg-background border-border relative overflow-hidden">
+      <div className="flex items-center gap-4 mb-6 sm:mb-8 border-b border-border/50 pb-6">
         <div className="p-3 bg-foreground text-background rounded-2xl shadow-lg">
           {transferMode === 'email' ? <Send className="w-6 h-6 md:w-8 md:h-8" /> : <Wallet className="w-6 h-6 md:w-8 md:h-8" />}
         </div>
         <div className="space-y-1">
-          <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tighter">
+          <h2 className="text-xl sm:text-2xl md:text-3xl font-black uppercase tracking-tighter">
             Transfer
           </h2>
           <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">

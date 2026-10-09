@@ -116,21 +116,25 @@ export async function POST(req: Request) {
     // an address that is not ours is a normal thing for this route to see. That is what made the
     // first live deposit fall through to the cron with no error anywhere. Both spellings are
     // asked for, so the match works whichever way a row was written and still uses the index.
-    const recipients = new Set<string>();
+    //
+    // Senders are looked up in the same query: see "Sent by another Sendzz account" below.
+    const addresses = new Set<string>();
     for (const a of candidates) {
-      const raw = a.toAddress!;
-      recipients.add(raw.toLowerCase());
-      try {
-        recipients.add(getAddress(raw));
-      } catch {
-        // Not a valid address; the lowercase form is still worth asking for.
+      for (const raw of [a.toAddress!, a.fromAddress]) {
+        if (!raw) continue;
+        addresses.add(raw.toLowerCase());
+        try {
+          addresses.add(getAddress(raw));
+        } catch {
+          // Not a valid address; the lowercase form is still worth asking for.
+        }
       }
     }
 
     const { data: users, error: userError } = await supabaseAdmin
       .from('users')
       .select('id, smart_account_address')
-      .in('smart_account_address', Array.from(recipients));
+      .in('smart_account_address', Array.from(addresses));
 
     if (userError) {
       console.error(`${tag} user lookup failed: ${userError.message}`);
@@ -147,11 +151,22 @@ export async function POST(req: Request) {
     // ── Turn activity into deposits ───────────────────────────────────────────
     const rows: DepositRow[] = [];
     const seen = new Set<string>();
+    let internal = 0;
 
     for (const activity of candidates) {
       const userId = userByAddress.get(activity.toAddress!.toLowerCase());
       // Watched, but not one of ours — normal right after a user is removed from the list.
       if (!userId) continue;
+
+      // Sent by another Sendzz account: a transfer, which the sender's app records as one —
+      // with its own emails. Crediting it here too raced that record: the webhook usually lands
+      // first, and while the transfer side later deleted the duplicate row, the deposit email
+      // had already gone out. If the sender's record never lands, the daily sweep still finds
+      // the arrival.
+      if (activity.fromAddress && userByAddress.has(activity.fromAddress.toLowerCase())) {
+        internal++;
+        continue;
+      }
 
       const amount = transferAmountUsdc(toAlchemyTransfer(activity));
       if (amount === null) {
@@ -186,11 +201,16 @@ export async function POST(req: Request) {
       });
     }
 
+    if (internal > 0) {
+      console.log(`${tag} ${chain}: ${internal} Sendzz-to-Sendzz transfer(s) — recorded by the sender, not here`);
+    }
     if (rows.length === 0) {
-      console.log(
-        `${tag} ${chain}: ${candidates.length} incoming USDC payment(s), none to a known address ` +
-          `(event ${eventId})`,
-      );
+      if (internal === 0) {
+        console.log(
+          `${tag} ${chain}: ${candidates.length} incoming USDC payment(s), none to a known address ` +
+            `(event ${eventId})`,
+        );
+      }
       return NextResponse.json({ ok: true, credited: 0 });
     }
 

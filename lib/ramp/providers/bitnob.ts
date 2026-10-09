@@ -33,6 +33,7 @@ import type {
   RampPayoutQuote,
   RampCapabilities,
   RampCurrency,
+  RampCountry,
   RampCurrencyDetail,
   RampInstitution,
   RampOrderResponse,
@@ -54,6 +55,17 @@ const SERVICEABLE_DESTINATIONS = new Set([
   "paytill",
 ]);
 
+/**
+ * Countries Bitnob's catalogue advertises that this account cannot actually pay into.
+ *
+ * `supported-countries` is Bitnob's word, and normally the authority. These are the exceptions
+ * confirmed against reality: the corridor is listed, but a payout to it does not complete. Each
+ * entry should say why, so it can be removed the day the corridor genuinely opens.
+ *
+ *   SN  Senegal — listed as XOF mobile_money; not supported for this account.
+ */
+const EXCLUDED_PAYOUT_COUNTRIES = new Set(["SN"]);
+
 function isServiceable(destinationTypes: string[] | undefined): boolean {
   return !!destinationTypes?.some((d) => SERVICEABLE_DESTINATIONS.has(d));
 }
@@ -71,7 +83,16 @@ const FALLBACK_CURRENCY_COUNTRY: Record<string, string> = {
 };
 
 /** Known mobile money operators for countries where bank lookup returns empty. */
+/**
+ * Mobile-money operators for a corridor.
+ *
+ * NOTE: keyed on CURRENCY, and `country` is accepted but never read. That is a real limitation,
+ * not an oversight to tidy away — the XOF list is the same for all eight XOF countries, so it
+ * cannot tell you whether a given country is payable. Anything deciding COVERAGE must ask the
+ * provider per country instead; this answers only "what would we offer if it is".
+ */
 function getMobileMoneyOperators(country: string, currency: RampCurrency): RampInstitution[] {
+  void country;
   const code = currency.toUpperCase();
   switch (code) {
     case "KES":
@@ -260,6 +281,8 @@ export class BitnobProvider implements RampProvider {
 
   /** Cached supported-countries response (currency catalogue + corridor → country map). */
   private countriesCache: Promise<{ countries: BitnobCountry[] }> | null = null;
+  /** Countries proven payable — see buildPayoutCountries. Cached because it costs a request per country. */
+  private payoutCountriesCache: Promise<{ data: RampCountry[] }> | null = null;
 
   private countries() {
     if (!this.countriesCache) {
@@ -274,11 +297,26 @@ export class BitnobProvider implements RampProvider {
   }
 
   /** Resolve the country code to use for a payout in `currency` (first serviceable corridor). */
-  private async resolveCountry(currency: RampCurrency): Promise<string | null> {
+  private async resolveCountry(
+    currency: RampCurrency,
+    preferCountry?: string,
+  ): Promise<string | null> {
     const code = currency.toUpperCase();
     try {
       const { countries } = await this.countries();
+      const wanted = preferCountry?.toUpperCase();
+      // Honoured only if that country actually pays out in THIS currency. Accepting any listed
+      // country meant getInstitutions("KES", "NG") answered with Nigeria's 367 banks — a stale or
+      // mismatched country turned into the wrong country's bank list instead of being ignored.
+      const servesCurrency = (c: BitnobCountry) =>
+        c.code?.toUpperCase() === wanted &&
+        !!c.corridors?.some(
+          (corr) => corr.currency?.toUpperCase() === code && isServiceable(corr.destination_types),
+        );
+      if (wanted && countries.some(servesCurrency)) return wanted;
+      // An excluded country must never be the fallback either, or XOF could still route there.
       const match = countries.find((c) =>
+        !EXCLUDED_PAYOUT_COUNTRIES.has(c.code?.toUpperCase() ?? "") &&
         c.corridors?.some(
           (corr) => corr.currency?.toUpperCase() === code && isServiceable(corr.destination_types),
         ),
@@ -305,6 +343,12 @@ export class BitnobProvider implements RampProvider {
   private async resolveCorridor(
     currency: RampCurrency,
     bankCode?: string,
+    /**
+     * The country the USER chose. Honoured over the first-match scan below, which is the whole
+     * reason it exists: XOF is eight countries, and scanning picked whichever the provider
+     * listed first — so a payout to Senegal was built against Benin's corridor.
+     */
+    preferCountry?: string,
   ): Promise<{ country: string; destinationType: string } | null> {
     const code = currency.toUpperCase();
     // A mobile-money operator code can only be paid over a mobile-money rail, and vice versa.
@@ -313,7 +357,15 @@ export class BitnobProvider implements RampProvider {
       : ["bank", "mobile_money", "paybill", "paytill"];
     try {
       const { countries } = await this.countries();
-      for (const c of countries) {
+      const wanted = preferCountry?.toUpperCase();
+      const ordered = wanted
+        ? [...countries].sort((a, b) =>
+            a.code?.toUpperCase() === wanted ? -1 : b.code?.toUpperCase() === wanted ? 1 : 0,
+          )
+        : countries;
+
+      for (const c of ordered) {
+        if (EXCLUDED_PAYOUT_COUNTRIES.has(c.code?.toUpperCase() ?? "")) continue;
         const corr = c.corridors?.find(
           (x) => x.currency?.toUpperCase() === code && isServiceable(x.destination_types),
         );
@@ -426,7 +478,7 @@ export class BitnobProvider implements RampProvider {
    * passed exactly as order creation will pass them.
    */
   async quoteOffRamp(params: QuoteOffRampParams): Promise<RampPayoutQuote> {
-    const corridor = await this.resolveCorridor(params.fiatCurrency);
+    const corridor = await this.resolveCorridor(params.fiatCurrency, undefined, params.payoutCountry);
     if (!corridor) {
       throw new RampUnsupportedError(
         "bitnob",
@@ -469,7 +521,7 @@ export class BitnobProvider implements RampProvider {
   }
 
   async createOffRampOrder(params: CreateOffRampParams): Promise<RampOrderResponse> {
-    const corridor = await this.resolveCorridor(params.fiatCurrency, params.bank.bankCode);
+    const corridor = await this.resolveCorridor(params.fiatCurrency, params.bank.bankCode, params.payoutCountry);
     if (!corridor) {
       throw new RampUnsupportedError(
         "bitnob",
@@ -611,8 +663,10 @@ export class BitnobProvider implements RampProvider {
     fiatCurrency: RampCurrency;
     bank: CreateOffRampParams["bank"];
     userEmail?: string;
+    /** Carried from the order so the deferred leg builds the same beneficiary as the quote. */
+    payoutCountry?: string;
   }): Promise<void> {
-    const corridor = await this.resolveCorridor(params.fiatCurrency, params.bank.bankCode);
+    const corridor = await this.resolveCorridor(params.fiatCurrency, params.bank.bankCode, params.payoutCountry);
     if (!corridor) {
       throw new RampUnsupportedError(
         "bitnob",
@@ -726,8 +780,13 @@ export class BitnobProvider implements RampProvider {
     return { status: "success", data: { accountName: r.account_name }, nameVerified: true };
   }
 
-  async getInstitutions(currency: RampCurrency): Promise<{ data: RampInstitution[] }> {
-    const country = await this.resolveCountry(currency);
+  async getInstitutions(
+    currency: RampCurrency,
+    country_?: string,
+  ): Promise<{ data: RampInstitution[] }> {
+    // Banks are per country, so two XOF countries do not share a list. Without the caller's
+    // choice this fell back to a guess and showed the wrong country's banks.
+    const country = await this.resolveCountry(currency, country_);
     if (!country) {
       throw new RampUnsupportedError(
         "bitnob",
@@ -763,6 +822,54 @@ export class BitnobProvider implements RampProvider {
         `Failed to fetch Bitnob banks for ${currency}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+  }
+
+  /**
+   * Every country we can actually pay into, one row each.
+   *
+   * `getCurrencies` below answers a different question and dedupes by currency, so the eight
+   * XOF countries arrive as one entry there. That is fine for pricing and wrong for choosing:
+   * it cannot offer Senegal and Benin separately, and `resolveCountry` then picks whichever the
+   * provider happened to list first. A country chosen here is carried through to the banks
+   * lookup and the beneficiary instead of being guessed from the currency.
+   */
+  async getPayoutCountries(): Promise<{ data: RampCountry[] }> {
+    if (!this.payoutCountriesCache) {
+      this.payoutCountriesCache = this.buildPayoutCountries().catch((e) => {
+        this.payoutCountriesCache = null; // allow retry on the next request
+        throw e;
+      });
+    }
+    return this.payoutCountriesCache;
+  }
+
+  /**
+   * The countries Bitnob says it pays into, filtered to rails this app can actually build.
+   *
+   * The catalogue is the authority here and is taken at its word. An earlier version verified
+   * each country with `getBanks` and kept only those that answered — which removed almost
+   * everything, because only Nigeria pays by bank transfer. Every other corridor is mobile
+   * money, so "has banks" is not a test of coverage, it is a test of being Nigeria.
+   */
+  private async buildPayoutCountries(): Promise<{ data: RampCountry[] }> {
+    const { countries } = await this.countries();
+
+    const candidates = countries.flatMap((c) => {
+      if (!c.code || EXCLUDED_PAYOUT_COUNTRIES.has(c.code.toUpperCase())) return [];
+      const corridor = c.corridors?.find((corr) => isServiceable(corr.destination_types));
+      const currency = corridor?.currency?.toUpperCase();
+      if (!corridor || !currency) return [];
+      return [
+        {
+          code: c.code.toUpperCase(),
+          name: c.name || c.code.toUpperCase(),
+          currency,
+          channels: corridor.destination_types,
+        },
+      ];
+    });
+
+    return { data: candidates.sort((a, b) => a.name.localeCompare(b.name)) };
   }
 
   async getCurrencies(): Promise<{ data: RampCurrencyDetail[] }> {

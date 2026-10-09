@@ -209,7 +209,7 @@ export function TransferForm({
             step="0.01"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            className="input-elegant h-24 pl-16 text-5xl md:text-6xl font-black tracking-tighter text-right pr-6"
+            className="input-elegant h-24 pl-16 text-4xl sm:text-5xl md:text-6xl font-black tracking-tighter text-right pr-6"
             placeholder="0.00"
             required
           />

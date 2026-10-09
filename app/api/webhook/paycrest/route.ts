@@ -4,6 +4,7 @@ import { releaseBenefitsForOrder } from '@/lib/referrals/benefits';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 import { clearOnchainDepositShadow, triggerWithdrawalNotifications } from '@/lib/supabase/transactions';
+import { paycrestRefundHash, recordPaycrestRefund } from '@/lib/ramp/provider-refund';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -191,7 +192,8 @@ export async function POST(req: Request) {
         .eq('provider_order_id', orderId)
         .maybeSingle();
 
-      if (currentW && currentW.status !== 'processing') {
+      // `refunded` can follow a `failed` already recorded — it settles the debt `failed` opened.
+      if (currentW && currentW.status !== 'processing' && status !== 'refunded') {
         console.log(`[Paycrest Webhook] [${requestId}] Withdrawal ${orderId} already processed (status=${currentW.status})`);
         return new Response('Already processed', { status: 200 });
       }
@@ -215,28 +217,23 @@ export async function POST(req: Request) {
         await accrueReferralEarning({ providerOrderId: orderId });
         handled = true;
 
-      } else if (status && ['failed', 'refunded', 'expired', 'refunding'].includes(status)) {
+      } else if (status && ['failed', 'refunded', 'expired'].includes(status)) {
         const reason = orderData.failureReason || orderData.reason || 'Webhook reported failure status';
-        const { error } = await supabaseAdmin.rpc('finalize_withdrawal_failed', {
-          p_paycrest_order_id: orderId,
-          p_reason: reason,
-        });
-
-        if (error) {
-          console.error(`[Paycrest Webhook] [${requestId}] finalize_withdrawal_failed failed for ${orderId}:`, error.message);
-          return new Response('Internal error', { status: 500 });
-        }
-
-        const finalStatus = ['refunded', 'refunding'].includes(status) ? 'reversed' : 'failed';
-        if (finalStatus === 'reversed') {
-          const { error: updateErr } = await supabaseAdmin
-            .from('withdrawals')
-            .update({ status: 'reversed' })
-            .eq('provider_order_id', orderId);
-          if (updateErr) {
-            console.error(`[Paycrest Webhook] [${requestId}] Failed to set withdrawal status to reversed:`, updateErr.message);
+        if (status === 'refunded') {
+          const refund = await recordPaycrestRefund(orderId, paycrestRefundHash(orderData));
+          if (!refund.ok) {
+            console.error(`[Paycrest Webhook] [${requestId}] Could not record refund for ${orderId}:`, refund.error);
+            return new Response('Internal error', { status: 500 });
           }
         } else {
+          const { error } = await supabaseAdmin.rpc('finalize_withdrawal_failed', {
+            p_paycrest_order_id: orderId,
+            p_reason: reason,
+          });
+          if (error) {
+            console.error(`[Paycrest Webhook] [${requestId}] finalize_withdrawal_failed failed for ${orderId}:`, error.message);
+            return new Response('Internal error', { status: 500 });
+          }
           await triggerWithdrawalNotifications(orderId, 'failed');
         }
         // A payout that did not happen earned nothing, so any commission accrued on it is
@@ -249,7 +246,7 @@ export async function POST(req: Request) {
         // the other half of that trade.
         await releaseBenefitsForOrder(orderId);
 
-        console.warn(`[Paycrest Webhook] [${requestId}] Withdrawal ${orderId} finalized as ${finalStatus} — reason=${reason}`);
+        console.warn(`[Paycrest Webhook] [${requestId}] Withdrawal ${orderId} finalized as ${status === 'refunded' ? 'reversed' : 'failed'} — reason=${reason}`);
         handled = true;
 
       } else {

@@ -266,7 +266,7 @@ export function SecurityStepUp({
         </div>
 
         <div className="flex flex-col-reverse sm:flex-row gap-3 pt-2">
-          <button type="button" onClick={onClose} disabled={busy} className="btn-secondary w-full sm:w-auto sm:flex-1">
+          <button type="button" onClick={onClose} disabled={busy} className="btn-secondary w-full sm:w-auto">
             Cancel
           </button>
           {method !== "passkey" && (
@@ -275,7 +275,7 @@ export function SecurityStepUp({
               onClick={submitCode}
               disabled={busy || code.length < 6}
               className={cn(
-                "btn-primary flex-1",
+                "btn-primary w-full sm:w-auto sm:flex-1",
                 request?.destructive && "!bg-red-500 !text-white hover:!bg-red-600",
               )}
             >
