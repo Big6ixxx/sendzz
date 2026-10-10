@@ -14,10 +14,24 @@ import { type ChainBalances } from "@/lib/web3/routing";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { useStellarWallet } from '@/hooks/useStellarWallet';
 import { ArrowRight, Loader2, ShieldCheck, Users } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// `useSearchParams` needs a Suspense boundary to prerender.
 export default function TransfersPage() {
+  return (
+    <Suspense>
+      <TransfersPageContent />
+    </Suspense>
+  );
+}
+
+function TransfersPageContent() {
+  // `?to=` pre-fills the recipient — the landing page sends people here with the email they typed.
+  const to = useSearchParams().get("to")?.trim() ?? "";
+  const prefill = EMAIL_RE.test(to) ? to : undefined;
   const { ready, authenticated, user } = usePrivy();
   const { wallets } = useWallets();
   const router = useRouter();
@@ -133,6 +147,8 @@ export default function TransfersPage() {
         <div className="grid lg:grid-cols-12 gap-8 items-start">
           <div className="lg:col-span-7">
             <TransferModule
+              key={prefill}
+              initialRecipientEmail={prefill}
               smartAddress={smartAddress}
               embeddedProvider={wallets.find(
                 (w) => w.walletClientType === "privy",

@@ -1,0 +1,150 @@
+/* Landing page only. Scoped under .lp-root so nothing here reaches the app. */
+
+.lp-root {
+  --lp-ink: #111a13;
+  --lp-cream: #f6f2e9;
+  --lp-sand: #e7dfcf;
+  --lp-body: #3d463f;
+  --lp-muted: #5b645d;
+  --lp-line: #d9d3c5;
+  --lp-green: #00e87a;
+  --lp-forest: #0b3b29;
+
+  font-family: var(--font-geist), system-ui, sans-serif;
+  color: var(--lp-ink);
+  background: var(--lp-cream);
+  letter-spacing: normal;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Optical size follows the font size, as in the design (headlines land on opsz 96). */
+.lp-display {
+  font-family: var(--font-bricolage), system-ui, sans-serif;
+  font-weight: 800;
+  font-optical-sizing: auto;
+}
+.lp-serif {
+  font-family: var(--font-instrument), Georgia, serif;
+  font-style: italic;
+  font-weight: 400;
+}
+.lp-mono {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+/* Type scale — the design's 1920 sizes as the ceiling, scaled down with the viewport. */
+.lp-h1 {
+  font-size: clamp(2.9rem, 8.6vw, 8rem);
+  line-height: 0.96;
+  letter-spacing: -0.055em;
+}
+.lp-h2 {
+  font-size: clamp(2.6rem, 6.4vw, 6rem);
+  line-height: 0.9;
+  letter-spacing: -0.05em;
+}
+.lp-h-cta {
+  font-size: clamp(3rem, 9.4vw, 9rem);
+  line-height: 0.86;
+  letter-spacing: -0.055em;
+}
+.lp-h-faq {
+  font-size: clamp(2.4rem, 5vw, 4.5rem);
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+}
+.lp-h1 .lp-serif,
+.lp-h-cta .lp-serif {
+  letter-spacing: -0.03em;
+}
+.lp-h2 .lp-serif,
+.lp-h-faq .lp-serif {
+  letter-spacing: -0.02em;
+}
+
+/* Currency strip edges fade out; the motion itself is driven from script. */
+.lp-marquee {
+  mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent);
+}
+
+/* Swapped labels arrive with a short blur-and-rise. */
+.lp-label-in {
+  animation: lp-label-in 0.25s cubic-bezier(0.23, 1, 0.32, 1);
+}
+@keyframes lp-label-in {
+  0% {
+    filter: blur(4px);
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.lp-pulse {
+  animation: lp-pulse 1.8s ease-out infinite;
+}
+@keyframes lp-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(0, 232, 122, 0.6);
+  }
+  100% {
+    box-shadow: 0 0 0 8px rgba(0, 232, 122, 0);
+  }
+}
+
+.lp-caret {
+  animation: lp-blink 1.1s steps(1) infinite;
+}
+@keyframes lp-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* The slider is a native range input dressed as the design's track and thumb. */
+.lp-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 8px;
+  border-radius: 9999px;
+  box-shadow: inset 0 0 0 1px rgba(17, 26, 19, 0.2);
+  cursor: pointer;
+  background: linear-gradient(to right, var(--lp-ink) var(--fill), #fff var(--fill));
+}
+.lp-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: var(--lp-ink);
+  transition: transform 0.15s ease;
+}
+.lp-range::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--lp-ink);
+}
+.lp-range:active::-webkit-slider-thumb {
+  transform: scale(1.25);
+}
+.lp-range:focus-visible {
+  outline: 2px solid var(--lp-green);
+  outline-offset: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-pulse,
+  .lp-caret {
+    animation: none;
+  }
+  .lp-label-in {
+    animation: lp-label-fade 0.25s ease-out;
+  }
+}
+@keyframes lp-label-fade {
+  0% {
+    opacity: 0;
+  }
+}
