@@ -22,9 +22,12 @@ interface PendingTransfer {
 export function PendingIncomingPanel({
   userId,
   userEmail,
+  tone = 'dark',
 }: {
   userId: string;
   userEmail: string;
+  /** "light" is the cream brand style; other dashboard routes keep the dark default for now. */
+  tone?: 'dark' | 'light';
 }) {
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const queryClient = useQueryClient();
@@ -73,6 +76,51 @@ export function PendingIncomingPanel({
 
   // Nothing to show
   if (!pendingTransfers || pendingTransfers.length === 0) return null;
+
+  const usdc = (n: number) =>
+    n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  if (tone === 'light') {
+    return (
+      <section className="rounded-[28px] bg-white p-2 shadow-[0_0_0_1px_rgb(17_26_19/0.06)]">
+        <div className="flex items-center justify-between px-4 pb-2 pt-3">
+          <div className="flex items-center gap-2.5">
+            <span className="lp-pulse size-2 rounded-full bg-[var(--lp-green)]" />
+            <h2 className="lp-display text-[20px] font-semibold tracking-[-0.02em]">Waiting for you to accept</h2>
+          </div>
+          <span className="lp-mono rounded-full bg-[var(--lp-ink)] px-2.5 py-1 text-[12px] text-[var(--lp-green)]">
+            {pendingTransfers.length}
+          </span>
+        </div>
+        <ul className="flex flex-col gap-1">
+          {pendingTransfers.map((transfer) => (
+            <li key={transfer.id} className="flex flex-wrap items-center justify-between gap-3 rounded-[20px] bg-[var(--lp-cream)] px-4 py-3">
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <span className="grid size-10 shrink-0 place-items-center rounded-full bg-[var(--lp-green)] text-[var(--lp-ink)]">
+                  <ArrowDownLeft className="size-5" />
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate text-[15px] font-semibold">{transfer.sender_email}</p>
+                  <p className="truncate text-[13px] text-[var(--lp-muted)]">
+                    <span className="font-semibold text-[#0e7a45]">+{usdc(transfer.amount)} USDC</span>
+                    {transfer.note && <> · &ldquo;{transfer.note}&rdquo;</>}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => handleAccept(transfer.id)}
+                disabled={acceptingId === transfer.id}
+                className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[var(--lp-ink)] px-4 text-[14px] font-semibold text-[var(--lp-cream)] transition-[scale] duration-150 active:scale-[0.97] disabled:opacity-60 max-sm:w-full"
+              >
+                {acceptingId === transfer.id ? <RefreshCw className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
+                {acceptingId === transfer.id ? 'Accepting…' : 'Accept'}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </section>
+    );
+  }
 
   return (
     <section>
@@ -139,10 +187,7 @@ export function PendingIncomingPanel({
                       className="text-sm font-bold tabular-nums"
                       style={{ color: '#00e87a' }}
                     >
-                      +{transfer.amount.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}{' '}
+                      +{usdc(transfer.amount)}{' '}
                       <span className="text-[10px] opacity-50 font-bold uppercase">USDC</span>
                     </span>
                     {transfer.note && (

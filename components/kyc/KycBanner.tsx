@@ -14,6 +14,8 @@ interface KycData {
 
 interface KycBannerProps {
   userEmail: string;
+  /** "light" is the cream brand style; other dashboard routes keep the dark default for now. */
+  tone?: "dark" | "light";
 }
 
 /**
@@ -27,7 +29,7 @@ interface KycBannerProps {
  * that windows no longer bind an unverified account, so this banner had stopped appearing at
  * all — the first a user heard of the limit was a refused withdrawal.
  */
-export function KycBanner({ userEmail }: KycBannerProps) {
+export function KycBanner({ userEmail, tone = "dark" }: KycBannerProps) {
   const [data, setData] = useState<KycData | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const [kycModalOpen, setKycModalOpen] = useState(false);
@@ -79,6 +81,83 @@ export function KycBanner({ userEmail }: KycBannerProps) {
 
   if (usedPct < 50 && !isPending && !isInReview) return null;
   if (dismissed) return null;
+
+  const title = isInReview
+    ? "Identity verification under review"
+    : isPending
+      ? "Identity verification in progress"
+      : isAtLimit
+        ? "Withdrawal allowance used"
+        : "Approaching your withdrawal allowance";
+  const body = isInReview
+    ? "We're reviewing your submitted documents. You'll be notified when complete."
+    : isPending
+      ? "You've initiated identity verification. Complete your verification below."
+      : isAtLimit
+        ? `You've withdrawn your full $${allowance.total} allowance. Verify your identity to withdraw again. It does not reset.`
+        : `You have $${allowance.remaining.toFixed(2)} of your $${allowance.total} withdrawal allowance left. Verify your identity to remove the limit.`;
+  const modal = (
+    <KycModal
+      isOpen={kycModalOpen}
+      onClose={() => {
+        setKycModalOpen(false);
+        // Re-fetch status after modal closes in case user completed KYC
+        setTimeout(fetchStatus, 1000);
+      }}
+      userEmail={userEmail}
+    />
+  );
+
+  if (tone === "light") {
+    const accent = isAtLimit
+      ? { soft: "#fbe7df", ink: "#a1462c" }
+      : isPending || isInReview
+        ? { soft: "#cdf5de", ink: "#0e7a45" }
+        : { soft: "#fbedcc", ink: "#8a5a00" };
+    const Icon = isPending || isInReview ? Clock : ShieldAlert;
+    return (
+      <>
+        <motion.div
+          initial={{ opacity: 0, y: -16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+          className="relative mx-4 mt-4 rounded-[24px] bg-white p-4 shadow-[0_0_0_1px_rgb(17_26_19/0.06)] sm:p-5 md:mx-6 lg:mx-8"
+          role="alert"
+          aria-live="polite"
+        >
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+            <div className="flex min-w-0 flex-1 items-start gap-3.5">
+              <span className="grid size-10 shrink-0 place-items-center rounded-full" style={{ background: accent.soft, color: accent.ink }}>
+                <Icon className="size-[18px]" aria-hidden />
+              </span>
+              <div className="min-w-0 pr-8 sm:pr-0">
+                <p className="text-[15px] font-semibold text-[var(--lp-ink)]">{title}</p>
+                <p className="mt-0.5 text-[14px] leading-[1.5] text-[var(--lp-body)]">{body}</p>
+              </div>
+            </div>
+            {!isInReview && (
+              <button
+                id="kyc-banner-verify-btn"
+                onClick={() => setKycModalOpen(true)}
+                className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-[var(--lp-ink)] px-5 text-[14px] font-semibold text-[var(--lp-cream)] transition-[scale] duration-150 active:scale-[0.97] sm:mr-10"
+              >
+                {isPending ? "Continue verification" : "Verify identity"}
+                <ArrowRight className="size-4" />
+              </button>
+            )}
+          </div>
+          <button
+            onClick={() => setDismissed(true)}
+            className="absolute right-3.5 top-3.5 grid size-8 place-items-center rounded-full bg-[var(--lp-cream)] text-[var(--lp-muted)] transition-colors hover:text-[var(--lp-ink)] sm:top-1/2 sm:-translate-y-1/2"
+            aria-label="Dismiss KYC banner"
+          >
+            <X className="size-4" />
+          </button>
+        </motion.div>
+        {modal}
+      </>
+    );
+  }
 
   return (
     <>
@@ -153,22 +232,10 @@ export function KycBanner({ userEmail }: KycBannerProps) {
                         : "#f59e0b",
                     }}
                   >
-                    {isInReview
-                      ? "Identity verification under review"
-                      : isPending
-                      ? "Identity verification in progress"
-                      : isAtLimit
-                      ? "Withdrawal allowance used"
-                      : "Approaching your withdrawal allowance"}
+                    {title}
                   </p>
                   <p className="text-xs mt-1 leading-relaxed" style={{ color: "rgba(248,248,246,0.5)" }}>
-                    {isInReview
-                      ? "We're reviewing your submitted documents. You'll be notified when complete."
-                      : isPending
-                      ? "You've initiated identity verification. Complete your verification below."
-                      : isAtLimit
-                      ? `You've withdrawn your full $${allowance.total} allowance. Verify your identity to withdraw again — it does not reset.`
-                      : `You have $${allowance.remaining.toFixed(2)} of your $${allowance.total} withdrawal allowance left. Verify your identity to remove the limit.`}
+                    {body}
                   </p>
                 </div>
               </div>
@@ -216,15 +283,7 @@ export function KycBanner({ userEmail }: KycBannerProps) {
         </motion.div>
       </AnimatePresence>
 
-      <KycModal
-        isOpen={kycModalOpen}
-        onClose={() => {
-          setKycModalOpen(false);
-          // Re-fetch status after modal closes in case user completed KYC
-          setTimeout(fetchStatus, 1000);
-        }}
-        userEmail={userEmail}
-      />
+      {modal}
     </>
   );
 }

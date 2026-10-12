@@ -2,47 +2,24 @@
 
 import { BatchSendDialog } from "@/components/batch-send/BatchSendDialog";
 import { DepositWithdrawDialog } from "@/components/deposit-withdraw/DepositWithdrawDialog";
-import { HistoryModule, type Activity } from "@/components/HistoryModule";
+import { type Activity } from "@/components/HistoryModule";
 import { ActivityDetailModal } from "@/components/ActivityDetailModal";
 import { PendingIncomingPanel } from "@/components/PendingIncomingPanel";
-import { TransferModule } from "@/components/TransferModule";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { registerMyAddresses } from "@/lib/supabase/users";
 import { clearReferral, readReferral } from "@/lib/referrals/client";
-import { cn } from "@/lib/utils";
 import { getCircleAddress } from "@/lib/web3/circle-client";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { useSolanaBridge } from "@/hooks/useSolanaBridge";
-import { ChainLogo } from "@/components/deposit-withdraw/ChainLogo";
-import { CHAIN_NAMES } from "@/lib/circle/gateway";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { stellarSourceFor } from "@/lib/web3/stellar-bridge";
 import { useStellarWallet } from "@/hooks/useStellarWallet";
 import { PendingBridgeClaims } from "@/components/bridge/PendingBridgeClaims";
-import { SupportWidget } from "@/components/support/SupportWidget";
-import {
-  ArrowDown,
-  ArrowUp,
-  Info,
-  Loader2,
-  RefreshCw,
-  ShieldCheck,
-  Users,
-  Eye,
-  EyeOff,
-  ShieldAlert,
-  ChevronDown,
-} from "lucide-react";
+import { DashboardOverview } from "@/components/dashboard/DashboardOverview";
+import { LandingSupport } from "@/components/landing/LandingSupport";
+import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { type ChainBalances } from "@/lib/web3/routing";
-import { useBalanceVisibility } from "@/components/providers/BalanceVisibilityProvider";
-import { AnimatedBalance } from "@/components/ui/AnimatedBalance";
 
 export default function Dashboard() {
   const { ready, authenticated, user } = usePrivy();
@@ -67,10 +44,7 @@ export default function Dashboard() {
   const [rampModalOpen, setRampModalOpen] = useState(false);
   const [batchSendDialogOpen, setBatchSendDialogOpen] = useState(false);
   const [rampType, setRampType] = useState<"deposit" | "withdraw">("deposit");
-  const { hideBalance, toggleBalanceVisibility } = useBalanceVisibility();
-  const [showBreakdown, setShowBreakdown] = useState(false);
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
-  const [showSecurityNudge, setShowSecurityNudge] = useState(false);
   const [twoFaThreshold, setTwoFaThreshold] = useState(500);
   const [totpEnabled, setTotpEnabled] = useState(false);
   const [passkeyEnabled, setPasskeyEnabled] = useState(false);
@@ -202,11 +176,8 @@ export default function Dashboard() {
 
   if (!ready || !authenticated || !user) {
     return (
-      <div className="h-[60vh] flex items-center justify-center">
-        <Loader2
-          className="animate-spin w-8 h-8"
-          style={{ color: "rgba(248,248,246,0.2)" }}
-        />
+      <div className="flex h-[60vh] items-center justify-center">
+        <Loader2 className="size-8 animate-spin text-[var(--lp-muted)]" />
       </div>
     );
   }
@@ -216,434 +187,84 @@ export default function Dashboard() {
     setRampModalOpen(true);
   };
 
-  const dismissSecurityNudge = async () => {
-    setShowSecurityNudge(false);
-    if (!user?.email?.address) return;
-    try {
-      await fetch("/api/user/preferences", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          two_fa_nudge_dismissed_at: new Date().toISOString(),
-        }),
-      });
-    } catch (e) {
-      console.error("Failed to dismiss nudge", e);
-    }
-  };
+  const email = user.email?.address || "";
 
   return (
-    <TooltipProvider>
-      <div className="max-w-5xl mx-auto space-y-8">
-        {/* Burns still awaiting a claim — surfaced here too, since the dashboard is
-            where a user looks when funds appear to be missing. */}
-        <PendingBridgeClaims
-          userEmail={user?.email?.address || ""}
-          solanaAddress={embeddedSolWallet?.address}
-          stellarWallet={
-            stellarWalletId && stellarAddress
-              ? { walletId: stellarWalletId, address: stellarAddress }
-              : null
-          }
-        />
+    <>
+      <DashboardOverview
+        email={email}
+        userId={user.id}
+        total={portfolioTotal}
+        loading={isPortfolioLoading}
+        refreshing={isPortfolioFetching}
+        canRefresh={!!smartAddress}
+        onRefresh={() => refetchPortfolio()}
+        chains={fundedChains}
+        onDeposit={() => openRamp("deposit")}
+        onWithdraw={() => openRamp("withdraw")}
+        onBatch={() => setBatchSendDialogOpen(true)}
+        onSendTo={(to) => router.push(`/dashboard/transfer?to=${encodeURIComponent(to)}`)}
+        onOpenActivity={setSelectedActivity}
+        // Burns still awaiting a claim, surfaced here too: the dashboard is where a user looks
+        // when funds appear to be missing.
+        pending={
+          <PendingBridgeClaims
+            tone="light"
+            userEmail={email}
+            solanaAddress={embeddedSolWallet?.address}
+            stellarWallet={
+              stellarWalletId && stellarAddress ? { walletId: stellarWalletId, address: stellarAddress } : null
+            }
+          />
+        }
+        incoming={<PendingIncomingPanel tone="light" userId={user.id} userEmail={email} />}
+      />
 
-        {/* Balance Header */}
-        <section>
-          <div className="card-glass p-5 sm:p-8 md:p-10 rounded-3xl">
-            <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-8 flex-wrap">
-              <div className="space-y-4 min-w-0">
-                {/* Header row: label + eye toggle on the same line */}
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                  <p
-                    className="text-[10px] font-bold uppercase tracking-[0.25em]"
-                    style={{ color: "rgba(248,248,246,0.35)" }}
-                  >
-                    Global Portfolio
-                  </p>
-                  <button
-                    onClick={() => setShowBreakdown((v) => !v)}
-                    className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest transition-all hover:brightness-125"
-                    style={{
-                      background: "rgba(0, 232, 122, 0.1)",
-                      color: "#00e87a",
-                      border: "1px solid rgba(0,232,122,0.2)",
-                    }}
-                    title="View balance by network"
-                  >
-                    <span>
-                      {fundedChains.length > 1
-                        ? `Across ${fundedChains.length} networks`
-                        : CHAIN_NAMES[
-                            (fundedChains[0]?.chain as keyof typeof CHAIN_NAMES) ??
-                              "base"
-                          ] ??
-                          (fundedChains[0]?.chain === "solana"
-                            ? "Solana"
-                            : "Base")}
-                    </span>
-                    <ChevronDown
-                      className={cn(
-                        "w-3 h-3 transition-transform",
-                        showBreakdown && "rotate-180",
-                      )}
-                    />
-                  </button>
-                  <button
-                    onClick={toggleBalanceVisibility}
-                    className="p-1.5 rounded-full transition-all hover:bg-white/5 ml-1"
-                    style={{ color: "rgba(248,248,246,0.3)" }}
-                    title={
-                      hideBalance
-                        ? "Show sensitive data"
-                        : "Hide sensitive data"
-                    }
-                  >
-                    {hideBalance ? (
-                      <EyeOff className="w-4 h-4" />
-                    ) : (
-                      <Eye className="w-4 h-4" />
-                    )}
-                  </button>
-                </div>
-                {/* Balance + USDC label + refresh — all on one baseline */}
-                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 min-w-0">
-                  <h2
-                    className="font-display text-[clamp(2.25rem,11vw,4.5rem)] font-bold tracking-tighter leading-none tabular-nums"
-                    style={{ color: "#f8f8f6" }}
-                  >
-                    $
-                    <AnimatedBalance
-                      balance={portfolioTotal}
-                      isLoading={isPortfolioLoading}
-                    />
-                  </h2>
-                  <div className="flex items-center gap-1.5 pb-1">
-                    <span
-                      className="text-base sm:text-xl font-bold uppercase tracking-tighter shrink-0"
-                      style={{ color: "rgba(248,248,246,0.2)" }}
-                    >
-                      USDC
-                    </span>
-                    <button
-                      onClick={() => refetchPortfolio()}
-                      disabled={isPortfolioLoading || !smartAddress}
-                      className="p-1.5 rounded-full transition-all disabled:opacity-50 hover:bg-white/5 shrink-0"
-                      style={{ color: "rgba(248,248,246,0.25)" }}
-                    >
-                      <RefreshCw
-                        className={cn(
-                          "w-4 h-4",
-                          (isPortfolioLoading || isPortfolioFetching) &&
-                            "animate-spin",
-                        )}
-                      />
-                    </button>
-                  </div>
-                </div>
+      <ActivityDetailModal
+        activity={selectedActivity}
+        isOpen={!!selectedActivity}
+        onClose={() => setSelectedActivity(null)}
+      />
 
-                {/* Per-network breakdown — collapsed by default. Display only;
-                    spendable balance per flow is still chain-specific. */}
-                {showBreakdown && (
-                  <div
-                    className="rounded-2xl p-1.5 mt-1 space-y-0.5 max-w-sm"
-                    style={{
-                      background: "rgba(255,255,255,0.03)",
-                      border: "1px solid rgba(255,255,255,0.06)",
-                    }}
-                  >
-                    {fundedChains.length === 0 ? (
-                      <p
-                        className="text-xs px-3 py-3 text-center"
-                        style={{ color: "rgba(248,248,246,0.35)" }}
-                      >
-                        No funds yet — deposit to get started.
-                      </p>
-                    ) : (
-                      fundedChains.map((c) => (
-                        <div
-                          key={c.chain}
-                          className="flex items-center justify-between px-3 py-2.5 rounded-xl hover:bg-white/[0.03] transition-colors"
-                        >
-                          <div className="flex items-center gap-2.5">
-                            <ChainLogo chain={c.chain} size={20} />
-                            <span
-                              className="text-sm font-medium"
-                              style={{ color: "rgba(248,248,246,0.8)" }}
-                            >
-                              {CHAIN_NAMES[
-                                c.chain as keyof typeof CHAIN_NAMES
-                              ] ?? (c.chain === "solana" ? "Solana" : c.chain === "stellar" ? "Stellar" : c.chain)}
-                            </span>
-                          </div>
-                          <span
-                            className="text-sm font-mono font-bold"
-                            style={{ color: "#f8f8f6" }}
-                          >
-                            {hideBalance
-                              ? "••••"
-                              : `$${parseFloat(c.balance).toFixed(2)}`}
-                          </span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
+      <DepositWithdrawDialog
+        isOpen={rampModalOpen}
+        onClose={() => setRampModalOpen(false)}
+        type={rampType}
+        userId={user?.id || ""}
+        userAddress={smartAddress}
+        solanaAddress={embeddedSolWallet?.address}
+        stellarAddress={stellarAddress || undefined}
+        stellarWalletId={stellarWalletId || undefined}
+        stellarTrustlineReady={stellarTrustlineReady}
+        balance={totalSpendable}
+        chainBalances={evmChainBalances}
+        solanaSource={solanaSource}
+        stellarBalance={stellarBalance}
+        userEmail={email}
+        embeddedProvider={wallets.find((w) => w.walletClientType === "privy")}
+      />
 
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-3 pt-2">
-                  <div className="flex items-center gap-2">
-                    <ShieldCheck
-                      className="w-3.5 h-3.5"
-                      style={{ color: "rgba(248,248,246,0.25)" }}
-                    />
-                    <span
-                      className="text-[10px] font-bold uppercase tracking-widest"
-                      style={{ color: "rgba(248,248,246,0.3)" }}
-                    >
-                      Non-Custodial
-                    </span>
-                    <Tooltip>
-                      <TooltipTrigger>
-                        <Info className="w-3 h-3 opacity-30 hover:opacity-100 cursor-help" />
-                      </TooltipTrigger>
-                      <TooltipContent className="max-w-[280px] text-xs leading-relaxed p-4">
-                        <p className="font-bold mb-1 text-accent">
-                          Secure MPC Architecture
-                        </p>
-                        We use multi-party computation (MPC) to ensure your funds
-                        are truly yours. Your keys are split into shares,
-                        meaning no single party—including Sendzz—ever has access
-                        to your full private key. This provides self-custody
-                        with the ease of a traditional login.
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3 w-full xl:w-auto">
-                <button
-                  onClick={() => openRamp("deposit")}
-                  className="btn-accent flex-1 sm:flex-none h-14 md:h-16 px-6 md:px-10 gap-3 rounded-2xl text-sm md:text-base transition-all"
-                >
-                  <ArrowDown className="w-4 h-4 md:w-5 md:h-5" />
-                  <span className="uppercase tracking-tight font-bold">
-                    Deposit
-                  </span>
-                </button>
-                <button
-                  onClick={() => openRamp("withdraw")}
-                  className="flex-1 sm:flex-none h-14 md:h-16 px-6 md:px-10 gap-3 rounded-2xl flex items-center justify-center text-sm md:text-base font-semibold transition-all"
-                  style={{
-                    background: "rgba(255,255,255,0.06)",
-                    border: "1px solid rgba(255,255,255,0.08)",
-                    color: "rgba(248,248,246,0.7)",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "rgba(255,255,255,0.1)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "rgba(255,255,255,0.06)";
-                  }}
-                >
-                  <ArrowUp className="w-4 h-4 md:w-5 md:h-5" />
-                  <span className="uppercase tracking-tight">To Bank</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Pending Incoming Payments — shown only when there are payments awaiting acceptance */}
-        <PendingIncomingPanel
-          userId={user.id}
-          userEmail={user.email?.address || ""}
-        />
-
-        {showSecurityNudge && (
-          <div className="card-glass p-4 sm:p-6 rounded-2xl border-orange-500/20 bg-orange-500/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/10 blur-3xl -z-10 rounded-full" />
-            <div className="flex items-start sm:items-center gap-4">
-              <div className="w-10 h-10 bg-orange-500/10 rounded-xl flex items-center justify-center shrink-0 border border-orange-500/20">
-                <ShieldAlert className="w-5 h-5 text-orange-400" />
-              </div>
-              <div className="space-y-1">
-                <h4 className="font-bold text-sm text-orange-400">
-                  Enhance Your Security
-                </h4>
-                <p className="text-xs text-orange-400/70 max-w-md leading-relaxed">
-                  Two-Factor Authentication is currently disabled. Protect your
-                  funds by requiring an OTP for large transactions.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 w-full sm:w-auto">
-              <button
-                onClick={dismissSecurityNudge}
-                className="text-[10px] font-bold uppercase tracking-widest text-orange-400/50 hover:text-orange-400 transition-colors p-2"
-              >
-                Dismiss
-              </button>
-              <button
-                onClick={() => router.push("/dashboard/settings")}
-                className="flex-1 sm:flex-none text-[10px] font-bold uppercase tracking-widest bg-orange-500/10 text-orange-400 border border-orange-500/20 px-5 py-2.5 rounded-xl hover:bg-orange-500/20 transition-all"
-              >
-                Setup 2FA
-              </button>
-            </div>
-          </div>
+      <BatchSendDialog
+        open={batchSendDialogOpen}
+        onOpenChange={setBatchSendDialogOpen}
+        maxAmount={parseFloat(totalSpendable)}
+        smartAddress={smartAddress}
+        embeddedProvider={wallets.find((w) => w.walletClientType === "privy")}
+        senderEmail={email}
+        twoFaThreshold={twoFaThreshold}
+        totpEnabled={totpEnabled}
+        passkeyEnabled={passkeyEnabled}
+        chainBalances={evmChainBalances}
+        solanaSource={solanaSource}
+        stellarSource={stellarSourceFor(
+          stellarWallet,
+          stellarBalance,
+          wallets.find((w) => w.walletClientType === "privy"),
         )}
+      />
 
-        {/* Main Grid: Clean & Segmented */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-start">
-          <div className="lg:col-span-7 space-y-8 lg:space-y-10 min-w-0">
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 px-1">
-                <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-muted-foreground">
-                  Quick Transfer
-                </h3>
-                <Tooltip>
-                  <TooltipTrigger>
-                    <Info className="w-3 h-3 opacity-30 hover:opacity-100" />
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    Send funds instantly to any email address on the network.
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-              <TransferModule
-                smartAddress={smartAddress}
-                embeddedProvider={wallets.find(
-                  (w) => w.walletClientType === "privy",
-                )}
-                balance={totalSpendable}
-                chainBalances={evmChainBalances}
-                solanaSource={solanaSource}
-                senderEmail={user?.email?.address || ""}
-                stellarAddress={stellarAddress || undefined}
-                stellarWalletId={stellarWalletId || undefined}
-                stellarBalance={stellarBalance}
-              />
-            </div>
-
-            <div
-              className="card-glass p-5 sm:p-8 rounded-3xl space-y-6 group overflow-hidden relative"
-              style={{ border: "1px solid rgba(255,255,255,0.08)" }}
-            >
-              <Users
-                className="absolute -right-4 -top-4 w-32 h-32 opacity-5 -rotate-12 transition-transform group-hover:scale-110 group-hover:rotate-0 duration-700"
-                style={{ color: "#00e87a" }}
-              />
-              <div className="space-y-2 relative z-10">
-                <h3
-                  className="text-xl sm:text-2xl font-display font-bold tracking-tight"
-                  style={{ color: "#f8f8f6" }}
-                >
-                  Batch Payroll
-                </h3>
-                <p
-                  className="text-sm font-medium leading-relaxed max-w-sm"
-                  style={{ color: "rgba(248,248,246,0.4)" }}
-                >
-                  Distribute payments to your entire network simultaneously.
-                  Perfect for payroll or global payouts.
-                </p>
-              </div>
-              <button
-                onClick={() => setBatchSendDialogOpen(true)}
-                className="w-full h-12 rounded-xl flex items-center justify-center gap-2 relative z-10 font-bold text-xs uppercase tracking-widest transition-all"
-                style={{
-                  background: "rgba(0,232,122,0.1)",
-                  color: "#00e87a",
-                  border: "1px solid rgba(0,232,122,0.2)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(0,232,122,0.18)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "rgba(0,232,122,0.1)";
-                }}
-              >
-                Launch Batch Engine
-              </button>
-            </div>
-          </div>
-
-          <div className="lg:col-span-5 space-y-4 min-w-0 w-full max-w-full">
-            <div className="flex items-center justify-between px-1">
-              <h3
-                className="text-xs font-bold uppercase tracking-[0.2em]"
-                style={{ color: "rgba(248,248,246,0.35)" }}
-              >
-                Recent Activity
-              </h3>
-              <button
-                onClick={() => router.push("/dashboard/history")}
-                className="text-[10px] font-bold uppercase tracking-widest transition-colors"
-                style={{ color: "rgba(0,232,122,0.7)" }}
-              >
-                View All
-              </button>
-            </div>
-            <div className="card-glass p-1 rounded-3xl overflow-hidden relative w-full">
-              <div className="w-full">
-                <HistoryModule
-                  userId={user.id}
-                  userEmail={user.email?.address || ""}
-                  limit={5}
-                  hideHeader={true}
-                  onTxClick={(a) => setSelectedActivity(a)}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <ActivityDetailModal
-          activity={selectedActivity}
-          isOpen={!!selectedActivity}
-          onClose={() => setSelectedActivity(null)}
-        />
-
-        <DepositWithdrawDialog
-          isOpen={rampModalOpen}
-          onClose={() => setRampModalOpen(false)}
-          type={rampType}
-          userId={user?.id || ""}
-          userAddress={smartAddress}
-          solanaAddress={embeddedSolWallet?.address}
-          stellarAddress={stellarAddress || undefined}
-          stellarWalletId={stellarWalletId || undefined}
-          stellarTrustlineReady={stellarTrustlineReady}
-          balance={totalSpendable}
-          chainBalances={evmChainBalances}
-          solanaSource={solanaSource}
-          stellarBalance={stellarBalance}
-          userEmail={user?.email?.address || ""}
-          embeddedProvider={wallets.find((w) => w.walletClientType === "privy")}
-        />
-
-        <BatchSendDialog
-          open={batchSendDialogOpen}
-          onOpenChange={setBatchSendDialogOpen}
-          maxAmount={parseFloat(totalSpendable)}
-          smartAddress={smartAddress}
-          embeddedProvider={wallets.find((w) => w.walletClientType === "privy")}
-          senderEmail={user?.email?.address || ""}
-          twoFaThreshold={twoFaThreshold}
-          totpEnabled={totpEnabled}
-          passkeyEnabled={passkeyEnabled}
-          chainBalances={evmChainBalances}
-          solanaSource={solanaSource}
-          stellarSource={stellarSourceFor(
-            stellarWallet,
-            stellarBalance,
-            wallets.find((w) => w.walletClientType === "privy"),
-          )}
-        />
-
-        {/* FAQ bot with a Telegram handoff — reachable from anywhere in the app. */}
-        <SupportWidget />
-      </div>
-    </TooltipProvider>
+      <LandingSupport />
+    </>
   );
 }
+

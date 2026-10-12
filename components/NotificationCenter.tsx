@@ -42,7 +42,15 @@ function formatNotificationTime(dateStr: string, nowTimestamp: number): string {
   return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export function NotificationCenter({ userEmail }: { userEmail: string }) {
+export function NotificationCenter({
+  userEmail,
+  tone = 'dark',
+}: {
+  userEmail: string;
+  /** "light" matches the cream brand surfaces; the dark dashboard pages keep the default. */
+  tone?: 'dark' | 'light';
+}) {
+  const light = tone === 'light';
   const router = useRouter();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [isOpen, setIsOpen] = useState(false);
@@ -280,11 +288,16 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
       <button
         ref={triggerRef}
         onClick={() => setIsOpen(!isOpen)}
-        className="relative p-2.5 rounded-xl border border-white/5 bg-white/3 hover:bg-white/8 hover:border-white/10 transition-all text-white/60 hover:text-white"
+        aria-label="Notifications"
+        className={
+          light
+            ? 'relative grid size-10 place-items-center rounded-full bg-white text-[#111a13] shadow-[0_0_0_1px_rgb(17_26_19/0.08)] transition-[scale] duration-150 hover:bg-[#f6f2e9] active:scale-[0.94]'
+            : 'relative p-2.5 rounded-xl border border-white/5 bg-white/3 hover:bg-white/8 hover:border-white/10 transition-all text-white/60 hover:text-white'
+        }
       >
         <Bell className="w-5 h-5" />
         {unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 w-5 h-5 bg-accent text-[#07070a] font-bold text-[10px] rounded-full flex items-center justify-center animate-pulse border border-[#07070a]">
+          <span className={`absolute -top-1 -right-1 w-5 h-5 bg-accent text-[#07070a] font-bold text-[10px] rounded-full flex items-center justify-center animate-pulse border ${light ? 'border-[#f6f2e9]' : 'border-[#07070a]'}`}>
             {unreadCount}
           </span>
         )}
@@ -301,16 +314,20 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
             width: panelPos.width,
             maxHeight: Math.min(384, panelPos.maxHeight), // 384px = the old max-h-96
           }}
-          className="z-50 flex flex-col p-4 space-y-3 rounded-2xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.6)] bg-[#07070a]/95 backdrop-blur-2xl"
+          className={
+            light
+              ? 'z-50 flex flex-col p-4 space-y-3 rounded-[24px] bg-white text-[#111a13] shadow-[0_24px_48px_-20px_rgb(17_26_19/0.35),0_0_0_1px_rgb(17_26_19/0.06)]'
+              : 'z-50 flex flex-col p-4 space-y-3 rounded-2xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.6)] bg-[#07070a]/95 backdrop-blur-2xl'
+          }
         >
-          <div className="flex items-center justify-between border-b border-white/5 pb-2 shrink-0">
-            <span className="text-xs font-bold text-white uppercase tracking-wider">
+          <div className={`flex items-center justify-between border-b pb-2 shrink-0 ${light ? 'border-[#e3dcce]' : 'border-white/5'}`}>
+            <span className={light ? 'text-[15px] font-semibold' : 'text-xs font-bold text-white uppercase tracking-wider'}>
               Notifications
             </span>
             {unreadCount > 0 && (
               <button
                 onClick={handleMarkAllRead}
-                className="text-[10px] text-accent hover:text-accent/80 font-bold flex items-center gap-1 transition-colors"
+                className={`flex items-center gap-1 font-bold transition-colors ${light ? 'text-[12px] text-[#00a857] hover:text-[#0e7a45]' : 'text-[10px] text-accent hover:text-accent/80'}`}
               >
                 <Check className="w-3 h-3" /> Mark all read
               </button>
@@ -320,7 +337,7 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
           {/* Notifications List (Max 5 items) */}
           <div className="flex-1 overflow-y-auto space-y-2 max-h-64 pr-1">
             {popupNotifications.length === 0 ? (
-              <div className="py-8 text-center text-white/20 text-xs flex flex-col items-center gap-2">
+              <div className={`py-8 text-center text-xs flex flex-col items-center gap-2 ${light ? 'text-[#5b645d]' : 'text-white/20'}`}>
                 <Bell className="w-6 h-6 stroke-1" />
                 No notifications yet
               </div>
@@ -330,14 +347,18 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
                   key={notif.id}
                   onClick={() => handleNotificationClick(notif)}
                   className={`p-3 rounded-xl border text-left cursor-pointer transition-all flex gap-3 ${
-                    notif.read
-                      ? 'bg-transparent border-white/3 text-white/50 hover:bg-white/2'
-                      : 'bg-white/5 border-white/10 text-white hover:border-white/20 hover:bg-white/8'
+                    light
+                      ? notif.read
+                        ? 'border-transparent text-[#5b645d] hover:bg-[#f6f2e9]'
+                        : 'border-transparent bg-[#f6f2e9] text-[#111a13] hover:bg-[#efe9dd]'
+                      : notif.read
+                        ? 'bg-transparent border-white/3 text-white/50 hover:bg-white/2'
+                        : 'bg-white/5 border-white/10 text-white hover:border-white/20 hover:bg-white/8'
                   }`}
                 >
                   <div className="mt-0.5 shrink-0">
                     <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
-                      notif.read ? 'bg-white/3' : 'bg-white/8'
+                      light ? 'bg-white' : notif.read ? 'bg-white/3' : 'bg-white/8'
                     }`}>
                       {getIcon(notif.type)}
                     </div>
@@ -346,10 +367,10 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
                     <p className="text-xs font-bold truncate leading-tight">
                       {notif.title}
                     </p>
-                    <p className="text-[10px] text-white/40 leading-snug mt-0.5 line-clamp-2">
+                    <p className={`leading-snug mt-0.5 line-clamp-2 ${light ? 'text-[12px] text-[#3d463f]' : 'text-[10px] text-white/40'}`}>
                       {notif.body}
                     </p>
-                    <span className="text-[9px] text-white/20 mt-1 block">
+                    <span className={`mt-1 block ${light ? 'text-[11px] text-[#5b645d]' : 'text-[9px] text-white/20'}`}>
                       {formatNotificationTime(notif.created_at, nowTimestamp)}
                     </span>
                   </div>
@@ -363,13 +384,13 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
 
           {/* Footer View All Notifications Link (Only shown when notifications exist) */}
           {popupNotifications.length > 0 && (
-            <div className="border-t border-white/5 pt-2 text-center shrink-0">
+            <div className={`border-t pt-2 text-center shrink-0 ${light ? 'border-[#e3dcce]' : 'border-white/5'}`}>
               <button
                 onClick={() => {
                   setIsOpen(false);
                   router.push('/dashboard/notifications');
                 }}
-                className="text-xs font-bold text-accent hover:text-accent/80 flex items-center justify-center gap-1.5 w-full py-1.5 rounded-lg hover:bg-white/5 transition-all"
+                className={`text-xs font-bold flex items-center justify-center gap-1.5 w-full py-1.5 rounded-lg transition-all ${light ? 'text-[#00a857] hover:bg-[#f6f2e9]' : 'text-accent hover:text-accent/80 hover:bg-white/5'}`}
               >
                 View All Notifications <ChevronRight className="w-3.5 h-3.5" />
               </button>

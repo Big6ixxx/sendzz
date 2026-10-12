@@ -37,6 +37,8 @@ interface SidebarProps {
   onClose: () => void;
   onLogout: () => void;
   notificationSlot?: React.ReactNode;
+  /** "light" is the cream brand style; other dashboard routes keep the dark default for now. */
+  tone?: "dark" | "light";
 }
 
 export function Sidebar({
@@ -46,7 +48,9 @@ export function Sidebar({
   onClose,
   onLogout,
   notificationSlot,
+  tone = "dark",
 }: SidebarProps) {
+  const light = tone === "light";
   const [isCollapsed, setIsCollapsed] = useState(() => {
     if (typeof window !== "undefined") {
       return localStorage.getItem("sidebar-collapsed") === "true";
@@ -69,7 +73,7 @@ export function Sidebar({
         <div
           className="fixed inset-0 z-40 lg:hidden"
           style={{
-            background: "rgba(7,7,10,0.7)",
+            background: light ? "rgba(17,26,19,0.35)" : "rgba(7,7,10,0.7)",
             backdropFilter: "blur(4px)",
           }}
           onClick={onClose}
@@ -83,11 +87,15 @@ export function Sidebar({
           isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
           isCollapsed ? "w-64 lg:w-20" : "w-64"
         )}
-        style={{
-          background: "rgba(10, 10, 11, 0.7)",
-          backdropFilter: "blur(32px) saturate(180%)",
-          borderRight: "1px solid rgba(255,255,255,0.06)",
-        }}
+        style={
+          light
+            ? { background: "#fbf9f4", borderRight: "1px solid #e3dcce" }
+            : {
+                background: "rgba(10, 10, 11, 0.7)",
+                backdropFilter: "blur(32px) saturate(180%)",
+                borderRight: "1px solid rgba(255,255,255,0.06)",
+              }
+        }
       >
         <div className={cn("flex flex-col h-full overflow-y-auto transition-all duration-300", isCollapsed ? "p-3 lg:px-4" : "p-5")}>
           {/* Logo */}
@@ -113,7 +121,7 @@ export function Sidebar({
                   }}
                 >
                   <Image
-                    src="/logo.svg"
+                    src={light ? "/landing/logo.svg" : "/logo.svg"}
                     alt="Sendzz"
                     width={100}
                     height={30}
@@ -134,7 +142,12 @@ export function Sidebar({
             {/* Desktop Collapse Toggle */}
             <button
               onClick={toggleCollapse}
-              className="hidden lg:flex p-1.5 rounded-lg transition-colors text-brand-secondary/40 hover:text-brand-secondary/80 hover:bg-white/5 outline-none"
+              className={cn(
+                "hidden lg:flex p-1.5 rounded-lg transition-colors outline-none",
+                light
+                  ? "text-[#5b645d] hover:text-[#111a13] hover:bg-[#f6f2e9]"
+                  : "text-brand-secondary/40 hover:text-brand-secondary/80 hover:bg-white/5",
+              )}
               title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
               {isCollapsed ? (
@@ -148,9 +161,9 @@ export function Sidebar({
             <button
               onClick={onClose}
               className="p-1.5 rounded-lg transition-colors lg:hidden"
-              style={{ color: "rgba(248,248,246,0.4)" }}
+              style={{ color: light ? "#5b645d" : "rgba(248,248,246,0.4)" }}
               onMouseEnter={(e) =>
-                (e.currentTarget.style.background = "rgba(255,255,255,0.05)")
+                (e.currentTarget.style.background = light ? "#f6f2e9" : "rgba(255,255,255,0.05)")
               }
               onMouseLeave={(e) =>
                 (e.currentTarget.style.background = "transparent")
@@ -179,7 +192,7 @@ export function Sidebar({
                       "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium relative cursor-default select-none",
                       isCollapsed && "lg:justify-center lg:px-0",
                     )}
-                    style={{ color: "rgba(248,248,246,0.22)" }}
+                    style={{ color: light ? "rgba(17,26,19,0.32)" : "rgba(248,248,246,0.22)" }}
                   >
                     <item.icon className="w-4.5 h-4.5 shrink-0" />
                     <span className={cn("transition-all duration-300", isCollapsed ? "lg:hidden" : "inline")}>
@@ -190,11 +203,15 @@ export function Sidebar({
                         "absolute top-1 right-2 text-[9px] font-bold uppercase tracking-[0.12em] px-1.5 py-0.5 rounded-full",
                         isCollapsed && "lg:hidden",
                       )}
-                      style={{
-                        color: "rgba(0,232,122,0.75)",
-                        background: "rgba(0,232,122,0.10)",
-                        border: "1px solid rgba(0,232,122,0.20)",
-                      }}
+                      style={
+                        light
+                          ? { color: "#111a13", background: "#00e87a" }
+                          : {
+                              color: "rgba(0,232,122,0.75)",
+                              background: "rgba(0,232,122,0.10)",
+                              border: "1px solid rgba(0,232,122,0.20)",
+                            }
+                      }
                     >
                       Soon
                     </span>
@@ -208,41 +225,49 @@ export function Sidebar({
                   href={item.href}
                   onClick={onClose}
                   title={isCollapsed ? item.name : undefined}
+                  aria-current={active ? "page" : undefined}
                   className={cn(
-                    "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all relative",
-                    isCollapsed && "lg:justify-center lg:px-0"
+                    "flex items-center gap-3 px-3 py-2.5 text-sm font-medium transition-all relative",
+                    isCollapsed && "lg:justify-center lg:px-0",
+                    light
+                      ? cn(
+                          "rounded-full",
+                          active
+                            ? "bg-[#111a13] text-[#f6f2e9]"
+                            : "text-[#3d463f] hover:bg-[#f0ebe0] hover:text-[#111a13]",
+                        )
+                      : "rounded-xl",
                   )}
-                  style={{
-                    color: active ? "#f8f8f6" : "rgba(248,248,246,0.4)",
-                    background: active
-                      ? "rgba(255,255,255,0.07)"
-                      : "transparent",
-                    border: active
-                      ? "1px solid rgba(255,255,255,0.08)"
-                      : "1px solid transparent",
-                    backdropFilter: active ? "blur(8px)" : "none",
-                  }}
+                  style={
+                    light
+                      ? undefined
+                      : {
+                          color: active ? "#f8f8f6" : "rgba(248,248,246,0.4)",
+                          background: active ? "rgba(255,255,255,0.07)" : "transparent",
+                          border: active ? "1px solid rgba(255,255,255,0.08)" : "1px solid transparent",
+                          backdropFilter: active ? "blur(8px)" : "none",
+                        }
+                  }
                   onMouseEnter={(e) => {
-                    if (!active) {
+                    if (!active && !light) {
                       e.currentTarget.style.color = "rgba(248,248,246,0.8)";
-                      e.currentTarget.style.background =
-                        "rgba(255,255,255,0.04)";
+                      e.currentTarget.style.background = "rgba(255,255,255,0.04)";
                     }
                   }}
                   onMouseLeave={(e) => {
-                    if (!active) {
+                    if (!active && !light) {
                       e.currentTarget.style.color = "rgba(248,248,246,0.4)";
                       e.currentTarget.style.background = "transparent";
                     }
                   }}
                 >
-                  {active && !isCollapsed && (
+                  {active && !isCollapsed && !light && (
                     <div
                       className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-full"
                       style={{ background: "#00e87a" }}
                     />
                   )}
-                  <item.icon className="w-4.5 h-4.5 shrink-0" />
+                  <item.icon className={cn("w-4.5 h-4.5 shrink-0", light && active && "text-[#00e87a]")} />
                   <span className={cn("transition-all duration-300", isCollapsed ? "lg:hidden" : "inline")}>
                     {item.name}
                   </span>
@@ -254,7 +279,7 @@ export function Sidebar({
           {/* User + Sign out */}
           <div
             className="mt-auto pt-5 space-y-2"
-            style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
+            style={{ borderTop: light ? "1px solid #e3dcce" : "1px solid rgba(255,255,255,0.06)" }}
           >
             <div
               className={cn(
@@ -264,19 +289,22 @@ export function Sidebar({
               style={
                 isCollapsed
                   ? undefined
-                  : {
-                      background: "rgba(255,255,255,0.04)",
-                      border: "1px solid rgba(255,255,255,0.06)",
-                    }
+                  : light
+                    ? { background: "#f6f2e9", borderRadius: 18 }
+                    : {
+                        background: "rgba(255,255,255,0.04)",
+                        border: "1px solid rgba(255,255,255,0.06)",
+                      }
               }
             >
               <div className={cn("flex items-center gap-2.5", isCollapsed && "lg:justify-center")}>
                 <div
                   className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
-                  style={{
-                    background: "rgba(0, 232, 122, 0.15)",
-                    color: "#00e87a",
-                  }}
+                  style={
+                    light
+                      ? { background: "#00e87a", color: "#111a13" }
+                      : { background: "rgba(0, 232, 122, 0.15)", color: "#00e87a" }
+                  }
                   title={isCollapsed ? (userEmail || "Anonymous") : undefined}
                 >
                   <User className="w-3.5 h-3.5" />
@@ -284,13 +312,13 @@ export function Sidebar({
                 <div className={cn("flex-1 min-w-0 transition-all duration-300", isCollapsed ? "lg:hidden" : "block")}>
                   <p
                     className="text-xs font-semibold truncate"
-                    style={{ color: "rgba(248,248,246,0.8)" }}
+                    style={{ color: light ? "#111a13" : "rgba(248,248,246,0.8)" }}
                   >
                     {userEmail || "Anonymous"}
                   </p>
                   <p
-                    className="text-[9px] uppercase tracking-widest font-bold"
-                    style={{ color: "rgba(248,248,246,0.25)" }}
+                    className={light ? "lp-mono text-[10px] uppercase text-[#5b645d]" : "text-[9px] uppercase tracking-widest font-bold"}
+                    style={light ? undefined : { color: "rgba(248,248,246,0.25)" }}
                   >
                     Personal Account
                   </p>
@@ -305,13 +333,13 @@ export function Sidebar({
                 isCollapsed && "lg:justify-center lg:px-0"
               )}
               title={isCollapsed ? "Sign Out" : undefined}
-              style={{ color: "rgba(248,248,246,0.35)", background: "transparent" }}
+              style={{ color: light ? "#5b645d" : "rgba(248,248,246,0.35)", background: "transparent" }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.color = "#f87171";
-                e.currentTarget.style.background = "rgba(248,113,113,0.08)";
+                e.currentTarget.style.color = light ? "#a1462c" : "#f87171";
+                e.currentTarget.style.background = light ? "rgba(161,70,44,0.08)" : "rgba(248,113,113,0.08)";
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.color = "rgba(248,248,246,0.35)";
+                e.currentTarget.style.color = light ? "#5b645d" : "rgba(248,248,246,0.35)";
                 e.currentTarget.style.background = "transparent";
               }}
             >

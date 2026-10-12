@@ -14,6 +14,9 @@ import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { motion } from "framer-motion";
+import { DotField } from "@/components/landing/DotField";
+import { brandFontVars } from "@/components/landing/fonts";
+import "@/components/landing/landing.css";
 
 export default function DashboardLayout({
   children,
@@ -24,6 +27,9 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  // The overview is the first screen in the cream brand style; the other routes follow once
+  // it is signed off, so until then only this path switches the shell.
+  const light = pathname === "/dashboard";
 
   // Asked for once, here, rather than per screen: the PIN gates every outgoing path, so the
   // dashboard as a whole is what requires one. `hasPin` stays null until the answer is known,
@@ -118,9 +124,14 @@ export default function DashboardLayout({
 
   return (
     <PinAuthorizationProvider>
-    <div className="flex h-dvh overflow-hidden" style={{ background: "#07070a" }}>
+    <div
+      className={light ? `lp-root flex h-dvh overflow-hidden ${brandFontVars}` : "flex h-dvh overflow-hidden"}
+      style={light ? undefined : { background: "#07070a" }}
+    >
       <PinRequiredGate open={hasPin === false} onComplete={() => setHasPin(true)} />
-      {/* Ambient glow — subtle, dashboard version */}
+      {light ? (
+        <DotField />
+      ) : (
       <div
         className="fixed inset-0 pointer-events-none overflow-hidden"
         aria-hidden
@@ -138,6 +149,7 @@ export default function DashboardLayout({
           }}
         />
       </div>
+      )}
 
       <Sidebar
         userEmail={user?.email?.address || ""}
@@ -145,25 +157,30 @@ export default function DashboardLayout({
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
         onLogout={() => logout()}
+        tone={light ? "light" : "dark"}
         notificationSlot={
-          <NotificationCenter userEmail={user?.email?.address || ""} />
+          <NotificationCenter userEmail={user?.email?.address || ""} tone={light ? "light" : "dark"} />
         }
       />
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+      <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* Mobile/Tablet header — hidden on desktop */}
         <header
           className="lg:hidden flex items-center justify-between py-4 px-4 md:px-6 sticky top-0 z-30 shrink-0"
-          style={{
-            background: "rgba(7, 7, 10, 0.4)",
-            backdropFilter: "blur(24px) saturate(180%)",
-            borderBottom: "1px solid rgba(255,255,255,0.05)",
-          }}
+          style={
+            light
+              ? { background: "rgba(246,242,233,0.9)", backdropFilter: "blur(6px)", borderBottom: "1px solid #e3dcce" }
+              : {
+                  background: "rgba(7, 7, 10, 0.4)",
+                  backdropFilter: "blur(24px) saturate(180%)",
+                  borderBottom: "1px solid rgba(255,255,255,0.05)",
+                }
+          }
         >
           <Link href="/">
             <Image
-              src="/logo.svg"
+              src={light ? "/landing/logo.svg" : "/logo.svg"}
               alt="Sendzz"
               width={100}
               height={30}
@@ -172,11 +189,12 @@ export default function DashboardLayout({
           </Link>
 
           <div className="flex items-center gap-4">
-            <NotificationCenter userEmail={user?.email?.address || ""} />
+            <NotificationCenter userEmail={user?.email?.address || ""} tone={light ? "light" : "dark"} />
             <button
               onClick={() => setIsSidebarOpen(true)}
+              aria-label="Open menu"
               className="p-2 rounded-xl transition-colors"
-              style={{ color: "rgba(248,248,246,0.5)" }}
+              style={{ color: light ? "#111a13" : "rgba(248,248,246,0.5)" }}
             >
               <Menu className="w-5 h-5" />
             </button>
@@ -184,7 +202,7 @@ export default function DashboardLayout({
         </header>
 
         <div className="flex-1 overflow-y-auto overflow-x-hidden">
-          <KycBanner userEmail={user?.email?.address || ""} />
+          <KycBanner userEmail={user?.email?.address || ""} tone={light ? "light" : "dark"} />
           <div className="p-4 md:p-6 lg:p-8">
             {children}
           </div>
