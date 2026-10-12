@@ -36,7 +36,8 @@ interface CryptoTransferFormProps {
   isOverBalance: boolean;
   spendable: number;
   isZeroBalance: boolean;
-  isSettingUpStellar: boolean;
+  /** Stellar is opt-in: it is only listed once the user has activated it. */
+  stellarReady: boolean;
   handleTransfer: (e: React.FormEvent) => void;
   sourcePref: SourcePreference;
   setSourcePref: (p: SourcePreference) => void;
@@ -45,6 +46,7 @@ interface CryptoTransferFormProps {
 }
 
 // Ethereum L1 commented out — see BRIDGE_DISABLED_CHAINS in lib/circle/gateway.
+// Solana commented out while it is disabled — see SOLANA_RECEIVE_ENABLED in lib/circle/gateway.
 const AVAILABLE_CHAINS: (SupportedChain | 'stellar' | 'solana')[] = [
   'base',
   // 'ethereum',
@@ -54,7 +56,7 @@ const AVAILABLE_CHAINS: (SupportedChain | 'stellar' | 'solana')[] = [
   'avalanche',
   'arc',
   'stellar',
-  'solana',
+  // 'solana',
 ];
 
 const ALL_CHAIN_NAMES: Record<SupportedChain | 'stellar' | 'solana', string> = {
@@ -85,7 +87,7 @@ export function CryptoTransferForm({
   isOverBalance,
   spendable,
   isZeroBalance,
-  isSettingUpStellar,
+  stellarReady,
   handleTransfer,
   sourcePref,
   setSourcePref,
@@ -128,7 +130,7 @@ export function CryptoTransferForm({
             <SelectValue placeholder="Select network" />
           </SelectTrigger>
           <SelectContent>
-            {AVAILABLE_CHAINS.map((chain) => (
+            {AVAILABLE_CHAINS.filter((c) => c !== 'stellar' || stellarReady).map((chain) => (
               <SelectItem key={chain} value={chain}>
                 <div className="flex items-center gap-3">
                   <ChainLogo chain={chain} size={20} />
@@ -285,10 +287,10 @@ export function CryptoTransferForm({
       <div className="space-y-4 pt-4">
         <button
           type="submit"
-          disabled={loading || isSettingUpStellar || isZeroBalance || isOverBalance || !recipientAddress || isFetchingBalance}
+          disabled={loading || isZeroBalance || isOverBalance || !recipientAddress || isFetchingBalance}
           className="btn-primary w-full h-14 text-lg gap-3 shadow-xl hover:shadow-2xl transition-all disabled:opacity-50"
         >
-          {loading || isSettingUpStellar ? (
+          {loading ? (
             <Loader2 className="animate-spin" />
           ) : isZeroBalance ? (
             'Insufficient Funds'

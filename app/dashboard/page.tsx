@@ -58,7 +58,7 @@ export default function Dashboard() {
       : null;
 
   const [smartAddress, setSmartAddress] = useState<string>("");
-  // Shared, cached provisioning — see hooks/useStellarWallet.
+  // Lookup only (Stellar is opt-in) — see hooks/useStellarWallet.
   const { data: stellarWallet } = useStellarWallet();
   const stellarAddress = stellarWallet?.address ?? "";
   const stellarWalletId = stellarWallet?.walletId ?? "";
@@ -404,7 +404,7 @@ export default function Dashboard() {
                         <p className="font-bold mb-1 text-accent">
                           Secure MPC Architecture
                         </p>
-                        We use Privy&apos;s MPC technology to ensure your funds
+                        We use multi-party computation (MPC) to ensure your funds
                         are truly yours. Your keys are split into shares,
                         meaning no single party—including Sendzz—ever has access
                         to your full private key. This provides self-custody

@@ -42,6 +42,7 @@ import { noteTransactionAuthorization } from "@/lib/actions/transactionAuth";
 import { describeBridge } from "@/lib/signing/describe";
 import { toast } from "sonner";
 import { solanaRpcUrl } from "@/lib/solana/rpc";
+import { isStellarReady, type StellarWalletInfo } from "@/hooks/useStellarWallet";
 
 const SOLANA_RPC = solanaRpcUrl();
 
@@ -56,7 +57,7 @@ interface ChainBridgeModuleProps {
   smartAddress: string;
   userEmail: string;
   solanaAddress?: string;
-  stellarWallet?: { walletId: string; address: string } | null;
+  stellarWallet?: StellarWalletInfo | null;
 }
 
 type Phase = "form" | "submitting" | "monitoring" | "complete";
@@ -721,7 +722,8 @@ export function ChainBridgeModule({
   const allSources = [
     // Ethereum L1 is filtered out on both sides — see BRIDGE_DISABLED_CHAINS.
     ...EVM_CHAINS.filter(isBridgeable),
-    ...(stellarWallet?.address ? ["stellar" as const] : []),
+    // Stellar is opt-in: listed only once activated (account + USDC trustline in place).
+    ...(isStellarReady(stellarWallet) ? ["stellar" as const] : []),
     // ...(solanaAddress ? ["solana" as const] : []),
   ];
   // Sources and destinations come from the same list on purpose. Excluding a chain here

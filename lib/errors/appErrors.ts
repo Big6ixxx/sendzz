@@ -193,7 +193,7 @@ export function classifyAppError(err: unknown): AppError {
     msg.includes('entrypoint')
   ) {
     if (msg.includes('simulatevalidation') || msg.includes('simulate validation'))
-      return { message: 'Gas station sponsorship is currently unavailable on this chain. Please ensure the gas policy has sufficient deposit or try another chain.', category: 'service_unavailable', isSilent: false, isAlreadyProcessed: false };
+      return { message: "We couldn't cover the network fee for this transfer right now. Please try again in a moment.", category: 'service_unavailable', isSilent: false, isAlreadyProcessed: false };
     if (msg.includes('aa21') || msg.includes("didn't pay prefund") || msg.includes('prefund'))
       return { message: 'Insufficient funds to cover the network fee.', category: 'insufficient_funds', isSilent: false, isAlreadyProcessed: false };
     if (msg.includes('aa25') || msg.includes('invalid account nonce'))

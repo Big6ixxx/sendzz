@@ -3,7 +3,7 @@
 import { AnimatePresence, animate, motion, useInView, useSpring } from "framer-motion";
 import Image from "next/image";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { getOffRampRate } from "@/lib/actions/ramp";
+import { getDisplayOffRampRate } from "@/lib/actions/ramp";
 import { useCorridorFee } from "@/lib/hooks/useCorridorFee";
 import { AnimatedNumber, EASE, EASE_IN_OUT, Label, MEDIA, Magnetic, useMedia } from "./motion";
 
@@ -88,9 +88,9 @@ function Calculator({ onSend }: { onSend: () => void }) {
   useEffect(() => {
     if (live[code] != null) return;
     let cancelled = false;
-    getOffRampRate(code)
+    getDisplayOffRampRate(code)
       .then((r) => {
-        if (!cancelled && Number.isFinite(r) && r > 0) setLive((m) => ({ ...m, [code]: r }));
+        if (!cancelled && r != null && Number.isFinite(r) && r > 0) setLive((m) => ({ ...m, [code]: r }));
       })
       .catch(() => {});
     return () => {

@@ -91,7 +91,8 @@ function PremiumToggle({ checked, onChange, disabled, activeColor, activeBg }: T
   );
 }
 
-const NON_EVM_RAILS = ["Solana", "Stellar"] as const;
+// Solana commented out while it is disabled — see SOLANA_RECEIVE_ENABLED in lib/circle/gateway.
+const NON_EVM_RAILS = [/* "Solana", */ "Stellar"] as const;
 
 export default function SettingsPage() {
   const { user, logout } = usePrivy();

@@ -199,7 +199,7 @@ export function TransferModule({
           isFetchingBalance={cryptoTransfer.isFetchingBalance}
           isOverBalance={cryptoTransfer.isOverBalance}
           isZeroBalance={cryptoTransfer.isZeroBalance}
-          isSettingUpStellar={cryptoTransfer.isSettingUpStellar}
+          stellarReady={cryptoTransfer.stellarReady}
           handleTransfer={cryptoTransfer.handleTransfer}
           sourcePref={cryptoTransfer.sourcePref}
           setSourcePref={cryptoTransfer.setSourcePref}

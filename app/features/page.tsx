@@ -69,7 +69,7 @@ export default function FeaturesPage() {
     {
       title: 'Stable USDC Settlements',
       description:
-        'Protected against volatility. All balances are held in Circle’s USDC, the world’s most trusted stablecoin.',
+        'Protected against volatility. All balances are held in USDC, the world’s most trusted stablecoin.',
       icon: Coins,
       color: '#22c55e',
     },
@@ -159,7 +159,7 @@ export default function FeaturesPage() {
                 <div className="space-y-6">
                   {[
                     'ERC-4337 Smart Account Abstraction',
-                    'Circle Iris API Bridge Integration',
+                    'Native Cross-Chain USDC Transfers',
                     'Biometric Passkey Authentication',
                     'Deterministic Multi-Chain Address Generation',
                   ].map((t) => (

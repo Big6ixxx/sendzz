@@ -24,15 +24,12 @@ export async function GET() {
   const keyQuorumId = process.env.PRIVY_KEY_QUORUM_ID;
 
   if (!keyQuorumId) {
-    return NextResponse.json(
-      {
-        error:
-          'PRIVY_KEY_QUORUM_ID is not configured. ' +
-          'Find it in Privy Dashboard → Wallet infrastructure → Authorization keys. ' +
-          'It is the "Key quorum ID" shown when you created the authorization key.',
-      },
-      { status: 500 },
+    // The setup hint is for us, in the logs — the response reaches a browser.
+    console.error(
+      '[Stellar] PRIVY_KEY_QUORUM_ID is not configured. Find it in Privy Dashboard → Wallet ' +
+        'infrastructure → Authorization keys (the "Key quorum ID" of the authorization key).',
     );
+    return NextResponse.json({ error: 'Stellar wallet setup is unavailable right now.' }, { status: 500 });
   }
 
   return NextResponse.json({ keyQuorumId });

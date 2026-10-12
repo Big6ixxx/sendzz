@@ -318,22 +318,25 @@ export class BitnobClient {
     const res = await fetch(`${this.baseUrl}${path}`, { ...options, headers });
     if (!res.ok) {
       const errorText = await res.text();
-      // The full envelope goes to the log; the user gets, at most, the provider's own `detail`
-      // sentence. Throwing the raw text put a JSON blob — request ids, URLs, the provider's
-      // name — straight into a toast.
-      console.error(
-        `[Bitnob] ${options.method || "GET"} ${path} failed (${res.status}): ${errorText}`,
-      );
       let detail = "";
+      let requestId = "";
       try {
-        const parsed = JSON.parse(errorText) as { detail?: string; message?: string };
+        const parsed = JSON.parse(errorText) as { detail?: string; message?: string; request_id?: string };
         detail = (parsed.detail || parsed.message || "").trim();
+        requestId = parsed.request_id ?? "";
       } catch {
         /* not JSON — fall through to the generic message below */
       }
-      throw new Error(
-        toUserSafeMessage(detail) ??
-          "We couldn't complete that request. Please try again shortly.",
+      // One line: the reason, plus the request id their support asks for. The full envelope
+      // (timestamps, type URLs, duplicate ids) only made each failure several lines of noise.
+      console.error(
+        `[Bitnob] ${options.method || "GET"} ${path} failed (${res.status}): ` +
+          `${detail || errorText.slice(0, 300)}${requestId ? ` [${requestId}]` : ""}`,
+      );
+      // The user gets, at most, the provider's own `detail` sentence — never the raw envelope.
+      throw Object.assign(
+        new Error(toUserSafeMessage(detail) ?? "We couldn't complete that request. Please try again shortly."),
+        { status: res.status },
       );
     }
     const json = await res.json();

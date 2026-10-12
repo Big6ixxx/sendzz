@@ -40,7 +40,7 @@ export default function BridgePage() {
     if (ready && authenticated && wallets.length > 0) initAccount();
   }, [ready, authenticated, wallets]);
 
-  // Stellar wallet is resolved (and its server signer granted) once, then cached.
+  // Lookup only — Stellar appears once the user has activated it (see hooks/useStellarWallet).
   const { data: stellarWallet } = useStellarWallet();
 
   if (!ready || !authenticated || !user) {

@@ -115,7 +115,7 @@ export async function POST(req: Request) {
           {
             error:
               receivable.reason === 'signer_not_granted'
-                ? 'Your Stellar wallet still needs to authorise this app. Reload the bridge page, then claim again.'
+                ? 'Activate your Stellar address from Deposit → Receive, then claim again.'
                 : "We're still setting up your Stellar account to receive USDC. Your funds are safe — please retry the claim in a moment.",
             code: receivable.reason,
           },

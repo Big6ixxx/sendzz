@@ -208,10 +208,8 @@ export function ActivityDetailModal({
             stellarWallet = await fetch("/api/stellar/provision", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                privyUserId: user.id,
-                email: user.email.address,
-              }),
+              // An explicit claim: activating here (trustline included) is what lets it land.
+              body: JSON.stringify({ privyUserId: user.id, activate: true }),
             })
               .then((r) => (r.ok ? r.json() : {}))
               .catch(() => ({}));

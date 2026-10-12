@@ -593,11 +593,10 @@ export async function ensureStellarUsdcReceivable(
 }
 
 /**
- * Provision a Stellar wallet — the only function you need to call.
- * Handles everything automatically: wallet creation, activation, trustline.
- * Users just get their address and can send/receive USDC immediately.
+ * Provision a Stellar wallet: wallet creation, activation, trustline. This spends sponsor XLM,
+ * so it runs only when the user asks for Stellar (see app/api/stellar/provision).
  *
- * IDEMPOTENT — safe to call on every login/page load.
+ * IDEMPOTENT.
  * Returns the same wallet every time for the same Privy user ID.
  *
  * New user flow (first call):

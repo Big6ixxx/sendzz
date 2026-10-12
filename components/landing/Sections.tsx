@@ -273,7 +273,7 @@ export function Features() {
           <CardFooter
             tone="text-[#cfe0d6]"
             title="Your bank, in and out."
-            body="Deposit NGN, KES or GHS straight from your bank. Withdraw to a local account in minutes, at competitive Paycrest rates."
+            body="Deposit NGN, KES or GHS straight from your bank. Withdraw to a local account in minutes, at competitive local rates."
           />
         </FeatureCard>
 

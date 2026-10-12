@@ -1,11 +1,11 @@
 import { usePlatformFeePercent } from '@/lib/hooks/usePlatformFeePercent';
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { usePinAuthorization } from "@/components/security/PinAuthorizationProvider";
 import { noteTransactionAuthorization } from "@/lib/actions/transactionAuth";
 import { describeCryptoSend } from "@/lib/signing/describe";
 import { quoteFee } from "@/lib/actions/fees";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
-import { ConnectedWallet, usePrivy, useSigners } from "@privy-io/react-auth";
+import { ConnectedWallet, usePrivy } from "@privy-io/react-auth";
 import {
   useSignTransaction,
   useWallets as useSolanaWallets,
@@ -31,7 +31,7 @@ import {
   type SourcePreference,
 } from "@/lib/web3/routing";
 import { isAddress } from "viem";
-import { useStellarWallet } from "@/hooks/useStellarWallet";
+import { isStellarReady, useStellarWallet } from "@/hooks/useStellarWallet";
 
 export interface CrossChainSendInfo {
   /**
@@ -74,7 +74,6 @@ export function useCryptoTransfer({
   const [memo, setMemo] = useState("");
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string>("");
-  const [isSettingUpStellar, setIsSettingUpStellar] = useState(false);
   // Cross-chain confirmation: when set, the recipient is on a chain the user has no
   // (or insufficient) funds on, so the send must bridge first — surfaced via a modal.
   const [bridgeConfirm, setBridgeConfirm] = useState<CrossChainSendInfo | null>(null);
@@ -99,108 +98,14 @@ export function useCryptoTransfer({
 
   const queryClient = useQueryClient();
   const { user } = usePrivy();
-  const { addSigners } = useSigners();
   const privyUserId = user?.id;
 
-  // Load Stellar TEE wallet details — shared and cached with every other consumer, so
-  // selecting Stellar doesn't re-provision a wallet that is already set up.
+  // The user's Stellar wallet if they have one. Stellar is opt-in (activated from the receive
+  // screen), so it is only offered as a network once it is ready.
   const { data: stellarWallet } = useStellarWallet({
     enabled: !!privyUserId,
   });
-
-  const ensureStellarSetup = useCallback(async () => {
-    if (!privyUserId) return null;
-    setIsSettingUpStellar(true);
-    setStatus("Checking your Stellar account…");
-    try {
-      // 1. Get signer ID
-      const signerRes = await fetch('/api/stellar/signer-id');
-      if (!signerRes.ok) throw new Error('Could not get signer ID');
-      const { keyQuorumId } = await signerRes.json();
-
-      // 2. Provision (creates wallet if needed)
-      setStatus("Setting up your Stellar account…");
-      const provRes = await fetch('/api/stellar/provision', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ privyUserId, email: senderEmail }),
-      });
-      const provData = await provRes.json();
-      if (!provRes.ok) throw new Error(provData.error || 'Provisioning failed');
-
-      const walletAddress = provData.address;
-      const walletId = provData.walletId;
-      const isSignerGranted = provData.signerGranted || false;
-
-      if (!isSignerGranted) {
-        setStatus("Securing your Stellar account…");
-        try {
-          await addSigners({
-            address: walletAddress,
-            signers: [{ signerId: keyQuorumId }],
-          });
-          
-          // Save in database that the signer is now granted
-          const { registerMyStellarAddress } = await import("@/lib/supabase/users");
-          await registerMyStellarAddress({
-            stellarAddress: walletAddress,
-            stellarWalletId: walletId,
-            stellarSignerGranted: true,
-          });
-        } catch (err: unknown) {
-          const errMsg = err instanceof Error ? err.message : String(err);
-          if (!errMsg.toLowerCase().includes('duplicate')) {
-            throw err;
-          }
-        }
-      }
-
-      // Provision once more to ensure trustline and active state on-chain
-      setStatus("Activating your Stellar account…");
-      const finalRes = await fetch('/api/stellar/provision', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ privyUserId, email: senderEmail }),
-      });
-      const finalData = await finalRes.json();
-      if (!finalRes.ok) throw new Error(finalData.error || 'Final setup failed');
-
-      const info = {
-        walletId: finalData.walletId || walletId,
-        address: finalData.address || walletAddress,
-        trustlineReady: finalData.trustlineReady || false,
-        signerGranted: true,
-      };
-      
-      queryClient.invalidateQueries({ queryKey: ["stellar-wallet", privyUserId] });
-      queryClient.invalidateQueries({ queryKey: ["balance-stellar", info.address] });
-
-      setStatus("");
-      setIsSettingUpStellar(false);
-      return info;
-    } catch (err: unknown) {
-      console.error("Stellar setup error:", err);
-      setStatus("");
-      setIsSettingUpStellar(false);
-      return null;
-    }
-  }, [privyUserId, addSigners, queryClient, senderEmail]);
-
-  // Auto-setup Stellar when selected. Guarded by a ref because `ensureStellarSetup`
-  // invalidates the wallet query on completion: without it a wallet that never reaches
-  // `trustlineReady` would re-enter setup on every refetch, forever.
-  const stellarSetupAttempted = useRef(false);
-  useEffect(() => {
-    if (selectedChain !== "stellar" || !privyUserId) {
-      stellarSetupAttempted.current = false;
-      return;
-    }
-    if (stellarWallet?.trustlineReady && stellarWallet?.signerGranted) return;
-    if (stellarSetupAttempted.current) return;
-
-    stellarSetupAttempted.current = true;
-    ensureStellarSetup();
-  }, [selectedChain, privyUserId, ensureStellarSetup, stellarWallet]);
+  const stellarReady = isStellarReady(stellarWallet);
 
   // Fetch security preferences
   useEffect(() => {
@@ -642,15 +547,12 @@ export function useCryptoTransfer({
       let txHash: string;
 
       if (selectedChain === "stellar") {
-        let currentWallet = stellarWallet;
-        if (!currentWallet || !currentWallet.trustlineReady || !currentWallet.signerGranted) {
-          const ok = await ensureStellarSetup();
-          if (!ok) {
-            setLoading(false);
-            return;
-          }
-          currentWallet = ok;
+        if (!isStellarReady(stellarWallet)) {
+          toast.error("Activate your Stellar address from Deposit → Receive first.");
+          setLoading(false);
+          return;
         }
+        const currentWallet = stellarWallet;
 
         setStatus("Sending on Stellar…");
         const res = await fetch("/api/stellar/send", {
@@ -1014,7 +916,7 @@ export function useCryptoTransfer({
     isFetchingBalance,
     isOverBalance,
     isZeroBalance,
-    isSettingUpStellar,
+    stellarReady,
     handleTransfer,
     twoFaModalOpen,
     setTwoFaModalOpen,

@@ -17,19 +17,14 @@ import { truncateAddress } from '@/lib/utils';
 import { ArrowRight, Copy, Loader2 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import Link from 'next/link';
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 import { ChainLogo } from './ChainLogo';
-import { useStellarSigner } from '@/hooks/useStellarSigner';
+import { isStellarReady, useActivateStellar } from '@/hooks/useStellarWallet';
 import { SOLANA_RECEIVE_ENABLED } from '@/lib/circle/gateway';
-import { useQueryClient } from '@tanstack/react-query';
 
 type Rail = 'evm' | 'solana' | 'stellar';
 
-// EVM networks the single smart-account address can receive on (shared CREATE2 address).
-// Ethereum L1 commented out — see BRIDGE_DISABLED_CHAINS in lib/circle/gateway. Deposits
-// there would be tracked nowhere and movable by nothing, so we don't advertise the
-// network even though the address itself can still technically receive on it.
 /**
  * The rails a user can be given an address on.
  *
@@ -43,6 +38,10 @@ const RAILS: { key: Rail; label: string }[] = [
   { key: 'stellar', label: 'Stellar' },
 ];
 
+// EVM networks the single smart-account address can receive on (shared CREATE2 address).
+// Ethereum L1 commented out — see BRIDGE_DISABLED_CHAINS in lib/circle/gateway. Deposits
+// there would be tracked nowhere and movable by nothing, so we don't advertise the
+// network even though the address itself can still technically receive on it.
 const EVM_NETWORKS: { key: string; name: string }[] = [
   { key: 'base', name: 'Base' },
   // { key: 'ethereum', name: 'Ethereum' },
@@ -58,8 +57,6 @@ interface ReceiveCryptoFlowProps {
   solanaAddress?: string;
   stellarAddress?: string;
   stellarTrustlineReady?: boolean;
-  userId?: string;
-  userEmail?: string;
 }
 
 export function ReceiveCryptoFlow({
@@ -67,57 +64,30 @@ export function ReceiveCryptoFlow({
   solanaAddress,
   stellarAddress,
   stellarTrustlineReady,
-  userId,
-  userEmail,
 }: ReceiveCryptoFlowProps) {
   const [rail, setRail] = useState<Rail>('evm');
-  const [localTrustlineReady, setLocalTrustlineReady] = useState<boolean | undefined>(undefined);
-  const [isRetrying, setIsRetrying] = useState(false);
-  const { grantServerSigner } = useStellarSigner();
-  const queryClient = useQueryClient();
+  const [activating, setActivating] = useState(false);
+  const [activationFailed, setActivationFailed] = useState(false);
+  const activateStellar = useActivateStellar();
 
-  const isTrustlineReady = localTrustlineReady !== undefined ? localTrustlineReady : stellarTrustlineReady;
-
+  const stellarReady = !!stellarAddress && !!stellarTrustlineReady;
   const address = rail === 'evm' ? evmAddress : rail === 'solana' ? solanaAddress ?? '' : stellarAddress ?? '';
 
-  const handleRetry = useCallback(async () => {
-    if (!userId || !userEmail || !stellarAddress) return;
-    setIsRetrying(true);
+  // Stellar is opt-in: nothing is created or activated until the user presses this.
+  const handleActivate = async () => {
+    setActivating(true);
+    setActivationFailed(false);
     try {
-      // Step 1: Ensure server signer permission is granted on client side
-      await grantServerSigner(stellarAddress);
-
-      // Step 2: Trigger server-side provisioner to activate account + add USDC trustline
-      const res = await fetch('/api/stellar/provision', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ privyUserId: userId, email: userEmail }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.trustlineReady) {
-          setLocalTrustlineReady(true);
-          queryClient.invalidateQueries({ queryKey: ['stellar-wallet', userId] });
-          toast.success("Your Stellar account is ready to receive USDC.");
-        } else {
-          console.warn("Trustline setup is still pending on-chain.");
-        }
-      } else {
-        console.error("Retrying setup failed.");
-      }
+      const wallet = await activateStellar();
+      if (isStellarReady(wallet)) toast.success('Your Stellar address is ready to receive USDC.');
+      else setActivationFailed(true);
     } catch (err) {
-      console.error("Stellar setup error:", err);
+      console.error('[Receive] Stellar activation failed:', err);
+      setActivationFailed(true);
     } finally {
-      setIsRetrying(false);
+      setActivating(false);
     }
-  }, [userId, userEmail, stellarAddress, grantServerSigner, queryClient]);
-
-  // Auto-heal: If user clicks Stellar tab and trustline is not ready, trigger setup immediately in background!
-  useEffect(() => {
-    if (rail === 'stellar' && !isTrustlineReady && userId && userEmail && stellarAddress && !isRetrying) {
-      handleRetry();
-    }
-  }, [rail, isTrustlineReady, userId, userEmail, stellarAddress, isRetrying, handleRetry]);
+  };
 
   const copy = () => {
     if (!address) return;
@@ -169,42 +139,41 @@ export function ReceiveCryptoFlow({
         >
           Your Solana wallet is still being set up. Please try again in a moment.
         </div>
-      ) : rail === 'stellar' && !stellarAddress ? (
+      ) : rail === 'stellar' && !stellarReady ? (
         <div
-          className="p-6 rounded-3xl text-center text-sm"
-          style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(248,248,246,0.5)' }}
+          className="p-6 rounded-3xl text-center space-y-4"
+          style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
         >
-          Your Stellar wallet is still being set up. Please try again in a moment.
-        </div>
-      ) : rail === 'stellar' && !isTrustlineReady ? (
-        <div
-          className="p-6 rounded-3xl text-center text-sm space-y-4"
-          style={{ background: 'rgba(239,68,68,0.03)', border: '1px solid rgba(239,68,68,0.2)', color: '#f87171' }}
-        >
-          <p className="font-bold text-base">⚠️ Stellar deposits paused</p>
-          <p className="text-xs leading-relaxed text-red-300">
-            Your Stellar account is still being set up to hold USDC. Until that finishes, anything sent here could be lost — so we have paused deposits to keep your money safe.
-          </p>
-          
+          <ChainLogo chain="stellar" size={40} />
+          <div className="space-y-1.5">
+            <p className="font-bold text-base text-brand-secondary">Activate your Stellar address</p>
+            <p className="text-xs leading-relaxed" style={{ color: 'rgba(248,248,246,0.5)' }}>
+              Only needed if you want to receive USDC on Stellar. It&apos;s free and takes a few
+              seconds. Your other networks work without it.
+            </p>
+          </div>
           <button
-            onClick={handleRetry}
-            disabled={isRetrying}
-            className="flex items-center gap-1.5 mx-auto text-xs font-bold uppercase tracking-widest py-2.5 px-5 rounded-xl transition-all disabled:opacity-50 hover:bg-red-500/10"
-            style={{ background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)' }}
+            onClick={handleActivate}
+            disabled={activating}
+            className="btn-accent mx-auto inline-flex h-11 items-center gap-2 rounded-xl px-5 text-xs font-bold uppercase tracking-widest disabled:opacity-60"
           >
-            {isRetrying ? (
+            {activating ? (
               <>
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                Retrying Setup...
+                Activating…
               </>
+            ) : activationFailed ? (
+              'Try again'
             ) : (
-              'Retry Trustline Setup'
+              'Activate Stellar address'
             )}
           </button>
-          
-          <p className="text-[11px]" style={{ color: 'rgba(248,248,246,0.4)' }}>
-            If retrying fails, please contact support to resolve this issue.
-          </p>
+          {activationFailed && (
+            <p className="text-[11px] leading-relaxed" style={{ color: '#f87171' }}>
+              Activation didn&apos;t finish. Please try again, or contact support if it keeps
+              happening. Don&apos;t send anything to Stellar until your address shows here.
+            </p>
+          )}
         </div>
       ) : (
         <>

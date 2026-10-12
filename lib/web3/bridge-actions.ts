@@ -398,7 +398,7 @@ export async function executeSmartBridge(
 
     if (!chain || !usdcAddress) throw new Error('Unsupported chain config');
 
-    toast.info(`Preparing your transfer on ${sourceChain} — we cover the network fee.`);
+    toast.info("Preparing your transfer. We cover the network fee.");
     const ethereumProvider = await embeddedWallet.getEthereumProvider();
     const { bundlerClient, account } = await getCircleClient(ethereumProvider, sourceChain);
 
@@ -536,7 +536,7 @@ export async function executeSmartBridge(
     // waitForUserOperationReceipt can be slow on Arbitrum — we don't block the UI on it.
     const txHashPromise = resolveUserOpToTxHash(bundlerClient, bridgeOpHash);
     txHashPromise
-      .then(() => toast.success('Bridge transaction confirmed on-chain!'))
+      .then(() => toast.success('Transfer confirmed!'))
       .catch((e) => console.warn('[SmartBridge] tx resolution failed:', e));
 
     return { userOpHash: bridgeOpHash, txHashPromise };

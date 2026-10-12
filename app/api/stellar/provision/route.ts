@@ -1,22 +1,29 @@
 /**
  * POST /api/stellar/provision
  *
- * Provisions a Stellar wallet for a user via Privy TEE.
- * IDEMPOTENT — safe to call on every login and page reload.
+ * Reports — and, when asked, sets up — the caller's Stellar wallet. IDEMPOTENT.
  *
- * What happens automatically:
- *   1. Create (or retrieve existing) Stellar wallet in Privy TEE
- *   2. If the account has XLM on-chain → add USDC trustline immediately
- *      (fee-bumped by sponsor — user pays nothing)
- *   3. If account not yet activated → trustline deferred, trustlineReady=false
+ * Stellar is opt-in. Creating the wallet costs nothing, but activating it does: the sponsor
+ * pays the account reserve and the USDC trustline for every account, so it is never done
+ * automatically. Without `activate`, this only reports:
  *
- * Body: { privyUserId: string }
+ *   - no wallet yet          → { provisioned: false }; nothing is created
+ *   - a wallet already exists → its address and whether it can receive USDC (a Horizon read)
+ *
+ * `activate: true` — sent when the user explicitly asks for Stellar (the "Activate" button on
+ * the receive screen, or claiming a Stellar transfer) — does the work:
+ *   1. Create the wallet in Privy TEE if there is none
+ *   2. Once the server can sign, activate the account and add the USDC trustline
+ *      (fee-bumped by the sponsor — the user pays nothing)
+ *
+ * Body: { privyUserId?: string, activate?: boolean }
  */
 
 import {
   provisionStellarWallet,
   ensureStellarUsdcReceivable,
   hasServerSigner,
+  checkTrustlineStatus,
 } from '@/lib/stellar/privy-wallet';
 import { readUserAddresses, writeUserAddresses } from '@/lib/supabase/user-records';
 import { getVerifiedIdentity } from '@/lib/auth/session';
@@ -47,7 +54,8 @@ function isSettled(address: string): boolean {
 
 export async function POST(req: Request) {
   try {
-    const { privyUserId: claimedPrivyUserId } = await req.json();
+    const { privyUserId: claimedPrivyUserId, activate } = await req.json();
+    const shouldActivate = activate === true;
 
     // ── Identity from the session, never the body ───────────────────────────
     //
@@ -71,8 +79,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
-    console.log(`[Stellar/Provision] Provisioning/checking for: ${redactEmail(email)}`);
-
     let trustlineError: string | null = null;
 
     // 1. Check if user already has Stellar wallet in database
@@ -86,16 +92,19 @@ export async function POST(req: Request) {
       if (dbAddresses?.stellar_signer_granted && isSettled(address)) {
         return NextResponse.json({
           success: true,
+          provisioned: true,
           walletId,
           address,
           trustlineReady: true,
           signerGranted: true,
         });
       }
-      console.log(`[Stellar/Provision] Found existing Stellar wallet in DB: ${address}`);
+    } else if (!shouldActivate) {
+      // Not asked for, so nothing is created.
+      return NextResponse.json({ success: true, provisioned: false });
     } else {
       // 2. Provision new Stellar wallet via Privy TEE
-      console.log(`[Stellar/Provision] No Stellar wallet in DB. Provisioning via Privy TEE...`);
+      console.log(`[Stellar/Provision] Creating a Stellar wallet for ${redactEmail(email)} (requested)`);
       const wallet = await provisionStellarWallet(privyUserId);
       walletId = wallet.walletId;
       address = wallet.address;
@@ -124,8 +133,12 @@ export async function POST(req: Request) {
       });
     }
 
-    // 4. Finish setup — only possible once the server can sign.
-    if (!trustlineReady && signerGranted) {
+    // 4. Finish setup — only possible once the server can sign, and only when asked: this is
+    //    the step that spends the sponsor's XLM. Unasked, just read where the account stands.
+    if (!trustlineReady && !shouldActivate) {
+      trustlineReady = (await checkTrustlineStatus(address)) === 'ready';
+      if (trustlineReady && signerGranted) settledWallets.set(address, Date.now() + SETTLED_TTL_MS);
+    } else if (!trustlineReady && signerGranted) {
       for (let attempt = 1; attempt <= 3; attempt++) {
         console.log(`[Stellar/Provision] Trustline check/add attempt ${attempt} for: ${address}`);
         const result = await ensureStellarUsdcReceivable(walletId, address);
@@ -141,7 +154,7 @@ export async function POST(req: Request) {
       if (trustlineReady) settledWallets.set(address, Date.now() + SETTLED_TTL_MS);
     } else if (trustlineReady) {
       settledWallets.set(address, Date.now() + SETTLED_TTL_MS);
-    } else if (!signerGranted) {
+    } else if (!signerGranted && shouldActivate) {
       console.warn(
         `[Stellar/Provision] Server signer not granted for ${address} — the client must call addSigners() before Stellar can be used.`,
       );
@@ -149,6 +162,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       success: true,
+      provisioned: true,
       walletId,
       address,
       trustlineReady,

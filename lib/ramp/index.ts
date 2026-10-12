@@ -72,8 +72,12 @@ export function resolveLedgerProvider(row: LedgerRowRef): RampProviderName {
 
 /**
  * Run `op` on the primary if it supports `capability`, else the fallback; and if the
- * primary throws, retry on the fallback. Logs which provider served the request.
+ * primary throws, retry on the fallback.
  */
+// "Primary does not do this, so the fallback does" is routing, not news: it holds for every
+// call of that kind. Said once per capability per server start, not on every request.
+const announcedFallback = new Set<string>();
+
 async function withFallback<T>(
   capability: keyof RampCapabilities,
   op: (p: RampProvider) => Promise<T>,
@@ -85,7 +89,10 @@ async function withFallback<T>(
       return await op(primary);
     } catch (err) {
       if (err instanceof RampUnsupportedError) {
-        console.warn(`[Ramp] ${primary.name} unsupported for ${capability} → ${fallback.name}`);
+        if (!announcedFallback.has(capability)) {
+          announcedFallback.add(capability);
+          console.log(`[Ramp] ${capability} is served by ${fallback.name} (${primary.name} does not support it)`);
+        }
       } else {
         console.error(`[Ramp] ${primary.name} failed for ${capability}, falling back to ${fallback.name}:`, err);
       }
@@ -638,8 +645,13 @@ export const Ramp = {
       return rates.data.buy != null;
     } catch (err) {
       // Fail open: a provider we cannot reach is not the same as a corridor that is closed, and
-      // blocking a deposit on our own outage is the worse mistake.
-      console.error(`[Ramp] buy-availability check failed for ${currency}:`, err);
+      // blocking a deposit on our own outage is the worse mistake. One line, no stack: the
+      // provider client has already logged the failing request itself.
+      const status = (err as { status?: number })?.status;
+      console.warn(
+        `[Ramp] ${currency} deposit check (${amountUsdc} USDC) could not get a rate` +
+          `${status ? ` (HTTP ${status})` : ""}; allowing the deposit to proceed`,
+      );
       return true;
     }
   },

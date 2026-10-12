@@ -240,6 +240,7 @@ export default function HelpCenterPage() {
             </h3>
             <div className="card-glass p-0 overflow-hidden divide-y divide-white/5">
 
+              {/* Solana commented out while it is disabled — see SOLANA_RECEIVE_ENABLED in lib/circle/gateway.
               <div className="p-5 hover:bg-white/2 transition-colors">
                 <div className="flex justify-between items-start">
                   <div>
@@ -253,10 +254,11 @@ export default function HelpCenterPage() {
                       <Zap className="w-3.5 h-3.5" />
                       <span className="text-[10px] font-black uppercase tracking-widest">Sponsored</span>
                     </div>
-                    <p className="text-[10px] uppercase font-bold text-muted-foreground mt-1.5">Via Circle Gas Station</p>
+                    <p className="text-[10px] uppercase font-bold text-muted-foreground mt-1.5">Gas covered by Sendzz</p>
                   </div>
                 </div>
               </div>
+              */}
 
               <div className="p-5 hover:bg-white/2 transition-colors">
                 <div className="flex justify-between items-start">
@@ -271,7 +273,7 @@ export default function HelpCenterPage() {
                       <Zap className="w-3.5 h-3.5" />
                       <span className="text-[10px] font-black uppercase tracking-widest">Sponsored</span>
                     </div>
-                    <p className="text-[10px] uppercase font-bold text-muted-foreground mt-1.5">Via Circle Gas Station / Paymaster</p>
+                    <p className="text-[10px] uppercase font-bold text-muted-foreground mt-1.5">Gas covered by Sendzz</p>
                   </div>
                 </div>
               </div>
@@ -297,9 +299,9 @@ export default function HelpCenterPage() {
               <div className="p-5 hover:bg-white/2 transition-colors bg-black/20">
                 <div className="flex justify-between items-start">
                   <div>
-                    <p className="font-bold text-foreground text-sm">Circle CCTP Bridge Fee</p>
+                    <p className="font-bold text-foreground text-sm">Cross-Chain Bridge Fee</p>
                     <p className="text-[11px] text-muted-foreground max-w-[300px] mt-1">
-                      A small dynamic protocol fee charged by Circle when bridging USDC across chains.
+                      A small dynamic network fee charged when moving USDC between chains.
                     </p>
                   </div>
                   <div className="text-right">

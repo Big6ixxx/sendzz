@@ -190,6 +190,19 @@ export async function checkOrderById(
   }
 }
 
+/**
+ * The off-ramp rate for display, or null when it cannot be had. Never throws: a currency no
+ * provider quotes right now is an ordinary answer for a price shown on a page, and throwing
+ * made every such lookup a logged server-action error.
+ */
+export async function getDisplayOffRampRate(fiat: string = "NGN"): Promise<number | null> {
+  try {
+    return await getOffRampRate(fiat);
+  } catch {
+    return null;
+  }
+}
+
 export async function getOffRampRate(fiat: string = "NGN"): Promise<number> {
   const rates = await Ramp.getRates(1, fiat);
   const sellRate = rates.data.sell?.rate;
@@ -500,7 +513,7 @@ export async function executeOffRamp(params: {
   const providersToTry = await Ramp.offRampProviderOrder(params.fiatCurrency, params.network);
   let lastError: unknown =
     providersToTry.length === 0
-      ? new Error(`No off-ramp provider can settle ${params.fiatCurrency} on ${params.network}`)
+      ? new Error("Withdrawals to this currency aren't available right now. Please try again later.")
       : new Error("No off-ramp provider available");
 
   const skipped: string[] = [];

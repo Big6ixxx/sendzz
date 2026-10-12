@@ -131,9 +131,9 @@ export function PendingBridgeClaims({
       // only fail, and the failure would read as though the money were at risk.
       if (await settleIfAlreadyArrived(claim)) return;
 
-      // The server signer grant is owned by useStellarWallet and is already in place by
-      // the time `stellarWallet` is populated — re-granting here would just make Privy
-      // reject a duplicate. If it somehow isn't granted, the claim route says so.
+      // The server signer grant is owned by useActivateStellar (hooks/useStellarWallet) —
+      // re-granting here would just make Privy reject a duplicate. If it isn't granted,
+      // the claim route says so.
       const mintTxHash = await claimBridgeOnDestination({
         destChain: claim.destChain,
         sourceChain: claim.sourceChain,

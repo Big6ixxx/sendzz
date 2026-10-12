@@ -22,11 +22,9 @@ export class PaycrestClient {
     path: string,
     options: RequestInit = {},
   ): Promise<T> {
-    // Method and path only. The body of an off-ramp order carries the customer's bank
-    // account number and account name, and responses carry order + payout detail — none of
-    // which belongs in a server log. Statuses and errors below are enough to debug with.
-    console.log(`[Paycrest] Request: ${options.method || 'GET'} ${path}`);
-
+    // Only failures are logged. Successful calls happen on every rate lookup and page load,
+    // and a line per request buried the ones that mattered. Bodies are never logged: an
+    // off-ramp order carries the customer's bank account number and name.
     const res = await fetch(`${this.baseUrl}${path}`, {
       ...options,
       headers: {
@@ -38,27 +36,33 @@ export class PaycrestClient {
 
     if (!res.ok) {
       const error = await res.text();
-      // Gateway failures arrive as a full Cloudflare HTML page; never let that reach a toast.
-      console.error(`[Paycrest] Error (${res.status}) on ${path}: ${error.slice(0, 500)}`);
-      if (res.status >= 500) {
-        throw new Error('That service is temporarily unavailable. Please try again shortly.');
-      }
       let detail = '';
       try {
         const parsed = JSON.parse(error) as { message?: string; detail?: string };
         detail = (parsed.message || parsed.detail || '').trim();
       } catch {
-        /* not JSON */
+        /* not JSON: gateway failures arrive as a full Cloudflare HTML page */
       }
-      throw new Error(
-        toUserSafeMessage(detail) ??
-          "We couldn't complete that request. Please try again shortly.",
+      // One line with the reason. An HTML error page is reduced to its status, never echoed.
+      console.error(
+        `[Paycrest] ${options.method || 'GET'} ${path} failed (${res.status})` +
+          (detail ? `: ${detail}` : error.trimStart().startsWith('<') ? '' : `: ${error.slice(0, 200)}`),
+      );
+      if (res.status >= 500) {
+        throw Object.assign(
+          new Error('That service is temporarily unavailable. Please try again shortly.'),
+          { status: res.status },
+        );
+      }
+      throw Object.assign(
+        new Error(
+          toUserSafeMessage(detail) ?? "We couldn't complete that request. Please try again shortly.",
+        ),
+        { status: res.status },
       );
     }
 
-    const data = await res.json();
-    console.log(`[Paycrest] Response: ${res.status} ${path}`);
-    return data as T;
+    return (await res.json()) as T;
   }
 
   /**

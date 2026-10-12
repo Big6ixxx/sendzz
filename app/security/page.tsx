@@ -24,7 +24,7 @@ export default function SecurityPage() {
     {
       title: 'Non-Custodial Design',
       description:
-        "Sendzz uses Privy's MPC technology to ensure your funds are truly yours. Your private key is never stored in one place; instead, it's split into multiple shares. This means Sendzz never has access to your assets, giving you full ownership with institutional-grade security.",
+        "Sendzz uses multi-party computation (MPC) to ensure your funds are truly yours. Your private key is never stored in one place; instead, it's split into multiple shares. This means Sendzz never has access to your assets, giving you full ownership with institutional-grade security.",
       icon: ShieldCheck,
     },
     {
@@ -122,11 +122,11 @@ export default function SecurityPage() {
                 <div className="space-y-6">
                   <div className="p-6 rounded-2xl bg-white/2 border border-white/5 space-y-2">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-accent">
-                      Smart Contracts
+                      Smart Accounts
                     </p>
                     <p className="text-sm font-medium text-brand-secondary/60">
-                      Verified and audited smart accounts powered by Circle and
-                      Privy.
+                      Audited smart accounts, secured by passkeys and multi-party
+                      computation.
                     </p>
                   </div>
                   <div className="p-6 rounded-2xl bg-white/2 border border-white/5 space-y-2">

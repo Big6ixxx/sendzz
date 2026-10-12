@@ -783,7 +783,7 @@ export function useDepositWithdraw(
         !route.needsConsolidation
       ) {
         toast.error(
-          `${sourcePref.chain} doesn't hold enough to withdraw ${totalUsdcRequired.toFixed(2)} USDC.`,
+          `The balance you picked doesn't hold enough to withdraw ${totalUsdcRequired.toFixed(2)} USDC.`,
         );
         return;
       }
@@ -798,7 +798,7 @@ export function useDepositWithdraw(
         );
         if (selSum + 1e-9 < totalUsdcRequired) {
           toast.error(
-            `Selected networks hold $${selSum.toFixed(2)} — need ${totalUsdcRequired.toFixed(2)} USDC.`,
+            `The balances you picked hold $${selSum.toFixed(2)}, but this needs ${totalUsdcRequired.toFixed(2)} USDC.`,
           );
           return;
         }
@@ -814,7 +814,7 @@ export function useDepositWithdraw(
         const solBal = solanaSource?.balance ?? 0;
         if (solBal + 1e-9 < totalUsdcRequired) {
           toast.error(
-            `Solana holds $${solBal.toFixed(2)} — need ${totalUsdcRequired.toFixed(2)} USDC.`,
+            `That balance holds $${solBal.toFixed(2)}, but this needs ${totalUsdcRequired.toFixed(2)} USDC.`,
           );
           return;
         }
@@ -1345,7 +1345,7 @@ export function useDepositWithdraw(
       if (settlementChain === "solana") {
         // Settle directly on Solana: sponsored SPL transfer(s) — payout (+ fee) in one tx.
         if (!solanaSource?.settleOffRamp) {
-          throw new Error("Connect your Solana wallet to settle this withdrawal on Solana.");
+          throw new Error("Your wallet isn't ready to settle this withdrawal yet. Please try again in a moment.");
         }
         const bitnobFee = parseFloat(activeOrder.bitnobFee || "0");
         const bitnobPayoutDeposit = baseAmount + bitnobFee;
@@ -1360,7 +1360,7 @@ export function useDepositWithdraw(
       } else if (settlementChain === "stellar") {
         // Settle directly on Stellar: fee-bumped payment — payout (+ fee) directly to Bitnob.
         if (!stellarAddress || !stellarWalletId) {
-          throw new Error("Connect your Stellar wallet to settle this withdrawal on Stellar.");
+          throw new Error("Your wallet isn't ready to settle this withdrawal yet. Please try again in a moment.");
         }
         const bitnobFee = parseFloat(activeOrder.bitnobFee || "0");
         const bitnobPayoutDeposit = baseAmount + bitnobFee;

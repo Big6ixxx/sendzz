@@ -245,8 +245,6 @@ export function DepositWithdrawDialog({
                     solanaAddress={solanaAddress}
                     stellarAddress={stellarAddress}
                     stellarTrustlineReady={stellarTrustlineReady}
-                    userId={userId}
-                    userEmail={userEmail}
                   />
                 )
               ) : (

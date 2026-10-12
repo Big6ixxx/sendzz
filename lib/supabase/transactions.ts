@@ -1003,10 +1003,6 @@ export async function updateBridgeStatus(
       .eq("burn_tx_hash", burnTxHash)
       .maybeSingle();
 
-    console.log(
-      `[updateBridgeStatus] burn=${burnTxHash.slice(0, 10)} existing=${JSON.stringify(existing)} mintTxHash=${mintTxHash?.slice(0, 10)}`,
-    );
-
     // A delivered burn no longer needs its scratch row, whether it came from the user's own
     // bridge history or from a withdrawal consolidation. Cleared here rather than at each call
     // site so no claim path can forget it and leave a card the user cannot dismiss.
@@ -1038,18 +1034,9 @@ export async function updateBridgeStatus(
     const existingIsReal = existing.mint_tx_hash && !isPlaceholder(existing.mint_tx_hash);
     const newIsReal = mintTxHash && !isPlaceholder(mintTxHash);
 
-    if (existingIsReal && !newIsReal) {
-      console.log(
-        `[updateBridgeStatus] Existing hash is real, but new hash is placeholder/empty — skipping update.`
-      );
-      return;
-    }
-    if (existingIsReal && newIsReal && existing.mint_tx_hash === mintTxHash) {
-      console.log(
-        `[updateBridgeStatus] Already complete with same real mint hash — skipping update.`
-      );
-      return;
-    }
+    // Nothing to change: a real hash is never downgraded, and a repeat report is a no-op.
+    if (existingIsReal && !newIsReal) return;
+    if (existingIsReal && newIsReal && existing.mint_tx_hash === mintTxHash) return;
 
     const wasAlreadyComplete = existing.attestation_status === "complete";
 
@@ -1067,9 +1054,7 @@ export async function updateBridgeStatus(
       console.error(`[updateBridgeStatus] Update failed:`, error);
       throw error;
     }
-    console.log(
-      `[updateBridgeStatus] Updated — mintTxHash saved: ${mintTxHash ?? "null"}`,
-    );
+    console.log(`[updateBridgeStatus] ${burnTxHash.slice(0, 10)} → ${status}, mint ${mintTxHash ?? "none"}`);
 
     if (status === "complete" && !wasAlreadyComplete) {
       interface BridgeTxWithUser {
