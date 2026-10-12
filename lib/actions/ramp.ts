@@ -317,31 +317,45 @@ export async function getOffRampQuoteForFiat(
   reference?: string;
   expiresAt?: string;
 } | null> {
-  const [preferred] = await Ramp.offRampProviderOrder(fiat, network).catch(
-    () => [] as RampProviderName[],
-  );
-  if (!preferred) return null;
+  // Each early return below is a "Couldn't price that amount" toast, so each says why here.
+  const tag = `[Action] getOffRampQuoteForFiat ${targetFiat} ${fiat} on ${network}`;
+
+  const [preferred] = await Ramp.offRampProviderOrder(fiat, network).catch((err) => {
+    console.warn(`${tag}: provider lookup failed:`, err);
+    return [] as RampProviderName[];
+  });
+  if (!preferred) {
+    console.warn(`${tag}: no provider can pay out this corridor`);
+    return null;
+  }
 
   // Only the starting guess. The solver replaces it with the provider's own rate immediately.
   let seedRate = 0;
   try {
     const rates = await Ramp.getRates(1, fiat);
     seedRate = Number(rates.data.sell?.rate) || 0;
-  } catch {
-    seedRate = 0;
+  } catch (err) {
+    console.warn(`${tag}: starting rate lookup failed:`, err);
+    return null;
   }
-  if (!(seedRate > 0)) return null;
+  if (!(seedRate > 0)) {
+    console.warn(`${tag}: rates response had no sell rate`);
+    return null;
+  }
 
   const { solveForFiatTarget } = await import("@/lib/ramp/fiat-target");
   const solved = await solveForFiatTarget(targetFiat, seedRate, (amountUsdc) =>
     Ramp.quoteOffRampFor(preferred, { amountUsdc, fiatCurrency: fiat, network }),
   );
-  if (!solved) return null;
+  if (!solved) {
+    console.warn(`${tag}: ${preferred} returned no usable quote`);
+    return null;
+  }
 
   if (!solved.meetsTarget) {
     console.warn(
-      `[Action] getOffRampQuoteForFiat: ${preferred} could not reach ${targetFiat} ${fiat} ` +
-        `(best ${solved.quote.payoutAmount}). Reporting the shortfall rather than hiding it.`,
+      `${tag}: ${preferred} could not reach the target (best ${solved.quote.payoutAmount}). ` +
+        `Reporting the shortfall rather than hiding it.`,
     );
   }
 
