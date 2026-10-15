@@ -52,28 +52,50 @@ describe('both ramp providers clear the on-chain shadow', () => {
   }
 });
 
+describe('the scanner recognises a transfer sent before the recipient signed up', () => {
+  it('matches transfers by recipient email, not only recipient_id', () => {
+    // A pending-claim transfer has no recipient_id until it is claimed. Matching on the id alone
+    // let the first scan after sign-up record it as a deposit and send a deposit email.
+    const scanner = read('lib/web3/deposit-scanner.ts');
+    expect(scanner).toMatch(/from\('transfers'\)[\s\S]{0,80}eq\('recipient_email'/);
+  });
+});
+
 describe('the loser of the race cleans up', () => {
-  const tx = read('lib/supabase/transactions.ts');
+  const helper = read('lib/supabase/deposit-dedup.ts');
 
   it('removes a deposit already credited for the same transfer', () => {
     // The webhook fires within seconds, often before the browser writes the transfer row. It
     // cannot skip a row that does not exist yet, so this side has to clean up.
-    expect(tx).toMatch(/from\("deposits"\)\s*\.delete\(\)[\s\S]{0,300}eq\("provider", "onchain"\)/);
+    expect(helper).toMatch(/from\('deposits'\)\s*\.delete\(\)/);
   });
 
   it('scopes the delete to the recipient, the hash, and onchain deposits only', () => {
-    // Bounded to THIS block. A slice running to end of file also covers
-    // clearOnchainDepositShadow, which carries the same provider filter — so the assertion
-    // passed even with the guard deleted here, which is the failure this test exists to catch.
-    const start = tx.indexOf('if (transferId && params.txHash && recipient?.id)');
-    expect(start).toBeGreaterThan(-1);
-    const block = tx.slice(start, tx.indexOf('could not clear duplicate deposit'));
-
-    expect(block).toMatch(/eq\("user_id", recipient\.id\)/);
-    expect(block).toMatch(/eq\("tx_hash", params\.txHash\.toLowerCase\(\)\)/);
+    expect(helper).toMatch(/eq\('user_id', userId\)/);
+    expect(helper).toMatch(/eq\('tx_hash', txHash\.toLowerCase\(\)\)/);
     // Without the provider filter this would delete real fiat on-ramp deposits.
-    expect(block).toMatch(/eq\("provider", "onchain"\)/);
+    expect(helper).toMatch(/eq\('provider', 'onchain'\)/);
   });
+
+  it('is not callable from the browser', () => {
+    // transactions.ts is "use server": an export there is a public endpoint that could delete
+    // anyone's deposit rows. The helper must live in a server-only module.
+    expect(helper).toMatch(/^import 'server-only';/m);
+  });
+
+  // Every path that writes a transfer or links it to the recipient: the browser recording it,
+  // the reconciler recovering it, and a claim or accept attaching it to a new account. Missing
+  // any one leaves the duplicate the scanner already wrote.
+  for (const file of [
+    'lib/supabase/transactions.ts',
+    'lib/supabase/pendingSends.ts',
+    'app/api/transfer/claim/route.ts',
+    'app/api/transfer/accept/route.ts',
+  ]) {
+    it(`${file} clears the duplicate`, () => {
+      expect(read(file)).toMatch(/clearDuplicateDeposit\(/);
+    });
+  }
 });
 
 describe('a send from another Sendzz account is never a deposit', () => {

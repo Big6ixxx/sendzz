@@ -12,6 +12,7 @@ import { CHAIN_NAMES } from "@/lib/circle/gateway";
 import { getCircleAddress } from "@/lib/web3/circle-client";
 import { type ChainBalances } from "@/lib/web3/routing";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { stellarSourceFor } from "@/lib/web3/stellar-bridge";
 import { useStellarWallet } from '@/hooks/useStellarWallet';
 import { ArrowRight, Loader2, ShieldCheck, Users } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -275,6 +276,11 @@ function TransfersPageContent() {
           passkeyEnabled={passkeyEnabled}
           chainBalances={evmChainBalances}
           solanaSource={solanaSource}
+          stellarSource={stellarSourceFor(
+            stellarWallet,
+            stellarBalance,
+            wallets.find((w) => w.walletClientType === "privy"),
+          )}
         />
       </div>
     </TooltipProvider>

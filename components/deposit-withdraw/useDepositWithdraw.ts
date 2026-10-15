@@ -44,7 +44,7 @@ import {
   consolidateFundsToChain,
   selectConsolidationSources,
 } from "@/lib/web3/bridge-actions";
-import { bridgeStellarToBase } from "@/lib/web3/stellar-bridge";
+import { stellarSourceFor } from "@/lib/web3/stellar-bridge";
 import {
   planWithdrawalRoute,
   AUTO_SOURCE,
@@ -1100,28 +1100,11 @@ export function useDepositWithdraw(
         const includeStellar = consolidateFrom
           ? consolidateFrom.includes("stellar")
           : true;
-        const stellarSource = (stellarAddress && stellarWalletId && stellarBalance > 0)
-          ? {
-              walletId: stellarWalletId,
-              address: stellarAddress,
-              balance: stellarBalance,
-              bridgeToBase: async (amount: string, recipient: string, onStatus?: (status: string) => void, destChain?: SupportedChain) => {
-                await bridgeStellarToBase({
-                  walletId: stellarWalletId,
-                  senderAddress: stellarAddress,
-                  amount,
-                  recipientEvm: recipient,
-                  evmWallet: embeddedProvider,
-                  destChain,
-                  onStatus,
-                  // Funding a withdrawal, not a bridge the user asked for: held in
-                  // `consolidation_claims` and cleared on delivery, so the withdrawal is the
-                  // only thing recorded.
-                  consolidation: true,
-                });
-              }
-            }
-          : undefined;
+        const stellarSource = stellarSourceFor(
+          { walletId: stellarWalletId, address: stellarAddress },
+          stellarBalance,
+          embeddedProvider,
+        );
         // Moving USDC between networks to fund the payout is our problem, not the user's.
         // They asked to be paid; the mechanics carry no meaning for them and naming chains here
         // only invites "what is Arbitrum and why is my money on it?".

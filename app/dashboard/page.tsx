@@ -21,6 +21,7 @@ import { useSolanaBridge } from "@/hooks/useSolanaBridge";
 import { ChainLogo } from "@/components/deposit-withdraw/ChainLogo";
 import { CHAIN_NAMES } from "@/lib/circle/gateway";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { stellarSourceFor } from "@/lib/web3/stellar-bridge";
 import { useStellarWallet } from "@/hooks/useStellarWallet";
 import { PendingBridgeClaims } from "@/components/bridge/PendingBridgeClaims";
 import { SupportWidget } from "@/components/support/SupportWidget";
@@ -629,6 +630,11 @@ export default function Dashboard() {
           passkeyEnabled={passkeyEnabled}
           chainBalances={evmChainBalances}
           solanaSource={solanaSource}
+          stellarSource={stellarSourceFor(
+            stellarWallet,
+            stellarBalance,
+            wallets.find((w) => w.walletClientType === "privy"),
+          )}
         />
 
         {/* FAQ bot with a Telegram handoff — reachable from anywhere in the app. */}

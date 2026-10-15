@@ -1,19 +1,25 @@
 import { notifyTransferSent } from '@/lib/email/notify';
+import { friendlyErrorMessage } from '@/lib/errors/appErrors';
 import { redactEmail } from '@/lib/log';
 import { lookupRecipientAddress } from '@/lib/supabase/users';
 import { recordTransfer } from '@/lib/supabase/transactions';
 import { recordSendIntent } from '@/lib/actions/pendingSend';
 import { executeCircleGaslessBatchTransfer } from '@/lib/web3/circle-actions';
 import { consolidateFundsToChain } from '@/lib/web3/bridge-actions';
-import { planBatchRoute, type ChainBalances, type SolanaSource } from '@/lib/web3/routing';
+import { planBatchRoute, type ChainBalances, type SolanaSource, type StellarSource } from '@/lib/web3/routing';
 import { EIP1193Provider, type ConnectedWallet } from '@privy-io/react-auth';
 
 export interface SendResult {
   email: string;
   status: 'success' | 'failed' | 'claim_required';
   txHash?: string;
+  /** What the user is shown. Always safe to display. */
   error?: string;
+  /** The raw failure, for the server log only — never rendered. */
+  detail?: string;
 }
+
+const rawMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /**
  * Sends USDC to multiple recipients in a SINGLE atomic batch.
@@ -28,6 +34,7 @@ export async function batchSend({
   wallet,
   smartAddress,
   solanaSource,
+  stellarSource,
   onStatus,
   onProgress,
 }: {
@@ -42,6 +49,8 @@ export async function batchSend({
   smartAddress?: string;
   /** Solana source, pulled in (via Base) when EVM funds are short. */
   solanaSource?: SolanaSource;
+  /** Stellar source, pulled in (via Base) the same way. */
+  stellarSource?: StellarSource;
   onStatus?: (status: string) => void;
   onProgress?: (done: number, total: number, result: SendResult) => void;
 }): Promise<SendResult[]> {
@@ -74,7 +83,8 @@ export async function batchSend({
           results.push({
             email,
             status: 'failed',
-            error: data.error || 'Identity generation failed',
+            error: "We couldn't set up this recipient. Please try again.",
+            detail: data.error || `pre-generate HTTP ${res.status}`,
           });
           continue;
         }
@@ -104,23 +114,25 @@ export async function batchSend({
     });
 
     if (!plan.feasible) {
-      // Funds too fragmented (or partly on Solana) to pay everyone on a single chain.
+      // Funds too fragmented (or partly on Solana or Stellar) to pay everyone on a single chain.
       // If the combined balance covers it, bridge everything onto Base and run one batch
       // there; otherwise fail with a clear reason.
       const requiredTotal = parseFloat(amount) * transferParams.length;
       const solBal = solanaSource?.balance ?? 0;
+      const stelBal = stellarSource?.balance ?? 0;
       const fundsSuffice =
         plan.needsConsolidation ||
-        plan.totalAvailable + solBal + 1e-9 >= requiredTotal;
+        plan.totalAvailable + solBal + stelBal + 1e-9 >= requiredTotal;
       if (fundsSuffice && wallet && smartAddress) {
         try {
-          onStatus?.('Your funds are spread across networks — moving them to Base…');
+          onStatus?.('Preparing your transfer…');
           await consolidateFundsToChain(wallet, {
             targetChain: 'base',
             requiredAmount: (requiredTotal * 1.001).toFixed(6),
             balances: balancesForRoute,
             recipient: smartAddress,
             solana: solanaSource,
+            stellar: stellarSource,
             onStatus,
           });
         } catch (err) {
@@ -128,7 +140,8 @@ export async function batchSend({
           return transferParams.map((p) => ({
             email: p.email,
             status: 'failed',
-            error: 'Could not consolidate funds. Please try again.',
+            error: friendlyErrorMessage(err),
+            detail: rawMessage(err),
           }));
         }
         // All funds are on Base now — pay everyone in one batch there.
@@ -185,13 +198,12 @@ export async function batchSend({
         );
       } catch (err) {
         console.error(`[BatchSend] Batch on ${group.chain} failed:`, err);
-        const errorMsg =
-          err instanceof Error ? err.message : 'Batch execution failed';
         for (const p of slice) {
           const result: SendResult = {
             email: p.email,
             status: 'failed',
-            error: errorMsg,
+            error: friendlyErrorMessage(err),
+            detail: rawMessage(err),
           };
           results.push(result);
           onProgress?.(results.length, total, result);
@@ -229,14 +241,13 @@ export async function batchSend({
     return results;
   } catch (err) {
     console.error(`[BatchSend] Atomic batch failed:`, err);
-    const errorMsg =
-      err instanceof Error ? err.message : 'Batch execution failed';
 
     // If it failed at the batch level, mark all as failed
     return recipients.map((email) => ({
       email,
       status: 'failed',
-      error: errorMsg,
+      error: friendlyErrorMessage(err),
+      detail: rawMessage(err),
     }));
   }
 }

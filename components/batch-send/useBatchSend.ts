@@ -1,7 +1,7 @@
 "use client";
 
 import { batchSend, type SendResult } from "@/lib/batch-send";
-import { type ChainBalances, type SolanaSource } from "@/lib/web3/routing";
+import { type ChainBalances, type SolanaSource, type StellarSource } from "@/lib/web3/routing";
 import { type FiatCurrencyCode } from "@/lib/currency-config";
 import { ConnectedWallet } from "@privy-io/react-auth";
 import { useQueryClient } from "@tanstack/react-query";
@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { useExchangeRate } from "@/lib/hooks/useExchangeRate";
 
 import { parseAppError, isUserCancelled } from "@/lib/errors/appErrors";
+import { reportClientError } from "@/lib/errors/report";
 
 export type Step =
   | "recipients"
@@ -39,6 +40,7 @@ export function useBatchSend(
   twoFaThreshold: number = 500,
   chainBalances?: ChainBalances,
   solanaSource?: SolanaSource,
+  stellarSource?: StellarSource,
 ) {
   const queryClient = useQueryClient();
   const { authorize } = usePinAuthorization();
@@ -126,6 +128,7 @@ export function useBatchSend(
           requiredAmount: total.toFixed(6),
           balances: chainBalances ?? {},
           solanaBalance: solanaSource?.balance,
+          stellarBalance: stellarSource?.balance,
         }).map((source) => source.chain as string),
       }),
       confirmLabel: "Send batch",
@@ -167,6 +170,7 @@ export function useBatchSend(
         wallet: embeddedProvider,
         smartAddress,
         solanaSource,
+        stellarSource,
         onStatus: (s) => toast.loading(s, { id: "batch-consolidate" }),
         onProgress: (done, total) => setProgress({ done, total }),
       });
@@ -190,10 +194,17 @@ export function useBatchSend(
       queryClient.invalidateQueries({ queryKey: ["balance", smartAddress] });
       queryClient.invalidateQueries({ queryKey: ["history", senderEmail] });
 
-      if (results.some((r) => r.status === "failed")) {
+      const failed = results.filter((r) => r.status === "failed");
+      if (failed.length > 0) {
+        // Per-recipient failures are shown in the results list, not thrown, so report them here
+        // or they never reach the server log.
+        reportClientError(
+          new Error(`Batch: ${failed.length}/${results.length} failed — ${[...new Set(failed.map((r) => r.detail ?? r.error))].join("; ")}`),
+          "Some transfers failed. Review and retry.",
+        );
         toast.error("Some transfers failed. Review and retry.");
       } else {
-        toast.success("All transfers completed successfully! 🎉");
+        toast.success("All transfers completed successfully!");
       }
     } catch (err) {
       if (!isUserCancelled(err)) {

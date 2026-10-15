@@ -29,6 +29,7 @@ import {
   getStellarUsdcBalance,
   stellarAccountExists,
 } from '@/lib/stellar/transactions';
+import { verifyOwnStellarWallet } from '@/lib/stellar/ownership';
 import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
@@ -61,6 +62,12 @@ export async function POST(req: Request) {
     const parsedAmount = parseFloat(amount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
       return NextResponse.json({ error: 'Invalid amount' }, { status: 400 });
+    }
+
+    // The caller must be signed in and sending from their own wallet. `withdrawalOrderId`
+    // waives the PIN below, never this.
+    if (!(await verifyOwnStellarWallet(walletId, senderAddress))) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
     // ── PIN authorisation ───────────────────────────────────────────────────

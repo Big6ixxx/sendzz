@@ -114,14 +114,21 @@ export const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 /** Hashes we already account for, so we never double-count deposits/receives/bridge mints. */
 async function knownHashes(userId: string): Promise<Set<string>> {
-  const [{ data: deps }, { data: recv }, { data: bridges }] = await Promise.all([
+  const { data: me } = await supabaseAdmin.from('users').select('email').eq('id', userId).maybeSingle();
+  const [{ data: deps }, { data: recv }, { data: recvByEmail }, { data: bridges }] = await Promise.all([
     supabaseAdmin.from('deposits').select('tx_hash').eq('user_id', userId).not('tx_hash', 'is', null),
     supabaseAdmin.from('transfers').select('tx_hash').eq('recipient_id', userId).not('tx_hash', 'is', null),
+    // A transfer sent to someone before they signed up has no `recipient_id` until they claim
+    // it — only the email links it to them. Without this, their first scan after signing up
+    // records that payment as a deposit and emails them about it.
+    me?.email
+      ? supabaseAdmin.from('transfers').select('tx_hash').eq('recipient_email', me.email.toLowerCase()).not('tx_hash', 'is', null)
+      : Promise.resolve({ data: [] as { tx_hash: string | null }[] }),
     supabaseAdmin.from('bridge_transactions').select('mint_tx_hash').eq('user_id', userId).not('mint_tx_hash', 'is', null),
   ]);
   const known = new Set<string>();
   for (const r of deps ?? []) if (r.tx_hash) known.add(r.tx_hash.toLowerCase());
-  for (const r of recv ?? []) if (r.tx_hash) known.add(r.tx_hash.toLowerCase());
+  for (const r of [...(recv ?? []), ...(recvByEmail ?? [])]) if (r.tx_hash) known.add(r.tx_hash.toLowerCase());
   for (const r of bridges ?? []) if (r.mint_tx_hash) known.add(r.mint_tx_hash.toLowerCase());
   return known;
 }

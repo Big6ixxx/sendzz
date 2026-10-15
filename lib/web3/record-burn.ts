@@ -1,4 +1,5 @@
 import { toast } from "sonner";
+import { reportClientError } from "@/lib/errors/report";
 
 /**
  * Record a CCTP burn against the user's account.
@@ -36,6 +37,13 @@ export async function recordBurn(params: {
     if (!res.ok) throw new Error(`record responded ${res.status}`);
   } catch (err) {
     console.error("[Bridge] FAILED to record burn", burnTxHash, err);
+    reportClientError(
+      new Error(
+        `UNRECORDED BURN ${burnTxHash}: ${params.amountUsdc} USDC ${params.sourceChain} → ` +
+          `${params.destChain} (${(err as Error).message})`,
+      ),
+      "Your transfer went through but we could not record it.",
+    );
     toast.error(
       "Your transfer went through but we could not record it. Save this reference and " +
         `contact support: ${burnTxHash}`,
@@ -62,17 +70,23 @@ export async function recordConsolidationBurn(params: {
 }): Promise<void> {
   try {
     // `keepalive` so it still lands if the tab is closed in the seconds after signing.
-    await fetch("/api/bridge/consolidation", {
+    const res = await fetch("/api/bridge/consolidation", {
       method: "POST",
       keepalive: true,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
     });
+    if (!res.ok) throw new Error(`record responded ${res.status}`);
   } catch (err) {
-    console.error(
-      "[Bridge] could not record consolidation burn",
-      params.burnTxHash,
-      err,
+    console.error("[Bridge] could not record consolidation burn", params.burnTxHash, err);
+    // Unrecorded, this burn has no Claim button. Put what is needed to record it by hand in the
+    // server log, not only in this browser's console.
+    reportClientError(
+      new Error(
+        `UNRECORDED BURN ${params.burnTxHash}: ${params.amountUsdc} USDC ` +
+          `${params.sourceChain} → ${params.destChain} (${(err as Error).message})`,
+      ),
+      "",
     );
   }
 }

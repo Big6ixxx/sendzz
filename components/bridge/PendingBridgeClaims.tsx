@@ -24,7 +24,6 @@ import {
   refreshExpiredBridgeClaim,
   verifyBridgeClaimSettled,
 } from "@/lib/supabase/transactions";
-import { CHAIN_NAMES } from "@/lib/circle/gateway";
 import { cn } from "@/lib/utils";
 import type { PendingBridgeClaim } from "@/types/bridge";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
@@ -35,14 +34,8 @@ import { ArrowRight, CircleDollarSign, Clock, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
-const CHAIN_LABELS: Record<string, string> = {
-  ...CHAIN_NAMES,
-  solana: "Solana",
-  stellar: "Stellar",
-};
-
-const label = (chain: string) =>
-  CHAIN_LABELS[chain] ?? chain.charAt(0).toUpperCase() + chain.slice(1);
+// Copy here never names a network. Most users are not crypto native: to them this is money
+// that has not reached their balance yet, and "Stellar → Base" only raises questions.
 
 interface PendingBridgeClaimsProps {
   userEmail: string;
@@ -93,7 +86,7 @@ export function PendingBridgeClaims({
     const { settled } = await verifyBridgeClaimSettled(claim.burnTxHash);
     if (!settled) return false;
     toast.success(
-      `Your ${claim.amount} USDC already arrived on ${label(claim.destChain)}.`,
+      `Your ${claim.amount} USDC is already in your balance.`,
     );
     await settle();
     return true;
@@ -153,16 +146,13 @@ export function PendingBridgeClaims({
       const delivered = await reportClaim(claim.burnTxHash, mintTxHash);
 
       if (mintTxHash) {
-        toast.success(`Claimed! ${claim.amount} USDC is now on ${label(claim.destChain)}.`);
+        toast.success(`Claimed! ${claim.amount} USDC is in your balance.`);
       } else if (delivered) {
-        toast.success(`Your ${claim.amount} USDC already arrived on ${label(claim.destChain)}.`);
+        toast.success(`Your ${claim.amount} USDC is already in your balance.`);
       } else {
         // Telling someone their money arrived when it did not is worse than any error: they
         // stop looking. The claim stays on this list, so they can see it is still open.
-        toast.info(
-          `Your claim is still confirming on ${label(claim.destChain)}. Your funds are safe — ` +
-            `check back in a minute.`,
-        );
+        toast.info("Still confirming. Your money is safe — check back in a minute.");
       }
       await settle();
     } catch (err) {
@@ -181,7 +171,7 @@ export function PendingBridgeClaims({
         // hash later if the chain ever offers one.
         const delivered = await reportClaim(claim.burnTxHash, undefined);
         if (delivered) {
-          toast.success("This already arrived. Refreshing your balance…");
+          toast.success("Your money is already in your balance.");
         } else {
           toast.info("Still confirming. Your money is safe — check back in a minute.");
         }
@@ -199,8 +189,7 @@ export function PendingBridgeClaims({
         toast.info(
           reissued
             ? classified.message
-            : `Your ${claim.amount} USDC is still being confirmed on ${label(claim.destChain)}. ` +
-                `Your funds are safe — this will clear on its own.`,
+            : "Still confirming. Your money is safe — this will clear on its own.",
         );
         await settle();
       } else if (!classified.isSilent) {
@@ -247,20 +236,19 @@ export function PendingBridgeClaims({
                   </div>
                   <div className="space-y-1 text-left">
                     <h4 className="text-[10px] font-bold text-amber-400 uppercase tracking-[0.2em]">
-                      Unclaimed Transfer
+                      Money waiting for you
                     </h4>
                     <p className="text-lg font-bold text-white tracking-tight">
-                      {claim.amount} USDC · {label(claim.sourceChain)} →{" "}
-                      {label(claim.destChain)}
+                      {claim.amount} USDC
                     </p>
                     <p className="text-xs text-white/40 font-medium">
                       {claim.ready
-                        ? `Your USDC was burned on ${label(claim.sourceChain)} and is waiting to be claimed on ${label(claim.destChain)}. No gas required.`
-                        : "The network is still verifying this transfer. It will become claimable in 1–2 minutes."}
+                        ? "Your money is safe. Tap Claim to add it to your balance."
+                        : "Almost ready. You can claim it in a minute or two."}
                     </p>
                     {needsSolWallet && (
                       <p className="text-xs text-amber-400/70 font-medium">
-                        Your Solana wallet is still loading.
+                        Still loading your wallet…
                       </p>
                     )}
                   </div>

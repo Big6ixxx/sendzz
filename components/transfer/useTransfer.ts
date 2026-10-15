@@ -25,6 +25,7 @@ import { notifyTransferSent } from "@/lib/email/notify";
 import { type FiatCurrencyCode } from "@/lib/currency-config";
 import { ReceiptData } from "@/lib/receipt/types";
 import { toast } from "sonner";
+import { stellarSourceFor } from "@/lib/web3/stellar-bridge";
 
 import { parseAppError, isUserCancelled } from '@/lib/errors/appErrors';
 
@@ -503,24 +504,11 @@ export function useTransfer({
         if (plan.totalAvailable + solBal + stelBal + 1e-9 >= parseFloat(amountUsdc)) {
           setStatus("Preparing your transfer…");
 
-          const stellarSource = (stellarAddress && stellarWalletId && stelBal > 0)
-            ? {
-                walletId: stellarWalletId,
-                address: stellarAddress,
-                balance: stelBal,
-                bridgeToBase: async (amt: string, recipient: string, onStatus?: (status: string) => void) => {
-                  const { bridgeStellarToBase } = await import("@/lib/web3/stellar-bridge");
-                  await bridgeStellarToBase({
-                    walletId: stellarWalletId,
-                    senderAddress: stellarAddress,
-                    amount: amt,
-                    recipientEvm: recipient,
-                    evmWallet: embeddedProvider,
-                    onStatus,
-                  });
-                }
-              }
-            : undefined;
+          const stellarSource = stellarSourceFor(
+            { walletId: stellarWalletId, address: stellarAddress },
+            stelBal,
+            embeddedProvider,
+          );
 
           await consolidateFundsToChain(embeddedProvider, {
             targetChain: "base",

@@ -17,7 +17,7 @@ import {
   executeCircleGaslessTransfer,
 } from "@/lib/web3/circle-actions";
 import { bridgeAndDeliver, consolidateFundsToChain } from "@/lib/web3/bridge-actions";
-import { bridgeStellarToBase } from "@/lib/web3/stellar-bridge";
+import { bridgeStellarToBase, stellarSourceFor } from "@/lib/web3/stellar-bridge";
 import { toast } from "sonner";
 import { parseFriendlyError } from "./useTransfer";
 import { SupportedChain, CHAIN_NAMES } from "@/lib/circle/gateway";
@@ -771,21 +771,7 @@ export function useCryptoTransfer({
           balances: sourceBalances,
           recipient: smartAddress,
           solana: includeSolana ? solanaSource : undefined,
-          stellar: includeStellar && stellarWallet?.address && stellarBal > 0 ? {
-            walletId: stellarWallet.walletId,
-            address: stellarWallet.address,
-            balance: stellarBal,
-            bridgeToBase: async (amount, recipient, onStatus) => {
-              await bridgeStellarToBase({
-                walletId: stellarWallet.walletId,
-                senderAddress: stellarWallet.address,
-                amount,
-                recipientEvm: recipient,
-                evmWallet: embeddedProvider,
-                onStatus,
-              });
-            },
-          } : undefined,
+          stellar: includeStellar ? stellarSourceFor(stellarWallet, stellarBal, embeddedProvider) : undefined,
           onStatus: undefined,
         });
 

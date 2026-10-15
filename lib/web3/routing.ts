@@ -83,6 +83,19 @@ export function balanceOfChain(
   return balances[chain] ?? 0;
 }
 
+/** A Stellar balance that can be bridged to an EVM chain on demand. Build with `stellarSourceFor`. */
+export interface StellarSource {
+  walletId: string;
+  address: string;
+  balance: number;
+  bridgeToBase: (
+    amount: string,
+    recipient: string,
+    onStatus?: (status: string) => void,
+    destChain?: SupportedChain,
+  ) => Promise<void>;
+}
+
 /**
  * Solana as a spendable source. Solana can't be transacted on directly by the EVM
  * routing, so it's pulled in by bridging to Base; `bridgeToBase` performs that hop.

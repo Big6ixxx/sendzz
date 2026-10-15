@@ -1,6 +1,7 @@
 import { ConnectedWallet } from "@privy-io/react-auth";
 import { executeReceiveMessage } from "./bridge-actions";
 import { SupportedChain, CHAIN_NAMES } from "@/lib/circle/gateway";
+import type { StellarSource } from "./routing";
 
 /**
  * Bridge USDC from the user's Privy Stellar wallet to their EVM smart account on Base.
@@ -9,6 +10,8 @@ import { SupportedChain, CHAIN_NAMES } from "@/lib/circle/gateway";
  *   1. Calls the NextJS route `/api/stellar/bridge` to trigger the Soroban approve and CCTP burn transactions.
  *   2. Polls `/api/bridge/status` until the burn is attested by Circle.
  *   3. Submits the EVM mint transaction to Base via `executeReceiveMessage`.
+ *
+ * Returns without `mintTxHash` when delivery did not finish in time; the burn stays claimable.
  */
 export async function bridgeStellarToBase(params: {
   walletId: string;
@@ -19,12 +22,6 @@ export async function bridgeStellarToBase(params: {
   destChain?: SupportedChain;
   onStatus?: (status: string) => void;
   timeoutMs?: number;
-  /**
-   * True when this bridge is a step inside a withdrawal rather than a transfer the user chose
-   * to make. Such a bridge must not become history: it is held in `consolidation_claims` until
-   * delivered and then deleted, so a withdrawal is recorded once and counted once.
-   */
-  consolidation?: boolean;
 }): Promise<{ burnTxHash: string; mintTxHash?: string }> {
   const { walletId, senderAddress, amount, recipientEvm, evmWallet, onStatus, destChain = "base" } =
     params;
@@ -39,18 +36,18 @@ export async function bridgeStellarToBase(params: {
       recipientAddress: recipientEvm,
       amount,
       destChain,
-      chargeFee: true,
-      consolidation: params.consolidation === true,
-      // Always internal, and not the same claim as `consolidation` above.
-      //
-      // `consolidation` decides where the burn is RECORDED — scratch table or history — and
-      // only the withdrawal path sets it. `internal` decides whether the route demands its own
-      // transaction PIN, and the answer here is always no, because nothing reaches this
-      // function as a top-level user action: the bridge screen calls /api/stellar/bridge
-      // directly and passes its own authorisation. Every caller of this helper is a step
-      // inside a transfer, a send or a withdrawal that the user already approved with a PIN
-      // moments earlier, and stopping mid-flow to ask again would interrupt an operation they
-      // are not watching — after money has started moving.
+      // Never billed: every caller is a bridge the user did not ask for, moving funds so a
+      // transfer, send or withdrawal can happen. Only the bridge screen charges, and it calls
+      // the route directly. See lib/fees/platform-fees.ts.
+      chargeFee: false,
+      // Every caller is a step inside a transfer, a send or a withdrawal, which is recorded in
+      // its own right. So the burn goes to `consolidation_claims`, not history: it still gets
+      // a Claim button if delivery stalls, and is deleted once delivered, so nothing is
+      // counted twice.
+      consolidation: true,
+      // No second PIN: the user approved the transfer, send or withdrawal this is part of
+      // moments ago, and stopping mid-flow would interrupt something they are not watching,
+      // after money has started moving. The route still requires their session and wallet.
       internal: true,
     }),
   });
@@ -63,7 +60,9 @@ export async function bridgeStellarToBase(params: {
   const { burnTxHash } = (await res.json()) as { burnTxHash: string };
 
   onStatus?.(`Burn confirmed! Minting on ${CHAIN_NAMES[destChain]}…`);
-  const deadline = Date.now() + (params.timeoutMs ?? 20_000); // 20-second max client wait
+  // Long enough for a fast-finality attestation plus the mint. The caller still verifies the
+  // funds landed before spending them (see consolidateFundsToChain).
+  const deadline = Date.now() + (params.timeoutMs ?? 120_000);
   while (Date.now() < deadline) {
     try {
       const res = await fetch(
@@ -94,17 +93,30 @@ export async function bridgeStellarToBase(params: {
     await new Promise((r) => setTimeout(r, 3_000));
   }
 
-  // Handoff to background completion if client polling deadline reached
-  onStatus?.("Bridge processing on-chain. Finalizing delivery in background…");
-  fetch("/api/bridge/complete", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      burnTxHash,
-      sourceChain: "stellar",
-      destChain: "base",
-    }),
-  }).catch(() => {});
-
+  // Not delivered yet. The burn is recorded as a pending claim, so the user can finish it from
+  // the Claim card; the caller confirms arrival before spending (consolidateFundsToChain).
   return { burnTxHash };
+}
+
+/**
+ * The user's Stellar balance as a funding source for `consolidateFundsToChain`: bridged to
+ * their own EVM account, at no charge, when the other networks don't cover a payment.
+ * Undefined when there is nothing on Stellar to draw from.
+ */
+export function stellarSourceFor(
+  wallet: { walletId?: string; address?: string } | null | undefined,
+  balance: number | undefined,
+  evmWallet: ConnectedWallet | undefined,
+): StellarSource | undefined {
+  const walletId = wallet?.walletId;
+  const address = wallet?.address;
+  if (!walletId || !address || !evmWallet || !((balance ?? 0) > 0)) return undefined;
+  return {
+    walletId,
+    address,
+    balance: balance!,
+    bridgeToBase: async (amount, recipientEvm, onStatus, destChain) => {
+      await bridgeStellarToBase({ walletId, senderAddress: address, amount, recipientEvm, evmWallet, destChain, onStatus });
+    },
+  };
 }

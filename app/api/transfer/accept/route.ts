@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/server';
 import { requireUserId } from '@/lib/auth/session';
+import { clearDuplicateDeposit } from '@/lib/supabase/deposit-dedup';
 import { NextResponse } from 'next/server';
 
 /**
@@ -67,6 +68,14 @@ export async function POST(req: Request) {
         { status: 500 },
       );
     }
+
+    // Now linked to this account, the transfer is what they received — not a deposit.
+    const { data: accepted } = await adminSupabase
+      .from('transfers')
+      .select('tx_hash')
+      .eq('id', transferId)
+      .maybeSingle();
+    if (accepted?.tx_hash) await clearDuplicateDeposit(session.userId, accepted.tx_hash);
 
     return NextResponse.json({ success: true });
   } catch (error) {

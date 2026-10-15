@@ -457,9 +457,8 @@ export function ChainBridgeModule({
             recipientAddress: dest === "solana" ? solanaAddress! : smartAddress,
             amount: amount,
             destChain: dest,
-            userEmail,
-            // Explicit, user-initiated bridge — bill it. The consolidation path in
-            // lib/web3/stellar-bridge omits this and is never charged.
+            // The one bridge the user came to do, so the one that is billed. Bridging inside a
+            // transfer, send or withdrawal (lib/web3/stellar-bridge) never is.
             chargeFee: true,
             // The server broadcasts this one, so it enforces the PIN rather than noting it.
             authorization,

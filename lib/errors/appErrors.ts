@@ -1,4 +1,5 @@
 import { GENERIC_ERROR_MESSAGE, toUserSafeMessage } from './sanitize';
+import { reportClientError } from './report';
 
 /**
  * Centralized app error classifier for Sendzz.
@@ -65,11 +66,33 @@ function looksTechnical(message: string): boolean {
   return false;
 }
 
+/**
+ * Classify `err` and, unless it is a silent cancellation, report it to the server log: the
+ * flows that reach here run in the browser, where no one but the user would ever see them.
+ */
 export function classifyAppError(err: unknown): AppError {
+  const result = classify(err);
+  if (!result.isSilent) reportClientError(err, result.message);
+  return result;
+}
+
+/** The user-safe message for `err`, without reporting it — for callers that report in bulk. */
+export function friendlyErrorMessage(err: unknown): string {
+  return classify(err).message;
+}
+
+function classify(err: unknown): AppError {
   const rawMsg = raw(err);
   const msg = rawMsg.toLowerCase();
   console.error('[App Error Raw Message]:', rawMsg);
   console.error('[App Error Object]:', err);
+
+  // The open tab was loaded from an earlier deploy, so the server no longer has the action it
+  // is calling. Nothing ran — the call was refused before it reached our code — and only a
+  // reload fixes it.
+  if (msg.includes('failed to find server action') || (msg.includes('server action') && msg.includes('was not found'))) {
+    return { message: 'Sendzz was just updated. Please refresh the page and try again.', category: 'validation', isSilent: false, isAlreadyProcessed: false };
+  }
 
   if (
     msg.includes('user rejected') ||

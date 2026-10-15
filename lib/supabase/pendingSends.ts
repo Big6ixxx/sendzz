@@ -13,6 +13,7 @@
 import 'server-only';
 
 import { supabaseAdmin } from './adminClient';
+import { clearDuplicateDeposit } from './deposit-dedup';
 import { isEvmUsdcChain } from '@/lib/circle/gateway';
 import { STELLAR_HORIZON_URL } from '@/lib/stellar/config';
 import { redactEmail } from '@/lib/log';
@@ -141,6 +142,7 @@ async function recordConfirmedSend(row: {
     console.error(`[PendingSends] could not record ${row.tx_hash.slice(0, 12)}:`, error.message);
     return false;
   }
+  if (recipientId) await clearDuplicateDeposit(recipientId, row.tx_hash);
 
   console.log(
     `[PendingSends] recovered ${row.amount} USDC ${redactEmail(row.sender_email)} → ` +

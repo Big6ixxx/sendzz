@@ -1,6 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/server';
 import { requireUserId } from '@/lib/auth/session';
 import crypto from 'crypto';
+import { clearDuplicateDeposit } from '@/lib/supabase/deposit-dedup';
 import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
@@ -41,7 +42,7 @@ export async function POST(req: Request) {
     // Look up the pending transfer by its token hash so we can return the amount
     const { data: transfer, error: lookupError } = await adminSupabase
       .from('transfers')
-      .select('id, amount, status, expires_at, recipient_email')
+      .select('id, amount, status, expires_at, recipient_email, tx_hash')
       .eq('claim_token_hash', tokenHash)
       .single();
 
@@ -87,6 +88,9 @@ export async function POST(req: Request) {
         { status: 500 },
       );
     }
+
+    // Now linked to this account, the transfer is what they received — not a deposit.
+    if (transfer.tx_hash) await clearDuplicateDeposit(session.userId, transfer.tx_hash);
 
     return NextResponse.json({
       success: true,

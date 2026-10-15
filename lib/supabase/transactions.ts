@@ -3,6 +3,7 @@
 import { Database } from "@/types/database";
 import { redactEmail } from "@/lib/log";
 import { supabaseAdmin } from "./adminClient";
+import { clearDuplicateDeposit } from "./deposit-dedup";
 import { fetchAttestation, isEvmUsdcChain, type SupportedChain } from "@/lib/circle/gateway";
 import { fetchSolanaAttestation } from "@/lib/circle/solana-gateway";
 import { fetchStellarAttestation } from "@/lib/circle/stellar-gateway";
@@ -210,25 +211,7 @@ export async function recordTransfer(params: {
     // Scoped hard: the recipient's own row, this exact hash, and only `provider = 'onchain'`,
     // which is the scanner/webhook's own marker. A real fiat deposit is never touched.
     if (transferId && params.txHash && recipient?.id) {
-      try {
-        const { data: removed } = await supabaseAdmin
-          .from("deposits")
-          .delete()
-          .eq("user_id", recipient.id)
-          .eq("tx_hash", params.txHash.toLowerCase())
-          .eq("provider", "onchain")
-          .select("id");
-        if (removed?.length) {
-          console.log(
-            `[Supabase] ${params.txHash.slice(0, 14)} was credited as a deposit before this ` +
-              `transfer was recorded — removed ${removed.length} duplicate(s).`,
-          );
-        }
-      } catch (e) {
-        // Non-fatal. The transfer is the record that matters; a surviving duplicate is visible
-        // in the admin ledger and can be removed by hand.
-        console.error("[Supabase] could not clear duplicate deposit:", e);
-      }
+      await clearDuplicateDeposit(recipient.id, params.txHash);
     }
 
     if (!insertError) {
@@ -1006,7 +989,11 @@ export async function updateBridgeStatus(
     // A delivered burn no longer needs its scratch row, whether it came from the user's own
     // bridge history or from a withdrawal consolidation. Cleared here rather than at each call
     // site so no claim path can forget it and leave a card the user cannot dismiss.
-    if (status === "complete") {
+    //
+    // Only with a mint hash: that is the evidence of delivery. "Complete" without one is a
+    // caller giving up on waiting, and deleting the row then would take away the only Claim
+    // button for money that has not arrived.
+    if (status === "complete" && mintTxHash) {
       await supabaseAdmin
         .from("consolidation_claims")
         .delete()

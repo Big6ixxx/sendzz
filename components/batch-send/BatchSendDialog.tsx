@@ -17,7 +17,7 @@ import { RecipientList } from "./RecipientList";
 import { ReviewSummary } from "./ReviewSummary";
 import { Step, useBatchSend } from "./useBatchSend";
 import { TwoFactorModal } from "@/components/TwoFactorModal";
-import { type ChainBalances, type SolanaSource } from "@/lib/web3/routing";
+import { type ChainBalances, type SolanaSource, type StellarSource } from "@/lib/web3/routing";
 
 interface BatchSendDialogProps {
   open: boolean;
@@ -31,6 +31,7 @@ interface BatchSendDialogProps {
   passkeyEnabled?: boolean;
   chainBalances?: ChainBalances;
   solanaSource?: SolanaSource;
+  stellarSource?: StellarSource;
 }
 
 const STEPS: { key: Step; label: string }[] = [
@@ -80,6 +81,7 @@ export function BatchSendDialog({
   passkeyEnabled = false,
   chainBalances,
   solanaSource,
+  stellarSource,
 }: BatchSendDialogProps) {
   const hook = useBatchSend(
     maxAmount,
@@ -89,6 +91,7 @@ export function BatchSendDialog({
     twoFaThreshold,
     chainBalances,
     solanaSource,
+    stellarSource,
   );
 
   const handleClose = () => {

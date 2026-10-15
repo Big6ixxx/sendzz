@@ -195,7 +195,7 @@ export const FAQ_SECTIONS: FaqSection[] = [
         id: "how-to-claim",
         question: "How do I claim funds that are waiting?",
         answer:
-          "Open your dashboard or the bridge screen and look for Pending Claims. Tap Claim on the amount you want to collect and it lands in your wallet on the destination network. There is no deadline, so a claim can sit for days and still work, and it disappears from the list once the funds have arrived.",
+          "Look for 'Money waiting for you' at the top of your dashboard and tap Claim. The money goes straight into your balance. There is no deadline, so it can wait for days and still work, and the card disappears once the money has arrived.",
       },
       {
         id: "claim-failed",

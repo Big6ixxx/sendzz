@@ -38,6 +38,8 @@ import {
   AuthorizationError,
   consumeAuthorization,
 } from '@/lib/security/transaction-auth';
+import { redactEmail } from '@/lib/log';
+import { verifyOwnStellarWallet } from '@/lib/stellar/ownership';
 import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
@@ -48,8 +50,7 @@ export async function POST(req: Request) {
       recipientAddress,
       amount,
       destChain,
-      userEmail,
-      chargeFee = true,
+      chargeFee = false,
       consolidation = false,
       internal = false,
       authorization,
@@ -60,16 +61,15 @@ export async function POST(req: Request) {
         recipientAddress: string;
         amount: string;
         destChain?: string;
-        userEmail?: string;
         /**
-         * True only for a bridge the user came to perform. Consolidation that funds a
-         * withdrawal omits it, so it is never billed — the same rule the EVM rails enforce by
-         * not passing a fee to executeSmartBridge.
+         * Bill the platform bridge fee. Only the bridge screen passes true — a bridge the user
+         * came to do. Bridging inside a transfer, send or withdrawal is never billed. Off unless
+         * asked for, so a caller that forgets the flag cannot charge. See lib/fees/platform-fees.ts.
          */
         chargeFee?: boolean;
         /**
-         * True when this bridge funds a withdrawal rather than being one the user asked for.
-         * It decides where the burn is recorded: scratch table, not history.
+         * True when this bridge is a step inside a transfer, send or withdrawal rather than one
+         * the user asked for. It decides where the burn is recorded: scratch table, not history.
          */
         consolidation?: boolean;
         /**
@@ -116,6 +116,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid amount' }, { status: 400 });
     }
 
+    // Before anything else that matters: the caller must be signed in and the wallet theirs.
+    // The flags below waive the PIN, never this. The email is the session's, never the body's —
+    // it decides whose history the burn is recorded in, which is what makes it claimable.
+    const owner = await verifyOwnStellarWallet(walletId, senderAddress);
+    if (!owner) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    }
+    const userEmail = owner.email;
+
     // ── PIN authorisation ───────────────────────────────────────────────────
     //
     // Enforced, not recorded: this route signs the burn with Privy's TEE and submits it to
@@ -126,10 +135,9 @@ export async function POST(req: Request) {
     // operation already took a PIN. Asking again mid-flight would interrupt something the user
     // is not watching, after money has started moving.
     //
-    // Both flags are honoured because they are set by different callers: `consolidation` by
-    // the withdrawal path, `internal` by every route through lib/web3/stellar-bridge.ts. A
-    // bridge the user came to perform reaches this route directly from the bridge screen with
-    // neither flag, and so must present a token.
+    // Every route through lib/web3/stellar-bridge.ts sets both flags. A bridge the user came to
+    // perform reaches this route directly from the bridge screen with neither, and so must
+    // present a token.
     if (!consolidation && !internal) {
       try {
         await consumeAuthorization({
@@ -230,8 +238,7 @@ export async function POST(req: Request) {
     // the fee and then failing the bridge, which loses the user money for nothing. This way the
     // worst case is that we don't collect, and the user's bridge is never harmed by our billing.
     //
-    // Only charged when the caller asked for a user-initiated bridge. Consolidation that funds
-    // a withdrawal calls this route without the flag and is never billed.
+    // Only charged when the caller asks for it (see `chargeFee` above).
     if (chargeFee) {
       try {
         const feePercent = getPlatformFeePercent('bridge');
@@ -269,39 +276,43 @@ export async function POST(req: Request) {
     // Either way the burn is irreversible and must be known, so a consolidation goes to the
     // scratch table instead, and is deleted the moment the funds are delivered.
     try {
-      if (userEmail) {
-        if (consolidation) {
-          const { supabaseAdmin } = await import('@/lib/supabase/adminClient');
-          const { data: u } = await supabaseAdmin
-            .from('users')
-            .select('id')
-            .eq('email', userEmail.trim().toLowerCase())
-            .maybeSingle();
-          if (u?.id) {
-            await supabaseAdmin.from('consolidation_claims').upsert(
-              {
-                user_id: u.id,
-                burn_tx_hash: burnResult.hash,
-                source_chain: 'stellar',
-                dest_chain: finalDestChain,
-                amount: parsedAmount,
-              },
-              { onConflict: 'burn_tx_hash' },
-            );
-          }
-        } else {
-          const { recordBridgeTransaction } = await import('@/lib/supabase/transactions');
-          await recordBridgeTransaction({
-            userEmail,
-            sourceChain: 'stellar',
-            destChain: finalDestChain,
-            amountUsdc: parsedAmount,
-            burnTxHash: burnResult.hash,
-          });
-        }
+      if (consolidation) {
+        const { supabaseAdmin } = await import('@/lib/supabase/adminClient');
+        const { data: u } = await supabaseAdmin
+          .from('users')
+          .select('id')
+          .eq('email', userEmail.trim().toLowerCase())
+          .maybeSingle();
+        if (!u?.id) throw new Error('no users row for the session email');
+        const { error } = await supabaseAdmin.from('consolidation_claims').upsert(
+          {
+            user_id: u.id,
+            burn_tx_hash: burnResult.hash,
+            source_chain: 'stellar',
+            dest_chain: finalDestChain,
+            amount: parsedAmount,
+          },
+          { onConflict: 'burn_tx_hash' },
+        );
+        if (error) throw new Error(error.message);
+      } else {
+        const { recordBridgeTransaction } = await import('@/lib/supabase/transactions');
+        await recordBridgeTransaction({
+          userEmail,
+          sourceChain: 'stellar',
+          destChain: finalDestChain,
+          amountUsdc: parsedAmount,
+          burnTxHash: burnResult.hash,
+        });
       }
     } catch (dbErr) {
-      console.error('[Stellar/Bridge] Database recording failed (non-fatal):', dbErr);
+      // The burn has happened and cannot be undone; unrecorded, it has no Claim button. Log
+      // everything needed to record it by hand.
+      console.error(
+        `[Stellar/Bridge] UNRECORDED BURN ${burnResult.hash}: ${parsedAmount} USDC stellar → ` +
+          `${finalDestChain} for ${redactEmail(userEmail)} (${consolidation ? 'consolidation_claims' : 'bridge_transactions'}):`,
+        dbErr,
+      );
     }
 
     return NextResponse.json({

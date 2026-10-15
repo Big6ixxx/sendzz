@@ -6,6 +6,7 @@ import {
   type PublicClient
 } from 'viem';
 import { clearConsolidationBurn, recordConsolidationBurn } from './record-burn';
+import { isPlaceholderHash } from '../explorers';
 import { type BundlerClient } from 'viem/account-abstraction';
 import { type ConnectedWallet } from '@privy-io/react-auth';
 import { VIEM_CHAINS } from './multichain';
@@ -25,7 +26,7 @@ import { solanaMintRecipientBytes32 } from '../circle/solana-gateway';
 import { getCircleClient, getStandardRpcUrl } from './circle-client';
 import { rpcTransport } from './rpc';
 import { findMintTxHash, isMessageDelivered } from './cctp-delivery';
-import { EVM_CHAINS, type ChainBalances, type SolanaSource, type SourceChainKey } from './routing';
+import { EVM_CHAINS, type ChainBalances, type SolanaSource, type SourceChainKey, type StellarSource } from './routing';
 import { toast } from 'sonner';
 
 /**
@@ -935,10 +936,7 @@ export async function bridgeAndDeliver(
       if (!mintTxHash) {
         // Do NOT report success. The caller sizes a withdrawal off this, and claiming that
         // funds arrived when they have not is what produced a burned-but-missing balance.
-        throw new Error(
-          `Bridged funds have not arrived on ${destChain} yet. They are safe and claimable — ` +
-            `open Pending Claims to finish it.`,
-        );
+        throw new Error(FUNDS_IN_TRANSIT_MESSAGE);
       }
     } else {
       const evmDest = destChain as SupportedChain;
@@ -970,7 +968,10 @@ export async function bridgeAndDeliver(
     }
   }
 
-  if (mintTxHash) await clearConsolidationBurn(burnTxHash);
+  // Only a real hash proves delivery. 'N/A' also covers a mint that was sent but never
+  // confirmed, and clearing then would remove the Claim button for money still in transit; a
+  // row left behind clears itself once the pending-claims check sees it delivered.
+  if (!isPlaceholderHash(mintTxHash)) await clearConsolidationBurn(burnTxHash);
 
   return { burnTxHash, mintTxHash };
 }
@@ -1079,12 +1080,7 @@ export async function consolidateFundsToChain(
     /** Optional Solana source */
     solana?: SolanaSource;
     /** Optional Stellar source */
-    stellar?: {
-      walletId: string;
-      address: string;
-      balance: number;
-      bridgeToBase: (amount: string, recipient: string, onStatus?: (status: string) => void, destChain?: SupportedChain) => Promise<void>;
-    };
+    stellar?: StellarSource;
   },
 ): Promise<void> {
   const { targetChain, requiredAmount, balances, recipient, stellarRecipient, solanaRecipient, onStatus, solana, stellar, stellarWallet, solanaWallet } = params;
@@ -1130,6 +1126,62 @@ export async function consolidateFundsToChain(
       await stellar.bridgeToBase(take.toFixed(6), recipient, onStatus, targetChain as SupportedChain);
     }
   }
+
+  // Every caller spends on the target the moment this returns. A bridge leg can report success
+  // before its mint has landed (the Stellar leg stops waiting after its deadline, and a mint
+  // that cannot be confirmed comes back as 'N/A'), and spending then fails on a balance that
+  // is not there yet — after the source chain has already been debited. So the balance itself
+  // is the proof: wait for it, and if it never arrives, say where the money is.
+  //
+  // Waits for what the legs can deliver, not for `requiredAmount`: bridging takes its fee out of
+  // what arrives (budgeted at the same 1% as selectConsolidationSources), so a user sending
+  // nearly everything can land a little short. That shortfall is the send's to report, with the
+  // money already sitting on the target — not this check's to mistake for funds in transit.
+  if (targetChain !== 'stellar' && targetChain !== 'solana') {
+    const have = balances[targetChain as SupportedChain] ?? 0;
+    const arriving = picked.reduce((sum, p) => sum + p.take, 0) * 0.99;
+    await waitForTargetBalance(
+      targetChain as SupportedChain,
+      recipient,
+      Math.min(Number(requiredAmount), have + arriving),
+    );
+  }
+}
+
+/** Thrown when consolidated funds are burned but not yet minted; the user can claim them. */
+export const FUNDS_IN_TRANSIT_MESSAGE =
+  'Your money is safe. Tap Claim at the top of your dashboard, then try again.';
+
+async function waitForTargetBalance(
+  chain: SupportedChain,
+  owner: string,
+  required: number,
+  timeoutMs = 180_000,
+): Promise<void> {
+  const client = createPublicClient({ chain: VIEM_CHAINS[chain], transport: rpcTransport(chain) });
+  const needed = parseUnits(required.toFixed(6), 6);
+  const deadline = Date.now() + timeoutMs;
+  let last: bigint | null = null;
+  while (true) {
+    try {
+      last = await client.readContract({
+        address: USDC_ADDRESSES[chain] as `0x${string}`,
+        abi: [{ name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'a', type: 'address' }], outputs: [{ type: 'uint256' }] }] as const,
+        functionName: 'balanceOf',
+        args: [owner as `0x${string}`],
+      });
+      if (last >= needed) return;
+    } catch (err) {
+      console.warn(`[consolidate] ${chain} balance read failed:`, err);
+    }
+    if (Date.now() >= deadline) break;
+    await new Promise((r) => setTimeout(r, 4_000));
+  }
+  console.error(
+    `[consolidate] ${required} USDC never arrived on ${chain} for ${owner.slice(0, 10)} ` +
+      `(last seen ${last === null ? 'unknown' : Number(last) / 1e6}); stopping before the send.`,
+  );
+  throw new Error(FUNDS_IN_TRANSIT_MESSAGE);
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
