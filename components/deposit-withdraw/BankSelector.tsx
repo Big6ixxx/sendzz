@@ -18,7 +18,6 @@ interface BankSelectorProps {
   accountNumber: string;
   onAccountNumberChange: (value: string) => void;
   accountName: string;
-  onAccountNameChange?: (value: string) => void;
   isVerifying: boolean;
   label: string;
   disabled?: boolean;
@@ -38,7 +37,6 @@ export function BankSelector({
   accountNumber,
   onAccountNumberChange,
   accountName,
-  onAccountNameChange,
   memo,
   onMemoChange,
   isVerifying,
@@ -184,14 +182,21 @@ export function BankSelector({
               Verified
             </span>
           </div>
-          <input
-            type="text"
-            placeholder="ENTER ACCOUNT HOLDER NAME"
-            value={accountName}
-            onChange={(e) => onAccountNameChange?.(e.target.value)}
-            disabled={disabled}
-            className="w-full bg-transparent font-semibold uppercase focus:outline-none text-foreground text-sm tracking-wide placeholder:text-muted-foreground/60"
-          />
+          {/*
+            Text, not an input. This name is the result of a name enquiry against the provider
+            that will settle the payout — it is the one thing on the form the user did not
+            supply, which is the whole point of showing it next to a "Verified" badge. While it
+            was editable, anyone could type over a confirmed beneficiary and the typed value was
+            what went on to the order, so the badge vouched for a name nobody had checked.
+
+            Nothing is lost by fixing it: accountName is only ever set from that enquiry or from
+            a saved contact, and a failed enquiry clears it and hides this block entirely, so
+            the placeholder here was unreachable. AddBankContactModal already shows its verified
+            name this way.
+          */}
+          <p className="w-full font-semibold uppercase text-foreground text-sm tracking-wide break-words">
+            {accountName}
+          </p>
         </div>
       )}
     </div>

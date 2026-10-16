@@ -334,12 +334,6 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
                 })
               }
               accountName={hook.bankDetails.accountName}
-              onAccountNameChange={(name) =>
-                hook.setBankDetails({
-                  ...hook.bankDetails,
-                  accountName: name,
-                })
-              }
               memo={hook.bankDetails.memo}
               onMemoChange={(val) =>
                 hook.setBankDetails({

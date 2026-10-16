@@ -12,6 +12,7 @@ import { solanaRpcUrl } from '@/lib/solana/rpc';
 import { ReactNode, useState, useEffect } from 'react';
 import { BalanceVisibilityProvider } from '@/components/providers/BalanceVisibilityProvider';
 import { useSessionActivity } from '@/hooks/useSessionActivity';
+import { useNumberInputWheelGuard } from '@/hooks/useNumberInputWheelGuard';
 /*
  * Imported for its side effect: registering the `beforeinstallprompt` listener at app boot.
  *
@@ -36,6 +37,9 @@ function SessionActivityWatcher() {
 }
 
 export function Providers({ children }: { children: ReactNode }) {
+  // App-wide, so every number input is covered rather than the handful that exist today.
+  useNumberInputWheelGuard();
+
   useEffect(() => {
     if ('serviceWorker' in navigator && typeof window !== 'undefined') {
       window.addEventListener('load', () => {

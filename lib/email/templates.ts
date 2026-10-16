@@ -11,6 +11,14 @@ import type { ReceiptData } from '@/lib/receipt/types';
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || '';
 
 /**
+ * Where the footer wordmark points.
+ *
+ * Separate from APP_URL because that one falls back to an empty string, which is harmless
+ * for an <img src> but turns a link into one that reopens the email itself.
+ */
+const APP_LINK = APP_URL || 'https://sendzz.io';
+
+/**
  * Base email wrapper template
  */
 /**
@@ -90,7 +98,7 @@ export function baseTemplate(content: string): string {
           </div>
           
           <p style="font-size: 12px; color: #94a3b8; margin-top: 60px;">
-            Sendzz • Fast & Borderless Payments
+            <a href="${APP_LINK}" style="color: #006633 !important; font-weight: 700;">Sendzz</a> • Fast &amp; Borderless Payments
           </p>
         </td>
       </tr>
