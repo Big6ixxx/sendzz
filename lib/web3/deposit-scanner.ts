@@ -31,12 +31,7 @@
  */
 import { supabaseAdmin } from '@/lib/supabase/adminClient';
 import type { Json } from '@/types/database';
-import {
-  DEPOSIT_CHAINS,
-  SOLANA_RECEIVE_ENABLED,
-  USDC_ADDRESSES,
-  type SupportedChain,
-} from '@/lib/circle/gateway';
+import { DEPOSIT_CHAINS, USDC_ADDRESSES, type SupportedChain } from '@/lib/circle/gateway';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { STELLAR_CCTP_FORWARDER, STELLAR_HORIZON_URL, STELLAR_USDC_ISSUER } from '@/lib/stellar/config';
 import { NETWORK } from '@/lib/network';
@@ -44,27 +39,6 @@ import { solanaRpcUrl } from '@/lib/solana/rpc';
 import { transferAmountUsdc, type AlchemyTransfer } from './deposit-amount';
 import { VIEM_CHAINS } from './multichain';
 import { scanSolana } from './solana-deposit-scan';
-
-/**
- * Solana deposit scanning follows SOLANA_RECEIVE_ENABLED, and is off while that is.
- *
- * Solana is disabled on the Alchemy app, and NEXT_PUBLIC_SOLANA_RPC_URL points at
- * `solana-mainnet.g.alchemy.com` — so every Solana read used to fail at the endpoint. It failed
- * quietly, because each chain's scan is best-effort: the error was caught, logged, and the sweep
- * carried on. Leaving it in place meant paying a round trip per user per sweep to be told no.
- * Reads now go to lib/solana/rpc (SOLANA_RPC_URL, else the public endpoint), but the scan stays
- * off until Solana receive is switched on as a whole.
- *
- * The scan itself (./solana-deposit-scan) is maintained and tested, not parked. It is gated on
- * the flag rather than commented out: the cron's frequent Solana sweep and the history-load scan
- * are gated on the same flag, and when the branch here was a comment, turning the flag on ran
- * those sweeps over a scanner that returned nothing — every user marked scanned, no deposit
- * ever found, nothing logged. Every switch is listed on SOLANA_RECEIVE_ENABLED in
- * lib/circle/gateway.
- *
- * Stellar is untouched and still scanned — it reads Horizon (horizon.stellar.org), which is
- * Stellar's own infrastructure and has nothing to do with Alchemy or this bill.
- */
 
 /** Alchemy Transfers API subdomain per chain — mainnet or testnet per lib/network. */
 const ALCHEMY_SUBDOMAIN: Record<SupportedChain, string> = NETWORK.alchemySubdomain;
@@ -522,8 +496,7 @@ export async function scanUsdcDeposits(params: {
    * a webhook, and every EVM chain in a sweep costs one billed `alchemy_getAssetTransfers` call.
    *
    * 'solana' is the same idea for Solana, for the same reason: Alchemy's Address Activity
-   * webhook is registered for the EVM smart accounts only. It reads lib/solana/rpc, which is
-   * free unless SOLANA_RPC_URL points somewhere paid.
+   * webhook is registered for the EVM smart accounts only. It reads through lib/solana/rpc.
    */
   rails?: 'all' | 'stellar' | 'solana';
 }): Promise<number> {
@@ -562,8 +535,8 @@ export async function scanUsdcDeposits(params: {
           }
         })
       : []),
-    // Solana — only while it is switched on; see the note above ALCHEMY_SUBDOMAIN.
-    SOLANA_RECEIVE_ENABLED && (rails === 'all' || rails === 'solana') && params.solanaAddress
+    // Solana
+    (rails === 'all' || rails === 'solana') && params.solanaAddress
       ? scanSolanaRail(userId, params.solanaAddress, cursors.get('solana') ?? null, known)
       : Promise.resolve(EMPTY('solana')),
     // Stellar

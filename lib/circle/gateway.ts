@@ -135,43 +135,6 @@ export const SOURCE_CHAINS: SupportedChain[] = [
  */
 export const BRIDGE_DISABLED_CHAINS: SupportedChain[] = ['ethereum'];
 
-/**
- * Whether Solana is offered as a network to receive on — and, with it, watched for deposits.
- *
- * Off for now. Solana is not a `SupportedChain` above — it is its own rail with its own
- * address — so it cannot go in BRIDGE_DISABLED_CHAINS, but the intent is the same: stop
- * advertising a network before people put money on it.
- *
- * Deliberately narrow. Balance reads, spend routing (auto-bridge to Base), off-ramp
- * settlement and pending claims all keep working, so anyone who already holds USDC on
- * Solana can still see it and still move it. Turning those off instead would strand real
- * funds behind a flag. Embedded Solana wallets are created regardless (hooks/useEnsureSolanaWallet),
- * because without one that money has no signer.
- *
- * It is NOT the only switch. Bringing Solana back means all of these, together:
- *
- *   Driven by this flag:
- *   - RAILS (components/deposit-withdraw/ReceiveCryptoFlow)  — the receive tab
- *   - sweepRail('solana') (app/api/cron/reconcile-transactions) — frequent deposit sweep
- *   - the Solana scan in getUserActivities (lib/supabase/transactions) — scan on history load
- *   - the Solana branch in scanUsdcDeposits (lib/web3/deposit-scanner) — the scan every sweep
- *     above, and the daily full sweep, runs (lib/web3/solana-deposit-scan)
- *
- *   Commented out, to restore by hand:
- *   - AVAILABLE_CHAINS (components/transfer/CryptoTransferForm) — the send network picker
- *   - allSources (components/ChainBridgeModule)              — Solana as a bridge source/destination
- *   - NON_EVM_RAILS (app/dashboard/settings/page)            — the Solana address in settings
- *   - the Solana fee card (app/dashboard/settings/fees/page)
- *
- *   Optional:
- *   - SKIP_ALCHEMY_SOLANA (lib/solana/rpc) — only to go back to Alchemy. Until then reads use
- *     SOLANA_RPC_URL, else the public endpoint, and NEXT_PUBLIC_SOLANA_RPC_URL is ignored.
- *
- * And outside the code: on testnet, pre-create the FEE_TREASURY_SOLANA USDC token account
- * (TESTNET_SETUP.md §10). The fee is sent to it, never created for it.
- */
-export const SOLANA_RECEIVE_ENABLED = false;
-
 export function isBridgeable(chain: string): boolean {
   return !(BRIDGE_DISABLED_CHAINS as string[]).includes(chain);
 }

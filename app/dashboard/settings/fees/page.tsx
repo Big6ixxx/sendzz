@@ -240,7 +240,6 @@ export default function HelpCenterPage() {
             </h3>
             <div className="card-glass p-0 overflow-hidden divide-y divide-white/5">
 
-              {/* Solana commented out while it is disabled — see SOLANA_RECEIVE_ENABLED in lib/circle/gateway.
               <div className="p-5 hover:bg-white/2 transition-colors">
                 <div className="flex justify-between items-start">
                   <div>
@@ -258,7 +257,6 @@ export default function HelpCenterPage() {
                   </div>
                 </div>
               </div>
-              */}
 
               <div className="p-5 hover:bg-white/2 transition-colors">
                 <div className="flex justify-between items-start">

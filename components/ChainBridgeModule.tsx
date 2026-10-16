@@ -733,7 +733,7 @@ export function ChainBridgeModule({
     ...EVM_CHAINS.filter(isBridgeable),
     // Stellar is opt-in: listed only once activated (account + USDC trustline in place).
     ...(isStellarReady(stellarWallet) ? ["stellar" as const] : []),
-    // ...(solanaAddress ? ["solana" as const] : []),
+    ...(solanaAddress ? ["solana" as const] : []),
   ];
   // Sources and destinations come from the same list on purpose. Excluding a chain here
   // while still offering it below would let funds bridge in with no way to bridge out.

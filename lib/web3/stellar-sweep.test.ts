@@ -73,13 +73,13 @@ describe('Stellar deposits are swept on every cron run', () => {
   });
 });
 
-describe('Solana deposits get the same frequent sweep, once Solana is switched on', () => {
+describe('Solana deposits get the same frequent sweep', () => {
   const cron = read('app/api/cron/reconcile-transactions/route.ts');
 
-  it('runs a Solana pass on every cron run, gated only by SOLANA_RECEIVE_ENABLED', () => {
+  it('runs a Solana pass on every cron run', () => {
     // Solana has no deposit webhook either (Alchemy's is registered for the EVM accounts only),
     // so without this pass it would wait for the daily full sweep.
-    expect(cron).toMatch(/SOLANA_RECEIVE_ENABLED \? sweepRail\('solana'\)/);
+    expect(cron).toMatch(/sweepRail\('solana'\)/);
   });
 
   it('rotates Solana on its own sync-state row, not Stellar\'s', () => {
@@ -99,8 +99,8 @@ describe('the history feed sweeps Stellar and Solana, and never the EVM chains',
     expect(tx).toMatch(/scanUsdcDeposits\([\s\S]{0,240}rails: "stellar"/);
   });
 
-  it('scans the user Solana address when history is read, while Solana is on', () => {
-    expect(tx).toMatch(/SOLANA_RECEIVE_ENABLED && userRecord\.solana_address\s*\?\s*scanUsdcDeposits\([\s\S]{0,240}rails: "solana"/);
+  it('scans the user Solana address when history is read', () => {
+    expect(tx).toMatch(/userRecord\.solana_address\s*\?\s*scanUsdcDeposits\([\s\S]{0,240}rails: "solana"/);
   });
 
   it('does NOT sweep the EVM chains from the history feed', () => {

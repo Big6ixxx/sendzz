@@ -21,7 +21,6 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { ChainLogo } from './ChainLogo';
 import { isStellarReady, useActivateStellar } from '@/hooks/useStellarWallet';
-import { SOLANA_RECEIVE_ENABLED } from '@/lib/circle/gateway';
 import { useEnsureSolanaWallet } from '@/hooks/useEnsureSolanaWallet';
 
 type Rail = 'evm' | 'solana' | 'stellar';
@@ -29,13 +28,12 @@ type Rail = 'evm' | 'solana' | 'stellar';
 /**
  * The rails a user can be given an address on.
  *
- * Solana is behind SOLANA_RECEIVE_ENABLED (lib/circle/gateway) while it is being finished.
- * Listed rather than hard-coded as three buttons so turning it back on is one flag, and so
- * the tab, the address, the QR and the warning copy can never disagree about what is offered.
+ * Listed rather than hard-coded as three buttons so the tab, the address, the QR and the
+ * warning copy can never disagree about what is offered.
  */
 const RAILS: { key: Rail; label: string }[] = [
   { key: 'evm', label: 'EVM Networks' },
-  ...(SOLANA_RECEIVE_ENABLED ? [{ key: 'solana' as Rail, label: 'Solana' }] : []),
+  { key: 'solana', label: 'Solana' },
   { key: 'stellar', label: 'Stellar' },
 ];
 

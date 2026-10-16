@@ -7,7 +7,6 @@ import { getCorridorFee } from '@/lib/ramp/fees';
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { triggerWithdrawalNotifications } from '@/lib/supabase/transactions';
-import { SOLANA_RECEIVE_ENABLED } from '@/lib/circle/gateway';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -242,13 +241,7 @@ export async function GET(req: Request) {
   const sessionsPruned = await pruneDeadSessions();
 
   // ── Stellar and Solana deposits: every run, because nothing else watches them ──
-  //
-  // Solana only while it is switched on — see SOLANA_RECEIVE_ENABLED in lib/circle/gateway.
-  // Until then every scan of it is a no-op that still costs two database reads per user.
-  const [stellar, solana] = await Promise.all([
-    sweepRail('stellar'),
-    SOLANA_RECEIVE_ENABLED ? sweepRail('solana') : Promise.resolve({ scanned: 0, inserted: 0 }),
-  ]);
+  const [stellar, solana] = await Promise.all([sweepRail('stellar'), sweepRail('solana')]);
 
   // ── Full on-chain sweep: once per user per day ─────────────────────────────
   const deposits = await scanStaleUsers();

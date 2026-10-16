@@ -3,8 +3,8 @@
  *
  * Until registration verified it, `solana_address` was whatever the client sent. It is what
  * Solana sends are verified against, where refunds go, and what deposit scanning credits — so a
- * row pointing at somebody else's wallet is worth finding before Solana is switched back on.
- * New writes are already checked (lib/supabase/users.ts); this covers the rows written before.
+ * row pointing at somebody else's wallet is worth finding. New writes are already checked
+ * (lib/supabase/users.ts); this covers the rows written before.
  *
  *   npx tsx scripts/verify-solana-addresses.ts           # report only (the default)
  *   npx tsx scripts/verify-solana-addresses.ts --apply   # rewrite mismatches
