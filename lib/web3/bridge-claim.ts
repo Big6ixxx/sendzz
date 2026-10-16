@@ -116,8 +116,17 @@ async function claimOnSolana(params: BridgeClaimParams): Promise<string | undefi
       [data.error, data.code].filter(Boolean).join(' ') || 'Failed to claim on Solana',
     );
   }
-  // Already delivered — the caller reconciles this the same way it does on EVM.
-  if (data.alreadyClaimed) return undefined;
+  // Already delivered — with the mint's signature when the server could find it; without one
+  // the caller reconciles this the same way it does on EVM.
+  if (data.alreadyClaimed) return data.txHash ?? undefined;
+  // Broadcast but not yet confirmed. Not a delivery: recording this signature as the mint would
+  // remove the Claim button for a transaction that may never land. A retry finds it delivered,
+  // or claims again.
+  if (data.pending) {
+    throw new Error(
+      'Your claim was sent and is still confirming on Solana. Your funds are safe — check back in a minute.',
+    );
+  }
   return data.txHash;
 }
 

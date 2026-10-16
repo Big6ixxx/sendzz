@@ -72,7 +72,8 @@ describe('the loser of the race cleans up', () => {
 
   it('scopes the delete to the recipient, the hash, and onchain deposits only', () => {
     expect(helper).toMatch(/eq\('user_id', userId\)/);
-    expect(helper).toMatch(/eq\('tx_hash', txHash\.toLowerCase\(\)\)/);
+    // Both forms: EVM hashes are stored lowercased, Solana signatures exactly as written.
+    expect(helper).toMatch(/in\('tx_hash', depositHashForms\(txHash\)\)/);
     // Without the provider filter this would delete real fiat on-ramp deposits.
     expect(helper).toMatch(/eq\('provider', 'onchain'\)/);
   });

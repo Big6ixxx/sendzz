@@ -83,6 +83,21 @@ export function balanceOfChain(
   return balances[chain] ?? 0;
 }
 
+/**
+ * Bridge routes we cannot complete, in either direction.
+ *
+ * Solana ↔ Stellar is the one. A Solana burn to Stellar would have to go through the CctpForwarder
+ * with a hook (`deposit_for_burn_with_hook`), which the Solana side does not build — a plain burn
+ * mints to an address no Stellar claim can deliver from. Stellar → Solana is refused by
+ * /api/stellar/bridge, which only takes an EVM recipient. Either way the burn would strand the
+ * USDC, so the pair is not offered and consolidation never routes through it.
+ */
+export function isUnsupportedBridgePair(source: SourceChainKey, dest: SourceChainKey): boolean {
+  return (
+    (source === 'solana' && dest === 'stellar') || (source === 'stellar' && dest === 'solana')
+  );
+}
+
 /** A Stellar balance that can be bridged to an EVM chain on demand. Build with `stellarSourceFor`. */
 export interface StellarSource {
   walletId: string;
@@ -119,6 +134,8 @@ export interface SolanaSource {
     payoutAmount: string;
     feeAddress?: string;
     feeAmount?: string;
+    /** Lets the server record the signature on the withdrawal as soon as it broadcasts. */
+    withdrawalOrderId?: string;
     onStatus?: (status: string) => void;
   }) => Promise<string>;
 }
@@ -456,8 +473,11 @@ export function planWithdrawalRoute(
     return evmA - evmB;
   });
 
-  // Pick the highest-balance supported chain to act as consolidation target
-  const targetChain = (rankedSupportedChains[0] ?? (supported.includes(home) ? home : 'base')) as SupportedChain;
+  // Pick the highest-balance supported chain to act as consolidation target. Never Solana:
+  // consolidation has no Solana wallet to deliver into, and a Stellar leg cannot reach it (see
+  // isUnsupportedBridgePair), so bridging there would burn funds no claim can deliver.
+  const targetChain = (rankedSupportedChains.find((c) => c !== 'solana') ??
+    (supported.includes(home) ? home : 'base')) as SupportedChain;
 
   // User override: pay from one chosen chain.
   if (opts.source?.mode === 'single') {
@@ -515,4 +535,45 @@ export function planWithdrawalRoute(
     totalAvailable,
     requested,
   };
+}
+
+// ── Solana-destination sends ─────────────────────────────────────────────────
+
+export type SolanaSendPlan =
+  | { mode: 'direct' }
+  /** Bridge `amount` from `sourceChain` to the sender's own Solana wallet, then send from it. */
+  | { mode: 'top_up'; sourceChain: SupportedChain; amount: string }
+  | { mode: 'infeasible' };
+
+/**
+ * How to fund a send that must leave from the sender's Solana wallet.
+ *
+ * When Solana alone falls short, the gap is bridged in from one EVM chain — to the SENDER's own
+ * Solana wallet, not the recipient's. A sponsored claim may only mint to the caller's own
+ * account (lib/solana/sponsor-policy), and topping up first means the final hop is an ordinary
+ * sponsored Solana send: same recipient-account handling, same history row.
+ *
+ * The bridged amount carries a margin for CCTP's fee, which is taken out of the mint — without
+ * it the top-up lands a few cents short of the send it was for.
+ */
+export function planSolanaSend(
+  totalNeededUsdc: number,
+  solanaBalance: number,
+  evmBalances: ChainBalances,
+  opts: { homeChain?: SupportedChain } = {},
+): SolanaSendPlan {
+  const needed = toMicro(totalNeededUsdc);
+  const have = toMicro(solanaBalance);
+  if (needed <= 0n) return { mode: 'infeasible' };
+  if (have >= needed) return { mode: 'direct' };
+
+  const shortfall = needed - have;
+  const margin = shortfall / 200n > 10_000n ? shortfall / 200n : 10_000n; // 0.5%, at least 0.01
+  const topUp = shortfall + margin;
+
+  const sourceChain = spendOrder(opts.homeChain ?? 'base').find(
+    (c) => toMicro(evmBalances[c] ?? 0) >= topUp,
+  );
+  if (!sourceChain) return { mode: 'infeasible' };
+  return { mode: 'top_up', sourceChain, amount: microToStr(topUp) };
 }

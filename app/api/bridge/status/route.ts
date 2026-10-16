@@ -152,6 +152,26 @@ export async function GET(req: NextRequest) {
         } catch (chainErr) {
           console.error('[Bridge Status API] On-chain check failed:', chainErr);
         }
+      } else if (destChain === 'solana') {
+        // Delivery creates the message's used_nonce account; the oldest signature on it is the
+        // mint. A delivery we can see but whose mint we cannot find is still delivered.
+        try {
+          const { Connection } = await import('@solana/web3.js');
+          const { solanaRpcUrl } = await import('@/lib/solana/rpc');
+          const { isSolanaMessageDelivered, findSolanaMintSignature } = await import(
+            '@/lib/circle/solana-gateway'
+          );
+          const { PLACEHOLDER_TX_HASH } = await import('@/lib/explorers');
+          const connection = new Connection(solanaRpcUrl(), 'confirmed');
+          if (await isSolanaMessageDelivered(connection, result.messageBytes)) {
+            console.log(`[Bridge Status API] Message received on Solana for ${txHash}.`);
+            result.mintTxHash =
+              (await findSolanaMintSignature(connection, result.messageBytes)) ??
+              PLACEHOLDER_TX_HASH;
+          }
+        } catch (chainErr) {
+          console.error('[Bridge Status API] Solana delivery check failed:', chainErr);
+        }
       }
     }
 

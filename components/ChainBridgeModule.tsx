@@ -19,7 +19,8 @@ import { MONITOR_MAX_ATTEMPTS, MONITOR_POLL_MS } from "@/lib/web3/bridge-timing"
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { CHAIN_NAMES, isBridgeable, type SupportedChain } from "@/lib/circle/gateway";
-import { EVM_CHAINS } from "@/lib/web3/routing";
+import { EVM_CHAINS, isUnsupportedBridgePair } from "@/lib/web3/routing";
+import { NETWORK } from "@/lib/network";
 import { executeSmartBridge } from "@/lib/web3/bridge-actions";
 import { prepareSolanaBurnTx } from "@/lib/web3/solana-bridge";
 import { claimBridgeOnDestination } from "@/lib/web3/bridge-claim";
@@ -42,6 +43,7 @@ import { noteTransactionAuthorization } from "@/lib/actions/transactionAuth";
 import { describeBridge } from "@/lib/signing/describe";
 import { toast } from "sonner";
 import { solanaRpcUrl } from "@/lib/solana/rpc";
+import { sendAndConfirmSigned } from "@/lib/solana/confirm";
 import { isStellarReady, type StellarWalletInfo } from "@/hooks/useStellarWallet";
 
 const SOLANA_RPC = solanaRpcUrl();
@@ -138,6 +140,7 @@ export function ChainBridgeModule({
     !!source &&
     !!dest &&
     source !== dest &&
+    !isUnsupportedBridgePair(source, dest) &&
     amountNum > 0 &&
     // amount + fee must fit, not just the amount.
     bridgeTotal <= sourceBalance &&
@@ -224,7 +227,8 @@ export function ChainBridgeModule({
                     messageBytes: data.messageBytes,
                     attestation: data.attestation,
                     embeddedWallet,
-                    solanaWallet: embeddedSolWallet,
+                    // The claim needs only the address; the server signs.
+                    solanaWallet: solanaAddress ? { address: solanaAddress } : null,
                     stellarWallet,
                   });
                 }
@@ -344,10 +348,9 @@ export function ChainBridgeModule({
     monitor,
     phase,
     embeddedWallet,
-    embeddedSolWallet,
+    solanaAddress,
     stellarWallet,
     queryClient,
-    signTransaction,
   ]);
 
   const handleBridge = async () => {
@@ -436,6 +439,8 @@ export function ChainBridgeModule({
       }
 
       let burnTxHash: string;
+      // Set once the Solana burn is recorded at broadcast, so it is not written twice.
+      let burnRecorded = false;
       if (source === "stellar") {
         if (!stellarWallet?.walletId || !stellarWallet?.address) {
           throw new Error(
@@ -480,30 +485,33 @@ export function ChainBridgeModule({
           amount: amount,
           recipientEvm: recipient,
           destChain: dest as SupportedChain,
+          // Rides in the same transaction as the burn, as on the EVM rails.
+          platformFee,
         });
 
         // Privy signs the already-fee-sponsored transaction with the embedded Solana wallet
         const { signedTransaction: signedBytes } = await signTransaction({
           transaction: sponsoredTx.serialize({ requireAllSignatures: false }),
           wallet: embeddedSolWallet,
+          chain: NETWORK.solana.privyCluster,
         });
 
-        // Broadcast the fully-signed transaction ourselves
-        const signature = await solConn.current.sendRawTransaction(
+        // Broadcast it ourselves, and confirm against its own blockhash. Recorded on broadcast:
+        // a confirmation that throws does not mean the burn failed to land.
+        const signature = await sendAndConfirmSigned(
+          solConn.current,
           signedBytes,
-          {
-            skipPreflight: false,
-            preflightCommitment: "confirmed",
+          sponsoredTx.lastValidBlockHeight,
+          async (sig) => {
+            await recordBurn({
+              userEmail,
+              sourceChain: source,
+              destChain: dest,
+              amountUsdc: amountNum,
+              burnTxHash: sig,
+            });
+            burnRecorded = true;
           },
-        );
-        const latestBlockhash = await solConn.current.getLatestBlockhash();
-        await solConn.current.confirmTransaction(
-          {
-            signature,
-            blockhash: latestBlockhash.blockhash,
-            lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-          },
-          "confirmed",
         );
 
         burnTxHash = signature;
@@ -526,13 +534,15 @@ export function ChainBridgeModule({
         burnTxHash = await txHashPromise;
       }
 
-      await recordBurn({
-        userEmail,
-        sourceChain: source,
-        destChain: dest,
-        amountUsdc: amountNum,
-        burnTxHash,
-      });
+      if (!burnRecorded) {
+        await recordBurn({
+          userEmail,
+          sourceChain: source,
+          destChain: dest,
+          amountUsdc: amountNum,
+          burnTxHash,
+        });
+      }
 
       setMonitor({ burnTxHash, sourceChain: source, destChain: dest });
       setPhase("monitoring");
@@ -723,12 +733,14 @@ export function ChainBridgeModule({
     ...EVM_CHAINS.filter(isBridgeable),
     // Stellar is opt-in: listed only once activated (account + USDC trustline in place).
     ...(isStellarReady(stellarWallet) ? ["stellar" as const] : []),
-    // ...(solanaAddress ? ["solana" as const] : []),
+    ...(solanaAddress ? ["solana" as const] : []),
   ];
   // Sources and destinations come from the same list on purpose. Excluding a chain here
   // while still offering it below would let funds bridge in with no way to bridge out.
   const fundedSources = allSources.filter((c) => balanceOf(c) > 0);
-  const destinationChains = allSources.filter((c) => c !== source);
+  const destinationChains = allSources.filter(
+    (c) => c !== source && !(source && isUnsupportedBridgePair(source, c)),
+  );
 
   return (
     <div className="card-glass p-6 sm:p-8 space-y-8">
@@ -763,7 +775,7 @@ export function ChainBridgeModule({
                 key={c}
                 onClick={() => {
                   setSource(c);
-                  if (dest === c) setDest(null);
+                  if (dest === c || (dest && isUnsupportedBridgePair(c, dest))) setDest(null);
                 }}
                 className={cn(
                   "flex items-center gap-2.5 px-3 py-3 rounded-xl border transition-all text-left",

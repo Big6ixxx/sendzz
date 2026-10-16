@@ -764,8 +764,10 @@ export function useDepositWithdraw(
         source: sourcePref,
       });
 
-      const combinedAvailable =
-        route.totalAvailable + (solanaSource?.balance ?? 0) + (stellarBalance ?? 0);
+      // `routeBalances` already carries Solana and Stellar, so the route's total includes them.
+      // Adding them again counted both twice and let an underfunded withdrawal through to a
+      // consolidation that could never gather enough.
+      const combinedAvailable = route.totalAvailable;
 
       // Settling directly on Solana is a distinct path: funds must already be on Solana (no
       // bridging TO Solana), and the payout is a Solana SPL transfer — not an EVM route.
@@ -1334,9 +1336,16 @@ export function useDepositWithdraw(
         const bitnobPayoutDeposit = baseAmount + bitnobFee;
         txHash = await solanaSource.settleOffRamp({
           payoutAddress: receiveAddress,
-          payoutAmount: bitnobPayoutDeposit.toFixed(6),
+          // A provider-collected fee rides to the same address as the payout — as on EVM. It
+          // used to be dropped here, so the provider was sent less than it was owed.
+          payoutAmount: (onchainFee || !fee
+            ? bitnobPayoutDeposit
+            : bitnobPayoutDeposit + parseFloat(fee.usdc)
+          ).toFixed(6),
           feeAddress: onchainFee?.address,
           feeAmount: onchainFee?.usdc,
+          // The server records the signature on this withdrawal the moment it broadcasts.
+          withdrawalOrderId: activeOrder.id,
           onStatus: undefined,
         });
         toast.dismiss("wd-settle");

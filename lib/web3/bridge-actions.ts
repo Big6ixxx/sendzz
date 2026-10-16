@@ -27,7 +27,7 @@ import { getCircleClient, getStandardRpcUrl } from './circle-client';
 import { rpcTransport } from './rpc';
 import { findMintTxHash, isMessageDelivered, MESSAGE_TRANSMITTER_ADDRESS } from './cctp-delivery';
 import { STELLAR_CCTP_FORWARDER } from '../stellar/config';
-import { EVM_CHAINS, type ChainBalances, type SolanaSource, type SourceChainKey, type StellarSource } from './routing';
+import { EVM_CHAINS, isUnsupportedBridgePair, type ChainBalances, type SolanaSource, type SourceChainKey, type StellarSource } from './routing';
 import { toast } from 'sonner';
 
 /**
@@ -831,6 +831,58 @@ export async function executeReceiveMessage(
 }
 
 /**
+ * Poll /api/bridge/status until Circle has attested `burnTxHash`, or the deadline passes.
+ * Null on timeout — the burn stays claimable, so callers decide how to report that.
+ */
+export async function waitForBridgeAttestation(
+  burnTxHash: string,
+  sourceChain: SupportedChain | 'stellar' | 'solana',
+  timeoutMs: number,
+  pollMs = 5_000,
+): Promise<AttestationResponse | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(
+        `/api/bridge/status?txHash=${burnTxHash}&sourceChain=${sourceChain}`,
+      );
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === 'complete') return data as AttestationResponse;
+      }
+    } catch (err) {
+      console.warn('[waitForBridgeAttestation] status poll error:', err);
+    }
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+  return null;
+}
+
+/**
+ * Mint an attested CCTP message on an EVM chain, unless Circle's relayer already has. Returns
+ * the mint hash, or 'N/A' when the message is spent but its mint can't be found. Throws when
+ * our own receiveMessage fails — the caller must not report a delivery that did not happen.
+ */
+export async function deliverOnEvmChain(
+  embeddedWallet: ConnectedWallet,
+  messageBytes: string,
+  attestation: string,
+  destChain: SupportedChain,
+  onStatus?: (status: string) => void,
+): Promise<string> {
+  const standardRpcClient = createPublicClient({
+    chain: VIEM_CHAINS[destChain],
+    transport: rpcTransport(destChain),
+  });
+  if (await isMessageDelivered(standardRpcClient, messageBytes, MESSAGE_TRANSMITTER_ADDRESS)) {
+    console.log('[deliverOnEvmChain] Message already processed on-chain. Skipping manual claim popup.');
+    return (await findMintTxHash(standardRpcClient, messageBytes, MESSAGE_TRANSMITTER_ADDRESS)) ?? 'N/A';
+  }
+  onStatus?.(`Delivering on ${CHAIN_NAMES[destChain] ?? destChain}…`);
+  return executeReceiveMessage(embeddedWallet, messageBytes, attestation, destChain);
+}
+
+/**
  * Bridge USDC from one chain to another and deliver it straight to `recipient` on the
  * destination, end to end. Used by the external-address transfer flow when the user's
  * funds are on a different chain than the recipient.
@@ -880,31 +932,10 @@ export async function bridgeAndDeliver(
   });
 
   onStatus?.('Waiting for network confirmation…');
-  let attestationData: AttestationResponse | null = null;
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch(
-        `/api/bridge/status?txHash=${burnTxHash}&sourceChain=${sourceChain}`,
-      );
-      if (res.ok) {
-        const data = await res.json();
-        if (data.status === 'complete') {
-          attestationData = data;
-          break;
-        }
-      }
-    } catch (err) {
-      console.warn('[bridgeAndDeliver] status poll error:', err);
-    }
-    await new Promise((r) => setTimeout(r, 5_000));
-  }
-
+  const attestationData = await waitForBridgeAttestation(burnTxHash, sourceChain, timeoutMs);
   if (!attestationData) {
     throw new Error('Bridge attestation timed out');
   }
-
-  const MESSAGE_TRANSMITTER = MESSAGE_TRANSMITTER_ADDRESS;
 
   let mintTxHash: string | undefined = attestationData.mintTxHash;
   if (!mintTxHash && attestationData.attestation && attestationData.messageBytes) {
@@ -934,32 +965,13 @@ export async function bridgeAndDeliver(
         throw new Error(FUNDS_IN_TRANSIT_MESSAGE);
       }
     } else {
-      const evmDest = destChain as SupportedChain;
-      const standardRpcClient = createPublicClient({
-        chain: VIEM_CHAINS[evmDest],
-        transport: rpcTransport(evmDest),
-      });
-      const isProcessed = await isMessageDelivered(
-        standardRpcClient,
+      mintTxHash = await deliverOnEvmChain(
+        embeddedWallet,
         attestationData.messageBytes,
-        MESSAGE_TRANSMITTER,
+        attestationData.attestation,
+        destChain as SupportedChain,
+        onStatus,
       );
-
-      if (isProcessed) {
-        console.log('[bridgeAndDeliver] Message already processed on-chain. Skipping manual claim popup.');
-        mintTxHash = await findMintTxHash(standardRpcClient, attestationData.messageBytes, MESSAGE_TRANSMITTER);
-        if (!mintTxHash) {
-          mintTxHash = 'N/A';
-        }
-      } else {
-        onStatus?.(`Delivering on ${evmDest}…`);
-        mintTxHash = await executeReceiveMessage(
-          embeddedWallet,
-          attestationData.messageBytes,
-          attestationData.attestation,
-          evmDest,
-        );
-      }
     }
   }
 
@@ -1021,10 +1033,12 @@ export function selectConsolidationSources(params: {
     candidates.push({ type: 'stellar', chain: 'stellar', balance: stellarBalance! });
   }
 
-  candidates.sort((a, b) => b.balance - a.balance);
+  // A route we cannot complete is not a source at all — bridging over it would strand the USDC.
+  const usable = candidates.filter((c) => !isUnsupportedBridgePair(c.chain, targetChain));
+  usable.sort((a, b) => b.balance - a.balance);
 
   const picked: ConsolidationSource[] = [];
-  for (const candidate of candidates) {
+  for (const candidate of usable) {
     if (remaining <= 0) break;
     const take = Math.min(candidate.balance, remaining);
     if (take <= 0) continue;
@@ -1089,6 +1103,12 @@ export async function consolidateFundsToChain(
   });
   if (picked.length === 0) return;
 
+  // Checked before anything is burned. Without a Solana wallet the EVM legs fail at delivery,
+  // after their burns, and no claim could finish them from here.
+  if (targetChain === 'solana' && !solanaWallet?.address && !solanaRecipient) {
+    throw new Error('Moving funds onto Solana is not available here. Please choose another network.');
+  }
+
   const targetName = targetChain === 'stellar' ? 'Stellar' : targetChain === 'solana' ? 'Solana' : CHAIN_NAMES[targetChain as SupportedChain] ?? targetChain;
 
   for (const [index, source] of picked.entries()) {
@@ -1114,9 +1134,11 @@ export async function consolidateFundsToChain(
         solanaWallet,
       });
     } else if (source.type === 'solana' && solana) {
+      // EVM targets only: selectConsolidationSources drops Solana when the target is Stellar.
       onStatus?.(`Moving funds from Solana to ${targetName}…`);
       await solana.bridgeToBase(take.toFixed(6), recipient, onStatus, targetChain as SupportedChain);
     } else if (source.type === 'stellar' && stellar) {
+      // EVM targets only: selectConsolidationSources drops Stellar when the target is Solana.
       onStatus?.(`Moving funds from Stellar to ${targetName}…`);
       await stellar.bridgeToBase(take.toFixed(6), recipient, onStatus, targetChain as SupportedChain);
     }

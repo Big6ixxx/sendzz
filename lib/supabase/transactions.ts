@@ -76,6 +76,13 @@ export async function recordTransfer(params: {
   txHash?: string;
   /** Network the transfer settled on (e.g. 'base', 'polygon'). Optional. */
   chain?: string;
+  /**
+   * Every on-chain movement out of the sender that paid for this transfer, when it is more than
+   * the one `txHash` moving exactly `amount` — a send gathered from several networks, or a
+   * cross-chain burn that carries its fee. `txHash` must be one of them. See
+   * verifyTransferEvidence.
+   */
+  legs?: { chain: string; txHash: string; amount: number }[];
   /** For flows where the `privy-token` cookie isn't present. Verified like any other token. */
   accessToken?: string;
 }): Promise<void> {
@@ -90,7 +97,9 @@ export async function recordTransfer(params: {
     }
 
     const senderEmail = identity.email;
-    const recipientEmail = params.recipientEmail.toLowerCase();
+    // Emails and EVM addresses lowercase; Solana and Stellar addresses are case-sensitive.
+    const { normalizeRecipient } = await import("@/lib/web3/recipient-key");
+    const recipientEmail = normalizeRecipient(params.recipientEmail);
     console.log(
       `[Supabase] Recording transfer: ${redactEmail(senderEmail)} -> ${redactEmail(recipientEmail)} ($${params.amount})`,
     );
@@ -130,20 +139,35 @@ export async function recordTransfer(params: {
     // Only a chain that ANSWERS and disagrees is grounds to refuse. An unreachable RPC returns
     // `unknown` and the row is written, because losing the record of a real payment is the worse
     // failure — that is the bug we just spent this cycle fixing on the send path.
-    const chainForVerify = params.chain?.toLowerCase();
-    const senderWallet =
-      chainForVerify === "stellar"
-        ? sender.stellar_address
-        : chainForVerify === "solana"
-          ? sender.solana_address
-          : sender.smart_account_address;
+    // The Solana wallet comes from Privy when it can. The stored column can be empty (a
+    // registration that skipped it) or stale (written before registration was verified), and
+    // checking a real send against the wrong wallet refuses it.
+    const touchesSolana = [params.chain, ...(params.legs ?? []).map((l) => l.chain)].some(
+      (c) => c?.toLowerCase() === "solana",
+    );
+    let solanaWallet = sender.solana_address;
+    if (touchesSolana) {
+      try {
+        const { privySolanaWallets } = await import("@/lib/auth/session");
+        const wallets = await privySolanaWallets(identity.privyUserId);
+        if (!solanaWallet || !wallets.includes(solanaWallet)) solanaWallet = wallets[0] ?? null;
+      } catch (err) {
+        console.warn("[Supabase] Privy unreachable; verifying against the stored Solana address:", err);
+      }
+    }
 
-    const { verifyUsdcSend } = await import("@/lib/web3/verify-send");
-    const verdict = await verifyUsdcSend({
-      chain: params.chain,
-      txHash: params.txHash,
-      senderAddress: senderWallet,
+    const { verifyTransferEvidence } = await import("@/lib/web3/verify-send");
+    const verdict = await verifyTransferEvidence({
       amount: params.amount,
+      txHash: params.txHash,
+      chain: params.chain,
+      legs: params.legs,
+      senderFor: (chain) =>
+        chain === "stellar"
+          ? sender.stellar_address
+          : chain === "solana"
+            ? solanaWallet
+            : sender.smart_account_address,
     });
 
     if (verdict === "not_found") {
@@ -210,8 +234,13 @@ export async function recordTransfer(params: {
     //
     // Scoped hard: the recipient's own row, this exact hash, and only `provider = 'onchain'`,
     // which is the scanner/webhook's own marker. A real fiat deposit is never touched.
-    if (transferId && params.txHash && recipient?.id) {
-      await clearDuplicateDeposit(recipient.id, params.txHash);
+    // Every leg landed in the recipient's wallet as its own incoming transfer, so each may have
+    // been credited — not only the one whose hash the row carries.
+    if (transferId && recipient?.id) {
+      const hashes = new Set([params.txHash, ...(params.legs ?? []).map((l) => l.txHash)]);
+      for (const hash of hashes) {
+        if (hash) await clearDuplicateDeposit(recipient.id, hash);
+      }
     }
 
     if (!insertError) {
@@ -1150,6 +1179,13 @@ async function evmClient(chain: string) {
   return createPublicClient({ transport: rpcTransport(chain) });
 }
 
+/** A Solana RPC connection, imported lazily for the same bundle reason as `evmClient`. */
+async function solanaConnection() {
+  const { Connection } = await import("@solana/web3.js");
+  const { solanaRpcUrl } = await import("@/lib/solana/rpc");
+  return new Connection(solanaRpcUrl(), "confirmed");
+}
+
 /**
  * The transaction that minted a CCTP message on an EVM destination, if it can be found.
  *
@@ -1171,13 +1207,22 @@ async function findEvmMintTxHash(
   }
 }
 
+/** The Solana transaction that delivered a CCTP message, if it can be found. Best effort. */
+async function findSolanaMintTxHash(messageBytes: string): Promise<string | undefined> {
+  try {
+    const { findSolanaMintSignature } = await import("@/lib/circle/solana-gateway");
+    return await findSolanaMintSignature(await solanaConnection(), messageBytes);
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Has the destination chain already consumed this message's nonce?
  *
  * EVM reads the MessageTransmitter's used-nonce map directly. Stellar has no such read, so it
  * simulates the claim and treats an already-received rejection as proof (see lib/stellar/
- * delivery). Solana still has no check — its burns fall back to the record written when the
- * claim succeeded.
+ * delivery). Solana reads the message's `used_nonce` account, which delivery creates.
  *
  * Returns false whenever the answer is unknown, so an unreachable RPC or an unrecognised error
  * never hides a transfer the user still needs to claim.
@@ -1193,6 +1238,19 @@ async function isBurnDelivered(
     if (!attestation) return false;
     const { isStellarBurnDelivered } = await import("@/lib/stellar/delivery");
     return isStellarBurnDelivered(messageBytes, attestation);
+  }
+
+  if (dest === "solana") {
+    try {
+      const { isSolanaMessageDelivered } = await import("@/lib/circle/solana-gateway");
+      return await isSolanaMessageDelivered(await solanaConnection(), messageBytes);
+    } catch (err) {
+      console.error(
+        "[getPendingBridgeClaims] Delivery check failed on solana:",
+        (err as Error).message,
+      );
+      return false;
+    }
   }
 
   if (!isEvmUsdcChain(dest)) return false;
@@ -1231,6 +1289,23 @@ async function burnExistsOnChain(
   txHash: string,
 ): Promise<boolean | null> {
   const chain = sourceChain.toLowerCase();
+
+  if (chain === "solana") {
+    try {
+      const { value } = await (await solanaConnection()).getSignatureStatus(txHash, {
+        searchTransactionHistory: true,
+      });
+      // No status is NOT "never happened": RPCs without full history — the public endpoint
+      // among them — return null for older signatures even with searchTransactionHistory, and
+      // writing off a real burn hides money that is still claimable. Only a burn that landed
+      // and failed is a definite no.
+      if (!value) return null;
+      return value.err ? false : true;
+    } catch {
+      return null;
+    }
+  }
+
   if (!isEvmUsdcChain(chain) || !txHash.startsWith("0x")) return null;
 
   try {
@@ -1353,7 +1428,9 @@ async function settleIfDelivered(
 
   // Try for the real hash so history can link to an explorer, but do not require it.
   const resolved =
-    (await findEvmMintTxHash(destChain, attested.messageBytes)) ?? PLACEHOLDER_TX_HASH;
+    (destChain.toLowerCase() === "solana"
+      ? await findSolanaMintTxHash(attested.messageBytes)
+      : await findEvmMintTxHash(destChain, attested.messageBytes)) ?? PLACEHOLDER_TX_HASH;
   await updateBridgeStatus(burnTxHash, "complete", resolved);
   return resolved;
 }
@@ -1638,27 +1715,40 @@ export async function getUserActivities(accessToken?: string) {
         bridges: [],
       };
 
-    // Sweep this user's STELLAR address before reading the ledger, so a payment that just
-    // arrived is in this response rather than the next one.
+    // Sweep this user's STELLAR and SOLANA addresses before reading the ledger, so a payment
+    // that just arrived is in this response rather than the next one.
     //
-    // Stellar only. Sweeping the EVM chains from here is what made the Alchemy bill — every open
+    // Never the EVM chains. Sweeping them from here is what made the Alchemy bill — every open
     // tab swept six chains twice a minute, one billed call each — and they are covered by a
-    // webhook now. Stellar is not, and costs nothing to check. See `rails` in
+    // webhook now. Stellar and Solana are not, and are cheap to check (Horizon, and the Solana
+    // RPC from lib/solana/rpc). See `rails` in
     // lib/web3/deposit-scanner.
     //
     // Throttled to 30s per address inside the scanner, so a polling client cannot turn this into
     // a request per poll, and never blocks the history load on failure.
-    if (userRecord?.stellar_address) {
+    if (userRecord?.stellar_address || userRecord?.solana_address) {
       try {
         const { scanUsdcDeposits } = await import("@/lib/web3/deposit-scanner");
-        await scanUsdcDeposits({
-          userId: internalId,
-          address: "",
-          stellarAddress: userRecord.stellar_address,
-          rails: "stellar",
-        });
+        await Promise.all([
+          userRecord.stellar_address
+            ? scanUsdcDeposits({
+                userId: internalId,
+                address: "",
+                stellarAddress: userRecord.stellar_address,
+                rails: "stellar",
+              }).catch((e) => console.error("[Supabase] stellar deposit scan failed (non-fatal):", e))
+            : null,
+          userRecord.solana_address
+            ? scanUsdcDeposits({
+                userId: internalId,
+                address: "",
+                solanaAddress: userRecord.solana_address,
+                rails: "solana",
+              }).catch((e) => console.error("[Supabase] solana deposit scan failed (non-fatal):", e))
+            : null,
+        ]);
       } catch (e) {
-        console.error("[Supabase] stellar deposit scan failed (non-fatal):", e);
+        console.error("[Supabase] deposit scan failed (non-fatal):", e);
       }
     }
 

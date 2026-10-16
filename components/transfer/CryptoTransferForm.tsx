@@ -46,7 +46,6 @@ interface CryptoTransferFormProps {
 }
 
 // Ethereum L1 commented out — see BRIDGE_DISABLED_CHAINS in lib/circle/gateway.
-// Solana commented out while it is disabled — see SOLANA_RECEIVE_ENABLED in lib/circle/gateway.
 const AVAILABLE_CHAINS: (SupportedChain | 'stellar' | 'solana')[] = [
   'base',
   // 'ethereum',
@@ -56,7 +55,7 @@ const AVAILABLE_CHAINS: (SupportedChain | 'stellar' | 'solana')[] = [
   'avalanche',
   'arc',
   'stellar',
-  // 'solana',
+  'solana',
 ];
 
 const ALL_CHAIN_NAMES: Record<SupportedChain | 'stellar' | 'solana', string> = {

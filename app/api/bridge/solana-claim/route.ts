@@ -22,12 +22,21 @@ import { solanaRpcUrl } from '@/lib/solana/rpc';
 import { Buffer } from 'buffer';
 import { initiateDeveloperControlledWalletsClient } from '@circle-fin/developer-controlled-wallets';
 import { Connection, PublicKey } from '@solana/web3.js';
-import { buildReceiveMessageOnSolanaTx } from '@/lib/circle/solana-gateway';
+import {
+  buildReceiveMessageOnSolanaTx,
+  findSolanaMintSignature,
+} from '@/lib/circle/solana-gateway';
+import { classifyClaimFailure, errorText, isAlreadyClaimed } from '@/lib/solana/claim-errors';
 import { fetchAttestation } from '@/lib/circle/gateway';
-import { requireUser } from '@/lib/auth/session';
+import { privySolanaWallets, requireUser } from '@/lib/auth/session';
+import { claimRecipientOwner } from '@/lib/solana/sponsor-policy';
+import { preflightFeePayer } from '@/lib/solana/fee-payer';
+import { classifySolanaSendError, SOLANA_SEND_MESSAGES } from '@/lib/solana/send-errors';
+import bs58 from 'bs58';
 import {
   RATE_LIMITS,
   checkRateLimit,
+  peekRateLimit,
   rateLimitResponse,
 } from '@/lib/security/rate-limit';
 
@@ -36,20 +45,6 @@ const SOLANA_RPC = solanaRpcUrl();
 /** How long to wait for the mint to confirm before handing the retry back to the caller. */
 const CONFIRM_TIMEOUT_MS = 60_000;
 
-/**
- * A replayed claim is the expected outcome of a double-click or a retry after a
- * dropped response, not a failure — the funds are already delivered.
- */
-function isAlreadyClaimed(raw: string): boolean {
-  const lower = raw.toLowerCase();
-  return (
-    lower.includes('nonce already used') ||
-    lower.includes('already received') ||
-    lower.includes('already processed') ||
-    lower.includes('alreadyprocessed')
-  );
-}
-
 export async function POST(req: Request) {
   try {
 
@@ -57,15 +52,17 @@ export async function POST(req: Request) {
     //
     // Signs the claim with our Circle wallet, so every call spends our SOL. Anonymous, it is a
     // faucet for arbitrary transactions.
+    let caller;
     try {
-      await requireUser();
+      caller = await requireUser();
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    const subject = caller.userId ?? caller.privyUserId;
 
-    // Every call spends our SOL.
+    // Every call spends our SOL. Keyed on the account, not the IP.
     {
-      const limit = await checkRateLimit(RATE_LIMITS.sponsor, null);
+      const limit = await checkRateLimit(RATE_LIMITS.sponsor, subject);
       if (!limit.allowed) return rateLimitResponse(limit);
     }
     const {
@@ -118,19 +115,78 @@ export async function POST(req: Request) {
       );
     }
 
+    // Only money arriving at the caller's OWN USDC account is delivered on our SOL. The address
+    // in the body is a hint at most: the wallets come from Privy, and the destination comes from
+    // the attested message itself, which nobody can edit.
+    let wallets: string[];
+    try {
+      wallets = await privySolanaWallets(caller.privyUserId);
+    } catch (err) {
+      console.error('[solana-claim] Could not resolve the caller\'s Solana wallet:', (err as Error).message);
+      return NextResponse.json(
+        { error: 'Claims are temporarily unavailable. Your funds are safe — please try again shortly.' },
+        { status: 503 },
+      );
+    }
+    if (!wallets.includes(solanaAddress)) {
+      return NextResponse.json({ error: 'That Solana wallet is not on this account.' }, { status: 403 });
+    }
+    const owner = claimRecipientOwner(messageBytes, [solanaAddress]);
+    if (!owner) {
+      console.warn(`[solana-claim] REFUSED for ${subject}: message does not mint to their wallet.`);
+      return NextResponse.json(
+        { error: 'This transfer is not addressed to your Solana wallet.', code: 'not_recipient' },
+        { status: 403 },
+      );
+    }
+
     const connection = new Connection(SOLANA_RPC, 'confirmed');
     const payer = new PublicKey(feePayerAddress);
 
-    const { transaction, alreadyClaimed } = await buildReceiveMessageOnSolanaTx(
+    const { transaction, alreadyClaimed, createsMintRecipient } = await buildReceiveMessageOnSolanaTx(
       connection,
       payer,
       messageBytes,
       attestation,
-      new PublicKey(solanaAddress),
+      new PublicKey(owner),
     );
 
-    if (alreadyClaimed) {
-      return NextResponse.json({ alreadyClaimed: true }, { status: 200 });
+    // Already delivered: hand back the mint, so the caller can record a real hash.
+    const delivered = async () =>
+      NextResponse.json(
+        {
+          alreadyClaimed: true,
+          txHash: (await findSolanaMintSignature(connection, messageBytes!)) ?? null,
+        },
+        { status: 200 },
+      );
+
+    if (alreadyClaimed) return delivered();
+
+    // Creating the token account puts its rent on us, and closing it hands that rent to the
+    // user — so it is allowed a few times a month, not once per claim. Only checked here; it is
+    // spent once the mint confirms, so a claim that fails on our side — Circle
+    // down, a stale attestation — does not count against the user.
+    if (createsMintRecipient) {
+      if (!(await peekRateLimit(RATE_LIMITS.solanaAtaRent, subject)).allowed) {
+        console.warn(`[solana-claim] REFUSED token-account rent for ${subject}: monthly limit reached.`);
+        return NextResponse.json(
+          {
+            error: 'Your Solana USDC account needs to be set up again before this can be delivered. Please contact support.',
+            code: 'ata_rent_limited',
+          },
+          { status: 429 },
+        );
+      }
+    }
+
+    // An empty fee payer fails the claim with "no record of a prior credit" — say what it is,
+    // and tell the admins, before signing anything.
+    if ((await preflightFeePayer(connection, payer, createsMintRecipient ? 1 : 0)) === 'insufficient') {
+      return NextResponse.json(
+        { error: SOLANA_SEND_MESSAGES.sponsor_unfunded, code: 'sponsor_unfunded' },
+        { status: 503 },
+      );
     }
 
     const circleClient = initiateDeveloperControlledWalletsClient({ apiKey, entitySecret });
@@ -158,18 +214,23 @@ export async function POST(req: Request) {
     // Preflight is left on: the burn already happened, so a transaction that would
     // fail on-chain is worth catching here — where the reason is still legible —
     // rather than after it lands and we have to reconstruct it from a status object.
-    let signature: string;
+    // The fee payer's signature, first in the list, is the transaction id.
+    let signature = bs58.encode(signedBytes.subarray(1, 65));
     try {
       signature = await connection.sendRawTransaction(signedBytes, {
         preflightCommitment: 'confirmed',
         maxRetries: 5,
       });
     } catch (err) {
-      const raw = err instanceof Error ? err.message : String(err);
-      if (isAlreadyClaimed(raw)) {
-        return NextResponse.json({ alreadyClaimed: true }, { status: 200 });
+      // Preflight failures carry the program's logs separately; read them too.
+      const raw = errorText(err);
+      // These bytes already went out: confirm the signature below like any other broadcast.
+      if (classifySolanaSendError(raw)?.code !== 'already_landed') {
+        const failure = classifyClaimFailure(raw);
+        if (failure.kind === 'already_claimed') return delivered();
+        console.error('[solana-claim] Preflight refused the claim:', raw);
+        return claimFailureResponse(failure);
       }
-      throw err;
     }
 
     const startedAt = Date.now();
@@ -179,19 +240,20 @@ export async function POST(req: Request) {
       });
 
       if (status?.err) {
-        const raw = JSON.stringify(status.err);
-        if (isAlreadyClaimed(raw)) {
-          return NextResponse.json({ alreadyClaimed: true }, { status: 200 });
-        }
+        // The status names only a custom error number; the program's words are in the logs.
+        const landed = await connection
+          .getTransaction(signature, { commitment: 'confirmed', maxSupportedTransactionVersion: 0 })
+          .catch(() => null);
+        const raw = errorText(status.err, landed?.meta?.logMessages);
+        const failure = classifyClaimFailure(raw);
+        if (failure.kind === 'already_claimed') return delivered();
         console.error(`[solana-claim] Mint ${signature} failed on-chain:`, raw);
-        return NextResponse.json(
-          { error: "We couldn't complete the claim right now. Your funds are safe — please try again shortly." },
-          { status: 502 },
-        );
+        return claimFailureResponse(failure);
       }
 
       if (status?.confirmationStatus === 'confirmed' || status?.confirmationStatus === 'finalized') {
         console.log(`[solana-claim] ✓ Minted on Solana: ${signature}`);
+        if (createsMintRecipient) await checkRateLimit(RATE_LIMITS.solanaAtaRent, subject);
         return NextResponse.json({ txHash: signature });
       }
 
@@ -202,8 +264,9 @@ export async function POST(req: Request) {
       await new Promise((resolve) => setTimeout(resolve, 1500));
     }
 
-    // The transaction is signed and broadcast — it may still land. Return the
-    // signature so the caller can record it rather than treating this as a loss.
+    // The transaction is signed and broadcast — it may still land. Return the signature so the
+    // caller can follow it, but `pending` means NOT delivered: callers must not record it as a
+    // mint (see claimOnSolana in lib/web3/bridge-claim).
     return NextResponse.json({ txHash: signature, pending: true });
   } catch (err) {
     const raw = err instanceof Error ? err.message : String(err);
@@ -223,4 +286,15 @@ export async function POST(req: Request) {
       { status: 500 },
     );
   }
+}
+
+/** The response for a claim that failed for a reason other than already being delivered. */
+function claimFailureResponse(failure: Exclude<ReturnType<typeof classifyClaimFailure>, { kind: 'already_claimed' }>) {
+  if (failure.kind === 'attestation_expired') {
+    return NextResponse.json({ error: failure.error, code: failure.code }, { status: 409 });
+  }
+  return NextResponse.json(
+    { error: failure.error, code: failure.code, detail: failure.detail },
+    { status: 502 },
+  );
 }

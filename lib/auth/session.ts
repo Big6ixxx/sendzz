@@ -111,6 +111,49 @@ async function emailForPrivyUser(privyUserId: string): Promise<string | null> {
   }
 }
 
+/**
+ * The Solana addresses of the embedded wallets Privy holds for this user.
+ *
+ * The client says which Solana wallet is "theirs" in several places — registration, the fee-payer
+ * sponsor routes, sponsored claims — and a client can say anything. This is the answer that does
+ * not come from the client: Privy created these wallets and holds their key shares, so they
+ * cannot be claimed by typing an address.
+ *
+ * Throws when Privy cannot be reached and nothing is cached. Callers decide what that means;
+ * none of them may treat it as "no wallets", because that is a different answer.
+ */
+const solanaWalletCache = new Map<string, { addresses: string[]; at: number }>();
+
+export async function privySolanaWallets(privyUserId: string): Promise<string[]> {
+  const hit = solanaWalletCache.get(privyUserId);
+  if (hit && Date.now() - hit.at < EMAIL_FRESH_MS) return hit.addresses;
+
+  try {
+    const privyUser = await privy.users()._get(privyUserId);
+    const addresses = privyUser.linked_accounts
+      .filter(
+        (a) =>
+          a.type === 'wallet' &&
+          'chain_type' in a &&
+          a.chain_type === 'solana' &&
+          'wallet_client_type' in a &&
+          a.wallet_client_type === 'privy',
+      )
+      .map((a) => (a as { address: string }).address);
+
+    // An empty answer is not cached: a wallet created moments ago may not have reached Privy's
+    // server yet, and remembering "none" would refuse that user for the whole cache window.
+    if (addresses.length) solanaWalletCache.set(privyUserId, { addresses, at: Date.now() });
+    return addresses;
+  } catch (err) {
+    if (hit) {
+      console.warn('[Session] Privy wallet lookup failed; using cached Solana wallets.');
+      return hit.addresses;
+    }
+    throw err;
+  }
+}
+
 export async function getVerifiedIdentity(
   accessToken?: string,
 ): Promise<{ email: string; privyUserId: string; sessionId: string } | null> {

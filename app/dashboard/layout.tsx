@@ -6,6 +6,7 @@ import { KycBanner } from "@/components/kyc/KycBanner";
 import { PinAuthorizationProvider } from "@/components/security/PinAuthorizationProvider";
 import { PinRequiredGate, usePinStatus } from "@/components/security/PinRequiredGate";
 import { usePrivy } from "@privy-io/react-auth";
+import { useEnsureSolanaWallet } from "@/hooks/useEnsureSolanaWallet";
 import { Menu } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -29,6 +30,10 @@ export default function DashboardLayout({
   // and the gate only opens on a definite "no" — a failed check must not throw a blocking,
   // undismissable dialog at somebody who already has a PIN.
   const { hasPin, setHasPin } = usePinStatus(ready && authenticated);
+
+  // Users who signed in before Solana wallets were created at login never got one, which left
+  // any Solana USDC they hold with no signer. Created here, once, for every dashboard screen.
+  useEnsureSolanaWallet();
 
   useEffect(() => {
     if (ready && !authenticated) {

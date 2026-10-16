@@ -12,6 +12,7 @@ import {
 } from '@privy-io/react-auth/solana';
 import { Connection } from '@solana/web3.js';
 import { solanaRpcUrl } from '@/lib/solana/rpc';
+import { NETWORK } from '@/lib/network';
 import {
   executeCircleGaslessBatchTransfer,
   executeCircleGaslessTransfer,
@@ -24,6 +25,7 @@ import { SupportedChain, CHAIN_NAMES } from "@/lib/circle/gateway";
 import { recordSendIntent } from "@/lib/actions/pendingSend";
 import {
   planExternalSend,
+  planSolanaSend,
   AUTO_SOURCE,
   type ChainBalances,
   type SolanaSource,
@@ -45,6 +47,11 @@ export interface CrossChainSendInfo {
   recipient: string;
   /** When true, funds are gathered onto Base (from EVM chains + Solana) before delivery. */
   consolidate?: boolean;
+  /**
+   * Solana destination only: bridge this much from `sourceChain` into the sender's OWN Solana
+   * wallet, then send from Solana as usual. See planSolanaSend.
+   */
+  solanaTopUp?: string;
 }
 
 interface UseCryptoTransferProps {
@@ -256,8 +263,32 @@ export function useCryptoTransfer({
     const feePercent = transferFeePercent ?? 0;
     const totalNeeded = amt * (1 + feePercent / 100);
 
-    if (selectedChain === "stellar" || selectedChain === "solana") {
+    if (selectedChain === "stellar") {
       await executeDirectTransfer();
+      return;
+    }
+
+    if (selectedChain === "solana") {
+      // Solana short: bring the gap over from an EVM chain rather than let the send fail
+      // on-chain for want of USDC.
+      const plan = planSolanaSend(totalNeeded, solanaSource?.balance ?? 0, chainBalances ?? {});
+      if (plan.mode === "direct") {
+        await executeDirectTransfer();
+        return;
+      }
+      setLoading(false);
+      setStatus("");
+      if (plan.mode === "top_up" && embeddedProvider) {
+        setBridgeConfirm({
+          sourceChain: plan.sourceChain,
+          destChain: "solana",
+          amount,
+          recipient: recipientAddress,
+          solanaTopUp: plan.amount,
+        });
+        return;
+      }
+      toast.error("Not enough USDC on Solana for this send, and no other network can cover the difference.");
       return;
     }
 
@@ -485,6 +516,7 @@ export function useCryptoTransfer({
     txHash: string,
     note: string,
     chain: SupportedChain | 'stellar' | 'solana',
+    legs?: { chain: string; txHash: string; amount: number }[],
   ) => {
     const { recordTransfer } = await import("@/lib/supabase/transactions");
     await recordTransfer({
@@ -494,6 +526,7 @@ export function useCryptoTransfer({
       note,
       txHash,
       chain,
+      legs,
     });
   };
 
@@ -518,6 +551,93 @@ export function useCryptoTransfer({
       );
     }
     return { usdc: quote.fee.toFixed(6), treasury: quote.treasury };
+  };
+
+  /** The user's Privy Solana wallet and its signer, or a thrown "no wallet". */
+  const resolveSolanaWallet = () => {
+    const solAccount = user?.linkedAccounts.find(
+      (a) =>
+        a.type === 'wallet' &&
+        (a as { walletClientType?: string }).walletClientType === 'privy' &&
+        (a as { chainType?: string }).chainType === 'solana',
+    );
+    const solAddress =
+      solAccount && 'address' in solAccount
+        ? (solAccount as { address: string }).address
+        : undefined;
+    const solWallet = solWallets.find((w) => w.address === solAddress) ?? null;
+    if (!solAddress || !solWallet) {
+      throw new Error("No Solana wallet found. Please link a Solana wallet first.");
+    }
+    return { solAddress, solWallet };
+  };
+
+  /**
+   * Send `amount` (+ fee, + memo) to the recipient from the user's Solana wallet.
+   *
+   * Returns the signature once confirmed. Returns null when it was broadcast but is still
+   * confirming — that case is fully handled here (the user is told, the form is cleared, and the
+   * history row is written from the page once the chain shows it), so the caller just stops.
+   */
+  const sendOnSolana = async (): Promise<string | null> => {
+    const { solAddress, solWallet } = resolveSolanaWallet();
+    const { buildSolanaUsdcTransferTx } = await import("@/lib/solana/usdc-transfer");
+    const { sendSponsoredSolanaTx, waitForSolanaSignature } = await import(
+      "@/lib/web3/solana-sponsored-send"
+    );
+    setStatus("Preparing your transfer on Solana…");
+    const tx = await buildSolanaUsdcTransferTx({
+      connection: solanaConnection,
+      senderAddress: solAddress,
+      recipientAddress,
+      amount,
+      platformFee: (await resolveTransferFee("solana", amount)) ?? undefined,
+      memo: memo || undefined,
+    });
+
+    // Gas, and the rent for a recipient's first USDC account, are ours: the server prepares the
+    // transaction, the user signs it here, and the server co-signs and broadcasts.
+    const result = await sendSponsoredSolanaTx({
+      tx,
+      sign: async (prepared) =>
+        (
+          await signTransaction({
+            transaction: prepared.serialize({
+              requireAllSignatures: false,
+              verifySignatures: false,
+            }),
+            wallet: solWallet,
+            chain: NETWORK.solana.privyCluster,
+          })
+        ).signedTransaction,
+      record: {
+        recipient: recipientAddress,
+        amount: parseFloat(amount),
+        note: memo ? memo : `Crypto transfer on Solana`,
+      },
+      onStatus: setStatus,
+    });
+
+    if (!result.pending) return result.txHash;
+
+    // Broadcast but not yet confirmed — the Stellar rule: never look like a failure the user
+    // should retry.
+    toast.info(
+      `Your ${amount} USDC is still confirming on Solana. Your funds are safe — ` +
+        `please don't send it again; it will appear in your history shortly.`,
+    );
+    // The server writes the history row once the send confirms (recordedByServer), so it does
+    // not depend on this tab staying open; the page only refreshes balances when it sees it.
+    void waitForSolanaSignature(solanaConnection, result.txHash).then((landed) => {
+      if (landed) invalidateBalances();
+    });
+    invalidateBalances();
+    setAmount("");
+    setRecipientAddress("");
+    setMemo("");
+    setStatus("");
+    setLoading(false);
+    return null;
   };
 
   const executeDirectTransfer = async () => {
@@ -588,53 +708,9 @@ export function useCryptoTransfer({
         }
         txHash = data.txHash;
       } else if (selectedChain === "solana") {
-        const solAccount = user?.linkedAccounts.find(
-          (a) =>
-            a.type === 'wallet' &&
-            (a as { walletClientType?: string }).walletClientType === 'privy' &&
-            (a as { chainType?: string }).chainType === 'solana',
-        );
-        const solAddress =
-          solAccount && 'address' in solAccount
-            ? (solAccount as { address: string }).address
-            : undefined;
-        const solWallet = solWallets.find((w) => w.address === solAddress) ?? null;
-
-        if (!solAddress || !solWallet) {
-          throw new Error("No Solana wallet found. Please link a Solana wallet first.");
-        }
-
-        setStatus("Preparing your transfer on Solana…");
-        const { buildSolanaUsdcTransferTx } = await import("@/lib/web3/solana-bridge");
-        const tx = await buildSolanaUsdcTransferTx({
-          connection: solanaConnection,
-          senderAddress: solAddress,
-          recipientAddress,
-          amount,
-          platformFee: (await resolveTransferFee("solana", amount)) ?? undefined,
-        });
-
-        setStatus("Confirming on Solana…");
-        const { signedTransaction } = await signTransaction({
-          transaction: tx.serialize({ requireAllSignatures: false }),
-          wallet: solWallet,
-        });
-
-        const sig = await solanaConnection.sendRawTransaction(signedTransaction, {
-          skipPreflight: false,
-          preflightCommitment: 'confirmed',
-        });
-        const bh = await solanaConnection.getLatestBlockhash();
-        await solanaConnection.confirmTransaction(
-          {
-            signature: sig,
-            blockhash: bh.blockhash,
-            lastValidBlockHeight: bh.lastValidBlockHeight,
-          },
-          'confirmed',
-        );
-
-        txHash = sig;
+        const sent = await sendOnSolana();
+        if (!sent) return;
+        txHash = sent;
       } else {
         if (!embeddedProvider) throw new Error("Wallet provider not connected.");
         const provider = await embeddedProvider.getEthereumProvider();
@@ -738,9 +814,33 @@ export function useCryptoTransfer({
         },
       }).catch(() => undefined);
 
+      // What the ledger records: the transaction that moved the sender's USDC, on the chain it
+      // moved on. For a bridge that is the burn on the SOURCE chain — the mint on the
+      // destination never involves the sender's wallet, so it cannot be checked as their send,
+      // and recording it against the destination chain had every cross-chain send refused.
       let txHash: string;
+      let txChain: SupportedChain | "stellar" | "solana" = info.destChain;
+      let movedAmount = parseFloat(info.amount);
 
-      if (info.consolidate) {
+      if (info.destChain === "solana" && info.solanaTopUp) {
+        // Top up the sender's own Solana wallet from an EVM chain, then send from Solana. The
+        // burn is to ourselves, so the history row is the Solana send — the payment the
+        // recipient actually got. bridgeAndDeliver records the burn on its own.
+        const { solAddress } = resolveSolanaWallet();
+        setStatus("Moving funds to Solana…");
+        await bridgeAndDeliver(embeddedProvider, {
+          sourceChain: info.sourceChain as SupportedChain,
+          destChain: "solana",
+          amountUSDC: info.solanaTopUp,
+          recipient: solAddress,
+          solanaWallet: { address: solAddress },
+          onStatus: undefined,
+        });
+        const sent = await sendOnSolana();
+        if (!sent) return;
+        txHash = sent;
+        txChain = "solana";
+      } else if (info.consolidate) {
         // Gather funds onto Base, then deliver. Honour the user's chosen networks if set.
         const from = sourcePref.mode === "consolidate" ? sourcePref.from : null;
         const allBalances = chainBalances ?? {};
@@ -795,21 +895,22 @@ export function useCryptoTransfer({
                 "base",
               );
         } else {
-          const { burnTxHash, mintTxHash } = await bridgeAndDeliver(embeddedProvider, {
+          const { burnTxHash } = await bridgeAndDeliver(embeddedProvider, {
             sourceChain: "base",
             destChain: info.destChain as SupportedChain,
             amountUSDC: info.amount,
             recipient: info.recipient,
             onStatus: undefined,
           });
-          txHash = mintTxHash ?? burnTxHash;
+          txHash = burnTxHash;
+          txChain = "base";
         }
       } else if (info.sourceChain === "stellar") {
         setStatus(`Sending on ${CHAIN_NAMES[info.destChain as SupportedChain]}…`);
         if (!stellarWallet?.address) throw new Error("Stellar wallet not connected.");
         const feePercent = transferFeePercent ?? 0;
         const totalAmountWithFee = (parseFloat(info.amount) * (1 + feePercent / 100)).toFixed(6);
-        const { burnTxHash, mintTxHash } = await bridgeStellarToBase({
+        const { burnTxHash } = await bridgeStellarToBase({
           walletId: stellarWallet.walletId,
           senderAddress: stellarWallet.address,
           amount: totalAmountWithFee,
@@ -818,25 +919,30 @@ export function useCryptoTransfer({
           destChain: info.destChain as SupportedChain,
           onStatus: undefined,
         });
-        txHash = mintTxHash ?? burnTxHash;
+        txHash = burnTxHash;
+        txChain = "stellar";
+        // The fee rides inside this one burn, so it moved more than the amount sent.
+        movedAmount = parseFloat(totalAmountWithFee);
       } else {
         // A single EVM chain covers it — bridge straight to the recipient.
         setStatus(`Sending on ${CHAIN_NAMES[info.destChain as SupportedChain]}…`);
-        const { burnTxHash, mintTxHash } = await bridgeAndDeliver(embeddedProvider, {
+        const { burnTxHash } = await bridgeAndDeliver(embeddedProvider, {
           sourceChain: info.sourceChain,
           destChain: info.destChain as SupportedChain,
           amountUSDC: info.amount,
           recipient: info.recipient,
           onStatus: undefined,
         });
-        txHash = mintTxHash ?? burnTxHash;
+        txHash = burnTxHash;
+        txChain = info.sourceChain;
       }
 
       setStatus("");
       await recordSentTransfer(
         txHash,
         `Cross-chain transfer to ${info.destChain === "stellar" ? "Stellar" : info.destChain === "solana" ? "Solana" : CHAIN_NAMES[info.destChain as SupportedChain]}`,
-        info.destChain,
+        txChain,
+        [{ chain: txChain, txHash, amount: movedAmount }],
       );
       invalidateBalances();
       toast.success("Transfer delivered!");
