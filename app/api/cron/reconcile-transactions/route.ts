@@ -7,6 +7,7 @@ import { getCorridorFee } from '@/lib/ramp/fees';
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { triggerWithdrawalNotifications } from '@/lib/supabase/transactions';
+import { SOLANA_RECEIVE_ENABLED } from '@/lib/circle/gateway';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -240,8 +241,14 @@ export async function GET(req: Request) {
   const { pruneDeadSessions } = await import('@/lib/auth/session');
   const sessionsPruned = await pruneDeadSessions();
 
-  // ── Stellar deposits: every run, because nothing else watches them ─────────
-  const stellar = await sweepStellar();
+  // ── Stellar and Solana deposits: every run, because nothing else watches them ──
+  //
+  // Solana only while it is switched on — see SOLANA_RECEIVE_ENABLED in lib/circle/gateway.
+  // Until then every scan of it is a no-op that still costs two database reads per user.
+  const [stellar, solana] = await Promise.all([
+    sweepRail('stellar'),
+    SOLANA_RECEIVE_ENABLED ? sweepRail('solana') : Promise.resolve({ scanned: 0, inserted: 0 }),
+  ]);
 
   // ── Full on-chain sweep: once per user per day ─────────────────────────────
   const deposits = await scanStaleUsers();
@@ -289,6 +296,7 @@ export async function GET(req: Request) {
     results,
     deposits,
     stellar,
+    solana,
     sends,
     sessionsPruned,
     refundsOutstanding: { count: owed?.length ?? 0, totalUsdc: owedTotal },
@@ -296,20 +304,29 @@ export async function GET(req: Request) {
   });
 }
 
-/** Scan the least-recently-scanned users for new on-chain USDC deposits, within a time budget. */
 /**
- * Stellar addresses swept per run.
+ * Addresses swept per run, per rail.
  *
  * This is the whole cost of the pass, and it does NOT grow with the user base: 20 Horizon
  * requests every couple of minutes whether there are 20 Stellar users or 2,000. What grows
  * instead is how long a full lap takes — users ÷ 20 runs — which only sets how stale the
  * BACKSTOP can be. Opening the app scans that user's own address immediately (see
  * getUserActivities), so this pass only has to cover people who are not looking.
+ *
+ * Solana is the same shape: one `getSignaturesForAddress` per address per run, plus one
+ * `getParsedTransaction` per NEW signature — free on the public RPC lib/solana/rpc falls back
+ * to, and rate-limited per IP, which is what the fixed batch protects. Chosen over a push
+ * webhook (Helius and similar) because that is a paid plan and a new vendor to verify for what
+ * a fixed handful of free reads every two minutes already does.
  */
 const STELLAR_SWEEP_BATCH = 20;
+const SOLANA_SWEEP_BATCH = 20;
+
+/** The rails with no deposit webhook, which this cron sweeps on every run. */
+type SweptRail = 'stellar' | 'solana';
 
 /**
- * Move a Stellar address to the back of the sweep queue.
+ * Move an address to the back of its rail's sweep queue.
  *
  * Called BEFORE the scan, not after, for two reasons: a scan that then advances the cursor
  * overwrites this row with the correct value anyway, and a scan that throws has still given up
@@ -326,16 +343,16 @@ const STELLAR_SWEEP_BATCH = 20;
  * a window it had finished with. Only the row's absence is worth writing, and then with no cursor
  * at all, which reads as "never scanned".
  */
-async function touchStellarSweep(userId: string): Promise<void> {
+async function touchSweep(userId: string, chain: SweptRail): Promise<void> {
   const { data, error } = await supabaseAdmin
     .from('deposit_sync_state')
     .update({ updated_at: new Date().toISOString() })
     .eq('user_id', userId)
-    .eq('chain', 'stellar')
+    .eq('chain', chain)
     .select('user_id');
 
   if (error) {
-    console.error('[Reconcile Stellar] could not touch sweep cursor:', error.message);
+    console.error(`[Reconcile ${chain}] could not touch sweep cursor:`, error.message);
     return;
   }
   if (data && data.length > 0) return;
@@ -343,30 +360,32 @@ async function touchStellarSweep(userId: string): Promise<void> {
   // No row yet: this address has never been scanned. Claim its turn without inventing a cursor.
   const { error: insertError } = await supabaseAdmin
     .from('deposit_sync_state')
-    .insert({ user_id: userId, chain: 'stellar', cursor: null });
+    .insert({ user_id: userId, chain, cursor: null });
   // A concurrent run inserting first is a duplicate-key error and is not worth reporting.
   if (insertError && insertError.code !== '23505') {
-    console.error('[Reconcile Stellar] could not claim sweep turn:', insertError.message);
+    console.error(`[Reconcile ${chain}] could not claim sweep turn:`, insertError.message);
   }
 }
 
 /**
- * Sweep the least-recently-checked Stellar addresses for incoming USDC.
+ * Sweep the least-recently-checked addresses on one webhook-less rail for incoming USDC.
  *
- * Why Stellar gets its own pass at all: see the `rails` option in lib/web3/deposit-scanner.
- * Horizon is free but rate-limited per IP, which is what the fixed batch above protects.
+ * Why these rails get their own pass at all: see the `rails` option in lib/web3/deposit-scanner.
  */
-async function sweepStellar(): Promise<{ scanned: number; inserted: number }> {
-  const [{ data: users, error }, { data: state }] = await Promise.all([
-    supabaseAdmin.from('users').select('id, stellar_address').not('stellar_address', 'is', null),
-    supabaseAdmin.from('deposit_sync_state').select('user_id, updated_at').eq('chain', 'stellar'),
+async function sweepRail(rail: SweptRail): Promise<{ scanned: number; inserted: number }> {
+  const column = rail === 'stellar' ? 'stellar_address' : 'solana_address';
+  const batchSize = rail === 'stellar' ? STELLAR_SWEEP_BATCH : SOLANA_SWEEP_BATCH;
+  const [{ data: rows, error }, { data: state }] = await Promise.all([
+    supabaseAdmin.from('users').select('id, stellar_address, solana_address').not(column, 'is', null),
+    supabaseAdmin.from('deposit_sync_state').select('user_id, updated_at').eq('chain', rail),
   ]);
 
   if (error) {
-    console.error('[Reconcile Stellar] user query failed:', error.message);
+    console.error(`[Reconcile ${rail}] user query failed:`, error.message);
     return { scanned: 0, inserted: 0 };
   }
-  if (!users || users.length === 0) return { scanned: 0, inserted: 0 };
+  const users = (rows ?? []).map((u) => ({ id: u.id, address: u[column] }));
+  if (users.length === 0) return { scanned: 0, inserted: 0 };
 
   const lastSwept = new Map((state ?? []).map((r) => [r.user_id, r]));
 
@@ -381,7 +400,7 @@ async function sweepStellar(): Promise<{ scanned: number; inserted: number }> {
       if (!tb) return 1;
       return Date.parse(ta) - Date.parse(tb);
     })
-    .slice(0, STELLAR_SWEEP_BATCH);
+    .slice(0, batchSize);
 
   const { scanUsdcDeposits } = await import('@/lib/web3/deposit-scanner');
   let scanned = 0;
@@ -389,25 +408,28 @@ async function sweepStellar(): Promise<{ scanned: number; inserted: number }> {
 
   for (const u of due) {
     try {
-      await touchStellarSweep(u.id);
+      await touchSweep(u.id, rail);
       inserted += await scanUsdcDeposits({
         userId: u.id,
         address: '',
-        stellarAddress: u.stellar_address ?? undefined,
-        rails: 'stellar',
+        ...(rail === 'stellar'
+          ? { stellarAddress: u.address ?? undefined }
+          : { solanaAddress: u.address ?? undefined }),
+        rails: rail,
       });
       scanned++;
     } catch (e) {
-      console.error('[Reconcile Stellar] sweep failed:', e instanceof Error ? e.message : e);
+      console.error(`[Reconcile ${rail}] sweep failed:`, e instanceof Error ? e.message : e);
     }
   }
 
   if (inserted > 0) {
-    console.log(`[Reconcile Stellar] swept ${scanned} address(es), ${inserted} new deposit(s)`);
+    console.log(`[Reconcile ${rail}] swept ${scanned} address(es), ${inserted} new deposit(s)`);
   }
   return { scanned, inserted };
 }
 
+/** Scan the least-recently-scanned users for new on-chain USDC deposits, within a time budget. */
 async function scanStaleUsers(): Promise<{ scanned: number; inserted: number }> {
   // Once per user per day, measured from midnight UTC.
   //

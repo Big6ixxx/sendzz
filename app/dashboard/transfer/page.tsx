@@ -84,11 +84,15 @@ function TransfersPageContent() {
     bridgeToBase && solanaBalance > 0
       ? { balance: solanaBalance, bridgeToBase }
       : undefined;
+  // Solana counts only while something can spend it. Without a signer (no Solana wallet in this
+  // session yet) `solanaSource` is undefined, and the balance is shown but not offered — adding
+  // it here let MAX and the withdrawal check promise money no route could move.
+  const solanaSpendable = solanaSource ? solanaBalance : 0;
   const stellarBalance =
     parseFloat(
       portfolio?.byChain.find((c) => c.chain === "stellar")?.balance ?? "0",
     ) || 0;
-  const totalSpendable = (evmSpendable + solanaBalance + stellarBalance).toFixed(2);
+  const totalSpendable = (evmSpendable + solanaSpendable + stellarBalance).toFixed(2);
 
   useEffect(() => {
     async function initAccount() {

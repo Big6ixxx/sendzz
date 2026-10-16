@@ -4,7 +4,6 @@ import { rpcTransport } from '@/lib/web3/rpc';
 import { VIEM_CHAINS } from '@/lib/web3/multichain';
 import { USDC_ADDRESSES, SOURCE_CHAINS, type SupportedChain } from '@/lib/circle/gateway';
 import { Connection, PublicKey } from '@solana/web3.js';
-import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 import { requireUser } from '@/lib/auth/session';
 import {
   RATE_LIMITS,
@@ -12,6 +11,7 @@ import {
   rateLimitResponse,
 } from '@/lib/security/rate-limit';
 import { solanaRpcUrl } from '@/lib/solana/rpc';
+import { readSolanaUsdcBalance } from '@/lib/solana/usdc-balance';
 import { NETWORK } from '@/lib/network';
 
 const BALANCE_ABI = [
@@ -32,6 +32,14 @@ const SOLANA_USDC_MINT = new PublicKey(NETWORK.solana.usdcMint);
 const SOLANA_RPC = solanaRpcUrl();
 
 /**
+ * How long any one chain's balance read may take before it is omitted.
+ *
+ * Shared by the EVM chains and Solana. Solana used to get 2.5s against the EVM chains' 6s — on the public
+ * endpoint, the slowest of them — so it was the one most often cut off, and it was cut off to 0.
+ */
+const BALANCE_READ_TIMEOUT_MS = 6000;
+
+/**
  * A public client per chain, built from VIEM_CHAINS rather than a second list.
  *
  * The transport is keyed by OUR chain identifier, not viem's display name — those differ
@@ -45,19 +53,6 @@ function getEvmClients(): Record<SupportedChain, ReturnType<typeof createPublicC
       createPublicClient({ chain: VIEM_CHAINS[key], transport: rpcTransport(key) }),
     ]),
   ) as Record<SupportedChain, ReturnType<typeof createPublicClient>>;
-}
-
-/** Fetch Solana USDC balance for a given base58 wallet address. Returns 0 on any error. */
-async function getSolanaUsdcBalance(walletAddress: string): Promise<number> {
-  try {
-    const connection = new Connection(SOLANA_RPC, 'confirmed');
-    const walletPubkey = new PublicKey(walletAddress);
-    const ata = getAssociatedTokenAddressSync(SOLANA_USDC_MINT, walletPubkey);
-    const info = await connection.getTokenAccountBalance(ata);
-    return Number(info.value.uiAmount ?? 0);
-  } catch {
-    return 0;
-  }
 }
 
 /** Validate a Solana base58 public key string. */
@@ -145,7 +140,7 @@ export async function GET(req: NextRequest) {
 
   const clients = getEvmClients();
 
-  // Scan all selected EVM chains in parallel, capped at 2.5 seconds timeout
+  // Scan all selected EVM chains in parallel, each capped at BALANCE_READ_TIMEOUT_MS
   const evmPromises = evmChains.map(async (chain) => {
     try {
       const client = clients[chain];
@@ -158,7 +153,7 @@ export async function GET(req: NextRequest) {
           functionName: 'balanceOf',
           args: [address as `0x${string}`],
         }),
-        6000,
+        BALANCE_READ_TIMEOUT_MS,
         null,
       );
 
@@ -176,19 +171,28 @@ export async function GET(req: NextRequest) {
     }
   });
 
-  // Scan Solana if address provided and valid, capped at 2.5 seconds timeout
+  // Scan Solana if address provided and valid. Unreadable (error or timeout) is omitted, like an
+  // EVM chain — only a wallet with no USDC token account reads as zero. See lib/solana/usdc-balance.
   const solanaPromise = (solanaAddressToUse && isValidSolanaAddress(solanaAddressToUse))
     ? (async () => {
-        try {
-          const bal = await withTimeout(getSolanaUsdcBalance(solanaAddressToUse), 2500, 0);
-          return {
-            chain: 'solana' as const,
-            balance: bal.toString(),
-            hasBalance: bal > 0,
-          };
-        } catch {
+        const bal = await withTimeout(
+          readSolanaUsdcBalance(
+            new Connection(SOLANA_RPC, 'confirmed'),
+            new PublicKey(solanaAddressToUse),
+            SOLANA_USDC_MINT,
+          ),
+          BALANCE_READ_TIMEOUT_MS,
+          null,
+        );
+        if (bal === null) {
+          console.error('[Balances] solana read failed or timed out — omitting from portfolio.');
           return null;
         }
+        return {
+          chain: 'solana' as const,
+          balance: bal,
+          hasBalance: Number(bal) > 0,
+        };
       })()
     : Promise.resolve(null);
 

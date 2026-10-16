@@ -10,10 +10,11 @@ import { Connection, Transaction } from '@solana/web3.js';
 import { bridgeSolanaToBase } from '@/lib/web3/solana-bridge';
 import { settleSolanaOffRamp } from '@/lib/web3/solana-offramp';
 import type { SolanaSource } from '@/lib/web3/routing';
-import { NETWORK } from '@/lib/network';
+import { solanaRpcUrl } from '@/lib/solana/rpc';
 
-const SOLANA_RPC =
-  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? NETWORK.solana.publicRpc;
+// Through lib/solana/rpc like every other Solana call. Reading NEXT_PUBLIC_SOLANA_RPC_URL
+// directly sent the bridge and off-ramp to the Alchemy endpoint that now refuses Solana.
+const SOLANA_RPC = solanaRpcUrl();
 
 /**
  * Provides the capability to bridge the user's Solana USDC onto Base, wiring up the

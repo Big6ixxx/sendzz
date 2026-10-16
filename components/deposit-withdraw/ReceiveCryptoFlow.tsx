@@ -22,6 +22,7 @@ import { toast } from 'sonner';
 import { ChainLogo } from './ChainLogo';
 import { isStellarReady, useActivateStellar } from '@/hooks/useStellarWallet';
 import { SOLANA_RECEIVE_ENABLED } from '@/lib/circle/gateway';
+import { useEnsureSolanaWallet } from '@/hooks/useEnsureSolanaWallet';
 
 type Rail = 'evm' | 'solana' | 'stellar';
 
@@ -61,7 +62,7 @@ interface ReceiveCryptoFlowProps {
 
 export function ReceiveCryptoFlow({
   evmAddress,
-  solanaAddress,
+  solanaAddress: solanaAddressProp,
   stellarAddress,
   stellarTrustlineReady,
 }: ReceiveCryptoFlowProps) {
@@ -69,6 +70,10 @@ export function ReceiveCryptoFlow({
   const [activating, setActivating] = useState(false);
   const [activationFailed, setActivationFailed] = useState(false);
   const activateStellar = useActivateStellar();
+  // Creates the embedded Solana wallet for users who signed in before it was handed out at
+  // login — without it this screen said "still being set up" forever. See the hook.
+  const solanaWallet = useEnsureSolanaWallet();
+  const solanaAddress = solanaAddressProp || solanaWallet.address;
 
   const stellarReady = !!stellarAddress && !!stellarTrustlineReady;
   const address = rail === 'evm' ? evmAddress : rail === 'solana' ? solanaAddress ?? '' : stellarAddress ?? '';
@@ -134,10 +139,25 @@ export function ReceiveCryptoFlow({
 
       {rail === 'solana' && !solanaAddress ? (
         <div
-          className="p-6 rounded-3xl text-center text-sm"
+          className="p-6 rounded-3xl text-center text-sm space-y-4"
           style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(248,248,246,0.5)' }}
         >
-          Your Solana wallet is still being set up. Please try again in a moment.
+          {solanaWallet.status === 'failed' ? (
+            <>
+              <p>We couldn&apos;t set up your Solana wallet. Don&apos;t send anything to Solana until your address shows here.</p>
+              <button
+                onClick={solanaWallet.retry}
+                className="btn-accent mx-auto inline-flex h-11 items-center gap-2 rounded-xl px-5 text-xs font-bold uppercase tracking-widest"
+              >
+                Try again
+              </button>
+            </>
+          ) : (
+            <p className="inline-flex items-center gap-2">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              Setting up your Solana wallet…
+            </p>
+          )}
         </div>
       ) : rail === 'stellar' && !stellarReady ? (
         <div
