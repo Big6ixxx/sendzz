@@ -76,6 +76,13 @@ export async function recordTransfer(params: {
   txHash?: string;
   /** Network the transfer settled on (e.g. 'base', 'polygon'). Optional. */
   chain?: string;
+  /**
+   * Every on-chain movement out of the sender that paid for this transfer, when it is more than
+   * the one `txHash` moving exactly `amount` — a send gathered from several networks, or a
+   * cross-chain burn that carries its fee. `txHash` must be one of them. See
+   * verifyTransferEvidence.
+   */
+  legs?: { chain: string; txHash: string; amount: number }[];
   /** For flows where the `privy-token` cookie isn't present. Verified like any other token. */
   accessToken?: string;
 }): Promise<void> {
@@ -130,20 +137,18 @@ export async function recordTransfer(params: {
     // Only a chain that ANSWERS and disagrees is grounds to refuse. An unreachable RPC returns
     // `unknown` and the row is written, because losing the record of a real payment is the worse
     // failure — that is the bug we just spent this cycle fixing on the send path.
-    const chainForVerify = params.chain?.toLowerCase();
-    const senderWallet =
-      chainForVerify === "stellar"
-        ? sender.stellar_address
-        : chainForVerify === "solana"
-          ? sender.solana_address
-          : sender.smart_account_address;
-
-    const { verifyUsdcSend } = await import("@/lib/web3/verify-send");
-    const verdict = await verifyUsdcSend({
-      chain: params.chain,
-      txHash: params.txHash,
-      senderAddress: senderWallet,
+    const { verifyTransferEvidence } = await import("@/lib/web3/verify-send");
+    const verdict = await verifyTransferEvidence({
       amount: params.amount,
+      txHash: params.txHash,
+      chain: params.chain,
+      legs: params.legs,
+      senderFor: (chain) =>
+        chain === "stellar"
+          ? sender.stellar_address
+          : chain === "solana"
+            ? sender.solana_address
+            : sender.smart_account_address,
     });
 
     if (verdict === "not_found") {
@@ -210,8 +215,13 @@ export async function recordTransfer(params: {
     //
     // Scoped hard: the recipient's own row, this exact hash, and only `provider = 'onchain'`,
     // which is the scanner/webhook's own marker. A real fiat deposit is never touched.
-    if (transferId && params.txHash && recipient?.id) {
-      await clearDuplicateDeposit(recipient.id, params.txHash);
+    // Every leg landed in the recipient's wallet as its own incoming transfer, so each may have
+    // been credited — not only the one whose hash the row carries.
+    if (transferId && recipient?.id) {
+      const hashes = new Set([params.txHash, ...(params.legs ?? []).map((l) => l.txHash)]);
+      for (const hash of hashes) {
+        if (hash) await clearDuplicateDeposit(recipient.id, hash);
+      }
     }
 
     if (!insertError) {

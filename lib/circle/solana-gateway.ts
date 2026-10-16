@@ -48,7 +48,7 @@ export const SOLANA_USDC_MINT = new PublicKey(NETWORK.solana.usdcMint);
 const IRIS_API_BASE = NETWORK.irisApiBase;
 
 // Anchor discriminator = sha256("global:<instruction_name>")[0..8]
-const DEPOSIT_FOR_BURN_DISCRIMINATOR = crypto
+export const DEPOSIT_FOR_BURN_DISCRIMINATOR = crypto
   .createHash('sha256')
   .update('global:deposit_for_burn')
   .digest()
@@ -480,6 +480,8 @@ export interface ReceiveMessageResult {
   mintRecipient: PublicKey;
   /** True when the message's `used_nonce` PDA already exists — the claim is done. */
   alreadyClaimed: boolean;
+  /** True when the transaction also creates `mintRecipient`, with `payer` paying its rent. */
+  createsMintRecipient: boolean;
 }
 
 /**
@@ -543,7 +545,7 @@ export async function buildReceiveMessageOnSolanaTx(
   ]);
 
   if (usedNonceInfo !== null) {
-    return { transaction: new Transaction(), mintRecipient, alreadyClaimed: true };
+    return { transaction: new Transaction(), mintRecipient, alreadyClaimed: true, createsMintRecipient: false };
   }
 
   // The program loads `mint_recipient` as a token account. Anything else means the
@@ -625,5 +627,5 @@ export async function buildReceiveMessageOnSolanaTx(
 
   transaction.add(new TransactionInstruction({ programId: MESSAGE_TRANSMITTER_V2, keys, data }));
 
-  return { transaction, mintRecipient, alreadyClaimed: false };
+  return { transaction, mintRecipient, alreadyClaimed: false, createsMintRecipient: canCreateMintRecipient };
 }

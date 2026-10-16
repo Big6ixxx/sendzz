@@ -24,7 +24,8 @@ import { initiateDeveloperControlledWalletsClient } from '@circle-fin/developer-
 import { Connection, PublicKey } from '@solana/web3.js';
 import { buildReceiveMessageOnSolanaTx } from '@/lib/circle/solana-gateway';
 import { fetchAttestation } from '@/lib/circle/gateway';
-import { requireUser } from '@/lib/auth/session';
+import { privySolanaWallets, requireUser } from '@/lib/auth/session';
+import { claimRecipientOwner } from '@/lib/solana/sponsor-policy';
 import {
   RATE_LIMITS,
   checkRateLimit,
@@ -57,15 +58,17 @@ export async function POST(req: Request) {
     //
     // Signs the claim with our Circle wallet, so every call spends our SOL. Anonymous, it is a
     // faucet for arbitrary transactions.
+    let caller;
     try {
-      await requireUser();
+      caller = await requireUser();
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    const subject = caller.userId ?? caller.privyUserId;
 
-    // Every call spends our SOL.
+    // Every call spends our SOL. Keyed on the account, not the IP.
     {
-      const limit = await checkRateLimit(RATE_LIMITS.sponsor, null);
+      const limit = await checkRateLimit(RATE_LIMITS.sponsor, subject);
       if (!limit.allowed) return rateLimitResponse(limit);
     }
     const {
@@ -118,19 +121,60 @@ export async function POST(req: Request) {
       );
     }
 
+    // Only money arriving at the caller's OWN USDC account is delivered on our SOL. The address
+    // in the body is a hint at most: the wallets come from Privy, and the destination comes from
+    // the attested message itself, which nobody can edit.
+    let wallets: string[];
+    try {
+      wallets = await privySolanaWallets(caller.privyUserId);
+    } catch (err) {
+      console.error('[solana-claim] Could not resolve the caller\'s Solana wallet:', (err as Error).message);
+      return NextResponse.json(
+        { error: 'Claims are temporarily unavailable. Your funds are safe — please try again shortly.' },
+        { status: 503 },
+      );
+    }
+    if (!wallets.includes(solanaAddress)) {
+      return NextResponse.json({ error: 'That Solana wallet is not on this account.' }, { status: 403 });
+    }
+    const owner = claimRecipientOwner(messageBytes, [solanaAddress]);
+    if (!owner) {
+      console.warn(`[solana-claim] REFUSED for ${subject}: message does not mint to their wallet.`);
+      return NextResponse.json(
+        { error: 'This transfer is not addressed to your Solana wallet.', code: 'not_recipient' },
+        { status: 403 },
+      );
+    }
+
     const connection = new Connection(SOLANA_RPC, 'confirmed');
     const payer = new PublicKey(feePayerAddress);
 
-    const { transaction, alreadyClaimed } = await buildReceiveMessageOnSolanaTx(
+    const { transaction, alreadyClaimed, createsMintRecipient } = await buildReceiveMessageOnSolanaTx(
       connection,
       payer,
       messageBytes,
       attestation,
-      new PublicKey(solanaAddress),
+      new PublicKey(owner),
     );
 
     if (alreadyClaimed) {
       return NextResponse.json({ alreadyClaimed: true }, { status: 200 });
+    }
+
+    // Creating the token account puts its rent on us, and closing it hands that rent to the
+    // user — so it is allowed a few times a month, not once per claim.
+    if (createsMintRecipient) {
+      const limit = await checkRateLimit(RATE_LIMITS.solanaAtaRent, subject);
+      if (!limit.allowed) {
+        console.warn(`[solana-claim] REFUSED token-account rent for ${subject}: monthly limit reached.`);
+        return NextResponse.json(
+          {
+            error: 'Your Solana USDC account needs to be set up again before this can be delivered. Please contact support.',
+            code: 'ata_rent_limited',
+          },
+          { status: 429 },
+        );
+      }
     }
 
     const circleClient = initiateDeveloperControlledWalletsClient({ apiKey, entitySecret });

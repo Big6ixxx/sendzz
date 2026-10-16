@@ -15,7 +15,7 @@
  */
 import { Buffer } from 'buffer';
 import { Connection, PublicKey, Transaction } from '@solana/web3.js';
-import { getAssociatedTokenAddressSync, createTransferInstruction } from '@solana/spl-token';
+import { getAssociatedTokenAddressSync, createTransferCheckedInstruction } from '@solana/spl-token';
 import { SOLANA_USDC_MINT } from '@/lib/circle/solana-gateway';
 
 /** USDC has 6 decimals — convert a decimal string to base units. */
@@ -59,11 +59,17 @@ export async function settleSolanaOffRamp(params: {
 
   const tx = new Transaction();
   tx.add(
-    createTransferInstruction(sourceAta, usdcAta(payoutAddress), owner, toSubunits(payoutAmount)),
+    // Checked, because it is the only transfer /api/solana/sponsor will pay for: it names the
+    // mint, so the server can see it is USDC without a network read.
+    createTransferCheckedInstruction(
+      sourceAta, SOLANA_USDC_MINT, usdcAta(payoutAddress), owner, toSubunits(payoutAmount), 6,
+    ),
   );
   if (feeAddress && feeAmount && parseFloat(feeAmount) > 0) {
     tx.add(
-      createTransferInstruction(sourceAta, usdcAta(feeAddress), owner, toSubunits(feeAmount)),
+      createTransferCheckedInstruction(
+        sourceAta, SOLANA_USDC_MINT, usdcAta(feeAddress), owner, toSubunits(feeAmount), 6,
+      ),
     );
   }
 

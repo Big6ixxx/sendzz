@@ -409,12 +409,17 @@ export function useTransfer({
     setLastCompletedTransfer(null);
     setStatus("Looking up recipient…");
     setIsPendingClaim(false);
+    // Read below, in this same call — state set here is not visible until the next render, so
+    // the closure's `isPendingClaim` would still say false and a send to a brand-new user was
+    // recorded as completed rather than awaiting claim.
+    let pendingClaim = false;
 
     try {
       const { lookupRecipientAddress } = await import("@/lib/supabase/users");
       let recipientAddress = await lookupRecipientAddress(recipientEmail);
 
       if (!recipientAddress) {
+        pendingClaim = true;
         setIsPendingClaim(true);
         setStatus("New to Sendzz — setting up a secure wallet for them…");
 
@@ -583,10 +588,17 @@ export function useTransfer({
       await recordTransfer({
         recipientEmail,
         amount: parseFloat(amountUsdc),
-        status: isPendingClaim ? "pending_claim" : "completed",
+        status: pendingClaim ? "pending_claim" : "completed",
         note: memo,
         txHash,
         chain: plan.legs[0]?.chain,
+        // A send gathered from several networks is one transaction per network, each moving its
+        // own share. The ledger checks every one; the first alone never covers the full amount.
+        legs: plan.legs.map((leg, i) => ({
+          chain: leg.chain,
+          txHash: txHashes[i],
+          amount: parseFloat(leg.amount),
+        })),
       });
 
       // Notify recipient — fire-and-forget so a failed email never blocks the transfer
@@ -595,7 +607,7 @@ export function useTransfer({
       notifyTransferSent({
         recipientEmail,
         amountUsdc,
-        isPendingClaim,
+        isPendingClaim: pendingClaim,
         note: memo || undefined,
       }).catch((err) =>
         console.error("[Transfer] Email notification failed:", err),

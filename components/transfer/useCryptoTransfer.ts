@@ -485,6 +485,7 @@ export function useCryptoTransfer({
     txHash: string,
     note: string,
     chain: SupportedChain | 'stellar' | 'solana',
+    legs?: { chain: string; txHash: string; amount: number }[],
   ) => {
     const { recordTransfer } = await import("@/lib/supabase/transactions");
     await recordTransfer({
@@ -494,6 +495,7 @@ export function useCryptoTransfer({
       note,
       txHash,
       chain,
+      legs,
     });
   };
 
@@ -738,7 +740,13 @@ export function useCryptoTransfer({
         },
       }).catch(() => undefined);
 
+      // What the ledger records: the transaction that moved the sender's USDC, on the chain it
+      // moved on. For a bridge that is the burn on the SOURCE chain — the mint on the
+      // destination never involves the sender's wallet, so it cannot be checked as their send,
+      // and recording it against the destination chain had every cross-chain send refused.
       let txHash: string;
+      let txChain: SupportedChain | "stellar" | "solana" = info.destChain;
+      let movedAmount = parseFloat(info.amount);
 
       if (info.consolidate) {
         // Gather funds onto Base, then deliver. Honour the user's chosen networks if set.
@@ -795,21 +803,22 @@ export function useCryptoTransfer({
                 "base",
               );
         } else {
-          const { burnTxHash, mintTxHash } = await bridgeAndDeliver(embeddedProvider, {
+          const { burnTxHash } = await bridgeAndDeliver(embeddedProvider, {
             sourceChain: "base",
             destChain: info.destChain as SupportedChain,
             amountUSDC: info.amount,
             recipient: info.recipient,
             onStatus: undefined,
           });
-          txHash = mintTxHash ?? burnTxHash;
+          txHash = burnTxHash;
+          txChain = "base";
         }
       } else if (info.sourceChain === "stellar") {
         setStatus(`Sending on ${CHAIN_NAMES[info.destChain as SupportedChain]}…`);
         if (!stellarWallet?.address) throw new Error("Stellar wallet not connected.");
         const feePercent = transferFeePercent ?? 0;
         const totalAmountWithFee = (parseFloat(info.amount) * (1 + feePercent / 100)).toFixed(6);
-        const { burnTxHash, mintTxHash } = await bridgeStellarToBase({
+        const { burnTxHash } = await bridgeStellarToBase({
           walletId: stellarWallet.walletId,
           senderAddress: stellarWallet.address,
           amount: totalAmountWithFee,
@@ -818,25 +827,30 @@ export function useCryptoTransfer({
           destChain: info.destChain as SupportedChain,
           onStatus: undefined,
         });
-        txHash = mintTxHash ?? burnTxHash;
+        txHash = burnTxHash;
+        txChain = "stellar";
+        // The fee rides inside this one burn, so it moved more than the amount sent.
+        movedAmount = parseFloat(totalAmountWithFee);
       } else {
         // A single EVM chain covers it — bridge straight to the recipient.
         setStatus(`Sending on ${CHAIN_NAMES[info.destChain as SupportedChain]}…`);
-        const { burnTxHash, mintTxHash } = await bridgeAndDeliver(embeddedProvider, {
+        const { burnTxHash } = await bridgeAndDeliver(embeddedProvider, {
           sourceChain: info.sourceChain,
           destChain: info.destChain as SupportedChain,
           amountUSDC: info.amount,
           recipient: info.recipient,
           onStatus: undefined,
         });
-        txHash = mintTxHash ?? burnTxHash;
+        txHash = burnTxHash;
+        txChain = info.sourceChain;
       }
 
       setStatus("");
       await recordSentTransfer(
         txHash,
         `Cross-chain transfer to ${info.destChain === "stellar" ? "Stellar" : info.destChain === "solana" ? "Solana" : CHAIN_NAMES[info.destChain as SupportedChain]}`,
-        info.destChain,
+        txChain,
+        [{ chain: txChain, txHash, amount: movedAmount }],
       );
       invalidateBalances();
       toast.success("Transfer delivered!");

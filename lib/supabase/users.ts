@@ -28,7 +28,7 @@
  * reachable only from server code that has already decided the caller may act.
  */
 
-import { requireUser } from '@/lib/auth/session';
+import { privySolanaWallets, requireUser } from '@/lib/auth/session';
 import { RATE_LIMITS, checkRateLimit } from '@/lib/security/rate-limit';
 import {
   readSmartAccountAddress,
@@ -57,11 +57,11 @@ export async function registerMyAddresses(input: {
   referralCode?: string | null;
   accessToken?: string;
 }): Promise<void> {
-  const { email } = await requireUser(input.accessToken);
+  const { email, privyUserId } = await requireUser(input.accessToken);
 
   const userId = await writeUserAddresses(email, {
     smartAccountAddress: input.address,
-    solanaAddress: input.solanaAddress,
+    solanaAddress: await verifiedSolanaAddress(privyUserId, input.solanaAddress),
     stellarAddress: input.stellarAddress,
     stellarWalletId: input.stellarWalletId,
     stellarSignerGranted: input.stellarSignerGranted,
@@ -72,6 +72,29 @@ export async function registerMyAddresses(input: {
   if (input.referralCode && userId) {
     await attributeReferral({ userId, code: input.referralCode });
   }
+}
+
+/**
+ * The Solana address to store, or undefined to leave the stored one alone.
+ *
+ * `solana_address` is what sends are verified against, where refunds go, and what deposit
+ * scanning credits — so it is only written when Privy confirms the wallet is this user's own
+ * embedded wallet. Anything else is dropped rather than thrown: registration runs on every
+ * dashboard load, and failing it would break sign-in over a field most users never touch.
+ */
+async function verifiedSolanaAddress(
+  privyUserId: string,
+  claimed: string | undefined,
+): Promise<string | undefined> {
+  if (!claimed) return undefined;
+  try {
+    const wallets = await privySolanaWallets(privyUserId);
+    if (wallets.includes(claimed)) return claimed;
+    console.warn('[Users] Ignoring a Solana address that is not one of this user\'s Privy wallets.');
+  } catch (err) {
+    console.warn('[Users] Could not verify Solana address; leaving it unchanged:', (err as Error).message);
+  }
+  return undefined;
 }
 
 /** Record the signed-in user's own Stellar wallet. */

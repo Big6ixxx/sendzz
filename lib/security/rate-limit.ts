@@ -64,6 +64,15 @@ export const RATE_LIMITS = {
 
   /** Signing with our fee payer. Every call spends real money. */
   sponsor: { name: 'sponsor', limit: 30, windowMs: 10 * 60 * 1000 },
+
+  /**
+   * A sponsored claim that also creates the user's USDC token account, rent on us.
+   *
+   * A legitimate user needs this once. Unlimited, it is a rent farm: claim into a fresh account,
+   * close it to collect the rent, repeat. A few per month leaves room for a wallet that was
+   * genuinely closed and recreated.
+   */
+  solanaAtaRent: { name: 'solana-ata-rent', limit: 3, windowMs: 30 * 24 * 60 * 60 * 1000 },
 } as const satisfies Record<string, RateLimitRule>;
 
 /**
