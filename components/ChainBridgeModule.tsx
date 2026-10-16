@@ -439,6 +439,8 @@ export function ChainBridgeModule({
       }
 
       let burnTxHash: string;
+      // Set once the Solana burn is recorded at broadcast, so it is not written twice.
+      let burnRecorded = false;
       if (source === "stellar") {
         if (!stellarWallet?.walletId || !stellarWallet?.address) {
           throw new Error(
@@ -494,11 +496,22 @@ export function ChainBridgeModule({
           chain: NETWORK.solana.privyCluster,
         });
 
-        // Broadcast it ourselves, and confirm against its own blockhash.
+        // Broadcast it ourselves, and confirm against its own blockhash. Recorded on broadcast:
+        // a confirmation that throws does not mean the burn failed to land.
         const signature = await sendAndConfirmSigned(
           solConn.current,
           signedBytes,
           sponsoredTx.lastValidBlockHeight,
+          async (sig) => {
+            await recordBurn({
+              userEmail,
+              sourceChain: source,
+              destChain: dest,
+              amountUsdc: amountNum,
+              burnTxHash: sig,
+            });
+            burnRecorded = true;
+          },
         );
 
         burnTxHash = signature;
@@ -521,13 +534,15 @@ export function ChainBridgeModule({
         burnTxHash = await txHashPromise;
       }
 
-      await recordBurn({
-        userEmail,
-        sourceChain: source,
-        destChain: dest,
-        amountUsdc: amountNum,
-        burnTxHash,
-      });
+      if (!burnRecorded) {
+        await recordBurn({
+          userEmail,
+          sourceChain: source,
+          destChain: dest,
+          amountUsdc: amountNum,
+          burnTxHash,
+        });
+      }
 
       setMonitor({ burnTxHash, sourceChain: source, destChain: dest });
       setPhase("monitoring");

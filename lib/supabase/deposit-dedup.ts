@@ -18,13 +18,24 @@ import { supabaseAdmin } from './adminClient';
  * Server-only rather than in transactions.ts, which is a "use server" module: anything exported
  * there can be called from the browser.
  */
+/**
+ * Every form a deposit row may hold this hash in.
+ *
+ * EVM hashes are hex and stored lowercased (the webhook and scanner both fold them). A Solana
+ * signature is base58, where case is part of the value, so it is stored exactly as the chain
+ * wrote it — and a lowercased lookup never finds it.
+ */
+export function depositHashForms(txHash: string): string[] {
+  return [...new Set([txHash, txHash.toLowerCase()])];
+}
+
 export async function clearDuplicateDeposit(userId: string, txHash: string): Promise<void> {
   try {
     const { data: removed, error } = await supabaseAdmin
       .from('deposits')
       .delete()
       .eq('user_id', userId)
-      .eq('tx_hash', txHash.toLowerCase())
+      .in('tx_hash', depositHashForms(txHash))
       .eq('provider', 'onchain')
       .select('id');
     if (error) throw error;

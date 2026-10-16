@@ -49,13 +49,16 @@ export function useSolanaBridge(): {
     const conn = connection;
 
     // Sign with the Privy Solana wallet + broadcast, for the CCTP burn.
-    const signAndBroadcast = async (tx: Transaction): Promise<string> => {
+    const signAndBroadcast = async (
+      tx: Transaction,
+      onBroadcast: (signature: string) => Promise<void>,
+    ): Promise<string> => {
       const { signedTransaction } = await signTransaction({
         transaction: tx.serialize({ requireAllSignatures: false }),
         wallet: solWallet,
         chain: NETWORK.solana.privyCluster,
       });
-      return sendAndConfirmSigned(conn, signedTransaction, tx.lastValidBlockHeight);
+      return sendAndConfirmSigned(conn, signedTransaction, tx.lastValidBlockHeight, onBroadcast);
     };
 
     const bridgeToBase: SolanaSource['bridgeToBase'] = async (amount, recipient, onStatus, destChain) => {
@@ -87,6 +90,7 @@ export function useSolanaBridge(): {
             await signTransaction({
               transaction: tx.serialize({ requireAllSignatures: false, verifySignatures: false }),
               wallet: solWallet,
+              chain: NETWORK.solana.privyCluster,
             })
           ).signedTransaction,
       });

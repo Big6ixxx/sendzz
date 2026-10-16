@@ -16,6 +16,8 @@ export interface SponsoredSendResult {
   txHash: string;
   /** Broadcast but not yet confirmed. It may well land — never offer a retry. */
   pending: boolean;
+  /** Pending, and the server will write the history row itself once it confirms. */
+  recordedByServer: boolean;
 }
 
 /**
@@ -53,9 +55,14 @@ export async function sendSponsoredSolanaTx(params: {
   sign: SolanaSign;
   /** For off-ramp settlement: the server attaches the signature to this withdrawal on broadcast. */
   withdrawalOrderId?: string;
+  /**
+   * For a direct send: the history row, so the server can write it if the send is still
+   * confirming when it answers — the page may be closed by the time it lands.
+   */
+  record?: { recipient: string; amount: number; note?: string };
   onStatus?: (status: string) => void;
 }): Promise<SponsoredSendResult> {
-  const { tx, sign, withdrawalOrderId, onStatus } = params;
+  const { tx, sign, withdrawalOrderId, record, onStatus } = params;
 
   onStatus?.("Preparing your transfer on Solana…");
   const prepared = await post("/api/solana/sponsor", {
@@ -71,9 +78,14 @@ export async function sendSponsoredSolanaTx(params: {
   const submitted = await post("/api/solana/submit", {
     transaction: Buffer.from(signed).toString("base64"),
     ...(withdrawalOrderId ? { withdrawalOrderId } : {}),
+    ...(record ? { record } : {}),
   });
 
-  return { txHash: String(submitted.txHash), pending: submitted.pending === true };
+  return {
+    txHash: String(submitted.txHash),
+    pending: submitted.pending === true,
+    recordedByServer: submitted.recordedByServer === true,
+  };
 }
 
 /**

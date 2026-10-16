@@ -31,7 +31,12 @@
  */
 import { supabaseAdmin } from '@/lib/supabase/adminClient';
 import type { Json } from '@/types/database';
-import { DEPOSIT_CHAINS, USDC_ADDRESSES, type SupportedChain } from '@/lib/circle/gateway';
+import {
+  DEPOSIT_CHAINS,
+  SOLANA_RECEIVE_ENABLED,
+  USDC_ADDRESSES,
+  type SupportedChain,
+} from '@/lib/circle/gateway';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { STELLAR_CCTP_FORWARDER, STELLAR_HORIZON_URL, STELLAR_USDC_ISSUER } from '@/lib/stellar/config';
 import { NETWORK } from '@/lib/network';
@@ -41,7 +46,7 @@ import { VIEM_CHAINS } from './multichain';
 import { scanSolana } from './solana-deposit-scan';
 
 /**
- * Solana deposit scanning is switched off.
+ * Solana deposit scanning follows SOLANA_RECEIVE_ENABLED, and is off while that is.
  *
  * Solana is disabled on the Alchemy app, and NEXT_PUBLIC_SOLANA_RPC_URL points at
  * `solana-mainnet.g.alchemy.com` — so every Solana read used to fail at the endpoint. It failed
@@ -50,9 +55,12 @@ import { scanSolana } from './solana-deposit-scan';
  * Reads now go to lib/solana/rpc (SOLANA_RPC_URL, else the public endpoint), but the scan stays
  * off until Solana receive is switched on as a whole.
  *
- * The scan itself (./solana-deposit-scan) is maintained and tested, not parked. Turning it back
- * on is uncommenting the Solana branch in scanUsdcDeposits — every other switch is listed on
- * SOLANA_RECEIVE_ENABLED in lib/circle/gateway.
+ * The scan itself (./solana-deposit-scan) is maintained and tested, not parked. It is gated on
+ * the flag rather than commented out: the cron's frequent Solana sweep and the history-load scan
+ * are gated on the same flag, and when the branch here was a comment, turning the flag on ran
+ * those sweeps over a scanner that returned nothing — every user marked scanned, no deposit
+ * ever found, nothing logged. Every switch is listed on SOLANA_RECEIVE_ENABLED in
+ * lib/circle/gateway.
  *
  * Stellar is untouched and still scanned — it reads Horizon (horizon.stellar.org), which is
  * Stellar's own infrastructure and has nothing to do with Alchemy or this bill.
@@ -340,9 +348,6 @@ async function scanEvmChain(
  * The scan itself lives in ./solana-deposit-scan, so it can be tested without this module's
  * Supabase client.
  */
-// Retained, not dead: this is what the commented-out branch in scanUsdcDeposits calls when
-// Solana is switched back on.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function scanSolanaRail(
   userId: string,
   ownerAddress: string,
@@ -557,11 +562,10 @@ export async function scanUsdcDeposits(params: {
           }
         })
       : []),
-    // Solana — SWITCHED OFF, see the note above ALCHEMY_SUBDOMAIN.
-    // (rails === 'all' || rails === 'solana') && params.solanaAddress
-    //   ? scanSolanaRail(userId, params.solanaAddress, cursors.get('solana') ?? null, known)
-    //   : Promise.resolve(EMPTY('solana')),
-    Promise.resolve(EMPTY('solana')),
+    // Solana — only while it is switched on; see the note above ALCHEMY_SUBDOMAIN.
+    SOLANA_RECEIVE_ENABLED && (rails === 'all' || rails === 'solana') && params.solanaAddress
+      ? scanSolanaRail(userId, params.solanaAddress, cursors.get('solana') ?? null, known)
+      : Promise.resolve(EMPTY('solana')),
     // Stellar
     (rails === 'all' || rails === 'stellar') && params.stellarAddress
       ? (async () => {

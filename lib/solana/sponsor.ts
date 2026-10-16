@@ -19,7 +19,7 @@
  */
 import 'server-only';
 
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { Buffer } from 'buffer';
 import bs58 from 'bs58';
 import { initiateDeveloperControlledWalletsClient } from '@circle-fin/developer-controlled-wallets';
@@ -44,6 +44,10 @@ import {
 import { TOKEN_MESSENGER_MINTER_V2 } from '@/lib/circle/solana-gateway';
 import { solanaRpcUrl } from './rpc';
 import { getFeeTreasury } from '@/lib/fees/platform-fees';
+import { preflightFeePayer } from './fee-payer';
+import { reserveRent } from './rent-quota';
+import { parseSendRecord } from './send-record';
+import { classifySolanaSendError, SOLANA_SEND_MESSAGES } from './send-errors';
 
 /** FEE_TREASURY_SOLANA as a key, or null when unset or malformed. */
 function solanaFeeTreasury(): PublicKey | null {
@@ -56,8 +60,6 @@ function solanaFeeTreasury(): PublicKey | null {
     return null;
   }
 }
-import { preflightFeePayer } from './fee-payer';
-import { classifySolanaSendError, SOLANA_SEND_MESSAGES } from './send-errors';
 
 export type SponsorKind = 'transfer' | 'burn';
 
@@ -65,6 +67,13 @@ const UNAVAILABLE = 'Gas sponsorship is temporarily unavailable. Please try agai
 
 /** How long submit waits for the send to confirm before answering "still confirming". */
 const CONFIRM_TIMEOUT_MS = 45_000;
+
+/**
+ * How much longer the server keeps watching a "still confirming" send, after answering, to write
+ * its history row. Past a blockhash's ~90s life the send has either landed or never will.
+ */
+const LATE_CONFIRM_TIMEOUT_MS = 120_000;
+
 
 interface FeePayerEnv {
   apiKey: string;
@@ -112,8 +121,8 @@ async function missingAccounts(connection: Connection, accounts: PublicKey[]): P
 }
 
 /**
- * Whether this caller may open `count` more token accounts on us. Peeks only — the quota is
- * spent in `chargeRent`, once the send has landed.
+ * Whether this caller may open `count` more token accounts on us. Peeks only, for the prepare
+ * step, which signs nothing — submit reserves the quota for real (`reserveRent`).
  */
 async function rentAllowed(subject: string, count: number): Promise<boolean> {
   if (count === 0) return true;
@@ -121,11 +130,6 @@ async function rentAllowed(subject: string, count: number): Promise<boolean> {
   return peek.allowed && peek.used + count <= RATE_LIMITS.solanaSendAtaRent.limit;
 }
 
-async function chargeRent(subject: string, count: number): Promise<void> {
-  for (let i = 0; i < count; i++) {
-    await checkRateLimit(RATE_LIMITS.solanaSendAtaRent, subject);
-  }
-}
 
 /** The first of the caller's Privy wallets the transfer policy accepts as owner, or null. */
 function transferOwner(tx: Transaction, feePayer: PublicKey, wallets: string[]) {
@@ -292,15 +296,20 @@ export async function handleSubmitRequest(req: Request, caller: SessionUser): Pr
     if (!env) return json({ error: UNAVAILABLE }, 500);
     const { feePayer } = env;
 
-    const { transaction, withdrawalOrderId } = (await req.json().catch(() => ({}))) as {
+    const { transaction, withdrawalOrderId, record } = (await req.json().catch(() => ({}))) as {
       transaction?: unknown;
       withdrawalOrderId?: unknown;
+      record?: unknown;
     };
     if (!transaction || typeof transaction !== 'string') {
       return json({ error: 'transaction (base64 string) is required' }, 400);
     }
     if (withdrawalOrderId !== undefined && typeof withdrawalOrderId !== 'string') {
       return json({ error: 'withdrawalOrderId must be a string' }, 400);
+    }
+    const sendRecord = parseSendRecord(record);
+    if (record !== undefined && !sendRecord) {
+      return json({ error: 'record must be { recipient, amount, note? }' }, 400);
     }
 
     const tx = decodeLegacyTransaction(transaction);
@@ -353,10 +362,14 @@ export async function handleSubmitRequest(req: Request, caller: SessionUser): Pr
         400,
       );
     }
-    if (!(await rentAllowed(subject, created.length))) return rentLimited();
     if ((await preflightFeePayer(connection, feePayer, created.length)) === 'insufficient') {
       return sponsorUnfunded();
     }
+    // Last check before our signature goes on, so the quota is held by the time anything can land.
+    const reserved = await reserveRent(created.length, () =>
+      checkRateLimit(RATE_LIMITS.solanaSendAtaRent, subject),
+    );
+    if (!reserved) return rentLimited();
 
     const circleClient = initiateDeveloperControlledWalletsClient({
       apiKey: env.apiKey,
@@ -434,12 +447,37 @@ export async function handleSubmitRequest(req: Request, caller: SessionUser): Pr
       return json({ error: SOLANA_SEND_MESSAGES.blockhash_expired, code: 'blockhash_expired' }, 409);
     }
 
-    // Landed, or may yet: a pending send is charged too, since it cannot be stopped now.
-    await chargeRent(subject, created.length);
-
     if (outcome.state === 'pending') {
       console.warn(`${tag} ${signature} broadcast but not confirmed within ${CONFIRM_TIMEOUT_MS}ms`);
-      return json({ txHash: signature, pending: true });
+      // The page is told "still confirming" and may well close. The history row used to be
+      // written from the page once the chain showed the send, so a closed tab meant a payment
+      // with no row. The server keeps watching instead, and writes it here. recordTransfer
+      // checks the send against the chain like any other, so `record` gains the caller nothing.
+      if (sendRecord) {
+        after(async () => {
+          const late = await awaitConfirmation(
+            connection,
+            signature,
+            bytes,
+            tx.recentBlockhash!,
+            LATE_CONFIRM_TIMEOUT_MS,
+          );
+          if (late.state !== 'confirmed') {
+            console.warn(`${tag} ${signature} still not confirmed (${late.state}); no history row written.`);
+            return;
+          }
+          const { recordTransfer } = await import('@/lib/supabase/transactions');
+          await recordTransfer({
+            recipientEmail: sendRecord.recipient,
+            amount: sendRecord.amount,
+            status: 'completed',
+            note: sendRecord.note,
+            txHash: signature,
+            chain: 'solana',
+          });
+        });
+      }
+      return json({ txHash: signature, pending: true, recordedByServer: !!sendRecord });
     }
     return json({ txHash: signature });
   } catch (err) {
@@ -470,9 +508,10 @@ async function awaitConfirmation(
   signature: string,
   bytes: Buffer,
   blockhash: string,
+  timeoutMs: number = CONFIRM_TIMEOUT_MS,
 ): Promise<Confirmation> {
   const startedAt = Date.now();
-  while (Date.now() - startedAt < CONFIRM_TIMEOUT_MS) {
+  while (Date.now() - startedAt < timeoutMs) {
     const { value: status } = await connection
       .getSignatureStatus(signature, { searchTransactionHistory: true })
       .catch(() => ({ value: null }));

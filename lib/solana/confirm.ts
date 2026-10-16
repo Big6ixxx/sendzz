@@ -38,11 +38,19 @@ export function keepLifetime(to: Transaction, from: { lastValidBlockHeight?: num
   return to;
 }
 
-/** Broadcast a signed transaction and wait for it, against its own blockhash. */
+/**
+ * Broadcast a signed transaction and wait for it, against its own blockhash.
+ *
+ * `onBroadcast` runs once the RPC has accepted the transaction and BEFORE confirmation is
+ * awaited. That is the moment an irreversible transaction — a burn — must be written down: a
+ * confirmation that throws (a dropped socket, a rate limit) does not mean it failed to land, and
+ * recording only after confirming left landed burns with no record and no Claim button.
+ */
 export async function sendAndConfirmSigned(
   connection: Connection,
   signed: Uint8Array,
   lastValidBlockHeight: number | undefined,
+  onBroadcast?: (signature: string) => Promise<void>,
 ): Promise<string> {
   // Without a recorded height, fall back to the current one — later than the real one, so it
   // waits too long rather than declaring a live transaction dead.
@@ -53,6 +61,7 @@ export async function sendAndConfirmSigned(
     skipPreflight: false,
     preflightCommitment: 'confirmed',
   });
+  await onBroadcast?.(signature);
   const result = await connection.confirmTransaction({ signature, ...lifetime }, 'confirmed');
   if (result.value.err) {
     throw new Error(`Solana transaction failed: ${JSON.stringify(result.value.err)}`);

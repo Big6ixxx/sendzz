@@ -610,32 +610,26 @@ export function useCryptoTransfer({
             chain: NETWORK.solana.privyCluster,
           })
         ).signedTransaction,
+      record: {
+        recipient: recipientAddress,
+        amount: parseFloat(amount),
+        note: memo ? memo : `Crypto transfer on Solana`,
+      },
       onStatus: setStatus,
     });
 
     if (!result.pending) return result.txHash;
 
     // Broadcast but not yet confirmed — the Stellar rule: never look like a failure the user
-    // should retry. The row is written from here once the chain shows it.
+    // should retry.
     toast.info(
       `Your ${amount} USDC is still confirming on Solana. Your funds are safe — ` +
         `please don't send it again; it will appear in your history shortly.`,
     );
-    const note = memo ? memo : `Crypto transfer on Solana`;
-    const sentAmount = parseFloat(amount);
-    const sentTo = recipientAddress;
-    void waitForSolanaSignature(solanaConnection, result.txHash).then(async (landed) => {
-      if (!landed) return;
-      const { recordTransfer } = await import("@/lib/supabase/transactions");
-      await recordTransfer({
-        recipientEmail: sentTo,
-        amount: sentAmount,
-        status: "completed",
-        note,
-        txHash: result.txHash,
-        chain: "solana",
-      });
-      invalidateBalances();
+    // The server writes the history row once the send confirms (recordedByServer), so it does
+    // not depend on this tab staying open; the page only refreshes balances when it sees it.
+    void waitForSolanaSignature(solanaConnection, result.txHash).then((landed) => {
+      if (landed) invalidateBalances();
     });
     invalidateBalances();
     setAmount("");

@@ -1295,8 +1295,11 @@ async function burnExistsOnChain(
       const { value } = await (await solanaConnection()).getSignatureStatus(txHash, {
         searchTransactionHistory: true,
       });
-      // Unknown to the chain, or landed and failed: either way nothing was burned.
-      if (!value) return false;
+      // No status is NOT "never happened": RPCs without full history — the public endpoint
+      // among them — return null for older signatures even with searchTransactionHistory, and
+      // writing off a real burn hides money that is still claimable. Only a burn that landed
+      // and failed is a definite no.
+      if (!value) return null;
       return value.err ? false : true;
     } catch {
       return null;

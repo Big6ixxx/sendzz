@@ -178,7 +178,11 @@ export async function bridgeSolanaToBase(params: {
   amount: string;
   recipientEvm: string;
   evmWallet: ConnectedWallet;
-  signAndBroadcast: (tx: Transaction) => Promise<string>;
+  /** Signs and broadcasts; must call `onBroadcast` with the signature before confirming. */
+  signAndBroadcast: (
+    tx: Transaction,
+    onBroadcast: (signature: string) => Promise<void>,
+  ) => Promise<string>;
   destChain?: SupportedChain;
   onStatus?: (status: string) => void;
   timeoutMs?: number;
@@ -205,15 +209,16 @@ export async function bridgeSolanaToBase(params: {
   });
 
   onStatus?.("Confirming on Solana…");
-  const burnTxHash = await signAndBroadcast(sponsoredTx);
-
-  // Irreversible from here, so make it known before anything else can fail.
-  await recordConsolidationBurn({
-    burnTxHash,
-    sourceChain: "solana",
-    destChain,
-    amountUsdc: amount,
-  });
+  // Irreversible from the broadcast, so it is recorded then — not after confirming, which can
+  // throw for a burn that landed and would leave it with no Claim button.
+  const burnTxHash = await signAndBroadcast(sponsoredTx, (signature) =>
+    recordConsolidationBurn({
+      burnTxHash: signature,
+      sourceChain: "solana",
+      destChain,
+      amountUsdc: amount,
+    }),
+  );
 
   onStatus?.(`Burn confirmed! Moving funds onto ${destName}…`);
   const attestation = await waitForBridgeAttestation(

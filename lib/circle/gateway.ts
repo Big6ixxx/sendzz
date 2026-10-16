@@ -154,11 +154,10 @@ export const BRIDGE_DISABLED_CHAINS: SupportedChain[] = ['ethereum'];
  *   - RAILS (components/deposit-withdraw/ReceiveCryptoFlow)  — the receive tab
  *   - sweepRail('solana') (app/api/cron/reconcile-transactions) — frequent deposit sweep
  *   - the Solana scan in getUserActivities (lib/supabase/transactions) — scan on history load
+ *   - the Solana branch in scanUsdcDeposits (lib/web3/deposit-scanner) — the scan every sweep
+ *     above, and the daily full sweep, runs (lib/web3/solana-deposit-scan)
  *
  *   Commented out, to restore by hand:
- *   - the Solana branch in scanUsdcDeposits (lib/web3/deposit-scanner) — without it every
- *     scan above, and the daily full sweep, skips Solana. The scan behind it
- *     (lib/web3/solana-deposit-scan) is maintained and tested.
  *   - AVAILABLE_CHAINS (components/transfer/CryptoTransferForm) — the send network picker
  *   - allSources (components/ChainBridgeModule)              — Solana as a bridge source/destination
  *   - NON_EVM_RAILS (app/dashboard/settings/page)            — the Solana address in settings
