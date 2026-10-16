@@ -372,3 +372,75 @@ export async function sendReferralTreasuryAlert(
     console.error("[AdminAlert] referral-treasury alert threw:", err);
   }
 }
+
+export interface SolanaFeePayerAlert {
+  address: string;
+  balanceSol: number;
+  thresholdSol: number;
+  network: string;
+  /** True when it can no longer pay for a sponsored transaction at all. */
+  blocking: boolean;
+}
+
+/**
+ * Tell the admins the Solana fee payer needs SOL.
+ *
+ * Every sponsored Solana send, off-ramp settlement, burn and claim is paid from it, so when it
+ * empties they all fail at once — with an error that names nobody. A CONDITION, so the caller
+ * gates it through lib/ops/alert-cooldown. Never throws.
+ */
+export async function sendSolanaFeePayerAlert(alert: SolanaFeePayerAlert): Promise<void> {
+  try {
+    const to = parseAdminRecipients(process.env.ADMIN_EMAILS);
+    if (to.length === 0) {
+      console.error(
+        "[AdminAlert] Solana fee payer low but NO admin recipients configured — set ADMIN_EMAILS. " +
+          `${alert.address} holds ${alert.balanceSol.toFixed(4)} SOL.`,
+      );
+      return;
+    }
+
+    const accent = alert.blocking ? "#B42318" : "#B54708";
+    const headline = alert.blocking
+      ? "Solana sponsorship has stopped: the fee payer cannot pay for another transaction."
+      : "The Solana fee payer is running low.";
+
+    const html = baseTemplate(`
+    <div>
+      <h1 style="font-size: 30px; font-weight: 900; color: ${accent}; margin: 0 0 12px 0;">${esc(alert.balanceSol.toFixed(4))} SOL</h1>
+      <p style="font-size: 14px; line-height: 1.7; color: #3f3f3f; margin: 0 0 12px 0;">${esc(headline)}
+        Solana sends, withdrawals settled on Solana, and CCTP burns and claims are all paid from this
+        wallet. Top it up with SOL on ${esc(alert.network)}.</p>
+      <p style="font-size: 13px; color: #3f3f3f; margin: 0;">Wallet: <span style="font-family: 'Courier New', Courier, monospace; word-break: break-all;">${esc(alert.address)}</span></p>
+      <p style="font-size: 13px; color: #3f3f3f; margin: 4px 0 0 0;">Alert threshold: ${esc(alert.thresholdSol.toFixed(2))} SOL</p>
+    </div>
+  `);
+
+    const text = [
+      `${alert.blocking ? "SOLANA SPONSORSHIP STOPPED" : "SOLANA FEE PAYER LOW"} — ${alert.balanceSol.toFixed(4)} SOL`,
+      ``,
+      headline,
+      `Solana sends, withdrawals settled on Solana, and CCTP burns and claims are all paid from`,
+      `this wallet. Top it up with SOL on ${alert.network}.`,
+      ``,
+      `Wallet:    ${alert.address}`,
+      `Threshold: ${alert.thresholdSol.toFixed(2)} SOL`,
+    ].join("\n");
+
+    const res = await sendEmail({
+      to,
+      subject: alert.blocking
+        ? `[Action required] Solana fee payer empty — ${alert.balanceSol.toFixed(4)} SOL left`
+        : `[Heads up] Solana fee payer low — ${alert.balanceSol.toFixed(4)} SOL left`,
+      html,
+      text,
+    });
+    if (!res.success) {
+      console.error(`[AdminAlert] solana-feepayer email failed: ${res.error}`);
+      return;
+    }
+    console.log(`[AdminAlert] solana-feepayer alert sent to ${to.length} admin(s)`);
+  } catch (err) {
+    console.error("[AdminAlert] solana-feepayer alert threw:", err);
+  }
+}

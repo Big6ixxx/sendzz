@@ -48,7 +48,7 @@ export function useSolanaBridge(): {
     if (!evmWallet || !solWallet || !solAddress) return { bridgeToBase: null, settleOffRamp: null };
     const conn = connection;
 
-    // Sign with the Privy Solana wallet + broadcast; shared by bridge and off-ramp settlement.
+    // Sign with the Privy Solana wallet + broadcast, for the CCTP burn.
     const signAndBroadcast = async (tx: Transaction): Promise<string> => {
       const { signedTransaction } = await signTransaction({
         transaction: tx.serialize({ requireAllSignatures: false }),
@@ -79,8 +79,16 @@ export function useSolanaBridge(): {
         payoutAmount: p.payoutAmount,
         feeAddress: p.feeAddress,
         feeAmount: p.feeAmount,
+        withdrawalOrderId: p.withdrawalOrderId,
         onStatus: p.onStatus,
-        signAndBroadcast,
+        // Sign only: the server co-signs and broadcasts (lib/solana/sponsor).
+        sign: async (tx) =>
+          (
+            await signTransaction({
+              transaction: tx.serialize({ requireAllSignatures: false, verifySignatures: false }),
+              wallet: solWallet,
+            })
+          ).signedTransaction,
       });
 
     return { bridgeToBase, settleOffRamp };

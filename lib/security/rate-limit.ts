@@ -73,6 +73,17 @@ export const RATE_LIMITS = {
    * genuinely closed and recreated.
    */
   solanaAtaRent: { name: 'solana-ata-rent', limit: 3, windowMs: 30 * 24 * 60 * 60 * 1000 },
+
+  /**
+   * A sponsored Solana send that opens a token account for its recipient (or our treasury),
+   * rent on us.
+   *
+   * Unlike the claim case this one is legitimately repeated — every first send to a new address
+   * opens an account — but it is the same rent farm if unbounded: send 1 USDC to a wallet you
+   * own, close the account, keep the rent. Spent only when the send lands (see
+   * lib/solana/sponsor), so a failed or abandoned send costs the user nothing.
+   */
+  solanaSendAtaRent: { name: 'solana-send-ata-rent', limit: 10, windowMs: 30 * 24 * 60 * 60 * 1000 },
 } as const satisfies Record<string, RateLimitRule>;
 
 /**
@@ -139,7 +150,8 @@ export async function checkRateLimit(
 }
 
 /**
- * Whether one more attempt WOULD be allowed, without spending it.
+ * Whether one more attempt WOULD be allowed, without spending it. `used` says how much of the
+ * window is gone, for callers about to spend more than one.
  *
  * For limits on an outcome rather than an attempt — "we paid this rent" — where spending on a
  * try that then fails would charge the user for our failure. Read-then-act is racy by nature
@@ -147,14 +159,15 @@ export async function checkRateLimit(
  * a concurrent burst can overshoot by the size of the burst, and the caller must already be
  * bounded by an attempt limit for that to be acceptable.
  *
- * Fails open like `checkRateLimit`, for the same reason.
+ * Fails open like `checkRateLimit`, for the same reasons.
  */
 export async function peekRateLimit(
   rule: RateLimitRule,
   subject?: string | null,
-): Promise<boolean> {
+): Promise<RateLimitResult> {
   const who = subject ? `user:${subject}` : `ip:${await callerIp()}`;
   const key = `${rule.name}:${who}`;
+
   try {
     const { data, error } = await supabaseAdmin
       .from('rate_limits')
@@ -162,13 +175,32 @@ export async function peekRateLimit(
       .eq('key', key)
       .maybeSingle();
     if (error) throw new Error(error.message);
-    if (!data) return true;
-    const elapsed = Date.now() - new Date(data.window_start).getTime();
-    return elapsed >= rule.windowMs || Number(data.count) < rule.limit;
+    return peekVerdict(rule, data, Date.now());
   } catch (err) {
-    console.error(`[RateLimit] NOT ENFORCING ${key} — could not read it:`, (err as Error).message);
-    return true;
+    console.error(
+      `[RateLimit] NOT ENFORCING ${key} (peek) — the limiter is unreachable:`,
+      (err as Error).message,
+    );
+    return { allowed: true, used: 0, resetAt: null, retryAfterSeconds: 0 };
   }
+}
+
+/** The pure half of `peekRateLimit`: the same window arithmetic as consume_rate_limit. */
+export function peekVerdict(
+  rule: RateLimitRule,
+  row: { window_start: string; count: number } | null,
+  now: number,
+): RateLimitResult {
+  if (!row) return { allowed: true, used: 0, resetAt: null, retryAfterSeconds: 0 };
+  const resetMs = new Date(row.window_start).getTime() + rule.windowMs;
+  if (resetMs <= now) return { allowed: true, used: 0, resetAt: null, retryAfterSeconds: 0 };
+  const used = Number(row.count ?? 0);
+  return {
+    allowed: used < rule.limit,
+    used,
+    resetAt: new Date(resetMs),
+    retryAfterSeconds: Math.max(1, Math.ceil((resetMs - now) / 1000)),
+  };
 }
 
 /** The 429 to return when a limit is hit, with the header a well-behaved client reads. */

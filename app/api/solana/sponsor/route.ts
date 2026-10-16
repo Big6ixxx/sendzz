@@ -3,14 +3,14 @@ import { requireUser } from '@/lib/auth/session';
 import { handleSponsorRequest } from '@/lib/solana/sponsor';
 
 /**
- * Solana gas sponsor for USDC payments (off-ramp settlement): puts the Circle DCW fee payer on
- * the transaction and has Circle sign it.
+ * Prepare a sponsored USDC payment (direct sends and off-ramp settlement).
  *
- * Only a USDC TransferChecked out of the caller's own wallet is signed — see
- * lib/solana/sponsor-policy. Unlike /api/bridge/solana-sponsor it mutates no instruction keys.
+ * Checks the client's transaction against lib/solana/sponsor-policy, makes the Circle DCW fee
+ * payer its fee payer and the rent payer of any new token account, and returns it UNSIGNED for
+ * the user to sign. /api/solana/submit adds our signature and broadcasts — see lib/solana/sponsor.
  */
 export async function POST(req: Request) {
-  // Signed-in callers only: every call spends our SOL.
+  // Signed-in callers only: what this prepares spends our SOL once submitted.
   let caller;
   try {
     caller = await requireUser();

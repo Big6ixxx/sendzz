@@ -23,7 +23,6 @@ import {
 import {
   createTransferCheckedInstruction,
   getAssociatedTokenAddressSync,
-  createAssociatedTokenAccountInstruction,
 } from "@solana/spl-token";
 import {
   fetchCctpFees,
@@ -240,96 +239,4 @@ export async function bridgeSolanaToBase(params: {
   if (!isPlaceholderHash(mintTxHash)) await clearConsolidationBurn(burnTxHash);
 
   return { burnTxHash, mintTxHash };
-}
-
-/**
- * Build a Solana same-chain SPL USDC transfer transaction.
- * Appends associated token account initialization if the recipient doesn't have one.
- */
-export async function buildSolanaUsdcTransferTx(params: {
-  connection: Connection;
-  senderAddress: string;
-  recipientAddress: string;
-  amount: string;
-  /**
-   * Platform fee, sent to the treasury in the SAME transaction as the transfer — so the two
-   * confirm together, matching how the EVM rails batch the fee into one user operation.
-   */
-  platformFee?: { usdc: string; treasury: string };
-}): Promise<Transaction> {
-  const { connection, senderAddress, recipientAddress, amount, platformFee } = params;
-  const senderPubKey = new PublicKey(senderAddress);
-  const recipientPubKey = new PublicKey(recipientAddress);
-
-  const senderAta = getAssociatedTokenAddressSync(
-    SOLANA_USDC_MINT,
-    senderPubKey,
-  );
-  const recipientAta = getAssociatedTokenAddressSync(
-    SOLANA_USDC_MINT,
-    recipientPubKey,
-  );
-
-  const tx = new Transaction();
-
-  const recipientAtaInfo = await connection.getAccountInfo(recipientAta);
-  if (!recipientAtaInfo) {
-    tx.add(
-      createAssociatedTokenAccountInstruction(
-        senderPubKey,
-        recipientAta,
-        recipientPubKey,
-        SOLANA_USDC_MINT,
-      ),
-    );
-  }
-
-  const amountSubunits = BigInt(Math.round(parseFloat(amount) * 1_000_000));
-  tx.add(
-    createTransferCheckedInstruction(
-      senderAta,
-      SOLANA_USDC_MINT,
-      recipientAta,
-      senderPubKey,
-      amountSubunits,
-      6,
-    ),
-  );
-
-  if (platformFee) {
-    const treasuryPubKey = new PublicKey(platformFee.treasury);
-    const treasuryAta = getAssociatedTokenAddressSync(SOLANA_USDC_MINT, treasuryPubKey, true);
-
-    // The treasury's token account may not exist yet — create it here rather than letting the
-    // transfer fail, which would take the user's send down with it.
-    const treasuryAtaInfo = await connection.getAccountInfo(treasuryAta);
-    if (!treasuryAtaInfo) {
-      tx.add(
-        createAssociatedTokenAccountInstruction(
-          senderPubKey,
-          treasuryAta,
-          treasuryPubKey,
-          SOLANA_USDC_MINT,
-        ),
-      );
-    }
-
-    tx.add(
-      createTransferCheckedInstruction(
-        senderAta,
-        SOLANA_USDC_MINT,
-        treasuryAta,
-        senderPubKey,
-        BigInt(Math.round(parseFloat(platformFee.usdc) * 1_000_000)),
-        6,
-      ),
-    );
-  }
-
-  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
-  tx.recentBlockhash = blockhash;
-  tx.lastValidBlockHeight = lastValidBlockHeight;
-  tx.feePayer = senderPubKey;
-
-  return tx;
 }

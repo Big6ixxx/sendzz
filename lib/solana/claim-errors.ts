@@ -7,6 +7,8 @@
  * failure and the user was told to retry something that could never succeed.
  */
 
+import { classifySolanaSendError } from './send-errors';
+
 /**
  * A replayed claim is the expected outcome of a double-click or a retry after a dropped
  * response, not a failure — the funds are already delivered.
@@ -15,12 +17,15 @@
  * because a previous delivery already did.
  */
 export function isAlreadyClaimed(raw: string): boolean {
+  // The RPC's own "This transaction has already been processed" (AlreadyProcessed) is NOT one of
+  // these: it means these exact bytes were broadcast before, not that the message was delivered
+  // — so the route confirms the signature it holds instead.
+  if (classifySolanaSendError(raw)?.code === 'already_landed') return false;
   const lower = raw.toLowerCase();
   return (
     lower.includes('nonce already used') ||
     lower.includes('already received') ||
     lower.includes('already processed') ||
-    lower.includes('alreadyprocessed') ||
     lower.includes('already in use')
   );
 }

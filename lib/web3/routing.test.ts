@@ -4,6 +4,7 @@ import {
   planBatchRoute,
   planWithdrawalRoute,
   planExternalSend,
+  planSolanaSend,
 } from './routing';
 
 describe('planTransferRoute', () => {
@@ -269,5 +270,34 @@ describe('source overrides', () => {
     expect(plan.needsConsolidation).toBe(true);
     expect(plan.consolidateFrom).toEqual(['polygon', 'solana']);
     expect(plan.chain).toBe('polygon'); // settles on the highest-balance supported chain
+  });
+});
+
+describe('planSolanaSend', () => {
+  it('sends directly when Solana holds enough', () => {
+    expect(planSolanaSend(10, 10, { base: 100 })).toEqual({ mode: 'direct' });
+  });
+
+  it('tops up only the shortfall, plus a margin for the CCTP fee, from the home chain first', () => {
+    expect(planSolanaSend(10, 4, { polygon: 100, base: 100 })).toEqual({
+      mode: 'top_up',
+      sourceChain: 'base',
+      amount: '6.03',
+    });
+  });
+
+  it('keeps a minimum margin on small shortfalls', () => {
+    expect(planSolanaSend(1, 0.5, { base: 5 })).toMatchObject({ amount: '0.51' });
+  });
+
+  it('falls back to another chain that covers the top-up', () => {
+    expect(planSolanaSend(10, 0, { base: 3, polygon: 20 })).toMatchObject({
+      mode: 'top_up',
+      sourceChain: 'polygon',
+    });
+  });
+
+  it('is infeasible when no single EVM chain covers the gap', () => {
+    expect(planSolanaSend(10, 0, { base: 6, polygon: 6 })).toEqual({ mode: 'infeasible' });
   });
 });

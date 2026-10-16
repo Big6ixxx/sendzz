@@ -26,7 +26,7 @@ vi.mock('next/headers', () => ({
   headers: () => Promise.resolve(new Map([['x-forwarded-for', '203.0.113.7, 10.0.0.1']])),
 }));
 
-import { RATE_LIMITS, checkRateLimit, rateLimitResponse } from './rate-limit';
+import { RATE_LIMITS, checkRateLimit, peekVerdict, rateLimitResponse } from './rate-limit';
 
 beforeEach(() => {
   rpcArgs = null;
@@ -126,5 +126,32 @@ describe('rateLimitResponse', () => {
     // The header a well-behaved client actually reads, rather than only a message a human would.
     expect(res.headers.get('Retry-After')).toBe('90');
     await expect(res.json()).resolves.toMatchObject({ retryAfterSeconds: 90 });
+  });
+});
+
+describe('peekVerdict', () => {
+  const rule = { name: 't', limit: 3, windowMs: 60_000 };
+  const now = Date.parse('2026-10-16T12:00:00Z');
+  const started = (agoMs: number) => new Date(now - agoMs).toISOString();
+
+  it('allows a key that has never been spent', () => {
+    expect(peekVerdict(rule, null, now).allowed).toBe(true);
+  });
+
+  it('allows while the live window is under the limit, without counting this peek', () => {
+    expect(peekVerdict(rule, { window_start: started(1000), count: 2 }, now)).toMatchObject({
+      allowed: true,
+      used: 2,
+    });
+  });
+
+  it('refuses at the limit inside the window', () => {
+    const v = peekVerdict(rule, { window_start: started(1000), count: 3 }, now);
+    expect(v.allowed).toBe(false);
+    expect(v.retryAfterSeconds).toBe(59);
+  });
+
+  it('allows again once the window has elapsed, as consume_rate_limit would reset it', () => {
+    expect(peekVerdict(rule, { window_start: started(60_000), count: 99 }, now).allowed).toBe(true);
   });
 });
