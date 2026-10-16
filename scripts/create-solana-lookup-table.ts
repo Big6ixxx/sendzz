@@ -36,6 +36,14 @@ const APPLY = process.argv.includes('--apply');
 /** Addresses per extend instruction. Each is 32 bytes, and the transaction must still fit. */
 const PER_EXTEND = 20;
 
+/** A lookup table account's fixed header, before its 32 bytes per address. */
+const ALT_HEADER_BYTES = 56;
+
+/** Headroom over rent for the create and extend fees, which are a few thousand lamports. */
+const FEE_BUFFER_LAMPORTS = 100_000;
+
+const sol = (lamports: number) => (lamports / 1e9).toFixed(6);
+
 function required(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is required. Set it in .env first.`);
@@ -67,6 +75,24 @@ async function main() {
 
   const wanted = await solanaClaimLookupAddresses(connection);
   console.log(`${wanted.length} address(es) belong in the table.`);
+
+  // Checked before anything is signed, because the raw failure is unhelpful: the lookup table
+  // program logs success and the transaction then fails as InsufficientFundsForRent, with the
+  // balance named nowhere.
+  const [balance, rent] = await Promise.all([
+    connection.getBalance(feePayer),
+    connection.getMinimumBalanceForRentExemption(ALT_HEADER_BYTES + wanted.length * 32),
+  ]);
+  const needed = rent + FEE_BUFFER_LAMPORTS;
+  console.log(`Fee-payer balance: ${sol(balance)} SOL; this needs about ${sol(needed)} SOL.`);
+  if (balance < needed) {
+    throw new Error(
+      `${feePayer.toBase58()} holds ${sol(balance)} SOL and needs about ${sol(needed)} SOL to ` +
+        'hold the table. Fund it and run this again.\n' +
+        'It also pays for each claim afterwards: about 0.0007 SOL for the message account, and ' +
+        '0.0015 SOL more when the recipient has no USDC account yet.',
+    );
+  }
 
   /** Sign with the fee payer, send, and wait. */
   const send = async (instructions: TransactionInstruction[]) => {
