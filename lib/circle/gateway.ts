@@ -1,4 +1,5 @@
 import { EXPLORER_TX_BASE } from '@/lib/explorers';
+import { NETWORK } from '@/lib/network';
 
 export const CCTP_DOMAINS: Record<string, number> = {
   ethereum: 0,
@@ -21,23 +22,12 @@ export type SupportedChain =
   | 'polygon'
   | 'arc';
 
-// CCTP V2 TokenMessengerV2 — same address across all EVM chains (CREATE2 deployment)
-export const TOKEN_MESSENGER_V2 =
-  '0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d' as const;
+// CCTP V2 TokenMessengerV2 — same address across all EVM chains (CREATE2 deployment).
+// Mainnet or testnet per lib/network.
+export const TOKEN_MESSENGER_V2 = NETWORK.tokenMessengerV2;
 
-// USDC contract addresses per chain
-export const USDC_ADDRESSES: Record<SupportedChain, string> = {
-  ethereum: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-  avalanche: '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E',
-  optimism: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
-  arbitrum: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
-  base: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-  polygon: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
-  // A precompile rather than a deployed contract, but it exposes the standard ERC-20 interface
-  // at 6 decimals like every other entry here. Arc's 18-decimal gas unit is a separate thing —
-  // see the note on `arc` in lib/web3/multichain.ts.
-  arc: '0x3600000000000000000000000000000000000000',
-};
+// USDC contract addresses per chain (lib/network holds both tables).
+export const USDC_ADDRESSES: Record<SupportedChain, string> = NETWORK.usdc;
 
 /**
  * Every EVM chain we can read USDC movement on.
@@ -63,15 +53,7 @@ export const CHAIN_NAMES: Record<SupportedChain, string> = {
   arc: 'Arc',
 };
 
-export const CHAIN_IDS: Record<SupportedChain, number> = {
-  ethereum: 1,
-  avalanche: 43114,
-  optimism: 10,
-  arbitrum: 42161,
-  base: 8453,
-  polygon: 137,
-  arc: 5042,
-};
+export const CHAIN_IDS: Record<SupportedChain, number> = NETWORK.chainIds;
 
 /**
  * EVM explorer bases, kept for existing callers. The full per-chain map (including Solana
@@ -187,8 +169,8 @@ export const GAS_POLICY_IDS: Partial<Record<SupportedChain, string | undefined>>
   polygon:   process.env.NEXT_PUBLIC_CIRCLE_GAS_POLICY_POLYGON,
 };
 
-// Circle Iris API base URL (mainnet)
-const IRIS_API_BASE = 'https://iris-api.circle.com/v2';
+// Circle Iris API base URL — sandbox on testnet.
+const IRIS_API_BASE = NETWORK.irisApiBase;
 
 // ─── Fee Fetching ───────────────────────────────────────────────────────────
 

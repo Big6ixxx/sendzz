@@ -13,18 +13,18 @@
  * false. A trustline problem, an unreachable RPC, or a contract error we don't recognise must
  * never be read as "delivered" — that would hide a transfer the user still needs to claim.
  */
-import { Contract, Keypair, Networks, TransactionBuilder, xdr } from '@stellar/stellar-sdk';
+import { Contract, Keypair, TransactionBuilder, xdr } from '@stellar/stellar-sdk';
 import { rpc as SorobanRpc } from '@stellar/stellar-sdk';
 
 import { loadStellarAccount } from '@/lib/circle/stellar-gateway';
+import { NETWORK } from '@/lib/network';
+import { STELLAR_CCTP_FORWARDER } from '@/lib/stellar/config';
 
 const STELLAR_RPC_URL =
   process.env.NEXT_PUBLIC_STELLAR_RPC_URL ||
-  'https://soroban-rpc.mainnet.stellar.gateway.fm';
-const STELLAR_CCTP_FORWARDER =
-  process.env.NEXT_PUBLIC_STELLAR_CCTP_FORWARDER ||
-  'CBZL2IH7F6BIDAA3WBNXYKIXSATJGMSW7K5P5MJ6STX5RXN47TZJDF5T';
-const STELLAR_NETWORK_PASSPHRASE = Networks.PUBLIC;
+  NETWORK.stellar.rpcUrl;
+const STELLAR_NETWORK_PASSPHRASE =
+  process.env.NEXT_PUBLIC_STELLAR_NETWORK_PASSPHRASE || NETWORK.stellar.networkPassphrase;
 
 /**
  * Contract error codes that mean "this message has already been consumed".

@@ -17,13 +17,13 @@
 import {
   Asset,
   Keypair,
-  Networks,
   Operation,
   Transaction,
   TransactionBuilder,
 } from '@stellar/stellar-sdk';
 import { PrivyClient } from '@privy-io/node';
 import { STELLAR_HORIZON_URL, STELLAR_USDC_ISSUER as USDC_CLASSIC_ISSUER } from '@/lib/stellar/config';
+import { NETWORK } from '@/lib/network';
 
 // ── Privy client ─────────────────────────────────────────────────────────────
 
@@ -35,7 +35,7 @@ const privy = new PrivyClient({
 // ── Network constants ─────────────────────────────────────────────────────────
 
 export const STELLAR_NETWORK_PASSPHRASE =
-  process.env.NEXT_PUBLIC_STELLAR_NETWORK_PASSPHRASE ?? Networks.PUBLIC;
+  process.env.NEXT_PUBLIC_STELLAR_NETWORK_PASSPHRASE ?? NETWORK.stellar.networkPassphrase;
 
 
 const USDC_ASSET = new Asset('USDC', USDC_CLASSIC_ISSUER);

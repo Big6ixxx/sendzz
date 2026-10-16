@@ -10,17 +10,11 @@
 
 import { fallback, http, type Transport } from 'viem';
 
-import { arc } from './multichain';
+import { NETWORK } from '../network';
+import { VIEM_CHAINS } from './multichain';
 
-export const ALCHEMY_SUBDOMAIN: Record<string, string> = {
-  ethereum: 'eth-mainnet',
-  arbitrum: 'arb-mainnet',
-  avalanche: 'avax-mainnet',
-  optimism: 'opt-mainnet',
-  polygon: 'polygon-mainnet',
-  base: 'base-mainnet',
-  arc: 'arc-mainnet',
-};
+/** Mainnet or testnet subdomains, per lib/network. */
+export const ALCHEMY_SUBDOMAIN: Record<string, string> = NETWORK.alchemySubdomain;
 
 /**
  * Keyless public endpoints, in preference order.
@@ -29,19 +23,12 @@ export const ALCHEMY_SUBDOMAIN: Record<string, string> = {
  * `polygon-rpc.com` and `cloudflare-eth.com` were both configured here and both stopped
  * answering, which is why a funded Polygon balance read as zero once Alchemy 403'd.
  * Verified reachable when written — re-check them if a chain starts reporting empty.
+ * The lists themselves live in lib/network, one per network.
  */
 export const PUBLIC_RPCS: Record<string, string[]> = {
-  ethereum: ['https://ethereum-rpc.publicnode.com'],
-  arbitrum: ['https://arbitrum-one-rpc.publicnode.com', 'https://arb1.arbitrum.io/rpc'],
-  avalanche: [
-    'https://avalanche-c-chain-rpc.publicnode.com',
-    'https://api.avax.network/ext/bc/C/rpc',
-  ],
-  optimism: ['https://optimism-rpc.publicnode.com', 'https://mainnet.optimism.io'],
-  polygon: ['https://polygon-bor-rpc.publicnode.com'],
-  base: ['https://mainnet.base.org', 'https://base.llamarpc.com', 'https://base-rpc.publicnode.com', 'https://1rpc.io/base'],
+  ...NETWORK.publicRpcs,
   // Taken from the chain definition rather than retyped, so the two cannot disagree.
-  arc: [...arc.rpcUrls.default.http],
+  arc: [...VIEM_CHAINS.arc.rpcUrls.default.http],
 };
 
 /**

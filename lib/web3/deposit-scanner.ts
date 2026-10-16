@@ -40,7 +40,8 @@ import {
   type PartiallyDecodedInstruction,
 } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
-import { STELLAR_HORIZON_URL, STELLAR_USDC_ISSUER } from '@/lib/stellar/config';
+import { STELLAR_CCTP_FORWARDER, STELLAR_HORIZON_URL, STELLAR_USDC_ISSUER } from '@/lib/stellar/config';
+import { NETWORK } from '@/lib/network';
 import { solanaRpcUrl } from '@/lib/solana/rpc';
 import { transferAmountUsdc, type AlchemyTransfer } from './deposit-amount';
 import { VIEM_CHAINS } from './multichain';
@@ -61,18 +62,10 @@ import { VIEM_CHAINS } from './multichain';
  * Stellar's own infrastructure and has nothing to do with Alchemy or this bill.
  */
 
-/** Alchemy Transfers API subdomain per chain. */
-const ALCHEMY_SUBDOMAIN: Record<SupportedChain, string> = {
-  ethereum: 'eth-mainnet',
-  arbitrum: 'arb-mainnet',
-  avalanche: 'avax-mainnet',
-  optimism: 'opt-mainnet',
-  polygon: 'polygon-mainnet',
-  base: 'base-mainnet',
-  arc: 'arc-mainnet',
-};
+/** Alchemy Transfers API subdomain per chain — mainnet or testnet per lib/network. */
+const ALCHEMY_SUBDOMAIN: Record<SupportedChain, string> = NETWORK.alchemySubdomain;
 
-const SOLANA_USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+const SOLANA_USDC_MINT = new PublicKey(NETWORK.solana.usdcMint);
 const SOLANA_RPC = solanaRpcUrl();
 
 /**
@@ -81,8 +74,7 @@ const SOLANA_RPC = solanaRpcUrl();
  */
 const STELLAR_BRIDGE_SENDERS = new Set(
   [
-    process.env.NEXT_PUBLIC_STELLAR_CCTP_FORWARDER ??
-      'CBZL2IH7F6BIDAA3WBNXYKIXSATJGMSW7K5P5MJ6STX5RXN47TZJDF5T',
+    STELLAR_CCTP_FORWARDER,
     process.env.NEXT_PUBLIC_STELLAR_TOKEN_MESSENGER_CONTRACT,
   ].filter((c): c is string => Boolean(c)),
 );

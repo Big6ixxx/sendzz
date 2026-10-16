@@ -12,6 +12,7 @@ import {
   rateLimitResponse,
 } from '@/lib/security/rate-limit';
 import { solanaRpcUrl } from '@/lib/solana/rpc';
+import { NETWORK } from '@/lib/network';
 
 const BALANCE_ABI = [
   {
@@ -23,8 +24,8 @@ const BALANCE_ABI = [
   },
 ] as const;
 
-// Solana USDC mint (mainnet)
-const SOLANA_USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+// Solana USDC mint — mainnet or devnet per lib/network
+const SOLANA_USDC_MINT = new PublicKey(NETWORK.solana.usdcMint);
 
 // Endpoint choice lives in lib/solana/rpc — it was inlined here and at five other call sites
 // with two different fallback operators, so they could not be changed together.

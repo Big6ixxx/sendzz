@@ -8,6 +8,7 @@ import {
   CIRCLE_SEND_URL,
 } from './config';
 import { VIEM_CHAINS } from './multichain';
+import { circleBundlerSlug } from '../network';
 import { USDC_ADDRESSES, GAS_POLICY_IDS, type SupportedChain } from '../circle/gateway';
 import { type RouteLeg } from './routing';
 import { rpcTransport } from './rpc';
@@ -29,9 +30,9 @@ const ERC20_ABI = parseAbi([
   'function transfer(address _to, uint256 _value) returns (bool)',
 ]);
 
-// All operations default to mainnet
+// Mainnet slugs are the chain key itself; testnet ones (`baseSepolia`, …) come from lib/network.
 function getChainSlug(targetChain: SupportedChain): string {
-  return targetChain;
+  return circleBundlerSlug(targetChain);
 }
 
 /**

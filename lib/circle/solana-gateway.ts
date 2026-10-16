@@ -7,7 +7,7 @@
  * Program addresses (mainnet):
  *   TokenMessengerMinterV2 : CCTPV2vPZJS2u2BBsUoscuikbYjnpFmbFsvVuJdgUMQe
  *   MessageTransmitterV2   : CCTPV2Sm4AdWt5296sk4P66VBZ7bEhcARwFaaS9YPbeC
- *   USDC mint              : EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+ *   USDC mint              : EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v (devnet: see lib/network)
  */
 import { Buffer } from 'buffer';
 import {
@@ -28,6 +28,7 @@ import {
 } from '@solana/spl-token';
 import crypto from 'crypto';
 import { type AttestationResponse, type AttestationStatus, CCTP_DOMAINS, type SupportedChain } from './gateway';
+import { NETWORK } from '@/lib/network';
 
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -41,11 +42,10 @@ export const TOKEN_MESSENGER_MINTER_V2 = new PublicKey(
 export const MESSAGE_TRANSMITTER_V2 = new PublicKey(
   'CCTPV2Sm4AdWt5296sk4P66VBZ7bEhcARwFaaS9YPbeC',
 );
-export const SOLANA_USDC_MINT = new PublicKey(
-  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-);
+// The CCTP V2 programs above share their addresses between devnet and mainnet; the mint does not.
+export const SOLANA_USDC_MINT = new PublicKey(NETWORK.solana.usdcMint);
 
-const IRIS_API_BASE = 'https://iris-api.circle.com/v2';
+const IRIS_API_BASE = NETWORK.irisApiBase;
 
 // Anchor discriminator = sha256("global:<instruction_name>")[0..8]
 const DEPOSIT_FOR_BURN_DISCRIMINATOR = crypto

@@ -14,12 +14,14 @@
  */
 
 import { NextResponse } from 'next/server';
-import { Keypair, TransactionBuilder, Contract, xdr, Networks } from '@stellar/stellar-sdk';
+import { Keypair, TransactionBuilder, Contract, xdr } from '@stellar/stellar-sdk';
 import { rpc as SorobanRpc } from '@stellar/stellar-sdk';
 import { loadStellarAccount } from '@/lib/circle/stellar-gateway';
 import { ensureStellarUsdcReceivable } from '@/lib/stellar/privy-wallet';
 import { isAlreadyDeliveredError } from '@/lib/stellar/delivery';
 import { CCTP_DOMAINS } from '@/lib/circle/gateway';
+import { NETWORK } from '@/lib/network';
+import { STELLAR_CCTP_FORWARDER } from '@/lib/stellar/config';
 import { requireUser } from '@/lib/auth/session';
 import {
   RATE_LIMITS,
@@ -27,9 +29,9 @@ import {
   rateLimitResponse,
 } from '@/lib/security/rate-limit';
 
-const STELLAR_RPC_URL = process.env.NEXT_PUBLIC_STELLAR_RPC_URL || 'https://soroban-rpc.mainnet.stellar.gateway.fm';
-const STELLAR_CCTP_FORWARDER = 'CBZL2IH7F6BIDAA3WBNXYKIXSATJGMSW7K5P5MJ6STX5RXN47TZJDF5T';
-const STELLAR_NETWORK_PASSPHRASE = Networks.PUBLIC;
+const STELLAR_RPC_URL = process.env.NEXT_PUBLIC_STELLAR_RPC_URL || NETWORK.stellar.rpcUrl;
+const STELLAR_NETWORK_PASSPHRASE =
+  process.env.NEXT_PUBLIC_STELLAR_NETWORK_PASSPHRASE || NETWORK.stellar.networkPassphrase;
 
 /** Soroban surfaces the missing-trustline case as a host error, not a typed code. */
 function isTrustlineError(raw: string): boolean {
@@ -125,7 +127,7 @@ export async function POST(req: Request) {
     }
 
     // 1. Fetch attestation from Iris API
-    const irisRes = await fetch(`https://iris-api.circle.com/v2/messages/${domain}?transactionHash=${txHash}`);
+    const irisRes = await fetch(`${NETWORK.irisApiBase}/messages/${domain}?transactionHash=${txHash}`);
     if (!irisRes.ok) {
       throw new Error(`Iris API query failed: ${irisRes.statusText}`);
     }

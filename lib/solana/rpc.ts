@@ -18,8 +18,13 @@
  * Alchemy back on is a one-line edit here rather than an environment hunt.
  */
 
-/** Solana Foundation's public endpoint — the same one every call site already fell back to. */
-const PUBLIC_SOLANA_RPC = 'https://api.mainnet-beta.solana.com';
+import { NETWORK } from '@/lib/network';
+
+/**
+ * Solana Foundation's public endpoint — the same one every call site already fell back to.
+ * mainnet-beta, or devnet when lib/network says testnet.
+ */
+const PUBLIC_SOLANA_RPC = NETWORK.solana.publicRpc;
 
 /**
  * Set to false once Solana is re-enabled on the Alchemy app, and NEXT_PUBLIC_SOLANA_RPC_URL

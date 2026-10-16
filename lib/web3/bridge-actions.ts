@@ -25,7 +25,8 @@ import { solanaMintRecipientBytes32 } from '../circle/solana-gateway';
 
 import { getCircleClient, getStandardRpcUrl } from './circle-client';
 import { rpcTransport } from './rpc';
-import { findMintTxHash, isMessageDelivered } from './cctp-delivery';
+import { findMintTxHash, isMessageDelivered, MESSAGE_TRANSMITTER_ADDRESS } from './cctp-delivery';
+import { STELLAR_CCTP_FORWARDER } from '../stellar/config';
 import { EVM_CHAINS, type ChainBalances, type SolanaSource, type SourceChainKey, type StellarSource } from './routing';
 import { toast } from 'sonner';
 
@@ -412,7 +413,7 @@ export async function executeSmartBridge(
     if (destChain === 'stellar') {
       const { StrKey } = await import('@stellar/stellar-sdk');
       // Set mintRecipient and destinationCaller to CctpForwarder contract address
-      const forwarderRawBytes = StrKey.decodeContract('CBZL2IH7F6BIDAA3WBNXYKIXSATJGMSW7K5P5MJ6STX5RXN47TZJDF5T');
+      const forwarderRawBytes = StrKey.decodeContract(STELLAR_CCTP_FORWARDER);
       mintRecipient = `0x${forwarderRawBytes.toString('hex')}`;
       destinationCaller = `0x${forwarderRawBytes.toString('hex')}`;
 
@@ -607,13 +608,10 @@ export async function executeReceiveMessage(
   }
   pendingClaims.add(normMessage);
 
-  let MESSAGE_TRANSMITTER = '0x81D40F21F12A8F0E3252Bccb954D722d4c464B64';
+  const MESSAGE_TRANSMITTER = MESSAGE_TRANSMITTER_ADDRESS;
   let standardRpcClient: PublicClient | null = null;
 
   try {
-    if (process.env.NEXT_PUBLIC_SIMULATION_MODE === 'true') {
-      MESSAGE_TRANSMITTER = '0x81D40F2169b009c9103C280963d76e4B4d4c464B';
-    }
 
     const chainId = CHAIN_IDS[destChain];
   const chainHex = `0x${chainId.toString(16)}`;
@@ -906,10 +904,7 @@ export async function bridgeAndDeliver(
     throw new Error('Bridge attestation timed out');
   }
 
-  const MESSAGE_TRANSMITTER =
-    process.env.NEXT_PUBLIC_SIMULATION_MODE === 'true'
-      ? '0x81D40F2169b009c9103C280963d76e4B4d4c464B'
-      : '0x81D40F21F12A8F0E3252Bccb954D722d4c464B64';
+  const MESSAGE_TRANSMITTER = MESSAGE_TRANSMITTER_ADDRESS;
 
   let mintTxHash: string | undefined = attestationData.mintTxHash;
   if (!mintTxHash && attestationData.attestation && attestationData.messageBytes) {

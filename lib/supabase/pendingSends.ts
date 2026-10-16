@@ -197,13 +197,14 @@ async function evmOutcome(
     const { toModularTransport } = await import('@circle-fin/modular-wallets-core');
     const { VIEM_CHAINS } = await import('@/lib/web3/multichain');
     const { CIRCLE_CLIENT_KEY, CIRCLE_SEND_URL } = await import('@/lib/web3/config');
+    const { circleBundlerSlug } = await import('@/lib/network');
 
     const viemChain = VIEM_CHAINS[chain as keyof typeof VIEM_CHAINS];
     if (!viemChain || !CIRCLE_CLIENT_KEY || !CIRCLE_SEND_URL) return null;
 
     const bundler = createBundlerClient({
       chain: viemChain,
-      transport: toModularTransport(`${CIRCLE_SEND_URL}/${chain}`, CIRCLE_CLIENT_KEY),
+      transport: toModularTransport(`${CIRCLE_SEND_URL}/${circleBundlerSlug(chain)}`, CIRCLE_CLIENT_KEY),
     });
 
     const receipt = await bundler.getUserOperationReceipt({
