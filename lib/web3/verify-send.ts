@@ -26,6 +26,8 @@ import 'server-only';
 
 import { isEvmUsdcChain, USDC_ADDRESSES, type SupportedChain } from '@/lib/circle/gateway';
 import { STELLAR_HORIZON_URL, STELLAR_USDC_ISSUER } from '@/lib/stellar/config';
+import { Connection, PublicKey } from '@solana/web3.js';
+import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 import { NETWORK } from '@/lib/network';
 import { solanaRpcUrl } from '@/lib/solana/rpc';
 
@@ -151,12 +153,11 @@ const SOLANA_SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{86,88}$/;
 export async function solanaSentAmounts(
   signature: string,
   sender: string,
+  /** How long to wait for a node that has not seen the transaction yet. Tests pass 0. */
+  retryDelayMs = 1_500,
 ): Promise<number[] | null> {
   if (!SOLANA_SIGNATURE.test(signature)) return [];
   try {
-    const { Connection, PublicKey } = await import('@solana/web3.js');
-    const { getAssociatedTokenAddressSync } = await import('@solana/spl-token');
-
     const mint = NETWORK.solana.usdcMint;
     let senderAta: string;
     try {
@@ -166,11 +167,20 @@ export async function solanaSentAmounts(
     }
 
     const conn = new Connection(solanaRpcUrl(), 'confirmed');
-    const tx = await conn.getParsedTransaction(signature, {
-      commitment: 'confirmed',
-      maxSupportedTransactionVersion: 0,
-    });
-    if (!tx?.meta || tx.meta.err) return [];
+    // The browser confirmed this on one node; we may be asking another, moments later. A
+    // transaction it has not seen yet is not evidence that none exists — refusing on that would
+    // throw away the record of a real send — so ask again, then admit we cannot tell.
+    let tx = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt) await new Promise((r) => setTimeout(r, retryDelayMs));
+      tx = await conn.getParsedTransaction(signature, {
+        commitment: 'confirmed',
+        maxSupportedTransactionVersion: 0,
+      });
+      if (tx) break;
+    }
+    if (!tx?.meta) return null;
+    if (tx.meta.err) return [];
 
     const all = [
       ...tx.transaction.message.instructions,

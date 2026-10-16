@@ -141,7 +141,9 @@ export async function privySolanaWallets(privyUserId: string): Promise<string[]>
       )
       .map((a) => (a as { address: string }).address);
 
-    solanaWalletCache.set(privyUserId, { addresses, at: Date.now() });
+    // An empty answer is not cached: a wallet created moments ago may not have reached Privy's
+    // server yet, and remembering "none" would refuse that user for the whole cache window.
+    if (addresses.length) solanaWalletCache.set(privyUserId, { addresses, at: Date.now() });
     return addresses;
   } catch (err) {
     if (hit) {
