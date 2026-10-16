@@ -11,12 +11,15 @@
  */
 import { Buffer } from 'buffer';
 import {
+  AddressLookupTableAccount,
   Connection,
   Keypair,
   PublicKey,
   SystemProgram,
   Transaction,
   TransactionInstruction,
+  TransactionMessage,
+  VersionedTransaction,
   AccountMeta,
   ComputeBudgetProgram,
 } from '@solana/web3.js';
@@ -27,7 +30,14 @@ import {
   createAssociatedTokenAccountInstruction,
 } from '@solana/spl-token';
 import crypto from 'crypto';
-import { type AttestationResponse, CCTP_DOMAINS, fetchAttestation, type SupportedChain } from './gateway';
+import {
+  type AttestationResponse,
+  CCTP_DOMAINS,
+  EVM_USDC_CHAINS,
+  fetchAttestation,
+  type SupportedChain,
+  USDC_ADDRESSES,
+} from './gateway';
 import { NETWORK } from '@/lib/network';
 
 
@@ -493,14 +503,63 @@ async function getFeeRecipientTokenAccount(connection: Connection): Promise<Publ
  */
 const RECEIVE_MESSAGE_COMPUTE_UNITS = 350_000;
 
-export interface ReceiveMessageResult {
-  transaction: Transaction;
-  /** The token account the USDC will land in. */
-  mintRecipient: PublicKey;
-  /** True when the message's `used_nonce` PDA already exists — the claim is done. */
-  alreadyClaimed: boolean;
-  /** True when the transaction also creates `mintRecipient`, with `payer` paying its rent. */
-  createsMintRecipient: boolean;
+export type ReceiveMessageResult =
+  /** The message's `used_nonce` account already exists — this claim is delivered. */
+  | { alreadyClaimed: true }
+  | {
+      alreadyClaimed: false;
+      transaction: VersionedTransaction;
+      /** The token account the USDC will land in. */
+      mintRecipient: PublicKey;
+      /** True when the transaction also creates `mintRecipient`, with `payer` paying its rent. */
+      createsMintRecipient: boolean;
+    };
+
+/**
+ * Every account a `receive_message` claim names that is the same for all of them.
+ *
+ * This is the content of the claim's address lookup table (lib/solana/lookup-table): the table
+ * exists to keep the transaction under Solana's 1232-byte limit, and each address it holds is
+ * one 32-byte key the transaction no longer carries.
+ *
+ * Deliberately excludes every executable program. A top-level instruction's program id has to be
+ * a static key, and the saving from the rest is already far more than the claim needs, so there
+ * is nothing to gain by working out which of the others a lookup table would tolerate.
+ *
+ * Also excludes what a table could never hold usefully: the payer, the message's own `used_nonce`
+ * account, and the recipient's token account and wallet, which differ per claim.
+ */
+export async function solanaClaimLookupAddresses(connection: Connection): Promise<PublicKey[]> {
+  const addresses = [
+    getMessageTransmitterAuthorityPda(TOKEN_MESSENGER_MINTER_V2),
+    getMessageTransmitterConfig(),
+    findPda([Buffer.from('__event_authority')], MESSAGE_TRANSMITTER_V2),
+    getTokenMessengerPda(),
+    getTokenMinterPda(),
+    getLocalTokenPda(SOLANA_USDC_MINT),
+    getCustodyTokenPda(SOLANA_USDC_MINT),
+    await getFeeRecipientTokenAccount(connection),
+    findPda([Buffer.from('__event_authority')], TOKEN_MESSENGER_MINTER_V2),
+    SOLANA_USDC_MINT,
+  ];
+
+  // Two more per source chain: which remote messenger may send to us, and which token pairs with
+  // our USDC. Both are derived from the source domain and its USDC address, so they are known
+  // ahead of any claim.
+  for (const chain of EVM_USDC_CHAINS) {
+    const domain = CCTP_DOMAINS[chain];
+    if (domain === undefined || domain === SOLANA_CCTP_DOMAIN) continue;
+    addresses.push(getRemoteTokenMessengerPda(domain));
+    addresses.push(getTokenPairPda(domain, evmAddressToBytes32(USDC_ADDRESSES[chain])));
+  }
+
+  const seen = new Set<string>();
+  return addresses.filter((a) => {
+    const key = a.toBase58();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 /**
@@ -524,6 +583,14 @@ export async function buildReceiveMessageOnSolanaTx(
   messageBytes: string,
   attestation: string,
   recipientOwner?: PublicKey,
+  /**
+   * Lookup tables to compress the account list against — see lib/solana/lookup-table.
+   *
+   * Only an optimisation, never a correctness requirement: `compileToV0Message` uses a table
+   * entry only when it matches a key the instructions already name, so a stale or empty table
+   * costs size and nothing else.
+   */
+  lookupTables: AddressLookupTableAccount[] = [],
 ): Promise<ReceiveMessageResult> {
   const msgBuf = toMessageBuffer(messageBytes);
   const attBuf = Buffer.from(attestation.replace(/^0x/, ''), 'hex');
@@ -564,7 +631,7 @@ export async function buildReceiveMessageOnSolanaTx(
   ]);
 
   if (usedNonceInfo !== null) {
-    return { transaction: new Transaction(), mintRecipient, alreadyClaimed: true, createsMintRecipient: false };
+    return { alreadyClaimed: true };
   }
 
   // The program loads `mint_recipient` as a token account. Anything else means the
@@ -622,17 +689,14 @@ export async function buildReceiveMessageOnSolanaTx(
     { pubkey: TOKEN_MESSENGER_MINTER_V2, isSigner: false, isWritable: false },
   ];
 
-  const { blockhash } = await connection.getLatestBlockhash('confirmed');
-  const transaction = new Transaction({ recentBlockhash: blockhash, feePayer: payer });
-
-  transaction.add(
+  const instructions = [
     ComputeBudgetProgram.setComputeUnitLimit({ units: RECEIVE_MESSAGE_COMPUTE_UNITS }),
-  );
+  ];
 
   if (canCreateMintRecipient) {
     // Rent is on the payer, not the recipient — the whole point is that claiming
     // costs the user nothing, and a fresh Solana wallet has no SOL to spend.
-    transaction.add(
+    instructions.push(
       createAssociatedTokenAccountInstruction(
         payer,
         mintRecipient,
@@ -644,7 +708,33 @@ export async function buildReceiveMessageOnSolanaTx(
     );
   }
 
-  transaction.add(new TransactionInstruction({ programId: MESSAGE_TRANSMITTER_V2, keys, data }));
+  instructions.push(new TransactionInstruction({ programId: MESSAGE_TRANSMITTER_V2, keys, data }));
 
-  return { transaction, mintRecipient, alreadyClaimed: false, createsMintRecipient: canCreateMintRecipient };
+  // ─── Why this is a v0 transaction and not a legacy one ──────────────────────
+  //
+  // Solana caps a transaction at 1232 bytes, and 20 account metas is 609 of them. A mainnet
+  // attestation is 130 bytes — Circle signs with two attesters there, against one on devnet —
+  // which put the legacy transaction at 1264 bytes, or 1369 when it also opens the recipient's
+  // token account. Both are unsendable, and no devnet test could show it: the same claim is
+  // 1199 bytes with a 65-byte attestation, just inside the limit.
+  //
+  // A v0 transaction replaces each account the lookup table holds with a one-byte index, which
+  // brings the same claim to roughly 960 bytes, or 1040 with the token-account creation. Trimming
+  // instructions could never have closed that gap: the compute-budget instruction is the only
+  // removable one, it is worth 40 bytes, and `receive_message` needs the limit it sets.
+  const { blockhash } = await connection.getLatestBlockhash('confirmed');
+  const transaction = new VersionedTransaction(
+    new TransactionMessage({
+      payerKey: payer,
+      recentBlockhash: blockhash,
+      instructions,
+    }).compileToV0Message(lookupTables),
+  );
+
+  return {
+    alreadyClaimed: false,
+    transaction,
+    mintRecipient,
+    createsMintRecipient: canCreateMintRecipient,
+  };
 }

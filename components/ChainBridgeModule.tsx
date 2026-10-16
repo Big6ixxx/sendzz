@@ -15,7 +15,7 @@ import { formatFeeSummary } from "@/lib/format-usdc";
 import { usePlatformFeePercent } from "@/lib/hooks/usePlatformFeePercent";
 import { quoteFee } from "@/lib/actions/fees";
 import { parseAppError } from "@/lib/errors/appErrors";
-import { MONITOR_MAX_ATTEMPTS, MONITOR_POLL_MS } from "@/lib/web3/bridge-timing";
+import { CLAIM_MAX_ATTEMPTS, MONITOR_MAX_ATTEMPTS, MONITOR_POLL_MS } from "@/lib/web3/bridge-timing";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { CHAIN_NAMES, isBridgeable, type SupportedChain } from "@/lib/circle/gateway";
@@ -129,6 +129,7 @@ export function ChainBridgeModule({
   const mintingRef = useRef(false);
   /** Keeps the retry loop from firing the same error toast every five seconds. */
   const claimErrorNotifiedRef = useRef(false);
+  const claimAttemptsRef = useRef(0);
 
   const sourceBalance = source ? balanceOf(source) : 0;
   const amountNum = parseFloat(amount) || 0;
@@ -322,13 +323,38 @@ export function ChainBridgeModule({
                   await refreshExpiredBridgeClaim(monitor.burnTxHash);
                 }
 
-                // Every other failure here is safe to retry: the burn is on-chain and the money
-                // is owed regardless. The interval keeps trying. Warn the user once instead of
-                // once per five-second tick.
-                if (!classified.isSilent && !claimErrorNotifiedRef.current) {
+                // Retried, but not forever.
+                //
+                // A claim is worth another go — the burn is on-chain and the money is owed
+                // regardless, and most failures here are a slow RPC or a signature that needs
+                // reissuing. But some can never succeed however often they are tried, and this
+                // loop used to try them every five seconds for as long as the user watched,
+                // flipping the step between "mint" and "attestation" each time with no idea why.
+                //
+                // So it stops after CLAIM_MAX_ATTEMPTS and hands the claim to Pending Claims,
+                // which is where an unfinished transfer belongs. Nothing is lost by stopping: the
+                // burn and its record outlive the page, and the panel can claim it any time.
+                claimAttemptsRef.current += 1;
+                const givingUp = claimAttemptsRef.current >= CLAIM_MAX_ATTEMPTS;
+
+                if (!classified.isSilent && (!claimErrorNotifiedRef.current || givingUp)) {
                   claimErrorNotifiedRef.current = true;
                   toast.error(classified.message);
                 }
+
+                if (givingUp) {
+                  clearInterval(interval);
+                  if (!cancelled) {
+                    toast.info(
+                      "Your USDC is safe — finish this transfer any time from Pending Claims.",
+                    );
+                    setPhase("form");
+                    setMonitor(null);
+                    queryClient.invalidateQueries({ queryKey: ["pending-bridge-claims"] });
+                  }
+                  return;
+                }
+
                 mintingRef.current = false;
                 setBridgeStep("attestation");
               }
@@ -409,6 +435,7 @@ export function ChainBridgeModule({
 
     mintingRef.current = false;
     claimErrorNotifiedRef.current = false;
+    claimAttemptsRef.current = 0;
     setMintTxHash(null);
     try {
       // A Stellar account can't hold USDC without a trustline, and the CCTP forwarder
@@ -565,6 +592,7 @@ export function ChainBridgeModule({
     setBridgeStep("burn_sig");
     mintingRef.current = false;
     claimErrorNotifiedRef.current = false;
+    claimAttemptsRef.current = 0;
     refetch();
   };
 

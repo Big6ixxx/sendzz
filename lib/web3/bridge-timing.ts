@@ -23,3 +23,14 @@ export const CLAIM_HANDOFF_MS = 5 * 60 * 1000;
 
 /** Poll budget derived from the window above — never hardcode this. */
 export const MONITOR_MAX_ATTEMPTS = CLAIM_HANDOFF_MS / MONITOR_POLL_MS;
+
+/**
+ * How many times the page re-submits a claim that failed before handing it to Pending Claims.
+ *
+ * Most claim failures are worth retrying — a slow RPC, or an attestation that needs reissuing,
+ * which takes about a minute. Some can never succeed: a message that encodes an unusable
+ * recipient, or a transaction our own build makes too large. Retrying those every poll tick only
+ * flips the progress step back and forth for as long as the user watches, so the loop stops here
+ * and the claim moves to the panel built for unfinished transfers.
+ */
+export const CLAIM_MAX_ATTEMPTS = 3;
