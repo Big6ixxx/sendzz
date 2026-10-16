@@ -15,11 +15,10 @@
 
 import type { PublicClient } from 'viem';
 
+import { NETWORK } from '@/lib/network';
+
 /** MessageTransmitterV2 — one CREATE2 address across every supported EVM chain. */
-export const MESSAGE_TRANSMITTER_ADDRESS =
-  process.env.NEXT_PUBLIC_SIMULATION_MODE === 'true'
-    ? '0x81D40F2169b009c9103C280963d76e4B4d4c464B'
-    : '0x81D40F21F12A8F0E3252Bccb954D722d4c464B64';
+export const MESSAGE_TRANSMITTER_ADDRESS = NETWORK.messageTransmitterV2;
 
 export const USED_NONCES_ABI = [
   {

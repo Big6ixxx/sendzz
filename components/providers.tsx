@@ -4,7 +4,9 @@ import { PrivyProvider } from '@privy-io/react-auth';
 import { createSolanaRpc, createSolanaRpcSubscriptions } from '@solana/kit';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
-import { base, baseSepolia } from 'viem/chains';
+import { baseSepolia } from 'viem/chains';
+import { IS_TESTNET, NETWORK } from '@/lib/network';
+import { chain as homeChain } from '@/lib/web3/config';
 import { VIEM_CHAINS } from '@/lib/web3/multichain';
 import { solanaRpcUrl } from '@/lib/solana/rpc';
 import { ReactNode, useState, useEffect } from 'react';
@@ -57,8 +59,6 @@ export function Providers({ children }: { children: ReactNode }) {
       }),
   );
 
-  const isProd = process.env.NEXT_PUBLIC_SIMULATION_MODE === 'false';
-
   return (
     <QueryClientProvider client={queryClient}>
       <PrivyProvider
@@ -110,7 +110,7 @@ export function Providers({ children }: { children: ReactNode }) {
           },
           solana: {
             rpcs: {
-              'solana:mainnet': {
+              [NETWORK.solana.privyCluster]: {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 rpc: createSolanaRpc(solanaRpcUrl()) as any,
                 rpcSubscriptions: createSolanaRpcSubscriptions(
@@ -119,12 +119,12 @@ export function Providers({ children }: { children: ReactNode }) {
               },
             },
           },
-          defaultChain: isProd ? base : baseSepolia,
+          defaultChain: homeChain,
           // Privy refuses `wallet_switchEthereumChain` for any chain missing from this array,
           // so it is derived rather than listed — a chain the app supports but this omits fails
-          // only at the moment someone claims a bridge on it. Testnet is appended because it is
-          // deliberately not in the production registry.
-          supportedChains: [...Object.values(VIEM_CHAINS), baseSepolia],
+          // only at the moment someone claims a bridge on it. On mainnet Base Sepolia is appended
+          // as before; on testnet VIEM_CHAINS is already the testnet set, Base Sepolia included.
+          supportedChains: IS_TESTNET ? Object.values(VIEM_CHAINS) : [...Object.values(VIEM_CHAINS), baseSepolia],
         }}
       >
         <BalanceVisibilityProvider>

@@ -10,9 +10,10 @@ import { Connection, Transaction } from '@solana/web3.js';
 import { bridgeSolanaToBase } from '@/lib/web3/solana-bridge';
 import { settleSolanaOffRamp } from '@/lib/web3/solana-offramp';
 import type { SolanaSource } from '@/lib/web3/routing';
+import { NETWORK } from '@/lib/network';
 
 const SOLANA_RPC =
-  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com';
+  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? NETWORK.solana.publicRpc;
 
 /**
  * Provides the capability to bridge the user's Solana USDC onto Base, wiring up the

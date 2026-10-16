@@ -1,3 +1,5 @@
+import { NETWORK } from '@/lib/network';
+
 /**
  * Block-explorer links, in one place.
  *
@@ -10,20 +12,14 @@
 /**
  * Transaction-explorer base URL per chain — the single source for the whole app.
  *
- * Deliberately depends on nothing, so any module (client, server action, email template,
- * PDF receipt) can import it without pulling in chain config or React.
+ * Depends only on lib/network, which itself imports nothing, so any module (client, server
+ * action, email template, PDF receipt) can import it without pulling in chain config or React.
+ * Mainnet and testnet URLs both live in lib/network.
  */
-export const EXPLORER_TX_BASE: Record<string, string> = {
-  ethereum: 'https://etherscan.io/tx',
-  avalanche: 'https://snowtrace.io/tx',
-  optimism: 'https://optimistic.etherscan.io/tx',
-  arbitrum: 'https://arbiscan.io/tx',
-  base: 'https://basescan.org/tx',
-  polygon: 'https://polygonscan.com/tx',
-  arc: 'https://explorer.arc.io/tx',
-  solana: 'https://solscan.io/tx',
-  stellar: 'https://stellar.expert/explorer/public/tx',
-};
+export const EXPLORER_TX_BASE: Record<string, string> = NETWORK.explorerTx;
+
+/** Appended after the hash — empty on mainnet; Solscan needs `?cluster=devnet` on testnet. */
+const EXPLORER_TX_SUFFIX: Record<string, string | undefined> = NETWORK.explorerTxSuffix;
 
 /**
  * The chain the app settles on by default.
@@ -60,8 +56,9 @@ export function explorerTxUrl(
 ): string | null {
   if (!chain || isPlaceholderHash(hash)) return null;
 
-  const base = EXPLORER_TX_BASE[chain.toLowerCase()];
-  return base ? `${base}/${hash}` : null;
+  const key = chain.toLowerCase();
+  const base = EXPLORER_TX_BASE[key];
+  return base ? `${base}/${hash}${EXPLORER_TX_SUFFIX[key] ?? ''}` : null;
 }
 
 /** `0x1234…abcd` — enough to recognise a hash without wrapping a table cell. */

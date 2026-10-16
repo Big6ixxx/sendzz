@@ -88,9 +88,10 @@ export async function GET(req: NextRequest) {
         const { createBundlerClient } = await import('viem/account-abstraction');
         const { toModularTransport } = await import('@circle-fin/modular-wallets-core');
         const { CIRCLE_CLIENT_KEY, CIRCLE_SEND_URL } = await import('@/lib/web3/config');
+        const { circleBundlerSlug } = await import('@/lib/network');
 
         if (CIRCLE_CLIENT_KEY) {
-          const bundlerUrl = `${CIRCLE_SEND_URL}/${sourceChain}`;
+          const bundlerUrl = `${CIRCLE_SEND_URL}/${circleBundlerSlug(sourceChain)}`;
           const transport = toModularTransport(bundlerUrl, CIRCLE_CLIENT_KEY);
           const bundler = createBundlerClient({ chain: VIEM_CHAINS[sourceChain as SupportedChain], transport });
           // Only the two places the on-chain hash can appear. The bundler's own return type

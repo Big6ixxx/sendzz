@@ -13,6 +13,7 @@ import {
 import { VIEM_CHAINS } from './multichain';
 import { SupportedChain } from '../circle/gateway';
 import { rpcUrls } from './rpc';
+import { circleBundlerSlug } from '../network';
 
 export { ALCHEMY_SUBDOMAIN } from './rpc';
 
@@ -33,7 +34,8 @@ export function getStandardRpcUrl(chainName: string): string {
   }
 }
 
-const getCircleRpcUrl = (chainName: string = 'base') => `${CIRCLE_CLIENT_URL}/${chainName}`;
+const getCircleRpcUrl = (chainName: string = 'base') =>
+  `${CIRCLE_CLIENT_URL}/${circleBundlerSlug(chainName)}`;
 
 // Build a viem custom account from Privy's provider
 // Privy supports eth_signTypedData_v4 but NOT raw signing

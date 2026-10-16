@@ -21,7 +21,6 @@ import {
   Keypair,
   nativeToScVal,
   scValToNative,
-  Networks,
   TransactionBuilder,
   xdr,
 } from '@stellar/stellar-sdk';
@@ -29,6 +28,7 @@ import { rpc as SorobanRpc } from '@stellar/stellar-sdk';
 import { type AttestationResponse, type AttestationStatus } from './gateway';
 import { solanaMintRecipientBytes32 } from './solana-gateway';
 import { STELLAR_HORIZON_URL, STELLAR_USDC_ISSUER as USDC_CLASSIC_ISSUER } from '@/lib/stellar/config';
+import { NETWORK } from '@/lib/network';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -40,19 +40,19 @@ export const STELLAR_TOKEN_MESSENGER_CONTRACT =
   process.env.NEXT_PUBLIC_STELLAR_TOKEN_MESSENGER_CONTRACT ?? '';
 export const STELLAR_USDC_CONTRACT =
   process.env.NEXT_PUBLIC_STELLAR_USDC_CONTRACT ??
-  'CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75';
+  NETWORK.stellar.usdcContract;
 
 export const STELLAR_RPC_URL =
   process.env.NEXT_PUBLIC_STELLAR_RPC_URL ??
-  'https://soroban-rpc.mainnet.stellar.gateway.fm';
+  NETWORK.stellar.rpcUrl;
 
 export const STELLAR_NETWORK_PASSPHRASE =
-  process.env.NEXT_PUBLIC_STELLAR_NETWORK_PASSPHRASE ?? Networks.PUBLIC;
+  process.env.NEXT_PUBLIC_STELLAR_NETWORK_PASSPHRASE ?? NETWORK.stellar.networkPassphrase;
 
 /** Circle's USDC classic asset issuer on Stellar mainnet */
 
 
-const IRIS_API_BASE = 'https://iris-api.circle.com/v2';
+const IRIS_API_BASE = NETWORK.irisApiBase;
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
