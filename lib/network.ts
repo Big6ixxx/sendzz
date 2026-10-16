@@ -47,6 +47,8 @@ export interface NetworkConfig {
   solana: {
     /** Key under Privy's `solana.rpcs`. */
     privyCluster: 'solana:mainnet' | 'solana:devnet';
+    /** What Circle's signing API calls this cluster. */
+    circleBlockchain: 'SOL' | 'SOL-DEVNET';
     publicRpc: string;
     usdcMint: string;
   };
@@ -132,6 +134,7 @@ export const MAINNET: NetworkConfig = {
   explorerTxSuffix: {},
   solana: {
     privyCluster: 'solana:mainnet',
+    circleBlockchain: 'SOL',
     publicRpc: 'https://api.mainnet-beta.solana.com',
     usdcMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
   },
@@ -217,6 +220,7 @@ export const TESTNET: NetworkConfig = {
   },
   solana: {
     privyCluster: 'solana:devnet',
+    circleBlockchain: 'SOL-DEVNET',
     publicRpc: 'https://api.devnet.solana.com',
     usdcMint: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
   },

@@ -20,12 +20,17 @@
 import { NextResponse } from 'next/server';
 import { solanaRpcUrl } from '@/lib/solana/rpc';
 import { Buffer } from 'buffer';
-import { initiateDeveloperControlledWalletsClient } from '@circle-fin/developer-controlled-wallets';
 import { Connection, PublicKey } from '@solana/web3.js';
 import {
   buildReceiveMessageOnSolanaTx,
   findSolanaMintSignature,
 } from '@/lib/circle/solana-gateway';
+import { signWithCircleFeePayer } from '@/lib/solana/circle-signer';
+import {
+  LOOKUP_TABLE_ENV,
+  MAX_TRANSACTION_BYTES,
+  claimLookupTables,
+} from '@/lib/solana/lookup-table';
 import { classifyClaimFailure, errorText, isAlreadyClaimed } from '@/lib/solana/claim-errors';
 import { fetchAttestation } from '@/lib/circle/gateway';
 import { privySolanaWallets, requireUser } from '@/lib/auth/session';
@@ -85,10 +90,10 @@ export async function POST(req: Request) {
 
     const apiKey = process.env.CIRCLE_API_KEY;
     const entitySecret = process.env.CIRCLE_ENTITY_SECRET;
-    const feePayerWalletId = process.env.CIRCLE_SOLANA_FEEPAYER_WALLET_ID;
     const feePayerAddress = process.env.CIRCLE_SOLANA_FEEPAYER_ADDRESS;
 
-    if (!apiKey || !entitySecret || !feePayerWalletId || !feePayerAddress) {
+    // No wallet id: Circle's Solana signer identifies the fee payer by address and cluster.
+    if (!apiKey || !entitySecret || !feePayerAddress) {
       console.error('[solana-claim] Circle fee-payer environment is incomplete.');
       return NextResponse.json(
         { error: 'Claims are temporarily unavailable. Your funds are safe — please try again shortly.' },
@@ -143,12 +148,13 @@ export async function POST(req: Request) {
     const connection = new Connection(SOLANA_RPC, 'confirmed');
     const payer = new PublicKey(feePayerAddress);
 
-    const { transaction, alreadyClaimed, createsMintRecipient } = await buildReceiveMessageOnSolanaTx(
+    const built = await buildReceiveMessageOnSolanaTx(
       connection,
       payer,
       messageBytes,
       attestation,
       new PublicKey(owner),
+      await claimLookupTables(connection),
     );
 
     // Already delivered: hand back the mint, so the caller can record a real hash.
@@ -161,7 +167,23 @@ export async function POST(req: Request) {
         { status: 200 },
       );
 
-    if (alreadyClaimed) return delivered();
+    if (built.alreadyClaimed) return delivered();
+    const { transaction, createsMintRecipient } = built;
+
+    // Too large to send. Without a lookup table a claim is about 1264 bytes against a 1232-byte
+    // limit, so this is all but certainly a missing or empty SOLANA_CCTP_LOOKUP_TABLE — say that
+    // here, where it is still legible, rather than letting web3.js throw on serialize.
+    const size = transaction.serialize().length;
+    if (size > MAX_TRANSACTION_BYTES) {
+      console.error(
+        `[solana-claim] Built a ${size}-byte claim, over Solana's ${MAX_TRANSACTION_BYTES}-byte ` +
+          `limit. Check ${LOOKUP_TABLE_ENV} — see scripts/create-solana-lookup-table.ts.`,
+      );
+      return NextResponse.json(
+        { error: 'Claims are temporarily unavailable. Your funds are safe — please try again shortly.' },
+        { status: 500 },
+      );
+    }
 
     // Creating the token account puts its rent on us, and closing it hands that rent to the
     // user — so it is allowed a few times a month, not once per claim. Only checked here; it is
@@ -189,32 +211,23 @@ export async function POST(req: Request) {
       );
     }
 
-    const circleClient = initiateDeveloperControlledWalletsClient({ apiKey, entitySecret });
-
-    const unsigned = transaction
-      .serialize({ requireAllSignatures: false, verifySignatures: false })
-      .toString('base64');
-
-    const signed = await circleClient.signTransaction({
-      walletId: feePayerWalletId,
-      rawTransaction: unsigned,
-    });
-
-    const signedTransaction = signed.data?.signedTransaction;
-    if (!signedTransaction) {
-      console.error('[solana-claim] Circle returned no signedTransaction:', signed);
+    let signedBytes: Buffer;
+    try {
+      const signed = await signWithCircleFeePayer({ apiKey, entitySecret, feePayer: payer, transaction });
+      signedBytes = Buffer.from(signed.serialize());
+    } catch (err) {
+      console.error('[solana-claim] Circle would not sign the claim:', (err as Error).message);
       return NextResponse.json(
         { error: 'Claims are temporarily unavailable. Your funds are safe — please try again shortly.' },
         { status: 502 },
       );
     }
 
-    const signedBytes = Buffer.from(signedTransaction, 'base64');
-
     // Preflight is left on: the burn already happened, so a transaction that would
     // fail on-chain is worth catching here — where the reason is still legible —
     // rather than after it lands and we have to reconstruct it from a status object.
-    // The fee payer's signature, first in the list, is the transaction id.
+    // The fee payer signs first, so its signature is the transaction id. Read from the signed
+    // bytes so it is known before the broadcast, which may answer with nothing.
     let signature = bs58.encode(signedBytes.subarray(1, 65));
     try {
       signature = await connection.sendRawTransaction(signedBytes, {

@@ -87,6 +87,13 @@ describe('testnet Solana points at devnet', () => {
     expect(TESTNET.solana.privyCluster).toBe('solana:devnet');
   });
 
+  it('names the Solana cluster the way Circle does', () => {
+    // A bridge claim is signed through Circle's Solana signing API, which takes its own name for
+    // the cluster. Sending the wrong one signs with a wallet on the wrong network.
+    expect(TESTNET.solana.circleBlockchain).toBe('SOL-DEVNET');
+    expect(MAINNET.solana.circleBlockchain).toBe('SOL');
+  });
+
   it('reads the public devnet endpoint', () => {
     expect(TESTNET.solana.publicRpc).toBe('https://api.devnet.solana.com');
     expect(MAINNET.solana.publicRpc).toBe('https://api.mainnet-beta.solana.com');
