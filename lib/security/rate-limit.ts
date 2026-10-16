@@ -73,6 +73,17 @@ export const RATE_LIMITS = {
    * genuinely closed and recreated.
    */
   solanaAtaRent: { name: 'solana-ata-rent', limit: 3, windowMs: 30 * 24 * 60 * 60 * 1000 },
+
+  /**
+   * A sponsored Solana send that opens a token account for its recipient (or our treasury),
+   * rent on us.
+   *
+   * Unlike the claim case this one is legitimately repeated — every first send to a new address
+   * opens an account — but it is the same rent farm if unbounded: send 1 USDC to a wallet you
+   * own, close the account, keep the rent. Spent only when the send lands (see
+   * lib/solana/sponsor), so a failed or abandoned send costs the user nothing.
+   */
+  solanaSendAtaRent: { name: 'solana-send-ata-rent', limit: 10, windowMs: 30 * 24 * 60 * 60 * 1000 },
 } as const satisfies Record<string, RateLimitRule>;
 
 /**
@@ -136,6 +147,58 @@ export async function checkRateLimit(
     );
     return { allowed: true, used: 0, resetAt: null, retryAfterSeconds: 0 };
   }
+}
+
+/**
+ * Would one more attempt be allowed? Spends nothing.
+ *
+ * For limits that should only be charged once the thing they guard has actually happened — a
+ * sponsored account that was really created, not one whose transaction failed. Check with this
+ * first, then `checkRateLimit` after the fact. Two concurrent requests can both pass the peek;
+ * for the slow, monthly limits this is used on, one extra is an acceptable overrun.
+ *
+ * Fails open like `checkRateLimit`, for the same reasons.
+ */
+export async function peekRateLimit(
+  rule: RateLimitRule,
+  subject?: string | null,
+): Promise<RateLimitResult> {
+  const who = subject ? `user:${subject}` : `ip:${await callerIp()}`;
+  const key = `${rule.name}:${who}`;
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('rate_limits')
+      .select('window_start, count')
+      .eq('key', key)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return peekVerdict(rule, data, Date.now());
+  } catch (err) {
+    console.error(
+      `[RateLimit] NOT ENFORCING ${key} (peek) — the limiter is unreachable:`,
+      (err as Error).message,
+    );
+    return { allowed: true, used: 0, resetAt: null, retryAfterSeconds: 0 };
+  }
+}
+
+/** The pure half of `peekRateLimit`: the same window arithmetic as consume_rate_limit. */
+export function peekVerdict(
+  rule: RateLimitRule,
+  row: { window_start: string; count: number } | null,
+  now: number,
+): RateLimitResult {
+  if (!row) return { allowed: true, used: 0, resetAt: null, retryAfterSeconds: 0 };
+  const resetMs = new Date(row.window_start).getTime() + rule.windowMs;
+  if (resetMs <= now) return { allowed: true, used: 0, resetAt: null, retryAfterSeconds: 0 };
+  const used = Number(row.count ?? 0);
+  return {
+    allowed: used < rule.limit,
+    used,
+    resetAt: new Date(resetMs),
+    retryAfterSeconds: Math.max(1, Math.ceil((resetMs - now) / 1000)),
+  };
 }
 
 /** The 429 to return when a limit is hit, with the header a well-behaved client reads. */

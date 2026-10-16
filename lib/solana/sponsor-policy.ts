@@ -21,6 +21,7 @@ import { Buffer } from 'buffer';
 import {
   ComputeBudgetProgram,
   PublicKey,
+  SystemProgram,
   Transaction,
   VersionedTransaction,
   type TransactionInstruction,
@@ -60,7 +61,7 @@ export const MAX_INSTRUCTIONS = 6;
 /** USDC's decimals, as TransferChecked carries them. */
 const USDC_DECIMALS = 6;
 
-const deny = (reason: string): PolicyResult => ({ ok: false, reason });
+const deny = (reason: string): { ok: false; reason: string } => ({ ok: false, reason });
 
 /**
  * Decode a client-supplied transaction, legacy format only.
@@ -115,16 +116,83 @@ function checkSigners(tx: Transaction, expected: PublicKey[]): PolicyResult {
 }
 
 /**
- * A plain USDC payment from the caller: TransferChecked on USDC out of their own ATA, optionally
- * preceded by creating the destination ATA (rent paid by the caller), with memos and capped
- * compute-budget instructions. Used by /api/solana/sponsor.
+ * Most token accounts the fee payer will fund in one transaction: the recipient's and the
+ * treasury's. Anything more is not a payment.
+ */
+export const MAX_RENT_PAID_ACCOUNTS = 2;
+
+/**
+ * Smallest send, in USDC subunits, for which we will pay to open a token account.
  *
- * Call BEFORE setting the fee payer — `tx.feePayer` is replaced, not trusted.
+ * Opening one costs ~0.002 SOL of rent — tens of cents. Paying that to deliver a few cents is a
+ * bad trade, and a cheap way to farm the rent.
+ */
+export const MIN_SUBUNITS_FOR_NEW_ACCOUNT = 1_000_000n; // 1 USDC
+
+export type TransferPolicyResult =
+  | {
+      ok: true;
+      /** Token accounts the fee payer is rent payer for (CreateIdempotent — may already exist). */
+      rentPaidAccounts: PublicKey[];
+      /** USDC moved by the transaction, fee included, in subunits. */
+      totalSubunits: bigint;
+    }
+  | { ok: false; reason: string };
+
+/** The USDC account of `wallet`, for any owner — a PDA or other off-curve owner included. */
+export function usdcAccountFor(wallet: PublicKey, mint: PublicKey = SOLANA_USDC_MINT): PublicKey {
+  return getAssociatedTokenAddressSync(mint, wallet, true);
+}
+
+/**
+ * A fee-payer-funded `CreateIdempotent`, checked account by account: the payer slot is the only
+ * place the fee payer may appear, and the account it pays for must be exactly the USDC ATA of
+ * the wallet named, under the real system and token programs.
+ */
+function checkRentPaidAtaCreate(
+  ix: TransactionInstruction,
+  params: { feePayer: PublicKey; owner: PublicKey; mint: PublicKey },
+): PolicyResult {
+  const { feePayer, owner, mint } = params;
+  if (ix.data.length !== 1 || ix.data[0] !== 1) {
+    return deny('a sponsored token account must use CreateIdempotent');
+  }
+  if (ix.keys.length !== 6) return deny('malformed ATA instruction');
+  const [payer, ata, wallet, ixMint, system, token] = ix.keys;
+  if (!payer.pubkey.equals(feePayer) || !payer.isSigner || !payer.isWritable) {
+    return deny('malformed ATA payer');
+  }
+  for (const k of ix.keys.slice(1)) {
+    if (k.pubkey.equals(feePayer)) return deny('fee payer referenced by an instruction');
+    if (k.isSigner) return deny('unexpected signer in ATA instruction');
+  }
+  if (wallet.pubkey.equals(owner)) return deny("we do not pay for the caller's own account");
+  if (!ixMint.pubkey.equals(mint)) return deny('ATA is not for USDC');
+  if (!system.pubkey.equals(SystemProgram.programId)) return deny('wrong system program');
+  if (!token.pubkey.equals(TOKEN_PROGRAM_ID)) return deny('wrong token program');
+  if (!ata.pubkey.equals(usdcAccountFor(wallet.pubkey, mint))) {
+    return deny('ATA does not match its wallet');
+  }
+  return { ok: true };
+}
+
+/**
+ * A plain USDC payment from the caller: TransferChecked on USDC out of their own ATA, optionally
+ * preceded by creating the destination ATAs, with memos and capped compute-budget instructions.
+ * Used by /api/solana/sponsor and /api/solana/submit.
+ *
+ * A destination ATA may be created with the caller as rent payer (as the client builds it), or
+ * — after `sponsorAtaRent` — with the fee payer as rent payer. The fee-payer case is narrow:
+ * CreateIdempotent only, at most MAX_RENT_PAID_ACCOUNTS, and only for an account this same
+ * transaction pays USDC into. Rent is the one thing the fee payer can lose beyond the fee, so
+ * HOW OFTEN it does is bounded by the route (a per-user quota), not here.
+ *
+ * `tx.feePayer` is never trusted: signers are checked as though the fee payer were ours.
  */
 export function checkSponsoredTransfer(
   tx: Transaction,
   params: { feePayer: PublicKey; owner: PublicKey; mint?: PublicKey },
-): PolicyResult {
+): TransferPolicyResult {
   const { feePayer, owner } = params;
   const mint = params.mint ?? SOLANA_USDC_MINT;
   if (owner.equals(feePayer)) return deny('owner cannot be the fee payer');
@@ -134,9 +202,19 @@ export function checkSponsoredTransfer(
   if (ixs.length === 0 || ixs.length > MAX_INSTRUCTIONS) return deny('bad instruction count');
 
   const sourceAta = getAssociatedTokenAddressSync(mint, owner);
+  const destinations = new Set<string>();
+  const rentPaid: PublicKey[] = [];
   let transfers = 0;
+  let total = 0n;
 
   for (const ix of ixs) {
+    if (ix.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID) && ix.keys[0]?.pubkey.equals(feePayer)) {
+      const r = checkRentPaidAtaCreate(ix, { feePayer, owner, mint });
+      if (!r.ok) return r;
+      rentPaid.push(ix.keys[1].pubkey);
+      continue;
+    }
+
     if (mentions(ix, feePayer)) return deny('fee payer referenced by an instruction');
 
     if (ix.programId.equals(ComputeBudgetProgram.programId)) {
@@ -152,10 +230,14 @@ export function checkSponsoredTransfer(
       if (ix.data.length !== 10 || ix.data[0] !== 12) return deny('only TransferChecked is allowed');
       if (ix.data[9] !== USDC_DECIMALS) return deny('wrong decimals');
       if (ix.keys.length !== 4) return deny('multisig authorities are not supported');
-      const [source, ixMint, , authority] = ix.keys;
+      const [source, ixMint, dest, authority] = ix.keys;
       if (!source.pubkey.equals(sourceAta)) return deny("source is not the caller's USDC account");
       if (!ixMint.pubkey.equals(mint)) return deny('not USDC');
       if (!authority.pubkey.equals(owner)) return deny('authority is not the caller');
+      const amount = Buffer.from(ix.data).readBigUInt64LE(1);
+      if (amount === 0n) return deny('zero-amount transfer');
+      destinations.add(dest.pubkey.toBase58());
+      total += amount;
       transfers++;
       continue;
     }
@@ -175,8 +257,46 @@ export function checkSponsoredTransfer(
 
   if (transfers === 0) return deny('no USDC transfer');
 
+  if (rentPaid.length > MAX_RENT_PAID_ACCOUNTS) return deny('too many sponsored token accounts');
+  const seen = new Set<string>();
+  for (const ata of rentPaid) {
+    const key = ata.toBase58();
+    if (seen.has(key)) return deny('duplicate sponsored token account');
+    seen.add(key);
+    // Rent for an account nothing is paid into is rent for somebody else's purposes.
+    if (!destinations.has(key)) return deny('sponsored token account receives nothing');
+  }
+
   const probe = cloneWithFeePayer(tx, feePayer);
-  return checkSigners(probe, [feePayer, owner]);
+  const signers = checkSigners(probe, [feePayer, owner]);
+  if (!signers.ok) return signers;
+  return { ok: true, rentPaidAccounts: rentPaid, totalSubunits: total };
+}
+
+/**
+ * Move the rent of every caller-paid CreateIdempotent onto the fee payer, and make the fee payer
+ * the transaction's fee payer. Run on a transaction `checkSponsoredTransfer` accepted; the
+ * result must pass it again (the route re-checks).
+ *
+ * The client builds with the caller as rent payer because the caller is the only key it knows;
+ * the caller holds no SOL, so left as is the create would fail for want of rent.
+ */
+export function sponsorAtaRent(tx: Transaction, owner: PublicKey, feePayer: PublicKey): void {
+  for (const ix of tx.instructions) {
+    if (!ix.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID)) continue;
+    if (ix.data.length !== 1 || ix.data[0] !== 1) continue;
+    if (ix.keys[0]?.pubkey.equals(owner)) {
+      ix.keys[0] = { pubkey: feePayer, isSigner: true, isWritable: true };
+    }
+  }
+  tx.feePayer = feePayer;
+}
+
+/**
+ * Whether a send that opens `newAccounts` token accounts moves enough to be worth their rent.
+ */
+export function newAccountMinimumMet(totalSubunits: bigint, newAccounts: number): boolean {
+  return newAccounts === 0 || totalSubunits >= MIN_SUBUNITS_FOR_NEW_ACCOUNT;
 }
 
 /** `deposit_for_burn` account slots — see `buildDepositForBurnTx` in lib/circle/solana-gateway. */

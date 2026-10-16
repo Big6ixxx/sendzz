@@ -119,6 +119,8 @@ export interface SolanaSource {
     payoutAmount: string;
     feeAddress?: string;
     feeAmount?: string;
+    /** Lets the server record the signature on the withdrawal as soon as it broadcasts. */
+    withdrawalOrderId?: string;
     onStatus?: (status: string) => void;
   }) => Promise<string>;
 }
@@ -515,4 +517,45 @@ export function planWithdrawalRoute(
     totalAvailable,
     requested,
   };
+}
+
+// ── Solana-destination sends ─────────────────────────────────────────────────
+
+export type SolanaSendPlan =
+  | { mode: 'direct' }
+  /** Bridge `amount` from `sourceChain` to the sender's own Solana wallet, then send from it. */
+  | { mode: 'top_up'; sourceChain: SupportedChain; amount: string }
+  | { mode: 'infeasible' };
+
+/**
+ * How to fund a send that must leave from the sender's Solana wallet.
+ *
+ * When Solana alone falls short, the gap is bridged in from one EVM chain — to the SENDER's own
+ * Solana wallet, not the recipient's. A sponsored claim may only mint to the caller's own
+ * account (lib/solana/sponsor-policy), and topping up first means the final hop is an ordinary
+ * sponsored Solana send: same recipient-account handling, same history row.
+ *
+ * The bridged amount carries a margin for CCTP's fee, which is taken out of the mint — without
+ * it the top-up lands a few cents short of the send it was for.
+ */
+export function planSolanaSend(
+  totalNeededUsdc: number,
+  solanaBalance: number,
+  evmBalances: ChainBalances,
+  opts: { homeChain?: SupportedChain } = {},
+): SolanaSendPlan {
+  const needed = toMicro(totalNeededUsdc);
+  const have = toMicro(solanaBalance);
+  if (needed <= 0n) return { mode: 'infeasible' };
+  if (have >= needed) return { mode: 'direct' };
+
+  const shortfall = needed - have;
+  const margin = shortfall / 200n > 10_000n ? shortfall / 200n : 10_000n; // 0.5%, at least 0.01
+  const topUp = shortfall + margin;
+
+  const sourceChain = spendOrder(opts.homeChain ?? 'base').find(
+    (c) => toMicro(evmBalances[c] ?? 0) >= topUp,
+  );
+  if (!sourceChain) return { mode: 'infeasible' };
+  return { mode: 'top_up', sourceChain, amount: microToStr(topUp) };
 }

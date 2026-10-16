@@ -26,6 +26,9 @@ import { buildReceiveMessageOnSolanaTx } from '@/lib/circle/solana-gateway';
 import { fetchAttestation } from '@/lib/circle/gateway';
 import { privySolanaWallets, requireUser } from '@/lib/auth/session';
 import { claimRecipientOwner } from '@/lib/solana/sponsor-policy';
+import { preflightFeePayer } from '@/lib/solana/fee-payer';
+import { classifySolanaSendError, SOLANA_SEND_MESSAGES } from '@/lib/solana/send-errors';
+import bs58 from 'bs58';
 import {
   RATE_LIMITS,
   checkRateLimit,
@@ -42,12 +45,15 @@ const CONFIRM_TIMEOUT_MS = 60_000;
  * dropped response, not a failure — the funds are already delivered.
  */
 function isAlreadyClaimed(raw: string): boolean {
+  // The RPC's own "This transaction has already been processed" (AlreadyProcessed) is NOT one
+  // of these: it means these exact bytes were broadcast before, not that the message was
+  // delivered — so it is handled at the broadcast, by confirming the signature we hold.
+  if (classifySolanaSendError(raw)?.code === 'already_landed') return false;
   const lower = raw.toLowerCase();
   return (
     lower.includes('nonce already used') ||
     lower.includes('already received') ||
-    lower.includes('already processed') ||
-    lower.includes('alreadyprocessed')
+    lower.includes('already processed')
   );
 }
 
@@ -177,6 +183,15 @@ export async function POST(req: Request) {
       }
     }
 
+    // An empty fee payer fails the claim with "no record of a prior credit" — say what it is,
+    // and tell the admins, before signing anything.
+    if ((await preflightFeePayer(connection, payer, createsMintRecipient ? 1 : 0)) === 'insufficient') {
+      return NextResponse.json(
+        { error: SOLANA_SEND_MESSAGES.sponsor_unfunded, code: 'sponsor_unfunded' },
+        { status: 503 },
+      );
+    }
+
     const circleClient = initiateDeveloperControlledWalletsClient({ apiKey, entitySecret });
 
     const unsigned = transaction
@@ -202,7 +217,8 @@ export async function POST(req: Request) {
     // Preflight is left on: the burn already happened, so a transaction that would
     // fail on-chain is worth catching here — where the reason is still legible —
     // rather than after it lands and we have to reconstruct it from a status object.
-    let signature: string;
+    // The fee payer's signature, first in the list, is the transaction id.
+    let signature = bs58.encode(signedBytes.subarray(1, 65));
     try {
       signature = await connection.sendRawTransaction(signedBytes, {
         preflightCommitment: 'confirmed',
@@ -213,7 +229,8 @@ export async function POST(req: Request) {
       if (isAlreadyClaimed(raw)) {
         return NextResponse.json({ alreadyClaimed: true }, { status: 200 });
       }
-      throw err;
+      // These bytes already went out: confirm the signature below like any other broadcast.
+      if (classifySolanaSendError(raw)?.code !== 'already_landed') throw err;
     }
 
     const startedAt = Date.now();

@@ -1,5 +1,6 @@
 import { GENERIC_ERROR_MESSAGE, toUserSafeMessage } from './sanitize';
 import { reportClientError } from './report';
+import { classifySolanaSendError } from '@/lib/solana/send-errors';
 
 /**
  * Centralized app error classifier for Sendzz.
@@ -28,6 +29,9 @@ export interface AppError {
     | 'attestation_pending'
     | 'attestation_expired'
     | 'broadcast_unconfirmed'
+    | 'blockhash_expired'
+    | 'sponsor_refused'
+    | 'ata_rent_limited'
     | 'wallet_not_ready'
     | 'wallet_not_registered'
     | 'insufficient_funds'
@@ -112,6 +116,40 @@ function classify(err: unknown): AppError {
     msg.includes('jwt expired')
   ) {
     return { message: 'Your session expired. Please refresh the page to continue.', category: 'validation', isSilent: false, isAlreadyProcessed: false };
+  }
+
+  // ── Solana ──────────────────────────────────────────────────────────────────
+  //
+  // Before the CCTP checks below on purpose: the RPC's "This transaction has already been
+  // processed" is a duplicate broadcast, not CCTP's "message already received", and must not be
+  // reported as a delivered bridge. And before the generic insufficient-funds check: our fee
+  // payer running out of SOL is not the user's balance.
+  if (msg.includes('sponsor_refused') || msg.includes('cannot be sponsored')) {
+    return { message: "This transfer isn't one we can cover the network fee for. Please contact support if this keeps happening.", category: 'sponsor_refused', isSilent: false, isAlreadyProcessed: false };
+  }
+  if (msg.includes('ata_rent_limited')) {
+    return { message: "You've reached this month's limit for sending to new Solana addresses. Ask the recipient to set up their USDC account first, or send on another network.", category: 'ata_rent_limited', isSilent: false, isAlreadyProcessed: false };
+  }
+  if (msg.includes('below_new_account_minimum')) {
+    return { message: 'Sends to a new Solana address must be at least 1 USDC.', category: 'validation', isSilent: false, isAlreadyProcessed: false };
+  }
+  {
+    const solana = classifySolanaSendError(rawMsg);
+    if (solana?.code === 'blockhash_expired') {
+      return { message: solana.message, category: 'blockhash_expired', isSilent: false, isAlreadyProcessed: false };
+    }
+    if (solana?.code === 'already_landed') {
+      return { message: solana.message, category: 'broadcast_unconfirmed', isSilent: false, isAlreadyProcessed: false };
+    }
+    if (solana?.code === 'sponsor_unfunded') {
+      return { message: solana.message, category: 'service_unavailable', isSilent: false, isAlreadyProcessed: false };
+    }
+    if (solana?.code === 'insufficient_usdc') {
+      return { message: solana.message, category: 'insufficient_funds', isSilent: false, isAlreadyProcessed: false };
+    }
+  }
+  if (msg.includes('gas sponsor error') || msg.includes('gas station error')) {
+    return { message: "We couldn't cover the network fee for this transfer right now. Nothing was sent — please try again shortly.", category: 'service_unavailable', isSilent: false, isAlreadyProcessed: false };
   }
 
   // A fast transfer's attestation is only valid for a short window on the destination chain.

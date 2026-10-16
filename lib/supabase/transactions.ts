@@ -97,7 +97,9 @@ export async function recordTransfer(params: {
     }
 
     const senderEmail = identity.email;
-    const recipientEmail = params.recipientEmail.toLowerCase();
+    // Emails and EVM addresses lowercase; Solana and Stellar addresses are case-sensitive.
+    const { normalizeRecipient } = await import("@/lib/web3/recipient-key");
+    const recipientEmail = normalizeRecipient(params.recipientEmail);
     console.log(
       `[Supabase] Recording transfer: ${redactEmail(senderEmail)} -> ${redactEmail(recipientEmail)} ($${params.amount})`,
     );
