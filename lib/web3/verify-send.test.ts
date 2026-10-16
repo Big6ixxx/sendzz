@@ -74,11 +74,22 @@ describe('solanaSentAmounts', () => {
     expect(await solanaSentAmounts(sig, sender)).toEqual([]);
   });
 
-  it('treats a failed or missing transaction as moving nothing', async () => {
+  it('treats a failed transaction as moving nothing', async () => {
     getParsedTransaction.mockResolvedValue(parsed([transferChecked('1000000')], [], { InstructionError: [0, 'x'] }));
     expect(await solanaSentAmounts(sig, sender)).toEqual([]);
+  });
+
+  it('retries a transaction the node has not seen yet, then says unknown rather than absent', async () => {
     getParsedTransaction.mockResolvedValue(null);
-    expect(await solanaSentAmounts(sig, sender)).toEqual([]);
+    expect(await solanaSentAmounts(sig, sender, 0)).toBeNull();
+    expect(getParsedTransaction).toHaveBeenCalledTimes(3);
+  });
+
+  it('finds a transaction that appears on a retry', async () => {
+    getParsedTransaction
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(parsed([transferChecked('1000000')]));
+    expect(await solanaSentAmounts(sig, sender, 0)).toEqual([1]);
   });
 
   it('rejects something that is not a Solana signature without asking the chain', async () => {
