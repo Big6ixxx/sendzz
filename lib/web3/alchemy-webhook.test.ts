@@ -8,6 +8,7 @@ import {
   type AlchemyActivity,
 } from './alchemy-webhook';
 import { transferAmountUsdc } from './deposit-amount';
+import { USDC_ADDRESSES } from '@/lib/circle/gateway';
 
 /**
  * The webhook is a path into the deposit ledger, so the two things worth pinning are that
@@ -76,7 +77,8 @@ describe('chainForWebhookId', () => {
 });
 
 describe('isIncomingUsdc', () => {
-  const usdcOnBase = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+  // Whichever network NEXT_PUBLIC_SIMULATION_MODE selects, so this passes on testnet too.
+  const usdcOnBase = USDC_ADDRESSES.base;
 
   it('accepts an ERC-20 transfer of the chain USDC contract', () => {
     const a: AlchemyActivity = { category: 'token', rawContract: { address: usdcOnBase } };

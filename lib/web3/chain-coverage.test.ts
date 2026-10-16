@@ -13,6 +13,7 @@ import { VIEM_CHAINS } from '@/lib/web3/multichain';
 import { ALCHEMY_SUBDOMAIN, rpcUrls } from '@/lib/web3/rpc';
 import { EXPLORER_TX_BASE, explorerTxUrl } from '@/lib/explorers';
 import { EVM_CHAINS, RAMP_NETWORKS } from '@/lib/web3/routing';
+import { IS_TESTNET } from '@/lib/network';
 // Imported statically, not with `await import()` inside each test. Loading this module pulls in
 // viem, the Solana kit and the Stellar SDK, which took ~3.9s — charged against the first test's
 // 5s budget, so the whole file passed or failed on how warm the module cache happened to be.
@@ -138,7 +139,8 @@ describe('Arc', () => {
     // The 18 on VIEM_CHAINS.arc.nativeCurrency describes gas; it must never be read as the
     // token's precision.
     expect(VIEM_CHAINS.arc.nativeCurrency.decimals).toBe(18);
-    expect(CHAIN_IDS.arc).toBe(5042);
+    // 5042 is Arc mainnet; with NEXT_PUBLIC_SIMULATION_MODE="true" it is Arc Testnet.
+    expect(CHAIN_IDS.arc).toBe(IS_TESTNET ? 5042002 : 5042);
     expect(CCTP_DOMAINS.arc).toBe(26);
   });
 });
