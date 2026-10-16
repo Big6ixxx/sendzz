@@ -32,6 +32,7 @@ import bs58 from 'bs58';
 import {
   RATE_LIMITS,
   checkRateLimit,
+  peekRateLimit,
   rateLimitResponse,
 } from '@/lib/security/rate-limit';
 
@@ -168,10 +169,11 @@ export async function POST(req: Request) {
     }
 
     // Creating the token account puts its rent on us, and closing it hands that rent to the
-    // user — so it is allowed a few times a month, not once per claim.
+    // user — so it is allowed a few times a month, not once per claim. Only checked here; it is
+    // spent once the mint confirms, so a claim that fails on our side — Circle
+    // down, a stale attestation — does not count against the user.
     if (createsMintRecipient) {
-      const limit = await checkRateLimit(RATE_LIMITS.solanaAtaRent, subject);
-      if (!limit.allowed) {
+      if (!(await peekRateLimit(RATE_LIMITS.solanaAtaRent, subject)).allowed) {
         console.warn(`[solana-claim] REFUSED token-account rent for ${subject}: monthly limit reached.`);
         return NextResponse.json(
           {
@@ -253,6 +255,7 @@ export async function POST(req: Request) {
 
       if (status?.confirmationStatus === 'confirmed' || status?.confirmationStatus === 'finalized') {
         console.log(`[solana-claim] ✓ Minted on Solana: ${signature}`);
+        if (createsMintRecipient) await checkRateLimit(RATE_LIMITS.solanaAtaRent, subject);
         return NextResponse.json({ txHash: signature });
       }
 

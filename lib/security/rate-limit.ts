@@ -150,12 +150,14 @@ export async function checkRateLimit(
 }
 
 /**
- * Would one more attempt be allowed? Spends nothing.
+ * Whether one more attempt WOULD be allowed, without spending it. `used` says how much of the
+ * window is gone, for callers about to spend more than one.
  *
- * For limits that should only be charged once the thing they guard has actually happened — a
- * sponsored account that was really created, not one whose transaction failed. Check with this
- * first, then `checkRateLimit` after the fact. Two concurrent requests can both pass the peek;
- * for the slow, monthly limits this is used on, one extra is an acceptable overrun.
+ * For limits on an outcome rather than an attempt — "we paid this rent" — where spending on a
+ * try that then fails would charge the user for our failure. Read-then-act is racy by nature
+ * (see consume_rate_limit), so callers still spend with `checkRateLimit` once the outcome lands;
+ * a concurrent burst can overshoot by the size of the burst, and the caller must already be
+ * bounded by an attempt limit for that to be acceptable.
  *
  * Fails open like `checkRateLimit`, for the same reasons.
  */
