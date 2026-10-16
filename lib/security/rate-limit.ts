@@ -138,6 +138,39 @@ export async function checkRateLimit(
   }
 }
 
+/**
+ * Whether one more attempt WOULD be allowed, without spending it.
+ *
+ * For limits on an outcome rather than an attempt — "we paid this rent" — where spending on a
+ * try that then fails would charge the user for our failure. Read-then-act is racy by nature
+ * (see consume_rate_limit), so callers still spend with `checkRateLimit` once the outcome lands;
+ * a concurrent burst can overshoot by the size of the burst, and the caller must already be
+ * bounded by an attempt limit for that to be acceptable.
+ *
+ * Fails open like `checkRateLimit`, for the same reason.
+ */
+export async function peekRateLimit(
+  rule: RateLimitRule,
+  subject?: string | null,
+): Promise<boolean> {
+  const who = subject ? `user:${subject}` : `ip:${await callerIp()}`;
+  const key = `${rule.name}:${who}`;
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('rate_limits')
+      .select('window_start, count')
+      .eq('key', key)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) return true;
+    const elapsed = Date.now() - new Date(data.window_start).getTime();
+    return elapsed >= rule.windowMs || Number(data.count) < rule.limit;
+  } catch (err) {
+    console.error(`[RateLimit] NOT ENFORCING ${key} — could not read it:`, (err as Error).message);
+    return true;
+  }
+}
+
 /** The 429 to return when a limit is hit, with the header a well-behaved client reads. */
 export function rateLimitResponse(result: RateLimitResult): Response {
   return new Response(

@@ -137,6 +137,23 @@ export async function recordTransfer(params: {
     // Only a chain that ANSWERS and disagrees is grounds to refuse. An unreachable RPC returns
     // `unknown` and the row is written, because losing the record of a real payment is the worse
     // failure — that is the bug we just spent this cycle fixing on the send path.
+    // The Solana wallet comes from Privy when it can. The stored column can be empty (a
+    // registration that skipped it) or stale (written before registration was verified), and
+    // checking a real send against the wrong wallet refuses it.
+    const touchesSolana = [params.chain, ...(params.legs ?? []).map((l) => l.chain)].some(
+      (c) => c?.toLowerCase() === "solana",
+    );
+    let solanaWallet = sender.solana_address;
+    if (touchesSolana) {
+      try {
+        const { privySolanaWallets } = await import("@/lib/auth/session");
+        const wallets = await privySolanaWallets(identity.privyUserId);
+        if (!solanaWallet || !wallets.includes(solanaWallet)) solanaWallet = wallets[0] ?? null;
+      } catch (err) {
+        console.warn("[Supabase] Privy unreachable; verifying against the stored Solana address:", err);
+      }
+    }
+
     const { verifyTransferEvidence } = await import("@/lib/web3/verify-send");
     const verdict = await verifyTransferEvidence({
       amount: params.amount,
@@ -147,7 +164,7 @@ export async function recordTransfer(params: {
         chain === "stellar"
           ? sender.stellar_address
           : chain === "solana"
-            ? sender.solana_address
+            ? solanaWallet
             : sender.smart_account_address,
     });
 
