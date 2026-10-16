@@ -11,12 +11,11 @@ import { bridgeSolanaToBase } from '@/lib/web3/solana-bridge';
 import { settleSolanaOffRamp } from '@/lib/web3/solana-offramp';
 import type { SolanaSource } from '@/lib/web3/routing';
 import { NETWORK } from '@/lib/network';
-
-const SOLANA_RPC =
-  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? NETWORK.solana.publicRpc;
+import { solanaRpcUrl } from '@/lib/solana/rpc';
+import { sendAndConfirmSigned } from '@/lib/solana/confirm';
 
 /**
- * Provides the capability to bridge the user's Solana USDC onto Base, wiring up the
+ * Provides the capability to bridge the user's Solana USDC onto an EVM chain (Base by default), wiring up the
  * Privy Solana signer + the embedded EVM wallet (needed to mint on Base). Returns
  * `bridgeToBase = null` when the user has no usable Solana wallet.
  */
@@ -29,7 +28,7 @@ export function useSolanaBridge(): {
   const { wallets: solWallets } = useSolanaWallets();
   const { signTransaction } = useSignTransaction();
 
-  const connection = useMemo(() => new Connection(SOLANA_RPC, 'confirmed'), []);
+  const connection = useMemo(() => new Connection(solanaRpcUrl(), 'confirmed'), []);
 
   const evmWallet = wallets.find((w) => w.walletClientType === 'privy');
 
@@ -54,25 +53,18 @@ export function useSolanaBridge(): {
       const { signedTransaction } = await signTransaction({
         transaction: tx.serialize({ requireAllSignatures: false }),
         wallet: solWallet,
+        chain: NETWORK.solana.privyCluster,
       });
-      const sig = await conn.sendRawTransaction(signedTransaction, {
-        skipPreflight: false,
-        preflightCommitment: 'confirmed',
-      });
-      const bh = await conn.getLatestBlockhash();
-      await conn.confirmTransaction(
-        { signature: sig, blockhash: bh.blockhash, lastValidBlockHeight: bh.lastValidBlockHeight },
-        'confirmed',
-      );
-      return sig;
+      return sendAndConfirmSigned(conn, signedTransaction, tx.lastValidBlockHeight);
     };
 
-    const bridgeToBase: SolanaSource['bridgeToBase'] = async (amount, recipient, onStatus) => {
+    const bridgeToBase: SolanaSource['bridgeToBase'] = async (amount, recipient, onStatus, destChain) => {
       await bridgeSolanaToBase({
         connection: conn,
         walletAddress: solAddress,
         amount,
         recipientEvm: recipient,
+        destChain,
         evmWallet,
         onStatus,
         signAndBroadcast,

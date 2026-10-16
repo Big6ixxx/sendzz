@@ -2,7 +2,6 @@
 
 import { use, useEffect, useState, useMemo } from 'react';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
-import { useWallets as useSolanaWallets } from '@privy-io/react-auth/solana';
 import Link from 'next/link';
 import { format } from 'date-fns';
 import {
@@ -31,6 +30,8 @@ import { ReceiptActions } from '@/components/receipt/ReceiptActions';
 import { activityToReceiptData } from '@/lib/receipt/utils';
 import { getOffRampRate } from '@/lib/actions/ramp';
 import { executeReceiveMessage } from '@/lib/web3/bridge-actions';
+import { claimBridgeOnDestination } from '@/lib/web3/bridge-claim';
+import { privySolanaAddress } from '@/lib/solana/privy-address';
 import type { ActivityType } from '@/components/HistoryModule';
 import { CCTP_DOMAINS, type SupportedChain } from '@/lib/circle/gateway';
 
@@ -126,7 +127,6 @@ export default function ActivityDetailPage({
 
   const { user } = usePrivy();
   const { wallets } = useWallets();
-  const { wallets: solanaWallets } = useSolanaWallets();
   const userEmail = user?.email?.address || '';
   const queryClient = useQueryClient();
 
@@ -417,35 +417,18 @@ export default function ActivityDetailPage({
       } else if ((destChain as string) === 'solana') {
         if (!mintTxHash) {
           toast.info('Delivering your money on Solana…');
-          const solAccount = user?.linkedAccounts.find(
-            (a) =>
-              a.type === 'wallet' &&
-              (a as { walletClientType?: string }).walletClientType === 'privy' &&
-              (a as { chainType?: string }).chainType === 'solana',
-          );
-          const solAddress =
-            solAccount && 'address' in solAccount
-              ? (solAccount as { address: string }).address
-              : undefined;
-          const solWallet = solAddress ? solanaWallets.find((w) => w.address === solAddress) : null;
-          if (!solWallet || !solAddress) throw new Error('Solana wallet not found.');
-
-          // The sponsor builds, signs and submits — the user pays nothing and
-          // signs nothing. See /api/bridge/solana-claim.
-          const claimRes = await fetch('/api/bridge/solana-claim', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              burnTxHash: activity.txHash,
-              sourceChain,
-              solanaAddress: solAddress,
-              messageBytes: data.messageBytes,
-              attestation: data.attestation,
-            }),
+          // Only the address is needed — the server signs — so read it from Privy rather than
+          // waiting on the Solana wallets hook.
+          const solAddress = privySolanaAddress(user);
+          if (!solAddress) throw new Error('Solana wallet not found.');
+          mintTxHash = await claimBridgeOnDestination({
+            destChain: 'solana',
+            sourceChain,
+            burnTxHash: activity.txHash,
+            messageBytes: data.messageBytes,
+            attestation: data.attestation,
+            solanaWallet: { address: solAddress },
           });
-          const claimData = await claimRes.json().catch(() => ({}));
-          if (!claimRes.ok) throw new Error(claimData.error || 'Failed to claim on Solana');
-          mintTxHash = claimData.txHash;
         }
       }
 

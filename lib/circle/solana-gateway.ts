@@ -27,7 +27,7 @@ import {
   createAssociatedTokenAccountInstruction,
 } from '@solana/spl-token';
 import crypto from 'crypto';
-import { type AttestationResponse, type AttestationStatus, CCTP_DOMAINS, type SupportedChain } from './gateway';
+import { type AttestationResponse, CCTP_DOMAINS, fetchAttestation, type SupportedChain } from './gateway';
 import { NETWORK } from '@/lib/network';
 
 
@@ -44,8 +44,6 @@ export const MESSAGE_TRANSMITTER_V2 = new PublicKey(
 );
 // The CCTP V2 programs above share their addresses between devnet and mainnet; the mint does not.
 export const SOLANA_USDC_MINT = new PublicKey(NETWORK.solana.usdcMint);
-
-const IRIS_API_BASE = NETWORK.irisApiBase;
 
 // Anchor discriminator = sha256("global:<instruction_name>")[0..8]
 export const DEPOSIT_FOR_BURN_DISCRIMINATOR = crypto
@@ -277,9 +275,12 @@ export async function buildDepositForBurnTx(
     data: instructionData,
   });
 
-  const { blockhash } = await connection.getLatestBlockhash('confirmed');
+  // Keep lastValidBlockHeight on the transaction: confirmation must be judged against this
+  // blockhash, not a later one (see lib/solana/confirm).
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
   const transaction = new Transaction({
-    recentBlockhash: blockhash,
+    blockhash,
+    lastValidBlockHeight,
     feePayer: walletPublicKey,
   }).add(instruction);
 
@@ -308,37 +309,55 @@ export async function getSolanaUsdcBalance(
 
 /**
  * Fetch CCTP attestation status for a Solana burn transaction.
- * Uses the Circle Iris API /v2/messages endpoint with domain 5.
+ *
+ * The same Iris lookup as every other source chain, so a Solana burn carries the expiry block and
+ * nonce that re-attestation needs — a separate copy here dropped both, and an expired Solana
+ * fast-transfer attestation could never be repaired.
  */
 export async function fetchSolanaAttestation(
   txSignature: string,
 ): Promise<AttestationResponse> {
+  return fetchAttestation('solana', txSignature);
+}
+
+/** The `used_nonce` PDA a delivered message leaves behind. */
+export function usedNoncePdaForMessage(messageBytes: string | Buffer): PublicKey {
+  return getUsedNoncePda(decodeNonceFromMessage(messageBytes));
+}
+
+/**
+ * Has this CCTP message already been received on Solana?
+ *
+ * Delivery creates the message's `used_nonce` account, so its existence is the proof — the same
+ * read `buildReceiveMessageOnSolanaTx` makes before building a claim. Throws when the RPC cannot
+ * answer, so callers decide how to fail.
+ */
+export async function isSolanaMessageDelivered(
+  connection: Connection,
+  messageBytes: string,
+): Promise<boolean> {
+  const info = await connection.getAccountInfo(usedNoncePdaForMessage(messageBytes));
+  return info !== null;
+}
+
+/**
+ * The Solana transaction that delivered a CCTP message, if it can be found.
+ *
+ * The `used_nonce` account is written by the delivering transaction and by nothing afterwards, so
+ * the oldest signature on it is the mint. Best effort: undefined when the RPC cannot say.
+ */
+export async function findSolanaMintSignature(
+  connection: Connection,
+  messageBytes: string,
+): Promise<string | undefined> {
   try {
-    const res = await fetch(
-      `${IRIS_API_BASE}/messages/${SOLANA_CCTP_DOMAIN}?transactionHash=${txSignature}`,
-    );
-    if (res.status === 404) return { status: 'not_found' };
-    if (!res.ok) throw new Error(`Iris API error: ${res.statusText}`);
-
-    const data = (await res.json()) as {
-      messages?: { status: string; attestation?: string; message?: string; forwardTxHash?: string }[];
-    };
-    const message = data.messages?.[0];
-    if (!message) return { status: 'not_found' };
-
-    return {
-      status: message.status as AttestationStatus,
-      attestation: message.attestation
-        ? (message.attestation.startsWith('0x') ? message.attestation : `0x${message.attestation}`)
-        : undefined,
-      messageBytes: message.message
-        ? (message.message.startsWith('0x') ? message.message : `0x${message.message}`)
-        : undefined,
-      mintTxHash: message.forwardTxHash,
-    };
-  } catch (err) {
-    console.error('[SolanaGateway] fetchAttestation error:', err);
-    return { status: 'pending' };
+    const sigs = await connection.getSignaturesForAddress(usedNoncePdaForMessage(messageBytes), {
+      limit: 20,
+    });
+    const delivered = sigs.filter((s) => !s.err);
+    return delivered[delivered.length - 1]?.signature;
+  } catch {
+    return undefined;
   }
 }
 

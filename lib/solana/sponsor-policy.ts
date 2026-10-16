@@ -189,7 +189,12 @@ const BURN_ACCOUNT_COUNT = 18;
 
 /**
  * A CCTP V2 `deposit_for_burn` of the caller's own USDC, plus capped compute-budget
- * instructions. Used by /api/bridge/solana-sponsor.
+ * instructions and, optionally, one platform-fee transfer. Used by /api/bridge/solana-sponsor.
+ *
+ * The fee transfer is a USDC TransferChecked from the caller's own token account to the token
+ * account of `feeTreasury` (FEE_TREASURY_SOLANA) — nowhere else. It moves the caller's USDC, not
+ * ours, so its amount is the caller's business; only its destination is ours to pin. Without a
+ * configured treasury no token instruction is accepted at all.
  *
  * The client builds it with the caller as `event_rent_payer` (slot 1); the route then moves
  * that slot to the fee payer, because the user has no SOL for the event account's rent. That one
@@ -199,9 +204,14 @@ const BURN_ACCOUNT_COUNT = 18;
  */
 export function checkSponsoredBurn(
   tx: Transaction,
-  params: { feePayer: PublicKey; owner: PublicKey; mint?: PublicKey },
+  params: {
+    feePayer: PublicKey;
+    owner: PublicKey;
+    mint?: PublicKey;
+    feeTreasury?: PublicKey | null;
+  },
 ): PolicyResult {
-  const { feePayer, owner } = params;
+  const { feePayer, owner, feeTreasury } = params;
   const mint = params.mint ?? SOLANA_USDC_MINT;
   if (owner.equals(feePayer)) return deny('owner cannot be the fee payer');
   if (!tx.recentBlockhash) return deny('missing recent blockhash');
@@ -209,13 +219,28 @@ export function checkSponsoredBurn(
   const ixs = tx.instructions;
   if (ixs.length === 0 || ixs.length > MAX_INSTRUCTIONS) return deny('bad instruction count');
 
+  const sourceAta = getAssociatedTokenAddressSync(mint, owner);
   let burn: TransactionInstruction | null = null;
+  let feeTransfers = 0;
   for (const ix of ixs) {
     if (mentions(ix, feePayer)) return deny('fee payer referenced by an instruction');
 
     if (ix.programId.equals(ComputeBudgetProgram.programId)) {
       const r = checkComputeBudget(ix);
       if (!r.ok) return r;
+      continue;
+    }
+    if (ix.programId.equals(TOKEN_PROGRAM_ID)) {
+      if (!feeTreasury) return deny('no fee treasury configured for a fee transfer');
+      if (feeTransfers > 0) return deny('more than one fee transfer');
+      const r = checkFeeTransfer(ix, {
+        sourceAta,
+        owner,
+        mint,
+        treasuryAta: getAssociatedTokenAddressSync(mint, feeTreasury, true),
+      });
+      if (!r.ok) return r;
+      feeTransfers++;
       continue;
     }
     if (ix.programId.equals(TOKEN_MESSENGER_MINTER_V2)) {
@@ -252,6 +277,23 @@ export function checkSponsoredBurn(
     .find((ix) => ix.programId.equals(TOKEN_MESSENGER_MINTER_V2))!
     .keys[BURN_EVENT_RENT_PAYER_INDEX].pubkey = feePayer;
   return checkSigners(probe, [feePayer, owner, eventData.pubkey]);
+}
+
+/** TransferChecked of USDC from the caller's own account to the fee treasury's account. */
+function checkFeeTransfer(
+  ix: TransactionInstruction,
+  p: { sourceAta: PublicKey; owner: PublicKey; mint: PublicKey; treasuryAta: PublicKey },
+): PolicyResult {
+  // TransferChecked: [12, amount u64, decimals u8]; accounts [source, mint, dest, authority].
+  if (ix.data.length !== 10 || ix.data[0] !== 12) return deny('only TransferChecked is allowed');
+  if (ix.data[9] !== USDC_DECIMALS) return deny('wrong decimals');
+  if (ix.keys.length !== 4) return deny('multisig authorities are not supported');
+  const [source, ixMint, dest, authority] = ix.keys;
+  if (!source.pubkey.equals(p.sourceAta)) return deny("fee source is not the caller's USDC account");
+  if (!ixMint.pubkey.equals(p.mint)) return deny('not USDC');
+  if (!dest.pubkey.equals(p.treasuryAta)) return deny('fee must go to the fee treasury');
+  if (!authority.pubkey.equals(p.owner)) return deny('authority is not the caller');
+  return { ok: true };
 }
 
 /** A copy to compile against, so checking never mutates the transaction being checked. */

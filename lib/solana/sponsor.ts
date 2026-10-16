@@ -20,12 +20,28 @@ import {
   type PolicyResult,
 } from './sponsor-policy';
 import { TOKEN_MESSENGER_MINTER_V2 } from '@/lib/circle/solana-gateway';
+import { getFeeTreasury } from '@/lib/fees/platform-fees';
+
+/** FEE_TREASURY_SOLANA as a key, or null when unset or malformed. */
+function solanaFeeTreasury(): PublicKey | null {
+  const address = getFeeTreasury('solana');
+  if (!address) return null;
+  try {
+    return new PublicKey(address);
+  } catch {
+    console.error('[solana-sponsor] FEE_TREASURY_SOLANA is not a valid Solana address.');
+    return null;
+  }
+}
 
 export type SponsorKind = 'transfer' | 'burn';
 
 const POLICIES: Record<
   SponsorKind,
-  (tx: Transaction, p: { feePayer: PublicKey; owner: PublicKey }) => PolicyResult
+  (
+    tx: Transaction,
+    p: { feePayer: PublicKey; owner: PublicKey; feeTreasury?: PublicKey | null },
+  ) => PolicyResult
 > = {
   transfer: checkSponsoredTransfer,
   burn: checkSponsoredBurn,
@@ -87,9 +103,11 @@ export async function handleSponsorRequest(
     }
 
     const feePayer = new PublicKey(feePayerAddress);
+    // Where a bridge's platform fee may go — the only token transfer a burn may carry.
+    const feeTreasury = solanaFeeTreasury();
     let verdict: PolicyResult = { ok: false, reason: 'no Solana wallet on this account' };
     for (const wallet of wallets) {
-      verdict = POLICIES[kind](tx, { feePayer, owner: new PublicKey(wallet) });
+      verdict = POLICIES[kind](tx, { feePayer, owner: new PublicKey(wallet), feeTreasury });
       if (verdict.ok) break;
     }
     if (!verdict.ok) {

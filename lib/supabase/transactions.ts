@@ -1160,6 +1160,13 @@ async function evmClient(chain: string) {
   return createPublicClient({ transport: rpcTransport(chain) });
 }
 
+/** A Solana RPC connection, imported lazily for the same bundle reason as `evmClient`. */
+async function solanaConnection() {
+  const { Connection } = await import("@solana/web3.js");
+  const { solanaRpcUrl } = await import("@/lib/solana/rpc");
+  return new Connection(solanaRpcUrl(), "confirmed");
+}
+
 /**
  * The transaction that minted a CCTP message on an EVM destination, if it can be found.
  *
@@ -1181,13 +1188,22 @@ async function findEvmMintTxHash(
   }
 }
 
+/** The Solana transaction that delivered a CCTP message, if it can be found. Best effort. */
+async function findSolanaMintTxHash(messageBytes: string): Promise<string | undefined> {
+  try {
+    const { findSolanaMintSignature } = await import("@/lib/circle/solana-gateway");
+    return await findSolanaMintSignature(await solanaConnection(), messageBytes);
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Has the destination chain already consumed this message's nonce?
  *
  * EVM reads the MessageTransmitter's used-nonce map directly. Stellar has no such read, so it
  * simulates the claim and treats an already-received rejection as proof (see lib/stellar/
- * delivery). Solana still has no check — its burns fall back to the record written when the
- * claim succeeded.
+ * delivery). Solana reads the message's `used_nonce` account, which delivery creates.
  *
  * Returns false whenever the answer is unknown, so an unreachable RPC or an unrecognised error
  * never hides a transfer the user still needs to claim.
@@ -1203,6 +1219,19 @@ async function isBurnDelivered(
     if (!attestation) return false;
     const { isStellarBurnDelivered } = await import("@/lib/stellar/delivery");
     return isStellarBurnDelivered(messageBytes, attestation);
+  }
+
+  if (dest === "solana") {
+    try {
+      const { isSolanaMessageDelivered } = await import("@/lib/circle/solana-gateway");
+      return await isSolanaMessageDelivered(await solanaConnection(), messageBytes);
+    } catch (err) {
+      console.error(
+        "[getPendingBridgeClaims] Delivery check failed on solana:",
+        (err as Error).message,
+      );
+      return false;
+    }
   }
 
   if (!isEvmUsdcChain(dest)) return false;
@@ -1241,6 +1270,20 @@ async function burnExistsOnChain(
   txHash: string,
 ): Promise<boolean | null> {
   const chain = sourceChain.toLowerCase();
+
+  if (chain === "solana") {
+    try {
+      const { value } = await (await solanaConnection()).getSignatureStatus(txHash, {
+        searchTransactionHistory: true,
+      });
+      // Unknown to the chain, or landed and failed: either way nothing was burned.
+      if (!value) return false;
+      return value.err ? false : true;
+    } catch {
+      return null;
+    }
+  }
+
   if (!isEvmUsdcChain(chain) || !txHash.startsWith("0x")) return null;
 
   try {
@@ -1363,7 +1406,9 @@ async function settleIfDelivered(
 
   // Try for the real hash so history can link to an explorer, but do not require it.
   const resolved =
-    (await findEvmMintTxHash(destChain, attested.messageBytes)) ?? PLACEHOLDER_TX_HASH;
+    (destChain.toLowerCase() === "solana"
+      ? await findSolanaMintTxHash(attested.messageBytes)
+      : await findEvmMintTxHash(destChain, attested.messageBytes)) ?? PLACEHOLDER_TX_HASH;
   await updateBridgeStatus(burnTxHash, "complete", resolved);
   return resolved;
 }

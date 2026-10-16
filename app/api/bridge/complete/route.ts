@@ -1,7 +1,6 @@
 import { updateBridgeStatus, verifyBridgeClaimSettled } from '@/lib/supabase/transactions';
-import { supabaseAdmin } from '@/lib/supabase/adminClient';
 import { NextRequest, NextResponse } from 'next/server';
-import { isPlaceholderHash, PLACEHOLDER_TX_HASH } from '@/lib/explorers';
+import { isPlaceholderHash } from '@/lib/explorers';
 import { requireUser } from '@/lib/auth/session';
 
 /**
@@ -29,11 +28,11 @@ export async function POST(req: NextRequest) {
 
     // Three outcomes, because "no hash" means two different things.
     //
-    // A real hash is stored as-is. `delivered` — the caller has proof the funds arrived but no
-    // hash to show for it, which is how Solana reports an already-consumed nonce — stores the
-    // placeholder, a state the UI already renders without a dead link. Writing null there left
-    // `mint_tx_hash` empty, and the pending-claims query keys off exactly that, so the card
-    // vanished on click and came back on the next poll, forever.
+    // A real hash is stored as-is. `delivered` — the caller says the funds arrived but has no
+    // hash to show for it — is checked against the destination chain below, which records the
+    // placeholder itself when delivery is real. Writing null there left `mint_tx_hash` empty,
+    // and the pending-claims query keys off exactly that, so the card vanished on click and
+    // came back on the next poll, forever.
     //
     // Anything else stays null so the reconciler can fill in the real hash later. Never the old
     // 'CONFIRMED_ON_CHAIN' sentinel: it made a row look settled while leaving no way to reach
@@ -48,35 +47,22 @@ export async function POST(req: NextRequest) {
     // the destination (fail-closed: an unreachable RPC is "not delivered") and records the
     // result itself only if it is real. Otherwise the row stays null and the claim stays open.
     //
-    // Solana is the one exception: it has no delivery read, and a consumed nonce there returns
-    // no hash rather than an error, so the client's report is the only evidence available.
-    // Refusing it would recreate the loop where the card vanished and came back forever.
+    // Solana included: verifyBridgeClaimSettled reads its `used_nonce` account. It used to be
+    // the exception, trusted on the client's word, because it had no delivery read.
     if (isPlaceholderHash(mintTxHash) && delivered) {
-      const { data: row } = await supabaseAdmin
-        .from('bridge_transactions')
-        .select('dest_chain')
-        .eq('burn_tx_hash', burnTxHash)
-        .maybeSingle();
-
-      if (row?.dest_chain?.toLowerCase() !== 'solana') {
-        const verdict = await verifyBridgeClaimSettled(burnTxHash);
-        console.log(
-          `[Bridge Complete API] Client reported delivery for ${burnTxHash} — chain says ` +
-            `${verdict.settled ? 'delivered' : 'NOT delivered; leaving it claimable'}`,
-        );
-        return NextResponse.json({
-          ok: true,
-          delivered: verdict.settled,
-          mintTxHash: verdict.mintTxHash,
-        });
-      }
+      const verdict = await verifyBridgeClaimSettled(burnTxHash);
+      console.log(
+        `[Bridge Complete API] Client reported delivery for ${burnTxHash} — chain says ` +
+          `${verdict.settled ? 'delivered' : 'NOT delivered; leaving it claimable'}`,
+      );
+      return NextResponse.json({
+        ok: true,
+        delivered: verdict.settled,
+        mintTxHash: verdict.mintTxHash,
+      });
     }
 
-    const targetMintHash = !isPlaceholderHash(mintTxHash)
-      ? mintTxHash
-      : delivered
-        ? PLACEHOLDER_TX_HASH
-        : undefined;
+    const targetMintHash = !isPlaceholderHash(mintTxHash) ? mintTxHash : undefined;
     console.log(
       `[Bridge Complete API] Recording claim — burn: ${burnTxHash} | mint: ${targetMintHash ?? 'unresolved (left null for reconciliation)'}`,
     );

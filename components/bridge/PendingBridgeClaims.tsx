@@ -27,7 +27,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { PendingBridgeClaim } from "@/types/bridge";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
-import { useWallets as useSolanaWallets } from "@privy-io/react-auth/solana";
+import { privySolanaAddress } from "@/lib/solana/privy-address";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, CircleDollarSign, Clock, Loader2 } from "lucide-react";
@@ -50,24 +50,15 @@ export function PendingBridgeClaims({
 }: PendingBridgeClaimsProps) {
   const { user } = usePrivy();
   const { wallets } = useWallets();
-  const { wallets: solanaWallets } = useSolanaWallets();
   const queryClient = useQueryClient();
 
   const [claimingId, setClaimingId] = useState<string | null>(null);
 
   const embeddedWallet = wallets.find((w) => w.walletClientType === "privy");
-  const privySolAccount = user?.linkedAccounts.find(
-    (a) =>
-      a.type === "wallet" &&
-      a.walletClientType === "privy" &&
-      a.chainType === "solana",
-  );
-  const privySolanaAddress =
-    privySolAccount && "address" in privySolAccount
-      ? (privySolAccount as { address: string }).address
-      : solanaAddress;
-  const embeddedSolWallet =
-    solanaWallets.find((w) => w.address === privySolanaAddress) ?? null;
+  // A Solana claim needs only the address — the server signs — so it comes straight from the
+  // Privy account rather than waiting on the Solana wallets hook to produce a wallet object.
+  const claimSolanaAddress = privySolanaAddress(user) ?? solanaAddress;
+  const solanaClaimWallet = claimSolanaAddress ? { address: claimSolanaAddress } : null;
 
   const { data: claims = [], refetch } = useQuery<PendingBridgeClaim[]>({
     queryKey: ["pending-bridge-claims", userEmail],
@@ -134,7 +125,7 @@ export function PendingBridgeClaims({
         messageBytes: claim.messageBytes ?? "",
         attestation: claim.attestation ?? "",
         embeddedWallet,
-        solanaWallet: embeddedSolWallet,
+        solanaWallet: solanaClaimWallet,
         stellarWallet,
       });
 
@@ -165,10 +156,9 @@ export function PendingBridgeClaims({
       if (await settleIfAlreadyArrived(claim)) return;
 
       if (classified.isAlreadyProcessed) {
-        // The chain could not confirm it — Solana has no delivery read — but the claim itself
-        // says the nonce is spent, which only happens once the mint has gone through. That is
-        // proof enough to record delivery; the reconciler upgrades the placeholder to a real
-        // hash later if the chain ever offers one.
+        // The claim says the nonce is spent, which only happens once the mint has gone through.
+        // The server re-checks the destination before recording it; the reconciler upgrades the
+        // placeholder to a real hash later if the chain ever offers one.
         const delivered = await reportClaim(claim.burnTxHash, undefined);
         if (delivered) {
           toast.success("Your money is already in your balance.");
@@ -214,7 +204,7 @@ export function PendingBridgeClaims({
       <AnimatePresence initial={false}>
         {claims.map((claim) => {
           const isClaiming = claimingId === claim.id;
-          const needsSolWallet = claim.destChain === "solana" && !embeddedSolWallet;
+          const needsSolWallet = claim.destChain === "solana" && !solanaClaimWallet;
           const disabled = !claim.ready || isClaiming || !!claimingId || needsSolWallet;
 
           return (

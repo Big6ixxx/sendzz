@@ -199,6 +199,69 @@ describe('checkSponsoredBurn', () => {
     expect(checkBurn(t)).toMatchObject({ ok: false, reason: 'only deposit_for_burn is allowed' });
   });
 
+  describe('with a platform fee', () => {
+    const treasury = Keypair.generate().publicKey;
+    const treasuryAta = getAssociatedTokenAddressSync(mint, treasury, true);
+    const fee = (dest = treasuryAta, from = ownerAta, authority = owner) =>
+      createTransferCheckedInstruction(from, mint, dest, authority, 25_000n, 6);
+    const checkFeeBurn = (t: Transaction, feeTreasury: PublicKey | null = treasury) =>
+      checkSponsoredBurn(t, { feePayer, owner, mint, feeTreasury });
+
+    async function feeBurn(feeIx = fee()) {
+      const t = await burnTx();
+      t.instructions.unshift(feeIx);
+      return t;
+    }
+
+    it('accepts the burn with a fee to the treasury, as the bridge screen builds it', async () => {
+      expect(checkFeeBurn(await feeBurn())).toEqual({ ok: true });
+    });
+
+    it('accepts the fee after the burn too', async () => {
+      const t = await burnTx();
+      t.add(fee());
+      expect(checkFeeBurn(t)).toEqual({ ok: true });
+    });
+
+    it('refuses a fee transfer when no treasury is configured', async () => {
+      expect(checkFeeBurn(await feeBurn(), null).ok).toBe(false);
+    });
+
+    it('refuses sending the "fee" anywhere but the treasury', async () => {
+      expect(checkFeeBurn(await feeBurn(fee(strangerAta)))).toMatchObject({
+        ok: false,
+        reason: 'fee must go to the fee treasury',
+      });
+    });
+
+    it('refuses the treasury wallet itself rather than its token account', async () => {
+      expect(checkFeeBurn(await feeBurn(fee(treasury))).ok).toBe(false);
+    });
+
+    it("refuses a fee paid from someone else's USDC", async () => {
+      expect(checkFeeBurn(await feeBurn(fee(treasuryAta, strangerAta, stranger))).ok).toBe(false);
+    });
+
+    it('refuses two fee transfers', async () => {
+      const t = await feeBurn();
+      t.add(fee());
+      expect(checkFeeBurn(t)).toMatchObject({ ok: false, reason: 'more than one fee transfer' });
+    });
+
+    it('refuses an unchecked Transfer to the treasury', async () => {
+      const t = await feeBurn(createTransferInstruction(ownerAta, treasuryAta, owner, 25_000n));
+      expect(checkFeeBurn(t).ok).toBe(false);
+    });
+
+    it('refuses a fee transfer with no burn', () => {
+      expect(checkFeeBurn(tx(fee())).ok).toBe(false);
+    });
+
+    it('refuses a fee transfer that names the fee payer', async () => {
+      expect(checkFeeBurn(await feeBurn(fee(treasuryAta, ownerAta, feePayer))).ok).toBe(false);
+    });
+  });
+
   it('refuses a burn of another mint', async () => {
     const t = await burnTx();
     t.instructions[0].keys[10].pubkey = Keypair.generate().publicKey;

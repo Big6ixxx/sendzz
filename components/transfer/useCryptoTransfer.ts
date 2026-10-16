@@ -12,6 +12,7 @@ import {
 } from '@privy-io/react-auth/solana';
 import { Connection } from '@solana/web3.js';
 import { solanaRpcUrl } from '@/lib/solana/rpc';
+import { NETWORK } from '@/lib/network';
 import {
   executeCircleGaslessBatchTransfer,
   executeCircleGaslessTransfer,
@@ -620,20 +621,14 @@ export function useCryptoTransfer({
         const { signedTransaction } = await signTransaction({
           transaction: tx.serialize({ requireAllSignatures: false }),
           wallet: solWallet,
+          chain: NETWORK.solana.privyCluster,
         });
 
-        const sig = await solanaConnection.sendRawTransaction(signedTransaction, {
-          skipPreflight: false,
-          preflightCommitment: 'confirmed',
-        });
-        const bh = await solanaConnection.getLatestBlockhash();
-        await solanaConnection.confirmTransaction(
-          {
-            signature: sig,
-            blockhash: bh.blockhash,
-            lastValidBlockHeight: bh.lastValidBlockHeight,
-          },
-          'confirmed',
+        const { sendAndConfirmSigned } = await import("@/lib/solana/confirm");
+        const sig = await sendAndConfirmSigned(
+          solanaConnection,
+          signedTransaction,
+          tx.lastValidBlockHeight,
         );
 
         txHash = sig;

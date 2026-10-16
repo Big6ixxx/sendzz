@@ -17,6 +17,7 @@ import { Buffer } from 'buffer';
 import { Connection, PublicKey, Transaction } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync, createTransferCheckedInstruction } from '@solana/spl-token';
 import { SOLANA_USDC_MINT } from '@/lib/circle/solana-gateway';
+import { keepLifetime } from '@/lib/solana/confirm';
 
 /** USDC has 6 decimals — convert a decimal string to base units. */
 function toSubunits(amount: string): bigint {
@@ -75,7 +76,9 @@ export async function settleSolanaOffRamp(params: {
 
   // Placeholder fee-payer; the sponsor swaps in the Circle DCW address and signs for gas.
   tx.feePayer = owner;
-  tx.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash;
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+  tx.recentBlockhash = blockhash;
+  tx.lastValidBlockHeight = lastValidBlockHeight;
 
   onStatus?.('Sponsoring transaction…');
   const res = await fetch('/api/solana/sponsor', {
@@ -92,7 +95,7 @@ export async function settleSolanaOffRamp(params: {
     throw new Error(`Gas sponsor error: ${err.error ?? res.statusText}`);
   }
   const { sponsoredTransaction } = (await res.json()) as { sponsoredTransaction: string };
-  const sponsoredTx = Transaction.from(Buffer.from(sponsoredTransaction, 'base64'));
+  const sponsoredTx = keepLifetime(Transaction.from(Buffer.from(sponsoredTransaction, 'base64')), tx);
 
   onStatus?.('Confirming on Solana…');
   return signAndBroadcast(sponsoredTx);

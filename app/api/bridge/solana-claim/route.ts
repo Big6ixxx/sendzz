@@ -22,7 +22,11 @@ import { solanaRpcUrl } from '@/lib/solana/rpc';
 import { Buffer } from 'buffer';
 import { initiateDeveloperControlledWalletsClient } from '@circle-fin/developer-controlled-wallets';
 import { Connection, PublicKey } from '@solana/web3.js';
-import { buildReceiveMessageOnSolanaTx } from '@/lib/circle/solana-gateway';
+import {
+  buildReceiveMessageOnSolanaTx,
+  findSolanaMintSignature,
+} from '@/lib/circle/solana-gateway';
+import { classifyClaimFailure, errorText, isAlreadyClaimed } from '@/lib/solana/claim-errors';
 import { fetchAttestation } from '@/lib/circle/gateway';
 import { privySolanaWallets, requireUser } from '@/lib/auth/session';
 import { claimRecipientOwner } from '@/lib/solana/sponsor-policy';
@@ -36,20 +40,6 @@ const SOLANA_RPC = solanaRpcUrl();
 
 /** How long to wait for the mint to confirm before handing the retry back to the caller. */
 const CONFIRM_TIMEOUT_MS = 60_000;
-
-/**
- * A replayed claim is the expected outcome of a double-click or a retry after a
- * dropped response, not a failure — the funds are already delivered.
- */
-function isAlreadyClaimed(raw: string): boolean {
-  const lower = raw.toLowerCase();
-  return (
-    lower.includes('nonce already used') ||
-    lower.includes('already received') ||
-    lower.includes('already processed') ||
-    lower.includes('alreadyprocessed')
-  );
-}
 
 export async function POST(req: Request) {
   try {
@@ -157,9 +147,17 @@ export async function POST(req: Request) {
       new PublicKey(owner),
     );
 
-    if (alreadyClaimed) {
-      return NextResponse.json({ alreadyClaimed: true }, { status: 200 });
-    }
+    // Already delivered: hand back the mint, so the caller can record a real hash.
+    const delivered = async () =>
+      NextResponse.json(
+        {
+          alreadyClaimed: true,
+          txHash: (await findSolanaMintSignature(connection, messageBytes!)) ?? null,
+        },
+        { status: 200 },
+      );
+
+    if (alreadyClaimed) return delivered();
 
     // Creating the token account puts its rent on us, and closing it hands that rent to the
     // user — so it is allowed a few times a month, not once per claim.
@@ -209,11 +207,11 @@ export async function POST(req: Request) {
         maxRetries: 5,
       });
     } catch (err) {
-      const raw = err instanceof Error ? err.message : String(err);
-      if (isAlreadyClaimed(raw)) {
-        return NextResponse.json({ alreadyClaimed: true }, { status: 200 });
-      }
-      throw err;
+      // Preflight failures carry the program's logs separately; read them too.
+      const failure = classifyClaimFailure(errorText(err));
+      if (failure.kind === 'already_claimed') return delivered();
+      console.error('[solana-claim] Preflight refused the claim:', errorText(err));
+      return claimFailureResponse(failure);
     }
 
     const startedAt = Date.now();
@@ -223,15 +221,15 @@ export async function POST(req: Request) {
       });
 
       if (status?.err) {
-        const raw = JSON.stringify(status.err);
-        if (isAlreadyClaimed(raw)) {
-          return NextResponse.json({ alreadyClaimed: true }, { status: 200 });
-        }
+        // The status names only a custom error number; the program's words are in the logs.
+        const landed = await connection
+          .getTransaction(signature, { commitment: 'confirmed', maxSupportedTransactionVersion: 0 })
+          .catch(() => null);
+        const raw = errorText(status.err, landed?.meta?.logMessages);
+        const failure = classifyClaimFailure(raw);
+        if (failure.kind === 'already_claimed') return delivered();
         console.error(`[solana-claim] Mint ${signature} failed on-chain:`, raw);
-        return NextResponse.json(
-          { error: "We couldn't complete the claim right now. Your funds are safe — please try again shortly." },
-          { status: 502 },
-        );
+        return claimFailureResponse(failure);
       }
 
       if (status?.confirmationStatus === 'confirmed' || status?.confirmationStatus === 'finalized') {
@@ -246,8 +244,9 @@ export async function POST(req: Request) {
       await new Promise((resolve) => setTimeout(resolve, 1500));
     }
 
-    // The transaction is signed and broadcast — it may still land. Return the
-    // signature so the caller can record it rather than treating this as a loss.
+    // The transaction is signed and broadcast — it may still land. Return the signature so the
+    // caller can follow it, but `pending` means NOT delivered: callers must not record it as a
+    // mint (see claimOnSolana in lib/web3/bridge-claim).
     return NextResponse.json({ txHash: signature, pending: true });
   } catch (err) {
     const raw = err instanceof Error ? err.message : String(err);
@@ -267,4 +266,15 @@ export async function POST(req: Request) {
       { status: 500 },
     );
   }
+}
+
+/** The response for a claim that failed for a reason other than already being delivered. */
+function claimFailureResponse(failure: Exclude<ReturnType<typeof classifyClaimFailure>, { kind: 'already_claimed' }>) {
+  if (failure.kind === 'attestation_expired') {
+    return NextResponse.json({ error: failure.error, code: failure.code }, { status: 409 });
+  }
+  return NextResponse.json(
+    { error: failure.error, code: failure.code, detail: failure.detail },
+    { status: 502 },
+  );
 }
