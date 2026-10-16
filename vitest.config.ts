@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 import path from 'node:path';
 
 /**
@@ -10,6 +10,17 @@ export default defineConfig({
     alias: { '@': path.resolve(__dirname, '.') },
   },
   test: {
+    /**
+     * Claude Code checks out git worktrees under .claude/, each a full copy of this repo on
+     * another branch. Vitest globs them in and runs every suite three or four times over —
+     * against code that is not what is checked out here, so a run reports failures from work
+     * in progress on branches nobody asked about, and passes ones that mean nothing.
+     *
+     * Spread over configDefaults.exclude rather than replacing it: assigning this key drops
+     * the defaults wholesale, and node_modules is in there.
+     */
+    exclude: [...configDefaults.exclude, '**/.claude/**'],
+
     /**
      * Vitest defaults to 5 seconds, and that was never a decision anybody made here.
      *
