@@ -114,6 +114,10 @@ export default function Dashboard() {
       ? { balance: solanaBalance, bridgeToBase, settleOffRamp: settleOffRamp ?? undefined }
       : undefined;
 
+  // Solana counts only while something can spend it. Without a signer (no Solana wallet in this
+  // session yet) `solanaSource` is undefined, and the balance is shown but not offered — adding
+  // it here let MAX and the withdrawal check promise money no route could move.
+  const solanaSpendable = solanaSource ? solanaBalance : 0;
   const stellarBalance =
     parseFloat(
       portfolio?.byChain.find((c) => c.chain === "stellar")?.balance ?? "0",
@@ -129,7 +133,7 @@ export default function Dashboard() {
    * direction for a number that says "this much is available".
    */
   const totalSpendable = (
-    Math.floor((evmSpendable + solanaBalance + stellarBalance) * 100) / 100
+    Math.floor((evmSpendable + solanaSpendable + stellarBalance) * 100) / 100
   ).toFixed(2);
 
   useEffect(() => {

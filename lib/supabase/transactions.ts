@@ -4,7 +4,7 @@ import { Database } from "@/types/database";
 import { redactEmail } from "@/lib/log";
 import { supabaseAdmin } from "./adminClient";
 import { clearDuplicateDeposit } from "./deposit-dedup";
-import { fetchAttestation, isEvmUsdcChain, type SupportedChain } from "@/lib/circle/gateway";
+import { fetchAttestation, isEvmUsdcChain, SOLANA_RECEIVE_ENABLED, type SupportedChain } from "@/lib/circle/gateway";
 import { fetchSolanaAttestation } from "@/lib/circle/solana-gateway";
 import { fetchStellarAttestation } from "@/lib/circle/stellar-gateway";
 import { requireUser } from "@/lib/auth/session";
@@ -1712,27 +1712,42 @@ export async function getUserActivities(accessToken?: string) {
         bridges: [],
       };
 
-    // Sweep this user's STELLAR address before reading the ledger, so a payment that just
-    // arrived is in this response rather than the next one.
+    // Sweep this user's STELLAR and SOLANA addresses before reading the ledger, so a payment
+    // that just arrived is in this response rather than the next one.
     //
-    // Stellar only. Sweeping the EVM chains from here is what made the Alchemy bill — every open
+    // Never the EVM chains. Sweeping them from here is what made the Alchemy bill — every open
     // tab swept six chains twice a minute, one billed call each — and they are covered by a
-    // webhook now. Stellar is not, and costs nothing to check. See `rails` in
+    // webhook now. Stellar and Solana are not, and cost nothing to check (Horizon, and the
+    // public Solana RPC unless SOLANA_RPC_URL says otherwise). See `rails` in
     // lib/web3/deposit-scanner.
+    //
+    // Solana only while it is switched on — see SOLANA_RECEIVE_ENABLED in lib/circle/gateway.
     //
     // Throttled to 30s per address inside the scanner, so a polling client cannot turn this into
     // a request per poll, and never blocks the history load on failure.
-    if (userRecord?.stellar_address) {
+    if (userRecord?.stellar_address || (SOLANA_RECEIVE_ENABLED && userRecord?.solana_address)) {
       try {
         const { scanUsdcDeposits } = await import("@/lib/web3/deposit-scanner");
-        await scanUsdcDeposits({
-          userId: internalId,
-          address: "",
-          stellarAddress: userRecord.stellar_address,
-          rails: "stellar",
-        });
+        await Promise.all([
+          userRecord.stellar_address
+            ? scanUsdcDeposits({
+                userId: internalId,
+                address: "",
+                stellarAddress: userRecord.stellar_address,
+                rails: "stellar",
+              }).catch((e) => console.error("[Supabase] stellar deposit scan failed (non-fatal):", e))
+            : null,
+          SOLANA_RECEIVE_ENABLED && userRecord.solana_address
+            ? scanUsdcDeposits({
+                userId: internalId,
+                address: "",
+                solanaAddress: userRecord.solana_address,
+                rails: "solana",
+              }).catch((e) => console.error("[Supabase] solana deposit scan failed (non-fatal):", e))
+            : null,
+        ]);
       } catch (e) {
-        console.error("[Supabase] stellar deposit scan failed (non-fatal):", e);
+        console.error("[Supabase] deposit scan failed (non-fatal):", e);
       }
     }
 

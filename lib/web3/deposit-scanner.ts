@@ -32,31 +32,27 @@
 import { supabaseAdmin } from '@/lib/supabase/adminClient';
 import type { Json } from '@/types/database';
 import { DEPOSIT_CHAINS, USDC_ADDRESSES, type SupportedChain } from '@/lib/circle/gateway';
-import {
-  Connection,
-  PublicKey,
-  type ParsedInstruction,
-  type ParsedTransactionWithMeta,
-  type PartiallyDecodedInstruction,
-} from '@solana/web3.js';
-import { getAssociatedTokenAddressSync } from '@solana/spl-token';
+import { Connection, PublicKey } from '@solana/web3.js';
 import { STELLAR_CCTP_FORWARDER, STELLAR_HORIZON_URL, STELLAR_USDC_ISSUER } from '@/lib/stellar/config';
 import { NETWORK } from '@/lib/network';
 import { solanaRpcUrl } from '@/lib/solana/rpc';
 import { transferAmountUsdc, type AlchemyTransfer } from './deposit-amount';
 import { VIEM_CHAINS } from './multichain';
+import { scanSolana } from './solana-deposit-scan';
 
 /**
  * Solana deposit scanning is switched off.
  *
  * Solana is disabled on the Alchemy app, and NEXT_PUBLIC_SOLANA_RPC_URL points at
- * `solana-mainnet.g.alchemy.com` — so every Solana read now fails at the endpoint. It failed
+ * `solana-mainnet.g.alchemy.com` — so every Solana read used to fail at the endpoint. It failed
  * quietly, because each chain's scan is best-effort: the error was caught, logged, and the sweep
  * carried on. Leaving it in place meant paying a round trip per user per sweep to be told no.
+ * Reads now go to lib/solana/rpc (SOLANA_RPC_URL, else the public endpoint), but the scan stays
+ * off until Solana receive is switched on as a whole.
  *
- * `scanSolana` and its helpers are deliberately left in the file rather than deleted. Turning
- * Solana back on is two steps and no rewriting: flip SKIP_ALCHEMY_SOLANA in lib/solana/rpc, then
- * uncomment the Solana branch in scanUsdcDeposits.
+ * The scan itself (./solana-deposit-scan) is maintained and tested, not parked. Turning it back
+ * on is uncommenting the Solana branch in scanUsdcDeposits — every other switch is listed on
+ * SOLANA_RECEIVE_ENABLED in lib/circle/gateway.
  *
  * Stellar is untouched and still scanned — it reads Horizon (horizon.stellar.org), which is
  * Stellar's own infrastructure and has nothing to do with Alchemy or this bill.
@@ -81,7 +77,6 @@ const STELLAR_BRIDGE_SENDERS = new Set(
 
 // Per-scan work caps so a deep backfill chunks across scans instead of blocking a history load.
 const EVM_MAX_PAGES = 5; // × 1000 transfers per chain per scan
-const SOL_MAX_TX = 50; //     signatures parsed per scan
 const STELLAR_MAX_PAGES = 5; // × 200 payment records per scan
 
 // Warm-instance throttle so rapid history refetches don't hammer the RPCs. Keyed by address.
@@ -192,7 +187,7 @@ async function readCursors(userId: string): Promise<Map<string, string | null>> 
  * `nextCursor` is DELIBERATELY not written by the scanner. It is handed back so the orchestrator
  * can persist it only after the rows are safely in the database — see scanUsdcDeposits.
  */
-interface ChainScan {
+export interface ChainScan {
   chain: string;
   rows: DepositRow[];
   nextCursor: string | null;
@@ -340,97 +335,32 @@ async function scanEvmChain(
 // ─── Solana ──────────────────────────────────────────────────────────────────
 
 /**
- * Does this transaction mint USDC into `tokenAccount`?
+ * Scan the Solana rail, best-effort like every other chain.
  *
- * The Solana scan reads a net token-balance delta, which can't tell a mint from an
- * incoming transfer on its own. CCTP delivers via `mintTo`, so look for one — including
- * inner instructions, since the mint is a CPI from the token-messenger program.
+ * The scan itself lives in ./solana-deposit-scan, so it can be tested without this module's
+ * Supabase client.
  */
-function mintsUsdcTo(
-  tx: ParsedTransactionWithMeta,
-  tokenAccount: string,
-): boolean {
-  const usdcMint = SOLANA_USDC_MINT.toBase58();
-
-  const isUsdcMintTo = (ix: ParsedInstruction | PartiallyDecodedInstruction): boolean => {
-    const parsed = (ix as ParsedInstruction).parsed;
-    if (!parsed || typeof parsed !== 'object') return false;
-    const { type, info } = parsed as { type?: string; info?: Record<string, unknown> };
-    if (type !== 'mintTo' && type !== 'mintToChecked') return false;
-    return info?.mint === usdcMint && info?.account === tokenAccount;
-  };
-
-  if (tx.transaction.message.instructions.some(isUsdcMintTo)) return true;
-  return (tx.meta?.innerInstructions ?? []).some((inner) =>
-    inner.instructions.some(isUsdcMintTo),
-  );
-}
-
-/** Scan incoming USDC SPL transfers to the user's USDC token account since the cursor signature. */
 // Retained, not dead: this is what the commented-out branch in scanUsdcDeposits calls when
-// Solana is switched back on. Deleting it would turn a two-line re-enable into a rewrite.
+// Solana is switched back on.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-async function scanSolana(
+async function scanSolanaRail(
   userId: string,
   ownerAddress: string,
   cursor: string | null,
   known: Set<string>,
 ): Promise<ChainScan> {
-  const conn = new Connection(SOLANA_RPC, 'confirmed');
-  const owner = new PublicKey(ownerAddress);
-  const ata = getAssociatedTokenAddressSync(SOLANA_USDC_MINT, owner, true);
-
-  // Most-recent-first, stopping at the cursor (exclusive). Reverse to chronological order.
-  const sigInfos = await conn.getSignaturesForAddress(ata, {
-    ...(cursor ? { until: cursor } : {}),
-    limit: 1000,
-  });
-  if (sigInfos.length === 0) return { chain: 'solana', rows: [], nextCursor: null };
-  const chronological = [...sigInfos].reverse();
-  const batch = chronological.slice(0, SOL_MAX_TX); // chunk backfill across scans
-
-  const rows: DepositRow[] = [];
-  const ataStr = ata.toBase58();
-  let lastProcessed = cursor;
-
-  for (const info of batch) {
-    lastProcessed = info.signature;
-    if (info.err) continue;
-    const hash = info.signature.toLowerCase();
-    if (known.has(hash)) continue;
-    try {
-      const tx = await conn.getParsedTransaction(info.signature, { maxSupportedTransactionVersion: 0 });
-      if (!tx?.meta) continue;
-      // Net USDC change on the owner's token account (positive = received).
-      const pre = tx.meta.preTokenBalances?.find((b) => b.owner === ownerAddress && b.mint === SOLANA_USDC_MINT.toBase58());
-      const post = tx.meta.postTokenBalances?.find((b) => b.owner === ownerAddress && b.mint === SOLANA_USDC_MINT.toBase58());
-      const before = pre?.uiTokenAmount.uiAmount ?? 0;
-      const after = post?.uiTokenAmount.uiAmount ?? 0;
-      const delta = after - before;
-      if (delta <= 0) continue; // not a receive (sent / unrelated)
-      // Minted in, not paid in — a bridge delivery. Recorded as a bridge, not a deposit.
-      if (mintsUsdcTo(tx, ataStr)) continue;
-      rows.push({
-        user_id: userId,
-        tx_hash: hash,
-        amount_usdc: delta,
-        network: 'solana',
-        provider: 'onchain',
-        status: 'confirmed',
-        ...(info.blockTime ? { created_at: new Date(info.blockTime * 1000).toISOString() } : {}),
-        provider_metadata: { source: 'deposit-scan', token_account: ataStr },
-      });
-    } catch (e) {
-      console.error('[DepositScan] solana parse failed:', e instanceof Error ? e.message : e);
-    }
+  try {
+    return await scanSolana(new Connection(SOLANA_RPC, 'confirmed'), {
+      userId,
+      ownerAddress,
+      usdcMint: SOLANA_USDC_MINT,
+      cursor,
+      known,
+    });
+  } catch (e) {
+    console.error('[DepositScan] solana:', e instanceof Error ? e.message : e);
+    return { chain: 'solana', rows: [], nextCursor: null };
   }
-
-  // Returned, not written — persisted by the orchestrator once the rows are safely inserted.
-  return {
-    chain: 'solana',
-    rows,
-    nextCursor: lastProcessed && lastProcessed !== cursor ? lastProcessed : null,
-  };
 }
 
 // ─── Stellar ─────────────────────────────────────────────────────────────────
@@ -585,8 +515,12 @@ export async function scanUsdcDeposits(params: {
    * no deposit webhook — Alchemy does not cover it, so this sweep is the only thing that ever
    * sees a Stellar payment. The EVM chains are left out of it deliberately: they ARE watched by
    * a webhook, and every EVM chain in a sweep costs one billed `alchemy_getAssetTransfers` call.
+   *
+   * 'solana' is the same idea for Solana, for the same reason: Alchemy's Address Activity
+   * webhook is registered for the EVM smart accounts only. It reads lib/solana/rpc, which is
+   * free unless SOLANA_RPC_URL points somewhere paid.
    */
-  rails?: 'all' | 'stellar';
+  rails?: 'all' | 'stellar' | 'solana';
 }): Promise<number> {
   const rails = params.rails ?? 'all';
   const { userId } = params;
@@ -594,8 +528,15 @@ export async function scanUsdcDeposits(params: {
   const apiKey = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || '';
   if (!address && !params.solanaAddress && !params.stellarAddress) return 0;
   if (rails === 'stellar' && !params.stellarAddress) return 0;
+  if (rails === 'solana' && !params.solanaAddress) return 0;
 
-  const throttleKey = address || params.solanaAddress || params.stellarAddress!;
+  // Keyed per rail, so a Stellar pass and a Solana pass for the same user don't throttle each other.
+  const throttleKey =
+    rails === 'stellar'
+      ? `stellar:${params.stellarAddress}`
+      : rails === 'solana'
+        ? `solana:${params.solanaAddress}`
+        : address || params.solanaAddress || params.stellarAddress!;
   const now = Date.now();
   if (now - (lastScan.get(throttleKey) ?? 0) < THROTTLE_MS) return 0;
   lastScan.set(throttleKey, now);
@@ -617,19 +558,12 @@ export async function scanUsdcDeposits(params: {
         })
       : []),
     // Solana — SWITCHED OFF, see the note above ALCHEMY_SUBDOMAIN.
-    // params.solanaAddress
-    //   ? (async () => {
-    //       try {
-    //         return await scanSolana(userId, params.solanaAddress!, cursors.get('solana') ?? null, known);
-    //       } catch (e) {
-    //         console.error('[DepositScan] solana:', e instanceof Error ? e.message : e);
-    //         return EMPTY('solana');
-    //       }
-    //     })()
+    // (rails === 'all' || rails === 'solana') && params.solanaAddress
+    //   ? scanSolanaRail(userId, params.solanaAddress, cursors.get('solana') ?? null, known)
     //   : Promise.resolve(EMPTY('solana')),
     Promise.resolve(EMPTY('solana')),
     // Stellar
-    params.stellarAddress
+    (rails === 'all' || rails === 'stellar') && params.stellarAddress
       ? (async () => {
           try {
             return await scanStellar(userId, params.stellarAddress!, cursors.get('stellar') ?? null, known);
@@ -678,7 +612,7 @@ export async function scanUsdcDeposits(params: {
 
   // Mark this user scanned so the daily sweep rotates fairly (least-recently-scanned first).
   //
-  // Only the full sweep claims that slot. A Stellar-only pass deliberately stamps NOTHING: it
+  // Only the full sweep claims that slot. A Stellar- or Solana-only pass deliberately stamps NOTHING: it
   // visits every Stellar address on every run rather than a rotating batch, so it needs no
   // rotation key of its own — and stamping this one would make the user look freshly scanned,
   // so their EVM chains would never come due and six chains would go dark at once.

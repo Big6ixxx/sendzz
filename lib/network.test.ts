@@ -75,6 +75,24 @@ describe('mainnet and testnet never overlap', () => {
   });
 });
 
+describe('testnet Solana points at devnet', () => {
+  // Each of these alone would put a staging build on mainnet Solana: the mint decides what
+  // USDC is read and sent, the cluster which chain Privy signs for, the RPC where it all goes.
+  it('uses Circle devnet USDC', () => {
+    expect(TESTNET.solana.usdcMint).toBe('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU');
+    expect(TESTNET.solana.usdcMint).not.toBe(MAINNET.solana.usdcMint);
+  });
+
+  it('signs on the devnet cluster', () => {
+    expect(TESTNET.solana.privyCluster).toBe('solana:devnet');
+  });
+
+  it('reads the public devnet endpoint', () => {
+    expect(TESTNET.solana.publicRpc).toBe('https://api.devnet.solana.com');
+    expect(MAINNET.solana.publicRpc).toBe('https://api.mainnet-beta.solana.com');
+  });
+});
+
 describe('mainnet keeps its pre-existing values', () => {
   // These were hardcoded at their call sites before lib/network existed. Mainnet must not move.
   it('matches the old constants', () => {
