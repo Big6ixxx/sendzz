@@ -179,13 +179,49 @@ export function stellarTxHash(signedXdr: string): string {
     .toString('hex');
 }
 
-/** Has this hash reached the ledger? `null` while Horizon still has never heard of it. */
+/**
+ * Has this hash reached the ledger? `null` while Horizon has not heard of it — or could not say
+ * (any error). Fine for polling a send in progress; to decide that a send did NOT happen, use
+ * `ledgerTransaction`, which tells those two apart.
+ */
 async function lookUpTransaction(hash: string): Promise<{ successful: boolean } | null> {
   const res = await fetch(`${STELLAR_HORIZON_URL}/transactions/${hash}`);
   if (res.status === 404) return null;
   if (!res.ok) return null;
   const tx = (await res.json()) as { successful?: boolean };
   return { successful: tx.successful ?? false };
+}
+
+/**
+ * What the ledger says about a transaction: `absent` only on Horizon's 404 — the one answer that
+ * proves it is not there. Any other failure is `unknown`, never read as absent: a 503 that
+ * looked like "not landed" would let a payment that did land be sent a second time.
+ */
+export async function ledgerTransaction(
+  hash: string,
+): Promise<
+  | { state: 'success' | 'failed'; memo?: string; memoType?: string; sourceAccount?: string }
+  | { state: 'absent' | 'unknown' }
+> {
+  try {
+    const res = await fetch(`${STELLAR_HORIZON_URL}/transactions/${hash}`);
+    if (res.status === 404) return { state: 'absent' };
+    if (!res.ok) return { state: 'unknown' };
+    const tx = (await res.json()) as {
+      successful?: boolean;
+      memo?: string;
+      memo_type?: string;
+      source_account?: string;
+    };
+    return {
+      state: tx.successful ? 'success' : 'failed',
+      memo: tx.memo,
+      memoType: tx.memo_type,
+      sourceAccount: tx.source_account,
+    };
+  } catch {
+    return { state: 'unknown' };
+  }
 }
 
 /** How long to keep asking after Horizon times out. Its own window is ~30s; ours is the grace. */
@@ -236,9 +272,12 @@ export async function submitStellarTransaction(
   }
 
   const txCode = data.extras?.result_codes?.transaction ?? '';
-  const timedOut = res.status === 504 || txCode === 'tx_too_late' || /timeout/i.test(data.title ?? '');
+  // Only a 400 carrying Horizon's own result codes is a rejection: it validated the envelope and
+  // refused it, so nothing was queued. Any other failure — a 5xx, a 429, a gateway error — may
+  // come after the envelope was accepted, and is resolved by asking the ledger, like a timeout.
+  const rejected = res.status === 400 && !!data.extras?.result_codes && txCode !== 'tx_too_late';
 
-  if (!timedOut) {
+  if (rejected) {
     // A real rejection — bad sequence, no trustline, insufficient balance. Nothing was queued,
     // so there is nothing to wait for and the caller should surface it.
     const opCodes = data.extras?.result_codes?.operations?.join(', ') ?? '';
@@ -247,7 +286,7 @@ export async function submitStellarTransaction(
     );
   }
 
-  console.warn(`[StellarPrivy] Horizon timed out on ${hash.slice(0, 12)} — polling the ledger.`);
+  console.warn(`[StellarPrivy] Horizon answered ${res.status} on ${hash.slice(0, 12)} — polling the ledger.`);
 
   const deadline = Date.now() + SUBMIT_POLL_MS;
   while (Date.now() < deadline) {

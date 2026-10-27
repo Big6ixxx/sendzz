@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { matchBank, pickBank } from './index';
+import { payoutRailOf, pickBank } from './index';
 import type { RampInstitution } from './types';
 
 /**
@@ -9,7 +9,7 @@ import type { RampInstitution } from './types';
  *
  * This is the step that failed after a real deposit had already landed: "Invalid beneficiary
  * bank_code". Callers pass `bankName || bankCode`, so a blank name sends the CODE in as the
- * name — and the substring fallback then resolved it to *some* institution rather than none. A
+ * name — and a substring fallback used to resolve it to *some* institution rather than none. A
  * plausible code for the wrong bank is worse than no code, because nothing rejects it until the
  * provider does, by which time the user's USDC is gone.
  */
@@ -18,53 +18,6 @@ const NGN: RampInstitution[] = [
   { name: 'Access Bank', code: '000014', institutionCode: '000014', currency: 'NGN' },
   { name: 'Kuda Microfinance Bank', code: '090267', institutionCode: '090267', currency: 'NGN' },
 ];
-
-describe('matchBank', () => {
-  it('resolves a code passed where a name was expected', () => {
-    // The blank-name path: `bankDetails.bankName || bankDetails.bankCode`.
-    expect(matchBank(NGN, '000013')).toEqual({ code: '000013', name: 'Guaranty Trust Bank' });
-  });
-
-  it('refuses to guess an UNKNOWN code rather than substring-matching a wrong bank', () => {
-    expect(matchBank(NGN, '999999')).toBeNull();
-  });
-
-  it('refuses any identifier-shaped query it does not recognise', () => {
-    for (const q of ['000', '12345678', 'GTB001']) {
-      expect(matchBank(NGN, q), q).toBeNull();
-    }
-  });
-
-  it('still resolves an exact bank name', () => {
-    expect(matchBank(NGN, 'Access Bank')).toEqual({ code: '000014', name: 'Access Bank' });
-  });
-
-  it('still tolerates human spelling of a real name', () => {
-    expect(matchBank(NGN, 'Kuda')).toEqual({ code: '090267', name: 'Kuda Microfinance Bank' });
-    expect(matchBank(NGN, 'guaranty trust')).toEqual({
-      code: '000013',
-      name: 'Guaranty Trust Bank',
-    });
-  });
-
-  it('matches a code case- and whitespace-insensitively', () => {
-    expect(matchBank(NGN, '  000014 ')).toEqual({ code: '000014', name: 'Access Bank' });
-  });
-
-  it('returns null for an empty query rather than the first bank in the list', () => {
-    expect(matchBank(NGN, '')).toBeNull();
-    expect(matchBank(NGN, '   ')).toBeNull();
-  });
-
-  it('does not match a query that normalises away to nothing', () => {
-    // "Bank PLC" is entirely stopwords; matching it would pick an arbitrary institution.
-    expect(matchBank(NGN, 'Bank PLC')).toBeNull();
-  });
-
-  it('returns null against an empty institution list instead of throwing', () => {
-    expect(matchBank([], 'Access Bank')).toBeNull();
-  });
-});
 
 describe('pickBank — one bank, two providers, two codes', () => {
   const BITNOB: RampInstitution[] = NGN;
@@ -98,14 +51,65 @@ describe('pickBank — one bank, two providers, two codes', () => {
   });
 });
 
+describe('pickBank — no guessing across providers', () => {
+  const inst = (name: string, code: string): RampInstitution => ({ name, code, institutionCode: code, currency: 'NGN' });
+
+  it('refuses a near-miss name rather than paying a different institution', () => {
+    // Each of these resolved to the right-hand bank by substring before.
+    const list = [inst('OPAY', '100004'), inst('Citibank Nigeria', '000009'), inst('AUCHI MICROFINANCE BANK', '090264')];
+    expect(pickBank(list, { code: 'MOMONGPC', name: 'MoMo Payment Service Bank' })).toBeNull();
+    expect(pickBank(list, { code: 'CITXNGPC', name: 'CIT Microfinance Bank' })).toBeNull();
+    expect(pickBank(list, { code: 'XXX', name: 'U & C Microfinance Bank' })).toBeNull();
+  });
+
+  it('keeps a wallet apart from its bank', () => {
+    expect(pickBank([inst('Access Bank', 'ABNGNGLA')], { code: '100013', name: 'ACCESS MONEY' })).toBeNull();
+  });
+
+  it("reads Brails' country-prefixed code as the same NIP code", () => {
+    const brails = [inst('Kuda Microfinance Bank', 'NG:090267')];
+    expect(pickBank(brails, { code: '090267', name: 'Kuda Microfinance Bank' })).toEqual({ code: 'NG:090267', name: 'Kuda Microfinance Bank' });
+  });
+
+  it('matches names that differ only by country or licence type', () => {
+    expect(pickBank([inst('MoMo PSB', '120003')], { code: 'MOMONGPC', name: 'MoMo Payment Service Bank' })).toEqual({ code: '120003', name: 'MoMo PSB' });
+    expect(pickBank([inst('MTN Mobile Money', 'CM:MTN')], { code: 'MTNXAF', name: 'MTN Mobile Money Cameroon' }, 'CM')).toEqual({ code: 'CM:MTN', name: 'MTN Mobile Money' });
+  });
+
+  it("never matches a network labelled with another country", () => {
+    // Paying Congo: Cameroon's MTN is a different network, whatever its name minus the country.
+    expect(pickBank([inst('MTN Mobile Money Cameroon', 'MTNXAF')], { code: 'CG:MTN', name: 'MTN Mobile Money' }, 'CG')).toBeNull();
+  });
+
+  it('accepts the same code under a longer name', () => {
+    expect(pickBank([inst('AIRTEL MONEY', 'AIRTKEPC')], { code: 'AIRTKEPC', name: 'AIRTEL' })).toEqual({ code: 'AIRTKEPC', name: 'AIRTEL MONEY' });
+  });
+
+  it('refuses a name two entries share', () => {
+    expect(pickBank([inst('Titan Bank', 'A'), inst('Titan Bank', 'B')], { code: 'Z', name: 'Titan Bank' })).toBeNull();
+  });
+});
+
 describe('verification and payout address the bank the same way', () => {
   const src = readFileSync(resolve(process.cwd(), 'lib/actions/ramp.ts'), 'utf8');
 
   it('verification resolves per provider before asking it', () => {
-    expect(src).toMatch(/Ramp\.resolveBank\(p, \{ code: institution, name: bankName \}, fiat\)[\s\S]{0,300}verifyAccountFor\(p, bank\.code,/);
+    expect(src).toMatch(/Ramp\.resolveBank\(p, \{ code: institution, name: bankName \}, fiat, country\)[\s\S]{0,300}verifyAccountFor\(p, bank\.code,/);
   });
 
   it('payout resolves with the picked code and name', () => {
     expect(src).toMatch(/Ramp\.resolveBank\(\s*provider,\s*\{ code: params\.bank\.bankCode, name: params\.bank\.bankName \}/);
+  });
+});
+
+describe('payoutRailOf', () => {
+  // Ghana prices the two differently, so a mobile money payout must not read as a bank one.
+  it('tells mobile money from bank across providers', () => {
+    expect(payoutRailOf('GH:MTN')).toBe('mobile_money');
+    expect(payoutRailOf('NG:000013')).toBe('bank');
+    expect(payoutRailOf('MTNGHPC')).toBe('mobile_money');
+    expect(payoutRailOf('mtnghpc')).toBe('mobile_money');
+    expect(payoutRailOf('GTBINGLA')).toBe('bank');
+    expect(payoutRailOf('000013')).toBe('bank');
   });
 });

@@ -300,6 +300,7 @@ export async function POST(req: Request) {
         provider_order_id: string | null;
         fiat_currency: string;
         tx_hash: string | null;
+        corridor_fee_usdc: number | null;
       };
       let w: BitnobWithdrawalRow | null = null;
       for (const [column, value] of lookups) {
@@ -307,7 +308,7 @@ export async function POST(req: Request) {
         // on its deposit rather than blowing up the query.
         const { data: rows } = await supabaseAdmin
           .from('withdrawals')
-          .select('id, amount_usdc, provider_metadata, pending_beneficiary, provider_order_id, fiat_currency, tx_hash')
+          .select('id, amount_usdc, provider_metadata, pending_beneficiary, provider_order_id, fiat_currency, tx_hash, corridor_fee_usdc')
           .eq('provider', 'bitnob')
           .eq('status', 'processing')
           .eq(column, value)
@@ -369,7 +370,8 @@ export async function POST(req: Request) {
                 quoteId,
                 orderId: w.provider_order_id ?? '',
                 txHash,
-                requiredUsdc: base + getCorridorFee('bitnob', w.fiat_currency),
+                // The fee the order was created with, not today's: the deposit was sized on it.
+                requiredUsdc: base + (w.corridor_fee_usdc != null ? Number(w.corridor_fee_usdc) : getCorridorFee('bitnob', w.fiat_currency)),
                 network: meta2?.network ?? 'stellar',
                 fiatCurrency: w.fiat_currency,
                 bank: beneficiary,

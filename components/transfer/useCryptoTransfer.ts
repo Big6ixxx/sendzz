@@ -804,15 +804,19 @@ export function useCryptoTransfer({
     setLoading(true);
 
     try {
-      void noteTransactionAuthorization({
-        token: authorization,
-        purpose: "crypto_transfer",
-        payload: {
-          destination: recipientAddress,
-          amount: info.amount,
-          chain: info.destChain,
-        },
-      }).catch(() => undefined);
+      // Paid from Stellar, the server signs the burn to the recipient and spends this token
+      // itself, so it is handed over rather than noted here (noting spends it).
+      if (info.sourceChain !== "stellar") {
+        void noteTransactionAuthorization({
+          token: authorization,
+          purpose: "crypto_transfer",
+          payload: {
+            destination: recipientAddress,
+            amount: info.amount,
+            chain: info.destChain,
+          },
+        }).catch(() => undefined);
+      }
 
       // What the ledger records: the transaction that moved the sender's USDC, on the chain it
       // moved on. For a bridge that is the burn on the SOURCE chain — the mint on the
@@ -918,6 +922,8 @@ export function useCryptoTransfer({
           evmWallet: embeddedProvider,
           destChain: info.destChain as SupportedChain,
           onStatus: undefined,
+          authorization,
+          authorizedAmount: info.amount,
         });
         txHash = burnTxHash;
         txChain = "stellar";

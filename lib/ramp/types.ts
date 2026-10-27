@@ -8,7 +8,7 @@
  * types) so the migration is a rename, not a rewrite.
  */
 
-export type RampProviderName = "bitnob" | "paycrest";
+export type RampProviderName = "bitnob" | "brails" | "paycrest";
 
 /**
  * Minimal shape of a ledger row (withdrawal/deposit) used to route it back to the provider
@@ -107,6 +107,8 @@ export interface RampProviderAccount {
   // Off-ramp (the address to send USDC to)
   network?: RampNetwork;
   receiveAddress?: string;
+  /** Required with `receiveAddress` on chains that share an address across users (Stellar). */
+  memo?: string;
 
   validUntil: string;
 }
@@ -156,8 +158,8 @@ export interface RampOrderResponse {
     collection: "provider" | "onchain";
     address?: string;
   };
-  /** Bitnob corridor fee in USDC (e.g. "0.3" for RWF mobile money, "0" for NGN). */
-  bitnobFee?: string;
+  /** The provider's flat per-payout fee in USDC, sent on top of the amount (see getCorridorFee). */
+  providerFee?: string;
   /**
    * True when the provider has a quote but no payout yet: the beneficiary is attached only
    * after the user's deposit is verified. The client must call the deferred-settle action once

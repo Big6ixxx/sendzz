@@ -114,6 +114,39 @@ export async function createVerificationSession(
   };
 }
 
+/** The name and document country Didit verified for a session. */
+export interface DiditVerifiedIdentity {
+  firstName: string;
+  lastName: string;
+  /** ISO 3166-1 alpha-3 code of the state that issued the document, e.g. "NGA". */
+  issuingState: string;
+}
+
+/**
+ * The verified identity behind an approved session, or null when the session is not approved
+ * or its document check carries no name.
+ */
+export async function getVerifiedIdentity(
+  sessionId: string,
+): Promise<DiditVerifiedIdentity | null> {
+  const decision = await diditFetch<{
+    status?: DiditSessionStatus;
+    id_verifications?: {
+      status?: string;
+      first_name?: string | null;
+      last_name?: string | null;
+      issuing_state?: string | null;
+    }[];
+  }>(`/session/${sessionId}/decision/`);
+  if (decision.status !== "Approved") return null;
+  const id = decision.id_verifications?.find((v) => v.status === "Approved");
+  const firstName = id?.first_name?.trim();
+  const lastName = id?.last_name?.trim();
+  const issuingState = id?.issuing_state?.trim().toUpperCase();
+  if (!firstName || !lastName || !issuingState) return null;
+  return { firstName, lastName, issuingState };
+}
+
 /**
  * Fetches the current status of an existing KYC session.
  */

@@ -12,7 +12,7 @@
  */
 
 /** Providers we integrate with. Never surfaced to users. */
-const PROVIDER_NAMES = /\b(paycrest|bitnob|privy|alchemy|didit|supabase|circle|cctp|resend)\b/i;
+const PROVIDER_NAMES = /\b(paycrest|bitnob|brails|privy|alchemy|didit|supabase|circle|cctp|resend)\b/i;
 
 /** Signatures of machine detail that has no place in a toast. */
 const MACHINE_DETAIL: RegExp[] = [

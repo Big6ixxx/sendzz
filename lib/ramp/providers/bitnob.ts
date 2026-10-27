@@ -310,10 +310,16 @@ export class BitnobProvider implements RampProvider {
       // mismatched country turned into the wrong country's bank list instead of being ignored.
       const servesCurrency = (c: BitnobCountry) =>
         c.code?.toUpperCase() === wanted &&
+        // Excluded means listed but not payable: its networks must not be offered either.
+        !EXCLUDED_PAYOUT_COUNTRIES.has(wanted) &&
         !!c.corridors?.some(
           (corr) => corr.currency?.toUpperCase() === code && isServiceable(corr.destination_types),
         );
       if (wanted && countries.some(servesCurrency)) return wanted;
+      // A country the user chose and Bitnob does not pay is a "no", not a cue to pick another:
+      // substituting the first XOF country listed Côte d'Ivoire's operators for Benin, and the
+      // order then went to the wrong country's corridor.
+      if (wanted) return null;
       // An excluded country must never be the fallback either, or XOF could still route there.
       const match = countries.find((c) =>
         !EXCLUDED_PAYOUT_COUNTRIES.has(c.code?.toUpperCase() ?? "") &&
@@ -325,7 +331,8 @@ export class BitnobProvider implements RampProvider {
     } catch {
       // fall through to the static fallback
     }
-    return FALLBACK_CURRENCY_COUNTRY[code] ?? null;
+    const fallback = FALLBACK_CURRENCY_COUNTRY[code] ?? null;
+    return !preferCountry || fallback === preferCountry.toUpperCase() ? fallback : null;
   }
 
   /**
@@ -370,15 +377,20 @@ export class BitnobProvider implements RampProvider {
           (x) => x.currency?.toUpperCase() === code && isServiceable(x.destination_types),
         );
         if (!corr) continue;
+        // Only the chosen country, when there is one: the sort above puts it first, and running
+        // on would build a payout to it against another country's corridor.
+        if (wanted && c.code?.toUpperCase() !== wanted) break;
         const destinationType =
           prefer.find((p) => corr.destination_types.includes(p)) ??
           corr.destination_types[0];
         return { country: c.code, destinationType };
       }
+      if (wanted) return null;
     } catch {
       // fall through
     }
     const fallback = FALLBACK_CURRENCY_COUNTRY[code];
+    if (preferCountry && fallback !== preferCountry.toUpperCase()) return null;
     return fallback ? { country: fallback, destinationType: "bank" } : null;
   }
 
@@ -609,8 +621,12 @@ export class BitnobProvider implements RampProvider {
 
     // Sent on top of the quote amount so Bitnob's deduction comes out of the user's deposit
     // and not our float. Configured, not reported by the API — see `getCorridorFee`.
-    const corridorFee = getCorridorFee("bitnob", params.fiatCurrency);
-    const bitnobFee = String(corridorFee);
+    const corridorFee = getCorridorFee(
+      "bitnob",
+      params.fiatCurrency,
+      destinationType === "bank" ? "bank" : "mobile_money",
+    );
+    const providerFee = String(corridorFee);
 
     if (corridorFee > 0) {
       console.log(
@@ -646,7 +662,7 @@ export class BitnobProvider implements RampProvider {
       amount: String(params.amountUsdc),
       fiatAmount: settlement ? String(settlement.amount) : undefined,
       fiatRate: settlement?.rate,
-      bitnobFee,
+      providerFee,
       deferredInitialize: deferInitialize,
       createdAt: quote.created_at ?? new Date().toISOString(),
     };

@@ -11,7 +11,7 @@
 import * as React from "react";
 import { ChevronRight, Loader2, Search } from "lucide-react";
 import { usePayoutCountries } from "@/lib/hooks/usePayoutCountries";
-import { getCurrencyFlag } from "@/lib/currency-config";
+import { getCountryFlag } from "@/lib/currency-config";
 
 /** Below this, scanning the list beats typing into a box above it. */
 const SEARCH_THRESHOLD = 8;
@@ -77,7 +77,7 @@ export function DestinationPicker({
                 className="w-full flex items-center gap-3 px-3.5 py-3 text-left transition-colors hover:bg-white/[0.03]"
               >
                 <span className="text-xl leading-none shrink-0" aria-hidden>
-                  {getCurrencyFlag(option.currency)}
+                  {getCountryFlag(option.code, option.currency)}
                 </span>
 
                 <span className="min-w-0 flex-1">

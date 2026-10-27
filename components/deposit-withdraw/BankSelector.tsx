@@ -27,6 +27,9 @@ interface BankSelectorProps {
   onContactsChanged?: () => void;
   memo?: string;
   onMemoChange?: (value: string) => void;
+  /** The number was only format-checked: the user must give the recipient's name. */
+  recipientNameNeeded?: boolean;
+  onAccountNameChange?: (value: string) => void;
 }
 
 export function BankSelector({
@@ -39,6 +42,8 @@ export function BankSelector({
   accountName,
   memo,
   onMemoChange,
+  recipientNameNeeded,
+  onAccountNameChange,
   isVerifying,
   label,
   disabled,
@@ -171,7 +176,31 @@ export function BankSelector({
         onSuccess={onContactsChanged}
       />
 
-      {accountName && (
+      {/* No name enquiry exists for this number, so the name comes from the user — labelled as
+          theirs, never shown under a "Verified" badge. */}
+      {recipientNameNeeded && (
+        <div className="relative animate-in fade-in slide-in-from-top-2 duration-300">
+          <label className="text-sm font-semibold mb-1.5 block text-muted-foreground">
+            Recipient&apos;s full name
+          </label>
+          <input
+            type="text"
+            maxLength={80}
+            disabled={disabled}
+            autoComplete="off"
+            placeholder="As registered on the mobile money account"
+            className="input-elegant"
+            value={accountName}
+            onChange={(e) => onAccountNameChange?.(e.target.value)}
+          />
+          <p className="mt-1.5 text-[11.5px] text-muted-foreground">
+            We checked the number&apos;s format. The name can&apos;t be looked up on this network, so
+            enter it exactly as the recipient&apos;s account shows it.
+          </p>
+        </div>
+      )}
+
+      {accountName && !recipientNameNeeded && (
         <div className="p-4 bg-muted/50 rounded-xl border border-border animate-in fade-in slide-in-from-top-2 duration-300 space-y-1">
           <div className="flex items-center justify-between">
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">

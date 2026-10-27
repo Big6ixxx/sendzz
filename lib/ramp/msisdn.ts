@@ -21,7 +21,7 @@
  * refunds if the wallet is unreachable, so the UI must say "format checked", never "verified".
  */
 
-/** Dialling codes for the corridors Bitnob serves. */
+/** Dialling codes for the mobile money corridors Bitnob and Brails serve. */
 const COUNTRY_DIAL_CODE: Record<string, string> = {
   NG: '234',
   KE: '254',
@@ -40,7 +40,13 @@ const COUNTRY_DIAL_CODE: Record<string, string> = {
   CM: '237',
   GA: '241',
   CD: '243',
+  ZM: '260',
   ZA: '27',
+  CG: '242',
+  NE: '227',
+  ET: '251',
+  GN: '224',
+  MA: '212',
 };
 
 /**

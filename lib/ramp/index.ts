@@ -1,7 +1,8 @@
 /**
  * Ramp router — the single entry point the app uses for fiat on/off-ramp.
  *
- * Strategy: Bitnob is primary, Paycrest is the fallback. For each capability we try the
+ * Withdrawals try Brails, then Bitnob, then Paycrest (see `offRampRank`). For the catalogue
+ * calls below, Bitnob is primary and Paycrest the fallback. For each capability we try the
  * primary first and fall back when it either (a) declares the capability unsupported, or
  * (b) throws at runtime (RampUnsupportedError or any error/timeout). This implements the
  * "auto fallback on error OR unsupported" policy.
@@ -10,6 +11,9 @@
  */
 import { DEPOSIT_NETWORKS } from "@/lib/web3/routing";
 import { BitnobProvider } from "./providers/bitnob";
+import { BrailsProvider, parseBrailsInstitution } from "./providers/brails";
+import type { PayoutRail } from "./fees";
+import { isMobileMoneyCode } from "./msisdn";
 import { PaycrestProvider } from "./providers/paycrest";
 import { RampUnsupportedError, type RampProvider } from "./provider";
 import type {
@@ -30,10 +34,10 @@ import type {
 } from "./types";
 
 // ── Provider registry ────────────────────────────────────────────────────────
-// To add or remove a ramp provider, change ONLY this list (in fallback-priority order:
-// primary first, last = default fallback). Everything else — routing, name lookup, and
-// ledger-row → provider resolution — reads from here, so call sites don't need touching.
-const REGISTRY: Array<new () => RampProvider> = [BitnobProvider, PaycrestProvider];
+// To add or remove a ramp provider, change this list (catalogue priority: primary first, last
+// = default fallback). Name lookup and ledger-row → provider resolution read from here; the
+// order withdrawals try providers in is `offRampRank`.
+const REGISTRY: Array<new () => RampProvider> = [BitnobProvider, BrailsProvider, PaycrestProvider];
 
 let instances: RampProvider[] | null = null;
 function allProviders(): RampProvider[] {
@@ -46,8 +50,43 @@ function providers(): { primary: RampProvider; fallback: RampProvider } {
   return { primary: all[0], fallback: all[all.length - 1] };
 }
 
+/**
+ * A provider's institution list, shared for a minute.
+ *
+ * The withdraw form loads the merged list, then the KYC gate and the order resolve the bank
+ * against each provider's list again — each a network call, some slow (Nigeria's is ~370
+ * banks). A list does not change in a minute; a failed fetch is not kept.
+ */
+const institutionCache = new Map<string, { at: number; list: Promise<{ data: RampInstitution[] }> }>();
+const INSTITUTION_CACHE_MS = 60_000;
+function institutionsOf(provider: RampProvider, currency: RampCurrency, country?: string) {
+  const key = `${provider.name}|${currency.toUpperCase()}|${(country ?? "").toUpperCase()}`;
+  const hit = institutionCache.get(key);
+  if (hit && Date.now() - hit.at < INSTITUTION_CACHE_MS) return hit.list;
+  const list = provider.getInstitutions(currency, country);
+  institutionCache.set(key, { at: Date.now(), list });
+  // Only this request's entry: a newer one may have replaced it while this was failing.
+  list.catch(() => {
+    if (institutionCache.get(key)?.list === list) institutionCache.delete(key);
+  });
+  return list;
+}
+
 function byName(name: RampProviderName): RampProvider {
   return allProviders().find((p) => p.name === name) ?? providers().fallback;
+}
+
+/**
+ * Which provider a withdrawal tries first: Brails, then Bitnob, then the rest (Paycrest).
+ *
+ * Separate from REGISTRY on purpose. REGISTRY[0] is also the primary for catalogue calls
+ * (currencies, banks, account checks), and Bitnob's catalogue is the broad one — putting Brails
+ * there would shrink the currency list to Brails' corridors and drop Bitnob as a fallback.
+ */
+export function offRampRank(name: string): number {
+  if (name === "brails") return 0;
+  if (name === "bitnob") return 1;
+  return 2;
 }
 
 /** Every registered provider name (source of truth for "is this a known provider"). */
@@ -160,76 +199,85 @@ function normalizeBankName(s: string): string {
   return normalized;
 }
 
-/** Best-effort match a canonical bank name to a provider's institution → its bank_code. */
+/** The words a provider adds to a network's name for the country it is in. */
+const COUNTRY_WORDS: Record<string, string> = {
+  NG: "nigerian", GH: "ghana", UG: "uganda", KE: "kenya", CM: "cameroon", TZ: "tanzania", ZM: "zambia", SN: "senegal",
+};
+
 /**
- * Resolve what the user picked into the code a payout is addressed with.
- *
- * Exported for tests: this is the step that, when it guesses, addresses a payout to the wrong
- * institution — and nothing catches that until the provider rejects it, with the money already
- * deposited. Its refusals matter as much as its matches.
+ * A bank's name with what differs between providers removed: the licence type ("FSDH Merchant
+ * Bank", "MoMo Payment Service Bank") and, when the payout country is known, that country's own
+ * name ("MTN Mobile Money Cameroon" for Cameroon). Only that country's: a network labelled with
+ * another country is a different network, and must not match.
  */
-export function matchBank(
-  institutions: RampInstitution[],
-  bankName: string,
-): { code: string; name: string } | null {
-  const raw = (bankName || "").trim();
-  if (!raw) return null;
+function canonicalBankName(name: string, country?: string): string {
+  const countryWord = country ? COUNTRY_WORDS[country.toUpperCase()] : undefined;
+  const words = ["merchant", "payment", "service", "psb", ...(countryWord ? [countryWord] : [])];
+  return normalizeBankName((name || "").replace(new RegExp(`\\b(${words.join("|")})\\b`, "gi"), " "));
+}
 
-  // Callers pass `bankName || bankCode`, so what arrives is sometimes a CODE. Recognise that
-  // first: a code is an exact identifier and matching it by name is both unnecessary and
-  // dangerous — see the fuzzy guard below.
-  const asCode = raw.toUpperCase();
-  const byCode = institutions.find(
-    (b) =>
-      b.code?.trim().toUpperCase() === asCode ||
-      b.institutionCode?.trim().toUpperCase() === asCode,
-  );
-  if (byCode) return { code: byCode.code, name: byCode.name };
-
-  const target = normalizeBankName(bankName);
-  if (!target) return null;
-
-  const exact = institutions.find((b) => normalizeBankName(b.name) === target);
-  if (exact) return { code: exact.code, name: exact.name };
-
-  // Fuzzy matching is for human spellings ("GTB" → "Guaranty Trust Bank"), not identifiers. An
-  // unrecognised code reaching here would substring-match *some* institution and hand back a
-  // plausible code for the wrong bank — which the provider only rejects at payout, once the
-  // user's money has already arrived. Refusing to guess turns that into a clean failure.
-  const looksLikeCode = /\d/.test(target) || !/[a-z]/.test(target);
-  if (looksLikeCode) return null;
-
-  const partial = institutions.find((b) => {
-    const n = normalizeBankName(b.name);
-    return n.length > 2 && (n.includes(target) || target.includes(n));
-  });
-  return partial ? { code: partial.code, name: partial.name } : null;
+/** Codes compared without Brails' country prefix: `NG:090273` and `090273` are one NIP code. */
+function bareCode(code?: string): string {
+  return (code ?? "").trim().toUpperCase().replace(/^[A-Z]{2}:/, "");
 }
 
 /**
- * The bank the user picked, as THIS provider addresses it.
+ * Whether an institution code pays a bank account or a mobile money wallet — the providers
+ * price the two differently in some corridors (Ghana). Brails codes carry their rail
+ * ("GH:MTN"); the others are told apart by the mobile money operator codes.
+ */
+export function payoutRailOf(institutionCode: string): PayoutRail {
+  const brails = parseBrailsInstitution(institutionCode);
+  if (brails) return brails.rail;
+  return isMobileMoneyCode(institutionCode) ? "mobile_money" : "bank";
+}
+
+/**
+ * The bank the user picked, as THIS provider addresses it — or null when it cannot be told
+ * exactly which one that is.
  *
- * Each provider codes the same bank differently (Bitnob "000013", Paycrest "GTBINGLA"), and the
- * list the user picked from may belong to either. The picked code is kept when it is this
- * provider's and names the same bank — exact, no name matching involved. Otherwise the bank is
- * found by name in this provider's own list, so the code returned is always one it can address.
+ * Each provider codes the same bank differently (Bitnob "000013", Paycrest "GTBINGLA", Brails
+ * "NG:000013"), and the list the user picked from may belong to any of them. Two ways to match,
+ * both exact:
+ *   1. The picked code is in this list (country prefix aside) and the names agree.
+ *   2. Exactly one entry here has the same canonical name.
+ * Nothing partial. A substring match is how "MoMo PSB" became OPay, "U & C Microfinance" became
+ * Auchi and "CIT Microfinance" became Citibank — a payout or a name check against the wrong
+ * institution. No match means this provider is skipped for that bank, which is the safe outcome.
  */
 export function pickBank(
   institutions: RampInstitution[],
   bank: { code?: string; name?: string },
+  /** The payout country, when known — see canonicalBankName. */
+  country?: string,
 ): { code: string; name: string } | null {
-  const code = bank.code?.trim().toUpperCase();
-  if (code && bank.name) {
+  const code = bareCode(bank.code);
+  const name = bank.name ? canonicalBankName(bank.name, country) : "";
+
+  if (code) {
     const hit = institutions.find(
-      (b) =>
-        b.code?.trim().toUpperCase() === code ||
-        b.institutionCode?.trim().toUpperCase() === code,
+      (b) => bareCode(b.code) === code || bareCode(b.institutionCode) === code,
     );
-    if (hit && normalizeBankName(hit.name) === normalizeBankName(bank.name)) {
-      return { code: hit.code, name: hit.name };
+    if (hit) {
+      // Without a name the code is only trusted at the provider it came from (an exact match).
+      if (!name) {
+        const exact = bank.code!.trim().toUpperCase();
+        return hit.code.trim().toUpperCase() === exact || hit.institutionCode?.trim().toUpperCase() === exact
+          ? { code: hit.code, name: hit.name }
+          : null;
+      }
+      // Same code, and one name is the other plus a qualifier ("AIRTEL" / "AIRTEL MONEY").
+      const here = canonicalBankName(hit.name, country);
+      if (here && (here === name || here.startsWith(name) || name.startsWith(here))) {
+        return { code: hit.code, name: hit.name };
+      }
     }
   }
-  return matchBank(institutions, bank.name || bank.code || "");
+
+  if (!name) return null;
+  const byName = institutions.filter((b) => canonicalBankName(b.name, country) === name);
+  if (byName.length !== 1) return null;
+  return { code: byName[0].code, name: byName[0].name };
 }
 
 /**
@@ -316,13 +364,18 @@ export const Ramp = {
     const wanted = network?.toLowerCase();
     const out: RampProviderName[] = [];
 
-    // Bitnob first, everything else after it in its existing order.
+    // Brails first, then Bitnob, then everything else in its existing order.
     //
     // Written as a rank rather than `a.name === "bitnob" ? -1 : 1`, which ignored `b` entirely
-    // and never returned 0 — so for any two non-Bitnob providers it claimed the first was
+    // and never returned 0 — so for any two unranked providers it claimed the first was
     // greater, which is not a consistent ordering and is left to the engine to interpret.
-    const rank = (name: string) => (name === "bitnob" ? 0 : 1);
-    const sorted = [...allProviders()].sort((a, b) => rank(a.name) - rank(b.name));
+    const rank = offRampRank;
+    // RAMP_OFFRAMP_ONLY pins every withdrawal to one provider, with no fallback — for testing a
+    // provider in isolation. Never set in production: a corridor it cannot serve simply fails.
+    const only = process.env.RAMP_OFFRAMP_ONLY?.trim().toLowerCase();
+    const sorted = [...allProviders()]
+      .filter((p) => !only || p.name === only)
+      .sort((a, b) => rank(a.name) - rank(b.name));
 
     const blocked = blockedProviders(currency);
 
@@ -344,7 +397,7 @@ export const Ramp = {
   },
 
   institutionsFor(provider: RampProviderName, currency: RampCurrency, country?: string) {
-    return byName(provider).getInstitutions(currency, country);
+    return institutionsOf(byName(provider), currency, country);
   },
 
   verifyAccountFor(
@@ -420,8 +473,10 @@ export const Ramp = {
   ): Promise<string | null> {
     if (!code) return null;
     const wanted = code.trim().toUpperCase();
+    // Brails codes name their country (`SN:WAVE`); its lists are per country.
+    const country = /^[A-Z]{2}:/.test(wanted) ? wanted.slice(0, 2) : undefined;
     try {
-      const { data } = await byName(provider).getInstitutions(currency);
+      const { data } = await byName(provider).getInstitutions(currency, country);
       const hit = data.find(
         (i) =>
           i.code?.trim().toUpperCase() === wanted ||
@@ -440,9 +495,11 @@ export const Ramp = {
     provider: RampProviderName,
     bank: { code?: string; name?: string },
     currency: RampCurrency,
+    /** The payout country: lists are per country, and XOF/XAF span several. */
+    country?: string,
   ): Promise<{ code: string; name: string } | null> {
-    const { data } = await byName(provider).getInstitutions(currency);
-    return pickBank(data, bank);
+    const { data } = await institutionsOf(byName(provider), currency, country);
+    return pickBank(data, bank, country);
   },
 
   createOffRampOrder(params: CreateOffRampParams): Promise<RampOrderResponse> {
@@ -505,27 +562,38 @@ export const Ramp = {
     const combined: RampInstitution[] = [];
     const listed = new Set<string>();
 
-    for (const p of allProviders()) {
-      if (!p.capabilities.institutions) continue;
-      try {
-        const res = await p.getInstitutions(currency, country);
-        const fromThis = new Set<string>();
-        const spelled = new Set<string>();
-        for (const inst of res.data ?? []) {
-          const key = normalizeBankName(inst.name || "");
-          const exact = (inst.name || "").trim().toLowerCase();
-          if (!key || listed.has(key) || spelled.has(exact)) continue;
-          spelled.add(exact);
-          fromThis.add(key);
-          combined.push(inst);
-        }
-        fromThis.forEach((k) => listed.add(k));
-      } catch (err) {
-        console.warn(
-          `[Ramp] ${p.name} failed to getInstitutions for ${currency}:`,
-          err instanceof Error ? err.message : err,
-        );
+    // Only providers that could take this withdrawal: one blocked for the currency, or excluded
+    // by RAMP_OFFRAMP_ONLY, would list institutions no order can reach. Fetched in parallel and
+    // merged in priority order.
+    const only = process.env.RAMP_OFFRAMP_ONLY?.trim().toLowerCase();
+    const blocked = blockedProviders(currency);
+    const eligible = allProviders().filter(
+      (p) => p.capabilities.institutions && !blocked.has(p.name) && (!only || p.name === only),
+    );
+    const lists = await Promise.all(
+      eligible.map((p) =>
+        institutionsOf(p, currency, country).catch((err) => {
+          console.warn(
+            `[Ramp] ${p.name} failed to getInstitutions for ${currency}:`,
+            err instanceof Error ? err.message : err,
+          );
+          return { data: [] as RampInstitution[] };
+        }),
+      ),
+    );
+
+    for (const res of lists) {
+      const fromThis = new Set<string>();
+      const spelled = new Set<string>();
+      for (const inst of res.data ?? []) {
+        const key = canonicalBankName(inst.name || "", country);
+        const exact = (inst.name || "").trim().toLowerCase();
+        if (!key || listed.has(key) || spelled.has(exact)) continue;
+        spelled.add(exact);
+        fromThis.add(key);
+        combined.push(inst);
       }
+      fromThis.forEach((k) => listed.add(k));
     }
     return { data: combined };
   },

@@ -89,50 +89,74 @@ function feeTreasuryMap(): Record<string, string | undefined> {
 const FEE_COLLECTION: Record<RampProviderName, Pick<ProviderFee, "collection">> = {
   paycrest: { collection: "onchain" },
   bitnob: { collection: "onchain" },
+  brails: { collection: "onchain" },
 };
 
+/** Providers whose orders carry the corridor fee on top of the base amount (`providerFee`). */
+const CORRIDOR_FEE_COLLECTED_BY = new Set<RampProviderName>(["bitnob", "brails"]);
+
+export type PayoutRail = "bank" | "mobile_money";
+
 /**
- * The flat per-corridor fee in USDC a payout provider deducts, added on top of the base amount
- * so that deduction is covered by the user's own withdrawal rather than our float.
+ * The flat USD fee each provider charges per payout, from its own fee schedule. Corridors not
+ * listed charge nothing beyond the exchange rate. Where a country's rails cost differently, the
+ * entry is per rail.
  *
- * Configured rather than read from the API. Bitnob reports `fees: "0"` on both the quote and
- * the initialize response for every corridor, yet still deducts on some — RWF mobile money took
- * a flat 0.30 on both a 1.01 and a 10.00 payout. A provider that lies about its own fee cannot
- * be the source of truth for it.
- *
- * Two keys, most specific first:
- *
- *   CORRIDOR_FEE_<PROVIDER>_<CURRENCY>   this provider, this corridor
- *   CORRIDOR_FEE_<CURRENCY>              any provider serving this corridor
- *
- * Both rather than one, because the deduction belongs to the PROVIDER, not the currency. The
- * same corridor can cost differently depending on who serves it — a single per-currency rate
- * would quietly overcharge on a provider that settles the quoted amount in full. The plain
- * per-currency form stays because it is the common case and is what most deployments will want.
+ *   Bitnob — "USD to Fiat Payout" fee schedule (African corridors).
+ *   Brails — "USD payout - Fiat Payout" table of its fee schedule. Tanzania and Zambia come back
+ *            as `fee: 200` (cents) on a payout quote, charged on top of the quoted amount; the
+ *            rest is taken as the payout runs.
  */
-export function getCorridorFee(provider: RampProviderName, currency: string): number {
-  const cur = (currency || "").toUpperCase();
-  const prov = (provider || "").toUpperCase();
+const FEE_SCHEDULE: Partial<Record<RampProviderName, Record<string, number | Record<PayoutRail, number>>>> = {
+  bitnob: { TZS: 3, UGX: 0.35, RWF: 0.35, ZMW: 3, GHS: { bank: 3, mobile_money: 0 } },
+  brails: { TZS: 2, UGX: 0.3, RWF: 0.3, ZMW: 2, GHS: { bank: 2, mobile_money: 0 } },
+};
 
-  const candidates = [`CORRIDOR_FEE_${prov}_${cur}`, `CORRIDOR_FEE_${cur}`];
-
-  for (const envVar of candidates) {
-    const raw = process.env[envVar];
-    // An empty string is "configured as nothing", not "not configured" — it stops the search,
-    // so a deployment can override a broader key back down to zero for one corridor.
-    if (raw == null) continue;
-    if (raw === "") return 0;
-
-    const fee = Number(raw);
-    if (!Number.isFinite(fee) || fee < 0) {
-      // Loud but not fatal — a typo in one corridor must not take withdrawals down.
-      console.error(`[Fees] ${envVar} is not a valid amount (got ${JSON.stringify(raw)}) — using 0.`);
-      return 0;
-    }
-    return fee;
+function readFeeEnv(envVar: string): number | undefined {
+  const raw = process.env[envVar];
+  if (raw == null) return undefined;
+  // An empty string is "configured as nothing", not "not configured": it sets the fee to 0.
+  if (raw === "") return 0;
+  const fee = Number(raw);
+  if (!Number.isFinite(fee) || fee < 0) {
+    // Loud but not fatal — a typo in one corridor must not take withdrawals down.
+    console.error(`[Fees] ${envVar} is not a valid amount (got ${JSON.stringify(raw)}) — using 0.`);
+    return 0;
   }
+  return fee;
+}
 
-  return 0;
+/**
+ * The flat per-payout fee in USDC a provider deducts, added on top of the base amount so that
+ * deduction is covered by the user's own withdrawal rather than our float.
+ *
+ * Most specific first:
+ *
+ *   CORRIDOR_FEE_<PROVIDER>_<CURRENCY>   an override for this provider and corridor
+ *   the provider's fee schedule          FEE_SCHEDULE above
+ *   CORRIDOR_FEE_<CURRENCY>              a corridor neither schedule lists
+ *
+ * The schedule outranks the per-currency key: that key is one figure for every provider, and
+ * left at 0 it used to cancel a fee the provider's own schedule charges.
+ *
+ * `rail` picks the rail's fee where they differ (Ghana: bank vs mobile money). Without it the
+ * higher one is returned — the right figure to confirm before the user has picked an account,
+ * since the order then never costs more than was shown.
+ */
+export function getCorridorFee(provider: RampProviderName, currency: string, rail?: PayoutRail): number {
+  // Only a provider whose order adds the fee to what the user sends can charge it. For the rest
+  // it would be shown and recorded (shrinking a referral commission) but never collected.
+  if (!CORRIDOR_FEE_COLLECTED_BY.has(provider)) return 0;
+  const cur = (currency || "").toUpperCase();
+
+  const override = readFeeEnv(`CORRIDOR_FEE_${provider.toUpperCase()}_${cur}`);
+  if (override !== undefined) return override;
+
+  const scheduled = FEE_SCHEDULE[provider]?.[cur];
+  if (typeof scheduled === "number") return scheduled;
+  if (scheduled) return rail ? scheduled[rail] : Math.max(scheduled.bank, scheduled.mobile_money);
+
+  return readFeeEnv(`CORRIDOR_FEE_${cur}`) ?? 0;
 }
 
 /**

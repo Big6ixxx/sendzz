@@ -22,6 +22,12 @@ export async function bridgeStellarToBase(params: {
   destChain?: SupportedChain;
   onStatus?: (status: string) => void;
   timeoutMs?: number;
+  /**
+   * For a bridge that mints to someone else (a send paid from Stellar): the send's PIN token and
+   * the amount it approved. The route spends it; to the user's own account none is needed.
+   */
+  authorization?: string;
+  authorizedAmount?: string;
 }): Promise<{ burnTxHash: string; mintTxHash?: string }> {
   const { walletId, senderAddress, amount, recipientEvm, evmWallet, onStatus, destChain = "base" } =
     params;
@@ -47,8 +53,10 @@ export async function bridgeStellarToBase(params: {
       consolidation: true,
       // No second PIN: the user approved the transfer, send or withdrawal this is part of
       // moments ago, and stopping mid-flow would interrupt something they are not watching,
-      // after money has started moving. The route still requires their session and wallet.
+      // after money has started moving. The route still requires their session and wallet, and
+      // waives the PIN only for the user's own account — anything else carries the send's token.
       internal: true,
+      ...(params.authorization ? { authorization: params.authorization, authorizedAmount: params.authorizedAmount } : {}),
     }),
   });
 

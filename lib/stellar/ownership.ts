@@ -12,10 +12,10 @@ import { readUserAddresses } from '@/lib/supabase/user-records';
 export async function verifyOwnStellarWallet(
   walletId: string,
   address: string,
-): Promise<{ email: string } | null> {
+): Promise<{ email: string; smartAccountAddress: string | null } | null> {
   const identity = await getVerifiedIdentity();
   if (!identity) return null;
   const own = await readUserAddresses(identity.email);
   if (own?.stellar_wallet_id !== walletId || own?.stellar_address !== address) return null;
-  return { email: identity.email };
+  return { email: identity.email, smartAccountAddress: own.smart_account_address ?? null };
 }

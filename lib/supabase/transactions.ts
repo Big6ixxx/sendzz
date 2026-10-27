@@ -9,6 +9,7 @@ import { fetchSolanaAttestation } from "@/lib/circle/solana-gateway";
 import { fetchStellarAttestation } from "@/lib/circle/stellar-gateway";
 import { requireUser } from "@/lib/auth/session";
 import type { PendingBridgeClaim } from "@/types/bridge";
+import type { RampProviderName } from "@/lib/ramp/types";
 import { isPlaceholderHash, PLACEHOLDER_TX_HASH } from "@/lib/explorers";
 
 type ExtendedChain = SupportedChain | "solana" | "stellar";
@@ -460,6 +461,8 @@ export async function recordWithdrawal(params: {
   bitnobQuoteId?: string;
   /** Bitnob deposit address — matches the `deposit.success` webhook to this withdrawal. */
   bitnobDepositAddress?: string;
+  /** Stellar deposits to a shared provider address (Brails) are told apart by this memo. */
+  depositMemo?: string;
   /** Platform fee taken on this withdrawal, in USDC. Our gross revenue on it. */
   feeUsdc?: number;
   /** Platform fee percentage applied (for reporting). */
@@ -520,6 +523,7 @@ export async function recordWithdrawal(params: {
     if (params.bitnobQuoteId) metadata.quote_id = params.bitnobQuoteId;
     if (params.bitnobDepositAddress)
       metadata.deposit_address = params.bitnobDepositAddress;
+    if (params.depositMemo) metadata.deposit_memo = params.depositMemo;
     if (params.sourceChain) metadata.network = params.sourceChain;
     if (params.feeUsdc != null) metadata.fee_usdc = params.feeUsdc;
     if (params.feePercent != null) metadata.fee_percent = params.feePercent;
@@ -708,7 +712,7 @@ export async function triggerWithdrawalNotifications(
             } else {
               const { Ramp } = await import("@/lib/ramp");
               const resolved = await Ramp.resolveBankName(
-                (wData.provider as "bitnob" | "paycrest") || "bitnob",
+                (wData.provider as RampProviderName) || "bitnob",
                 institutionCode,
                 fiatCurrency,
               ).catch(() => null);
@@ -885,15 +889,30 @@ export async function updateWithdrawalStatus(
   }
 }
 
+/**
+ * Record the hash of the transfer that funded the caller's own withdrawal.
+ *
+ * A deposit is tied to its withdrawal by this hash, so it must only ever be written by the owner
+ * and only once: an exported action is a public endpoint, and an unchecked one let anyone attach
+ * another user's deposit hash to their own order and be paid with it. The row must be the
+ * session user's, and a different hash already recorded is never replaced.
+ */
 export async function saveWithdrawalTxHash(
   paycrestOrderId: string,
   txHash: string,
 ): Promise<void> {
   try {
+    // A transaction hash is hex or base58 — alphanumeric. Anything else is refused before it
+    // reaches the filter below.
+    if (!/^(0x)?[0-9A-Za-z]{20,128}$/.test(txHash)) return;
+    const session = await requireUser();
+    if (!session.userId) return;
     const { error } = await supabaseAdmin
       .from("withdrawals")
       .update({ tx_hash: txHash })
-      .eq("provider_order_id", paycrestOrderId);
+      .eq("provider_order_id", paycrestOrderId)
+      .eq("user_id", session.userId)
+      .or(`tx_hash.is.null,tx_hash.eq.${PLACEHOLDER_TX_HASH},tx_hash.eq.${txHash}`);
 
     if (error) throw error;
   } catch (err) {

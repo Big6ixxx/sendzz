@@ -122,11 +122,8 @@ export async function completeDeferredPayout(
   // been associated with all along.
   //
   // Re-deriving it here from a name was a second, independent resolution that could disagree
-  // with the first — and it ran against a name the client passes as
-  // `bankDetails.bankName || bankDetails.bankCode`, so a blank name silently sent the CODE in as
-  // the name to match. Matching is fuzzy (`matchBank` falls back to a substring hit), so that
-  // resolves to *some* bank rather than none: a valid-looking code for the wrong institution,
-  // which the provider rejects as an invalid beneficiary — after the user's money has arrived.
+  // with the first, and a code for the wrong institution is only rejected by the provider —
+  // after the user's money has arrived.
   //
   // A deferred payout attaches no beneficiary at order time, so nothing validated the code
   // earlier; this is the first moment the provider sees it, and it must be the right one.

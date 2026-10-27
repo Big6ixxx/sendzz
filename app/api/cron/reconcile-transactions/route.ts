@@ -51,7 +51,7 @@ export async function GET(req: Request) {
 
   const { data: stuck, error } = await supabaseAdmin
     .from('withdrawals')
-    .select('id, provider_order_id, provider_metadata, amount_usdc, created_at, tx_hash, fiat_currency, pending_beneficiary, source_chain')
+    .select('id, provider_order_id, provider_metadata, amount_usdc, created_at, tx_hash, fiat_currency, pending_beneficiary, source_chain, corridor_fee_usdc')
     .eq('provider', 'bitnob')
     .eq('status', 'processing')
     // The 5-minute floor exists to let the webhook's own retry window pass first. It must not
@@ -129,7 +129,8 @@ export async function GET(req: Request) {
           quoteId,
           orderId: orderId ?? '',
           txHash: w.tx_hash,
-          requiredUsdc: base + getCorridorFee('bitnob', w.fiat_currency),
+          // The fee the order was created with, not today's: the deposit was sized on it.
+          requiredUsdc: base + (w.corridor_fee_usdc != null ? Number(w.corridor_fee_usdc) : getCorridorFee('bitnob', w.fiat_currency)),
           // No default to 'stellar' any more. Every chain defers now, so a missing network
           // here would verify an EVM deposit against Stellar and never find it — the deposit
           // lookup rejects a hash that arrived on another chain. Falling back to the row's own
@@ -225,6 +226,13 @@ export async function GET(req: Request) {
     console.log(`[Reconcile Bitnob] checked=${stuck.length}`, JSON.stringify(results));
   }
 
+  // ── Brails deposits whose webhook found no withdrawal ──────────────────────
+  const { reconcileBrailsDeposits } = await import('@/lib/ramp/brails-payout');
+  const brails = await reconcileBrailsDeposits().catch((e) => {
+    console.error('[Reconcile Brails] failed:', e instanceof Error ? e.message : e);
+    return { checked: 0, started: 0 };
+  });
+
   // ── Sends that were broadcast but never confirmed back to us ───────────────
   //
   // Resolves each against the chain by a hash we wrote down before broadcasting, so a transfer
@@ -287,6 +295,7 @@ export async function GET(req: Request) {
   return NextResponse.json({
     checked: stuck?.length ?? 0,
     results,
+    brails,
     deposits,
     stellar,
     solana,

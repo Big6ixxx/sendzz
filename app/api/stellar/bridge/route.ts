@@ -54,6 +54,7 @@ export async function POST(req: Request) {
       consolidation = false,
       internal = false,
       authorization,
+      authorizedAmount,
     } =
       await req.json() as {
         walletId: string;
@@ -87,6 +88,11 @@ export async function POST(req: Request) {
          * underneath an action that was already authorised.
          */
         authorization?: string;
+        /**
+         * A nested bridge to someone else's address (a send paid from Stellar) carries the send's
+         * own PIN token, and this is the amount that token approved, before the transfer fee.
+         */
+        authorizedAmount?: string;
       };
 
     const finalDestChain = destChain || 'base';
@@ -130,32 +136,49 @@ export async function POST(req: Request) {
     // Enforced, not recorded: this route signs the burn with Privy's TEE and submits it to
     // Horizon itself, so refusing here actually stops the transaction.
     //
-    // Skipped for the nested paths, for the same structural reason `chargeFee` is: a bridge
-    // that runs underneath a transfer or a withdrawal is our plumbing, and that larger
-    // operation already took a PIN. Asking again mid-flight would interrupt something the user
-    // is not watching, after money has started moving.
+    // A bridge the user came to perform (the bridge screen) presents a `bridge` token.
     //
-    // Every route through lib/web3/stellar-bridge.ts sets both flags. A bridge the user came to
-    // perform reaches this route directly from the bridge screen with neither, and so must
-    // present a token.
-    if (!consolidation && !internal) {
-      try {
+    // A nested bridge — a step inside a transfer, send or withdrawal the user already approved
+    // (`internal` / `consolidation`) — asks for no second PIN, but only when it moves the user's
+    // own money to the user's own smart account: that cannot send anything anywhere else. These
+    // flags come from the request, so on their own they prove nothing; mint to any other address
+    // and the send's own PIN token must come with it, bound to that recipient and amount.
+    // No address on record yet (a row pre-created before sign-in, filled at sign-in): there is
+    // nothing to compare against, and a client-supplied one cannot be trusted. Say what to do
+    // rather than presenting it as a PIN failure.
+    if ((consolidation || internal) && !authorization && !owner.smartAccountAddress) {
+      return NextResponse.json(
+        { error: 'Your account is still being set up. Refresh the page and try again.' },
+        { status: 409 },
+      );
+    }
+    const toOwnAccount =
+      !!owner.smartAccountAddress &&
+      recipientAddress.toLowerCase() === owner.smartAccountAddress.toLowerCase();
+    try {
+      if (!consolidation && !internal) {
         await consumeAuthorization({
           token: authorization,
           purpose: 'bridge',
-          payload: {
-            destination: finalDestChain,
-            amount: parsedAmount,
-            chain: 'stellar',
-          },
+          payload: { destination: finalDestChain, amount: parsedAmount, chain: 'stellar' },
         });
-      } catch (err) {
-        const message =
-          err instanceof AuthorizationError
-            ? err.message
-            : 'Could not verify your PIN. Please try again.';
-        return NextResponse.json({ error: message }, { status: 401 });
+      } else if (!toOwnAccount) {
+        const approved = Number(authorizedAmount);
+        // The burn carries the transfer fee on top of what was approved, and nothing more.
+        const ceiling = approved * (1 + getPlatformFeePercent('transfer') / 100) + 1e-6;
+        if (!(approved > 0) || parsedAmount > ceiling) throw new AuthorizationError();
+        await consumeAuthorization({
+          token: authorization,
+          purpose: 'crypto_transfer',
+          payload: { destination: recipientAddress, amount: approved, chain: finalDestChain },
+        });
       }
+    } catch (err) {
+      const message =
+        err instanceof AuthorizationError
+          ? err.message
+          : 'Could not verify your PIN. Please try again.';
+      return NextResponse.json({ error: message }, { status: 401 });
     }
 
     console.log(`[Stellar/Bridge] ${senderAddress.slice(0, 6)} → ${finalDestChain} ${recipientAddress.slice(0, 8)}, ${amount} USDC`);

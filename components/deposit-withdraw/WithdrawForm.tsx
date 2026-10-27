@@ -10,6 +10,8 @@ import {
   AlertCircle,
   Plus,
   ArrowLeft,
+  ArrowRight,
+  ShieldAlert,
 } from "lucide-react";
 import { balanceOfChain, type SourceChainKey } from "@/lib/web3/routing";
 import { BankSelector } from "./BankSelector";
@@ -24,8 +26,8 @@ import { useDepositWithdraw } from "./useDepositWithdraw";
 import { ReceiptActions } from "@/components/receipt/ReceiptActions";
 import { ReceiptData } from "@/lib/receipt/types";
 import { cn } from "@/lib/utils";
-import { getCurrencyFlag } from "@/lib/currency-config";
-import { useEffect, useState } from "react";
+import { getCountryFlag } from "@/lib/currency-config";
+import { useEffect, useMemo, useState } from "react";
 import { KycRequiredModal } from "@/components/kyc/KycRequiredModal";
 import { SettlementCountdown } from "./SettlementCountdown";
 import { KycModal } from "@/components/kyc/KycModal";
@@ -101,6 +103,22 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
   const [saveDismissedFor, setSaveDismissedFor] = useState<string | null>(null);
   // Verification opened from the limit modal, so the user never leaves the withdrawal to do it.
   const [kycModalOpen, setKycModalOpen] = useState(false);
+
+  // Networks the user must verify to use, marked in the list rather than hidden: hiding them
+  // would make a corridor look unsupported when one step would open it.
+  const gatedCodes = useMemo(() => new Set(hook.kycGatedNetworks), [hook.kycGatedNetworks]);
+  const selectorInstitutions = useMemo(
+    () =>
+      hook.institutions.map((i) =>
+        gatedCodes.has(i.institutionCode || i.code) ? { ...i, name: `${i.name} · verify ID to use` } : i,
+      ),
+    [hook.institutions, gatedCodes],
+  );
+  // Every network shown, not a count: the gated codes come from Brails' list and need not all be
+  // among those displayed.
+  const allNetworksGated =
+    hook.institutions.length > 0 &&
+    hook.institutions.every((i) => gatedCodes.has(i.institutionCode || i.code));
 
   const fiatSymbol = getCurrencySymbol(hook.fiatCurrency);
   const parsedAmount = parseFloat(hook.amount || "0");
@@ -288,7 +306,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
             {hook.payoutCountry ? (
               <div className="flex items-center gap-3 rounded-xl border border-white/[0.07] bg-white/[0.02] px-3.5 py-3">
                 <span className="text-xl leading-none shrink-0" aria-hidden>
-                  {getCurrencyFlag(hook.fiatCurrency)}
+                  {getCountryFlag(hook.payoutCountry, hook.fiatCurrency)}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-semibold truncate">
@@ -311,20 +329,79 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
               />
             )}
 
+            {/* Every network here needs a verified sender: say so before they fill anything in. */}
+            {hook.payoutCountry && allNetworksGated && (
+              <div
+                role="alert"
+                className="rounded-2xl p-4"
+                style={{
+                  background: "linear-gradient(135deg, rgba(245,158,11,0.12) 0%, rgba(217,119,6,0.06) 100%)",
+                  border: "1px solid rgba(245,158,11,0.2)",
+                }}
+              >
+                <div className="flex items-start gap-3">
+                  <div
+                    className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center mt-0.5"
+                    style={{ background: "rgba(245,158,11,0.15)" }}
+                  >
+                    <ShieldAlert className="w-4 h-4" style={{ color: "#f59e0b" }} aria-hidden />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold" style={{ color: "#f59e0b" }}>
+                      Verify your identity to send to {countryName(hook.payoutCountry)}
+                    </p>
+                    <p className="text-xs mt-1 leading-relaxed" style={{ color: "rgba(248,248,246,0.5)" }}>
+                      Payouts here need a verified sender. It is a one-time check that usually
+                      takes a few minutes.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3.5 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setKycModalOpen(true)}
+                    className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 sm:py-2 rounded-xl text-xs font-bold transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+                    style={{
+                      background: "rgba(245,158,11,0.2)",
+                      color: "#f59e0b",
+                      border: "1px solid rgba(245,158,11,0.3)",
+                    }}
+                  >
+                    Verify identity
+                    <ArrowRight className="w-3.5 h-3.5 shrink-0" />
+                  </button>
+                </div>
+              </div>
+            )}
+
             {hook.payoutCountry && (
             <BankSelector
               label="Bank"
-              institutions={hook.institutions}
+              institutions={selectorInstitutions}
               selectedBankCode={hook.bankDetails.bankCode}
-              onSelect={(b) =>
+              onSelect={(b) => {
+                // A network only a verified sender can use opens verification instead of
+                // being selected: no provider would take the order without it.
+                if (gatedCodes.has(b.code)) {
+                  setKycModalOpen(true);
+                  return;
+                }
+                const original = hook.institutions.find((i) => (i.institutionCode || i.code) === b.code);
                 hook.setBankDetails({
                   ...hook.bankDetails,
                   bankCode: b.code,
-                  bankName: b.name,
+                  bankName: original?.name ?? b.name,
                   accountName: "",
-                })
-              }
-              onSelectContact={hook.handleSelectContact}
+                });
+              }}
+              onSelectContact={(contact) => {
+                // Same gate as picking the network directly.
+                if (hook.isContactGated(contact)) {
+                  setKycModalOpen(true);
+                  return;
+                }
+                hook.handleSelectContact(contact);
+              }}
               accountNumber={hook.bankDetails.accountNumber}
               onAccountNumberChange={(val) =>
                 hook.setBankDetails({
@@ -334,6 +411,13 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
                 })
               }
               accountName={hook.bankDetails.accountName}
+              recipientNameNeeded={hook.recipientNameNeeded}
+              onAccountNameChange={(val) =>
+                hook.setBankDetails({
+                  ...hook.bankDetails,
+                  accountName: val,
+                })
+              }
               memo={hook.bankDetails.memo}
               onMemoChange={(val) =>
                 hook.setBankDetails({
@@ -569,7 +653,11 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
         />
         <KycModal
           isOpen={kycModalOpen}
-          onClose={() => setKycModalOpen(false)}
+          onClose={() => {
+            setKycModalOpen(false);
+            // Verification may have just finished: networks it unlocks should open up.
+            hook.refreshKycGates();
+          }}
           userEmail={hook.userEmail}
         />
       </div>
@@ -693,7 +781,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
                 Country
               </span>
               <span className="text-[12.5px] font-semibold text-right">
-                {getCurrencyFlag(hook.fiatCurrency)} {countryName(hook.payoutCountry)}
+                {getCountryFlag(hook.payoutCountry, hook.fiatCurrency)} {countryName(hook.payoutCountry)}
               </span>
             </div>
           )}

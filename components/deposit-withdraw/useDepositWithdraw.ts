@@ -3,6 +3,7 @@
 import {
   executeOffRamp,
   getInstitutions,
+  getKycGatedNetworks,
   getOffRampProviderOrder,
   getOffRampQuote,
   getOffRampQuoteForFiat,
@@ -113,6 +114,28 @@ export function useDepositWithdraw(
    * behaviour and still correct for a currency only one country uses.
    */
   const [payoutCountry, setPayoutCountry] = useState<string | null>(null);
+  // Networks at this destination the user must verify their identity to use (see
+  // getKycGatedNetworks). Empty for verified users and for corridors that need no sender.
+  const [kycGatedNetworks, setKycGatedNetworks] = useState<string[]>([]);
+  // Only the latest request may land: switching country quickly must not leave the previous
+  // country's gates on the new list.
+  const kycGateRequest = useRef(0);
+  const refreshKycGates = useCallback(() => {
+    const request = ++kycGateRequest.current;
+    if (type !== "withdraw" || !payoutCountry) {
+      setKycGatedNetworks([]);
+      return;
+    }
+    getKycGatedNetworks(fiatCurrency, payoutCountry)
+      .catch(() => [] as string[])
+      .then((gated) => {
+        if (request === kycGateRequest.current) setKycGatedNetworks(gated);
+      });
+  }, [type, fiatCurrency, payoutCountry]);
+  useEffect(() => {
+    setKycGatedNetworks([]);
+    refreshKycGates();
+  }, [refreshKycGates]);
   const [quoteUsdcAmount, setQuoteUsdcAmount] = useState<string>("");
   // On-ramp landing chain. Defaults to Base; advanced users may pick another supported chain.
 
@@ -162,13 +185,17 @@ export function useDepositWithdraw(
 
   // Sync fiatCurrency with available currencies if current one is not supported
   useEffect(() => {
+    // A chosen destination decides the currency. `currencies` is one provider's catalogue, and a
+    // currency only another provider pays (CDF, ETB, GNF, MAD, MWK are Brails-only) is missing
+    // from it — resetting to its first entry turned DR Congo into NGN and listed Nigerian banks.
+    if (type === "withdraw" && payoutCountry) return;
     if (currencies && currencies.length > 0) {
       const isSupported = currencies.some((c) => c.code === fiatCurrency);
       if (!isSupported) {
         setFiatCurrency(currencies[0].code);
       }
     }
-  }, [currencies, fiatCurrency]);
+  }, [currencies, fiatCurrency, type, payoutCountry]);
 
   // Off-ramp provider pinned for this withdrawal (banks + verify + order all use it).
   const [offRampProvider, setOffRampProvider] = useState<RampProviderName | undefined>(
@@ -177,8 +204,13 @@ export function useDepositWithdraw(
   // Platform fee % for the pinned provider (drives the fee line + balance math). The actual
   // fee amount/treasury is resolved server-side and embedded in the order.
   const [feePercent, setFeePercent] = useState<number>(0);
-  // Flat per-corridor provider fee in USDC, on top of base + platform fee. Bitnob only.
+  // Flat per-payout provider fee in USDC, on top of base + platform fee (see getCorridorFee).
   const [corridorFee, setCorridorFee] = useState<number>(0);
+  // Both fee figures loaded for the current destination. Until then they read 0, and confirming
+  // 0 would make the server refuse every provider that charges more (see executeOffRamp).
+  const [feesLoaded, setFeesLoaded] = useState(false);
+  // The providers that may take this destination's order, for re-pricing once a bank is picked.
+  const [feeCandidates, setFeeCandidates] = useState<RampProviderName[]>([]);
 
   // Institutions & Rates
   const [institutions, setInstitutions] = useState<RampInstitution[]>([]);
@@ -358,6 +390,8 @@ export function useDepositWithdraw(
       setInstitutionsLoading(true);
       try {
         let provider: RampProviderName;
+        // Every provider that may take this order, not only the first: see the fees below.
+        let candidates: RampProviderName[] = [];
         let instRes: { data: RampInstitution[] } = { data: [] };
 
         if (type === "withdraw") {
@@ -365,24 +399,37 @@ export function useDepositWithdraw(
             () => ["paycrest"] as RampProviderName[],
           );
           provider = order[0] || "paycrest";
+          candidates = order.length > 0 ? order : [provider];
           instRes = await getInstitutions(fiatCurrency, undefined, payoutCountry ?? undefined).catch(() => ({ data: [] }));
         } else {
           provider = "paycrest";
+          candidates = [provider];
           instRes = await getInstitutions(fiatCurrency, provider, payoutCountry ?? undefined).catch(() => ({ data: [] }));
         }
 
         if (cancelled) return;
         setOffRampProvider(provider);
+        setFeeCandidates(candidates);
         // Asked per corridor: a currency with its own rate must not be quoted at the
-        // standard one and then deducted at the other.
-        getProviderFeePercent(provider, fiatCurrency)
-          .then((v) => { if (!cancelled) setFeePercent(v); })
-          .catch(() => { if (!cancelled) setFeePercent(0); });
-        // Flat provider fee for this corridor (Bitnob only). Fetched alongside the provider so
+        // standard one and then deducted at the other. The highest across the providers that
+        // may take the order: the server only lets a provider through if it costs no more than
+        // what was confirmed, so the figure must cover every one of them. Whichever takes it,
+        // the user is charged its own (equal or lower) fee. A failed fetch is retried once, then
+        // left unloaded — never taken as 0, which would get every fallback refused.
+        const highest = (values: number[]) => values.reduce((m, v) => Math.max(m, v), 0);
+        const retryOnce = <T,>(fn: () => Promise<T>) => fn().catch(() => fn());
+        setFeesLoaded(false);
+        const feePercents = Promise.all(candidates.map((p) => retryOnce(() => getProviderFeePercent(p, fiatCurrency))))
+          .then(highest);
+        // Flat provider fee for this corridor. Fetched alongside the provider so
         // it is known before the amount is validated, not after the order exists.
-        getCorridorFeeAction(provider, fiatCurrency)
-          .then((v) => { if (!cancelled) setCorridorFee(v); })
-          .catch(() => { if (!cancelled) setCorridorFee(0); });
+        const corridorFees = Promise.all(candidates.map((p) => retryOnce(() => getCorridorFeeAction(p, fiatCurrency))))
+          .then(highest);
+        feePercents.then((v) => { if (!cancelled) setFeePercent(v); }).catch(() => undefined);
+        corridorFees.then((v) => { if (!cancelled) setCorridorFee(v); }).catch(() => undefined);
+        Promise.all([feePercents, corridorFees])
+          .then(() => { if (!cancelled) setFeesLoaded(true); })
+          .catch(() => console.error("[Withdraw] fees could not be loaded for", fiatCurrency));
         getReferralBenefitBalances()
           .then(setBenefits)
           // Zero on failure means the full fee is quoted. The user is then charged less than
@@ -472,6 +519,20 @@ export function useDepositWithdraw(
     // not change, so without it the previous country's operators stayed on screen.
   }, [type, fiatCurrency, payoutCountry, userEmail]);
 
+  // Some corridors charge bank payouts a flat fee and mobile money none (Ghana), so once the
+  // bank or operator is picked the fee is re-asked for it. Until it answers, or if it fails,
+  // the destination's highest fee stands — more than will be charged, never less.
+  useEffect(() => {
+    if (type !== "withdraw" || !bankDetails.bankCode || feeCandidates.length === 0) return;
+    let cancelled = false;
+    Promise.all(feeCandidates.map((p) => getCorridorFeeAction(p, fiatCurrency, bankDetails.bankCode)))
+      .then((v) => { if (!cancelled) setCorridorFee(v.reduce((m, x) => Math.max(m, x), 0)); })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [type, bankDetails.bankCode, feeCandidates, fiatCurrency]);
+
   // Saved contacts whose bank pays out in the chosen country. The rest are hidden rather than
   // offered and then failing: picking one would address a payout to a bank this corridor lacks.
   const countryContacts = useMemo(
@@ -482,6 +543,15 @@ export function useDepositWithdraw(
     [bankContacts, institutions],
   );
 
+  // A mobile money number whose holder cannot be looked up (everywhere but Ghana MTN): its
+  // format passed, and the user must give the recipient's name. Keyed to the network and number,
+  // so changing either asks again, and so it is not re-verified in a loop while the name is empty.
+  const [acceptedNumber, setAcceptedNumber] = useState<string | null>(null);
+  const numberKey = `${bankDetails.bankCode}|${bankDetails.accountNumber}`;
+  const recipientNameNeeded = acceptedNumber === numberKey;
+  // A saved contact's name, offered as the recipient's name if the number has no name enquiry.
+  const contactNameHint = useRef("");
+
   const handleSelectContact = useCallback(
     (contact: {
       bankCode: string;
@@ -491,14 +561,31 @@ export function useDepositWithdraw(
     }) => {
       const resolved = matchContactBank(institutions, contact);
       if (!resolved) return;
+      // A saved name is not a checked one: the account is verified again, like a typed one.
+      // Where the network has a name enquiry, its answer is shown; where it has none, the saved
+      // name only pre-fills the editable recipient field. Older contacts saved the operator
+      // ("Wave") as the name, which is no name at all.
+      const operatorAsName =
+        contact.accountName.trim().toLowerCase() === contact.bankName.trim().toLowerCase();
+      contactNameHint.current = operatorAsName ? "" : contact.accountName;
+      setAcceptedNumber(null);
       setBankDetails({
         bankCode: resolved.code,
         bankName: resolved.name,
         accountNumber: contact.accountNumber,
-        accountName: contact.accountName,
+        accountName: "",
       });
     },
     [institutions],
+  );
+
+  /** A saved contact whose network this user must verify their identity to pay. */
+  const isContactGated = useCallback(
+    (contact: { bankCode: string; bankName: string }) => {
+      const resolved = matchContactBank(institutions, contact);
+      return !!resolved && kycGatedNetworks.includes(resolved.code);
+    },
+    [institutions, kycGatedNetworks],
   );
 
   // Bank Auto-Verification
@@ -521,6 +608,7 @@ export function useDepositWithdraw(
         offRampProvider,
         withdrawChain,
         details.bankName,
+        payoutCountry ?? undefined,
       );
       let name =
         typeof res.data === "string" ? res.data : res.data?.accountName;
@@ -530,22 +618,26 @@ export function useDepositWithdraw(
       if (name.trim().toUpperCase() === "OK") {
         name = "VERIFIED ACCOUNT";
       }
+      // Mobile money with no name enquiry: only the number was checked. Its "name" is the
+      // operator's, which must not become the recipient's name on the payout — ask for it.
+      if (res.nameVerified === false) {
+        setAcceptedNumber(`${details.bankCode}|${details.accountNumber}`);
+        setBankDetails((prev) => ({ ...prev, accountName: contactNameHint.current }));
+        contactNameHint.current = "";
+        toast.success("Mobile money number accepted");
+        return;
+      }
+      setAcceptedNumber(null);
+      contactNameHint.current = "";
       setBankDetails((prev) => ({ ...prev, accountName: name }));
-
-      // Mobile money has no name enquiry, so the wording stays on what was actually checked
-      // — the number — without claiming we confirmed the recipient.
-      toast.success(
-        res.nameVerified === false
-          ? "Mobile money number accepted"
-          : "Bank account verified",
-      );
+      toast.success("Bank account verified");
     } catch (err) {
       toast.error(parseFriendlyError(err));
       setBankDetails((prev) => ({ ...prev, accountName: "" }));
     } finally {
       setVerifyingBank(false);
     }
-  }, [fiatCurrency, offRampProvider, withdrawChain]);
+  }, [fiatCurrency, offRampProvider, withdrawChain, payoutCountry]);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -553,13 +645,14 @@ export function useDepositWithdraw(
         bankDetails.accountNumber.length >= 8 &&
         bankDetails.bankCode &&
         !bankDetails.accountName &&
+        !recipientNameNeeded &&
         !verifyingBank
       ) {
         handleVerifyBank(bankDetails);
       }
     }, 500);
     return () => clearTimeout(timeout);
-  }, [bankDetails.accountNumber, bankDetails.bankCode, bankDetails.accountName, verifyingBank, handleVerifyBank]);
+  }, [bankDetails.accountNumber, bankDetails.bankCode, bankDetails.accountName, recipientNameNeeded, verifyingBank, handleVerifyBank]);
 
   // Flow Handlers
   const handleDepositInitiate = async () => {
@@ -688,6 +781,10 @@ export function useDepositWithdraw(
   );
 
   const handleWithdrawQuote = async () => {
+    if (!feesLoaded) {
+      toast.error("Still loading the fees for this destination. Please try again in a moment.");
+      return;
+    }
     const typed = parseFloat(amount);
     let val = typed;
 
@@ -1172,6 +1269,9 @@ export function useDepositWithdraw(
         quoteId: quote?.quoteId,
         quoteReference: quote?.reference,
         quotedBy: quote?.provider,
+        // What the review screen charged. A fallback provider that costs more is not used.
+        confirmedFeePercent: feePercent,
+        confirmedCorridorFee: corridorFee,
         // Refused by the action without this. The server re-derives the hash from the
         // amount, account number and chain it is about to act on, so a token minted for a
         // different account or a different figure does not open this door.
@@ -1292,7 +1392,7 @@ export function useDepositWithdraw(
     // leave an orphan payout parked in `pending_address_deposit` after a failed transfer.
     const totalToSend =
       parseFloat(baseAmount.toFixed(6)) +
-      parseFloat(activeOrder.bitnobFee || "0") +
+      parseFloat(activeOrder.providerFee || "0") +
       (fee ? parseFloat(fee.usdc) : 0);
 
     const cachedOnChain =
@@ -1332,15 +1432,15 @@ export function useDepositWithdraw(
         if (!solanaSource?.settleOffRamp) {
           throw new Error("Your wallet isn't ready to settle this withdrawal yet. Please try again in a moment.");
         }
-        const bitnobFee = parseFloat(activeOrder.bitnobFee || "0");
-        const bitnobPayoutDeposit = baseAmount + bitnobFee;
+        const providerFee = parseFloat(activeOrder.providerFee || "0");
+        const payoutDeposit = baseAmount + providerFee;
         txHash = await solanaSource.settleOffRamp({
           payoutAddress: receiveAddress,
           // A provider-collected fee rides to the same address as the payout — as on EVM. It
           // used to be dropped here, so the provider was sent less than it was owed.
           payoutAmount: (onchainFee || !fee
-            ? bitnobPayoutDeposit
-            : bitnobPayoutDeposit + parseFloat(fee.usdc)
+            ? payoutDeposit
+            : payoutDeposit + parseFloat(fee.usdc)
           ).toFixed(6),
           feeAddress: onchainFee?.address,
           feeAmount: onchainFee?.usdc,
@@ -1354,8 +1454,13 @@ export function useDepositWithdraw(
         if (!stellarAddress || !stellarWalletId) {
           throw new Error("Your wallet isn't ready to settle this withdrawal yet. Please try again in a moment.");
         }
-        const bitnobFee = parseFloat(activeOrder.bitnobFee || "0");
-        const bitnobPayoutDeposit = baseAmount + bitnobFee;
+        // Brails gives every customer the same Stellar address and tells deposits apart by memo.
+        // Without one the money would arrive unattributed — so never send it.
+        if (activeOrder.provider === "brails" && !activeOrder.providerAccount?.memo) {
+          throw new Error("This withdrawal is missing its payment reference. Nothing was sent — please start it again.");
+        }
+        const providerFee = parseFloat(activeOrder.providerFee || "0");
+        const payoutDeposit = baseAmount + providerFee;
         toast.loading(`Sending ${payoutAmountText()} to ${payoutTo()}…`, { id: "wd-settle" });
 
         const res = await fetch("/api/stellar/send", {
@@ -1365,7 +1470,10 @@ export function useDepositWithdraw(
             walletId: stellarWalletId,
             senderAddress: stellarAddress,
             recipientAddress: receiveAddress,
-            amount: bitnobPayoutDeposit.toFixed(6),
+            amount: payoutDeposit.toFixed(6),
+            // A provider that shares one Stellar address across users (Brails) tells deposits
+            // apart by memo; without it the money arrives but cannot be matched to this payout.
+            ...(activeOrder.providerAccount?.memo ? { memo: activeOrder.providerAccount.memo } : {}),
             // The order's fee, same as the EVM and Solana branches — without it the route
             // prices this at the P2P transfer rate.
             feeAmount: onchainFee?.usdc ?? "0",
@@ -1386,22 +1494,22 @@ export function useDepositWithdraw(
         const provider = await embeddedProvider.getEthereumProvider();
         const evmChain = settlementChain as SupportedChain;
 
-        const bitnobFee = parseFloat(activeOrder.bitnobFee || "0");
-        const bitnobPayoutDeposit = baseAmount + bitnobFee;
+        const providerFee = parseFloat(activeOrder.providerFee || "0");
+        const payoutDeposit = baseAmount + providerFee;
 
         if (onchainFee) {
           // One gasless UserOp: payout to the provider (including Bitnob rail fee) + fee to our treasury.
           txHash = await executeCircleGaslessBatchTransfer(
             provider,
             [
-              { recipientAddress: receiveAddress, amountUSDC: bitnobPayoutDeposit.toFixed(6) },
+              { recipientAddress: receiveAddress, amountUSDC: payoutDeposit.toFixed(6) },
               { recipientAddress: onchainFee.address, amountUSDC: onchainFee.usdc },
             ],
             evmChain,
           );
         } else {
           // Provider-collected fee (or no fee): send base + fee to the single receive address.
-          const total = fee ? bitnobPayoutDeposit + parseFloat(fee.usdc) : bitnobPayoutDeposit;
+          const total = fee ? payoutDeposit + parseFloat(fee.usdc) : payoutDeposit;
           txHash = await executeCircleGaslessTransfer(
             provider,
             receiveAddress,
@@ -1419,7 +1527,7 @@ export function useDepositWithdraw(
         const ref = activeOrder.providerRef;
         // Pass what identifies OUR deposit so the action can confirm the money actually
         // landed before releasing the payout — broadcasting a transfer is not receiving it.
-        const depositAmount = baseAmount + parseFloat(activeOrder.bitnobFee || "0");
+        const depositAmount = baseAmount + parseFloat(activeOrder.providerFee || "0");
 
         if (activeOrder.deferredInitialize) {
           const deferredToken = await freshToken();
@@ -1605,9 +1713,11 @@ export function useDepositWithdraw(
             setTxFailed(true);
             // The provider's own status word ("reverted", "expired") means nothing to someone
             // watching for their money. Say what happened to them, not to the transaction.
+            // This only runs after the USDC was sent, so a withdrawal's balance HAS changed — the
+            // money is owed back, and saying "unchanged" told people it had vanished.
             toast.error(
               isWithdraw
-                ? "That withdrawal didn't go through. Your balance is unchanged."
+                ? "That withdrawal didn't go through. Your money is safe and will be returned to your wallet."
                 : "That deposit didn't go through. You have not been charged.",
             );
           }
@@ -1757,6 +1867,10 @@ export function useDepositWithdraw(
     handleDepositInitiate,
     handleWithdrawQuote,
     kycBlock,
+    kycGatedNetworks,
+    refreshKycGates,
+    recipientNameNeeded,
+    isContactGated,
     dismissKycBlock: () => setKycBlock(null),
     handleWithdrawFinalize,
     executeTransfer,

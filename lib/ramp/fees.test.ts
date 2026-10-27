@@ -156,45 +156,53 @@ describe('getCorridorFee', () => {
   };
 
   const KEYS = [
-    'CORRIDOR_FEE_RWF', 'CORRIDOR_FEE_NGN', 'CORRIDOR_FEE_UGX',
-    'CORRIDOR_FEE_BITNOB_RWF', 'CORRIDOR_FEE_PAYCREST_RWF',
+    'CORRIDOR_FEE_RWF', 'CORRIDOR_FEE_NGN', 'CORRIDOR_FEE_UGX', 'CORRIDOR_FEE_XOF',
+    'CORRIDOR_FEE_BITNOB_RWF', 'CORRIDOR_FEE_BITNOB_XOF', 'CORRIDOR_FEE_PAYCREST_RWF',
   ];
   afterEach(() => KEYS.forEach((k) => set(k, undefined)));
 
-  it('reads the per-currency amount for any provider', () => {
-    set('CORRIDOR_FEE_RWF', '0.3');
-    expect(getCorridorFee('bitnob', 'RWF')).toBe(0.3);
-    // The point of the rename: a corridor that costs something costs it whoever serves it,
-    // unless that provider is given its own rate.
-    expect(getCorridorFee('paycrest', 'RWF')).toBe(0.3);
+  it("charges each provider's own scheduled fee", () => {
+    expect(getCorridorFee('bitnob', 'TZS')).toBe(3);
+    expect(getCorridorFee('bitnob', 'UGX')).toBe(0.35);
+    expect(getCorridorFee('brails', 'TZS')).toBe(2);
+    expect(getCorridorFee('brails', 'ZMW')).toBe(2);
+    expect(getCorridorFee('brails', 'UGX')).toBe(0.3);
   });
 
-  it('lets a provider-specific rate win over the per-currency one', () => {
-    set('CORRIDOR_FEE_RWF', '0.3');
-    set('CORRIDOR_FEE_PAYCREST_RWF', '0');
-    expect(getCorridorFee('bitnob', 'RWF')).toBe(0.3);
-    // Settles the quoted amount in full, so it must not inherit the other provider's skim.
-    expect(getCorridorFee('paycrest', 'RWF')).toBe(0);
+  it('charges per rail where they differ, and the higher one before the rail is known', () => {
+    expect(getCorridorFee('bitnob', 'GHS', 'mobile_money')).toBe(0);
+    expect(getCorridorFee('bitnob', 'GHS', 'bank')).toBe(3);
+    expect(getCorridorFee('bitnob', 'GHS')).toBe(3);
   });
 
-  it('is case-insensitive on the currency', () => {
-    set('CORRIDOR_FEE_RWF', '0.3');
-    expect(getCorridorFee('bitnob', 'rwf')).toBe(0.3);
+  it('does not let the per-currency key cancel a scheduled fee', () => {
+    // CORRIDOR_FEE_UGX=0 used to leave Bitnob's 0.35 to be paid from our float.
+    set('CORRIDOR_FEE_UGX', '0');
+    expect(getCorridorFee('bitnob', 'UGX')).toBe(0.35);
   });
 
-  it('is 0 for an unconfigured corridor', () => {
-    expect(getCorridorFee('bitnob', 'UGX')).toBe(0);
+  it('lets a provider-specific override win over the schedule', () => {
+    set('CORRIDOR_FEE_BITNOB_RWF', '0.5');
+    expect(getCorridorFee('bitnob', 'RWF')).toBe(0.5);
   });
 
-  it('is 0 for an explicitly free corridor', () => {
-    set('CORRIDOR_FEE_NGN', '0');
+  it('reads the per-currency key for a corridor no schedule lists', () => {
+    set('CORRIDOR_FEE_XOF', '0.2');
+    expect(getCorridorFee('bitnob', 'xof')).toBe(0.2);
     expect(getCorridorFee('bitnob', 'NGN')).toBe(0);
   });
 
+  it('is 0 for a provider whose order never carries it', () => {
+    // Shown and recorded but never sent, it would only misstate the cost and the commission.
+    set('CORRIDOR_FEE_PAYCREST_RWF', '0.5');
+    expect(getCorridorFee('paycrest', 'RWF')).toBe(0);
+  });
+
   it('falls back to 0 rather than throwing on a malformed value', () => {
-    set('CORRIDOR_FEE_RWF', 'abc');
-    expect(getCorridorFee('bitnob', 'RWF')).toBe(0);
-    set('CORRIDOR_FEE_RWF', '-1');
-    expect(getCorridorFee('bitnob', 'RWF')).toBe(0);
+    set('CORRIDOR_FEE_BITNOB_XOF', 'abc');
+    expect(getCorridorFee('bitnob', 'XOF')).toBe(0);
+    set('CORRIDOR_FEE_BITNOB_XOF', '-1');
+    expect(getCorridorFee('bitnob', 'XOF')).toBe(0);
   });
 });
+

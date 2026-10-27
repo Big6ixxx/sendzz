@@ -63,24 +63,22 @@ function normalizeBankName(s: string): string {
  * The institution a saved contact's bank is in the current country's list, or null when it is
  * not there. Contacts carry no country, so this is the only way to tell which corridor one
  * belongs to: a Nigerian bank is simply absent from the Kenyan operator list.
+ *
+ * Exact, like `pickBank`: the contact's code where the names agree, or the one entry with the
+ * same name. No partial matching — that is how "CIT Microfinance" became Citibank.
  */
 export function matchContactBank(
   insts: RampInstitution[],
   contact: { bankCode: string; bankName: string },
 ): { code: string; name: string } | null {
+  const target = normalizeBankName(contact.bankName);
   const code = contact.bankCode?.trim().toUpperCase();
   const byCode = code && insts.find((b) => b.code?.trim().toUpperCase() === code);
-  if (byCode) return { code: byCode.code, name: byCode.name };
+  if (byCode && (!target || normalizeBankName(byCode.name) === target)) {
+    return { code: byCode.code, name: byCode.name };
+  }
 
-  const target = normalizeBankName(contact.bankName);
   if (!target) return null;
-
-  const exact = insts.find((b) => normalizeBankName(b.name) === target);
-  if (exact) return { code: exact.code, name: exact.name };
-
-  const partial = insts.find((b) => {
-    const n = normalizeBankName(b.name);
-    return n.length > 2 && (n.includes(target) || target.includes(n));
-  });
-  return partial ? { code: partial.code, name: partial.name } : null;
+  const byName = insts.filter((b) => normalizeBankName(b.name) === target);
+  return byName.length === 1 ? { code: byName[0].code, name: byName[0].name } : null;
 }

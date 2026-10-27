@@ -2,7 +2,7 @@
 
 import { markSessionTransacted, requireUserId } from "@/lib/auth/session";
 import { toUserSafeMessage } from "@/lib/errors/sanitize";
-import { Ramp } from "@/lib/ramp";
+import { payoutRailOf, pickBank, Ramp } from "@/lib/ramp";
 import { isBridgeable } from "@/lib/circle/gateway";
 import { getCorridorFee, getProviderFee, resolveFeeTreasury } from "@/lib/ramp/fees";
 import { resolvePayoutFiat } from "@/lib/ramp/payout-figure";
@@ -13,6 +13,7 @@ import type { BenefitBalances } from "@/lib/referrals/benefit-math";
 import { supabaseAdmin } from "@/lib/supabase/adminClient";
 import type {
   RampCurrency,
+  RampInstitution,
   RampNetwork,
   RampOrderResponse,
   RampProviderName,
@@ -58,12 +59,16 @@ export async function getReferralBenefitBalances(): Promise<BenefitBalances> {
  *
  * Needed client-side BEFORE the order exists — the balance check, route planner and
  * consolidation amount all have to size on base + platform fee + corridor fee.
+ *
+ * Without `bankCode` it is the corridor's highest fee, since some corridors (Ghana) charge
+ * bank payouts and not mobile money ones; with it, the fee for that bank or operator.
  */
 export async function getCorridorFeeAction(
   provider: RampProviderName,
   currency: string,
+  bankCode?: string,
 ): Promise<number> {
-  return getCorridorFee(provider, currency);
+  return getCorridorFee(provider, currency, bankCode ? payoutRailOf(bankCode) : undefined);
 }
 
 /**
@@ -479,6 +484,12 @@ export async function executeOffRamp(params: {
    */
   quotedBy?: RampProviderName;
   /**
+   * The fee percent and corridor fee the user confirmed. A fallback provider that would charge
+   * more is skipped rather than used, so the amount taken never exceeds what was shown.
+   */
+  confirmedFeePercent?: number;
+  confirmedCorridorFee?: number;
+  /**
    * Single-use proof that the transaction PIN was entered for THIS withdrawal, minted by
    * /api/2fa/pin. Required — see the consumption below.
    */
@@ -546,6 +557,11 @@ export async function executeOffRamp(params: {
       // only trace is this log line. Name it explicitly — an unconfigured treasury looks
       // exactly like "the provider doesn't support this corridor" from the outside.
       const feeCfg = getProviderFee(provider, params.fiatCurrency);
+      if (params.confirmedFeePercent != null && feeCfg.percent > params.confirmedFeePercent + 1e-9) {
+        skipped.push(`${provider}: charges more than the confirmed fee`);
+        console.warn(`[Action] executeOffRamp: SKIPPING ${provider} — it charges more than the user confirmed.`);
+        continue;
+      }
       let feeAddress: string | undefined;
       if (feeCfg.collection === "onchain" && feeCfg.percent > 0) {
         try {
@@ -574,6 +590,7 @@ export async function executeOffRamp(params: {
         provider,
         { code: params.bank.bankCode, name: params.bank.bankName },
         params.fiatCurrency,
+        params.payoutCountry,
       );
       if (!resolved) {
         const reason = `no bank matching "${params.bank.bankName}" for ${params.fiatCurrency}`;
@@ -583,6 +600,16 @@ export async function executeOffRamp(params: {
           `[Action] executeOffRamp: SKIPPING ${provider} — ${(lastError as Error).message}. ` +
             `Refused before any order was created, so nothing can be deposited against it.`,
         );
+        continue;
+      }
+      // The flat fee depends on the rail, known only once the bank is resolved.
+      if (
+        params.confirmedCorridorFee != null &&
+        getCorridorFee(provider, params.fiatCurrency, payoutRailOf(resolved.code)) >
+          params.confirmedCorridorFee + 1e-9
+      ) {
+        skipped.push(`${provider}: charges more than the confirmed fee`);
+        console.warn(`[Action] executeOffRamp: SKIPPING ${provider} — it charges more than the user confirmed.`);
         continue;
       }
 
@@ -704,14 +731,19 @@ export async function executeOffRamp(params: {
         consolidated: params.consolidated,
         provider: created.provider,
         bitnobQuoteId: created.provider === "bitnob" ? created.providerRef : undefined,
+        // Kept for Brails too: its address is the customer's for good, and this row is where the
+        // next withdrawal finds it (Brails mints a new one on every request otherwise).
         bitnobDepositAddress:
-          created.provider === "bitnob" ? created.providerAccount?.receiveAddress : undefined,
+          created.provider === "bitnob" || created.provider === "brails"
+            ? created.providerAccount?.receiveAddress
+            : undefined,
+        depositMemo: created.providerAccount?.memo,
         feeUsdc: feeCfg.percent > 0 ? fee : undefined,
         feePercent: feeCfg.percent > 0 ? feeCfg.percent : undefined,
         // What the provider itself deducts on this corridor. Subtracted from our fee before a
         // referral commission is worked out, so a corridor that costs more to serve cannot
         // fund a commission out of margin that is not there.
-        corridorFeeUsdc: getCorridorFee(provider, params.fiatCurrency),
+        corridorFeeUsdc: Number(created.providerFee ?? 0),
         memo: params.bank.memo || undefined,
       });
 
@@ -787,6 +819,8 @@ export async function verifyBankAccount(
   network?: string,
   /** The bank's name, so a provider other than the one `institution` came from can find it. */
   bankName?: string,
+  /** The payout country, so the bank is looked up in that country's list. */
+  country?: string,
 ) {
   const fiat = currency ?? "NGN";
 
@@ -806,7 +840,7 @@ export async function verifyBankAccount(
     try {
       // Each provider is asked with ITS code for the bank, the same one a payout through it
       // would use — the raw code is only ever valid at the provider whose list it came from.
-      const bank = await Ramp.resolveBank(p, { code: institution, name: bankName }, fiat);
+      const bank = await Ramp.resolveBank(p, { code: institution, name: bankName }, fiat, country);
       if (!bank) {
         failures.push({ provider: p, message: `does not list "${bankName || institution}"` });
         continue;
@@ -847,6 +881,39 @@ export async function getOffRampProviderOrder(
   currency: string = "NGN",
 ): Promise<RampProviderName[]> {
   return Ramp.offRampProviderOrder(currency);
+}
+
+/**
+ * Which of a destination's networks this user cannot use until they verify their identity.
+ *
+ * Some Brails corridors need the sender's verified name (`brailsNeedsSender`). A user Brails can
+ * build a sender for is never gated. For anyone else, a network is still usable when another
+ * provider can pay it — the withdrawal simply goes there. Only networks Brails alone pays are
+ * returned, so the form can send the user to verification instead of to an order no provider
+ * would take.
+ */
+export async function getKycGatedNetworks(currency: string, country: string): Promise<string[]> {
+  const { brailsNeedsSender } = await import("@/lib/ramp/providers/brails");
+  if (!country || !brailsNeedsSender(country)) return [];
+
+  const session = await requireUserId().catch(() => null);
+  if (!session) return [];
+  // The same check the order makes, not just the KYC status: an approved user whose verified
+  // document gives no usable name or country cannot be paid there either.
+  const { brailsSenderFor } = await import("@/lib/ramp/brails-sender");
+  if (await brailsSenderFor({ id: session.userId }).catch(() => null)) return [];
+
+  // Each provider's list once, in parallel; the gated networks are Brails' own that no other
+  // provider can pay.
+  const others = (await Ramp.offRampProviderOrder(currency)).filter((p) => p !== "brails");
+  const listFor = (p: RampProviderName) =>
+    Ramp.institutionsFor(p, currency, country)
+      .then((r) => r.data)
+      .catch(() => [] as RampInstitution[]);
+  const [brailsList, ...otherLists] = await Promise.all([listFor("brails"), ...others.map(listFor)]);
+  return brailsList
+    .filter((inst) => !otherLists.some((list) => pickBank(list, { code: inst.code, name: inst.name }, country)))
+    .map((inst) => inst.institutionCode || inst.code);
 }
 
 /**

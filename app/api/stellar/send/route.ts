@@ -30,6 +30,12 @@ import {
   stellarAccountExists,
 } from '@/lib/stellar/transactions';
 import { verifyOwnStellarWallet } from '@/lib/stellar/ownership';
+import {
+  checkWithdrawalSend,
+  claimWithdrawalSend,
+  noteWithdrawalSendHash,
+  releaseWithdrawalSend,
+} from '@/lib/stellar/withdrawal-send';
 import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
@@ -66,7 +72,8 @@ export async function POST(req: Request) {
 
     // The caller must be signed in and sending from their own wallet. `withdrawalOrderId`
     // waives the PIN below, never this.
-    if (!(await verifyOwnStellarWallet(walletId, senderAddress))) {
+    const owner = await verifyOwnStellarWallet(walletId, senderAddress);
+    if (!owner) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
@@ -81,10 +88,26 @@ export async function POST(req: Request) {
     // handed over by the caller. A payload taken from the request body would authorise
     // whatever the caller claimed to be doing, which is not a check.
     //
-    // Withdrawals are exempt because they already spent a `withdrawal` authorisation when the
-    // order was created — `withdrawalOrderId` is only ever set by that path, and asking for a
-    // second PIN mid-settlement would strand a payout whose order already exists.
-    if (!withdrawalOrderId) {
+    // A withdrawal's settlement is exempt: it already spent a `withdrawal` authorisation when the
+    // order was created, and a second PIN mid-settlement would strand a payout whose order
+    // exists. But only a real one — the order is loaded and the send must be exactly what it
+    // was for (see checkWithdrawalSend). Naming an order id is not, by itself, a waiver.
+    let withdrawalRowId: string | null = null;
+    if (withdrawalOrderId) {
+      const check = await checkWithdrawalSend({
+        userEmail: owner.email,
+        withdrawalOrderId: String(withdrawalOrderId),
+        recipientAddress,
+        amount: parsedAmount,
+        memo: memo || undefined,
+        feeAmount: Number(feeAmount ?? 0) || 0,
+      });
+      if (!check.ok) {
+        console.warn(`[Stellar/Send] Refused withdrawal settlement ${withdrawalOrderId}: ${check.reason}`);
+        return NextResponse.json({ error: 'This withdrawal cannot be sent. Please start it again.' }, { status: 403 });
+      }
+      withdrawalRowId = check.rowId;
+    } else {
       try {
         await consumeAuthorization({
           token: authorization,
@@ -148,115 +171,145 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Insufficient USDC balance.' }, { status: 400 });
     }
 
-    // Build unsigned payment transaction
-    const { xdr: unsignedXdr } = await buildUsdcPaymentTx(
-      senderAddress,
-      recipientAddress,
-      parsedAmount.toFixed(7),
-      memo,
-      platformFee,
-    );
+    // Claimed once checks pass and before anything is signed, so one order is sent once.
+    if (withdrawalRowId && !(await claimWithdrawalSend(withdrawalRowId))) {
+      return NextResponse.json({ error: 'This withdrawal is already being sent.' }, { status: 409 });
+    }
+    let broadcast = false;
+    try {
+      // Build unsigned payment transaction
+      const { xdr: unsignedXdr } = await buildUsdcPaymentTx(
+        senderAddress,
+        recipientAddress,
+        parsedAmount.toFixed(7),
+        memo,
+        platformFee,
+      );
 
-    // Sign via Privy TEE
-    const signedXdr = await signStellarTransaction(walletId, unsignedXdr, senderAddress);
+      // Sign via Privy TEE
+      const signedXdr = await signStellarTransaction(walletId, unsignedXdr, senderAddress);
 
-    // Fee-bump — sponsor pays XLM fee, user pays nothing
-    const feeBumpXdr = await buildFeeBumpTransaction(signedXdr);
-    console.log('[Stellar/Send] Fee bump applied.');
+      // Fee-bump — sponsor pays XLM fee, user pays nothing
+      const feeBumpXdr = await buildFeeBumpTransaction(signedXdr);
+      console.log('[Stellar/Send] Fee bump applied.');
 
-    // Write the intent down BEFORE broadcasting, against the hash this envelope will have.
-    //
-    // Everything after this line can fail — Horizon can time out, this request can be killed
-    // mid-flight, the user can close the tab — and the send is still recoverable, because the
-    // reconciler can ask the chain about a hash we already committed to. Withdrawals are skipped:
-    // they are recorded against their order, not as peer transfers.
-    //
-    // Only for P2P sends, and only when we know who is asking.
-    const plannedHash = stellarTxHash(feeBumpXdr);
-    if (!withdrawalOrderId) {
-      const identity = await getVerifiedIdentity();
-      if (identity) {
-        const { data: sender } = await supabaseAdmin
-          .from('users')
-          .select('id')
-          .eq('email', identity.email)
-          .maybeSingle();
-        if (sender?.id) {
-          await markSendPending({
-            userId: sender.id,
-            txHash: plannedHash,
-            chain: 'stellar',
-            senderEmail: identity.email,
-            recipient: recipientAddress,
-            amount: parsedAmount,
-            note: memo || 'Crypto transfer on Stellar',
-          });
+      // Write the intent down BEFORE broadcasting, against the hash this envelope will have.
+      //
+      // Everything after this line can fail — Horizon can time out, this request can be killed
+      // mid-flight, the user can close the tab — and the send is still recoverable, because the
+      // reconciler can ask the chain about a hash we already committed to. Withdrawals are skipped:
+      // they are recorded against their order, not as peer transfers.
+      //
+      // Only for P2P sends, and only when we know who is asking.
+      const plannedHash = stellarTxHash(feeBumpXdr);
+      if (withdrawalRowId) await noteWithdrawalSendHash(withdrawalRowId, plannedHash);
+      if (!withdrawalOrderId) {
+        const identity = await getVerifiedIdentity();
+        if (identity) {
+          const { data: sender } = await supabaseAdmin
+            .from('users')
+            .select('id')
+            .eq('email', identity.email)
+            .maybeSingle();
+          if (sender?.id) {
+            await markSendPending({
+              userId: sender.id,
+              txHash: plannedHash,
+              chain: 'stellar',
+              senderEmail: identity.email,
+              recipient: recipientAddress,
+              amount: parsedAmount,
+              note: memo || 'Crypto transfer on Stellar',
+            });
+          }
         }
       }
-    }
 
-    const result = await submitStellarTransaction(feeBumpXdr);
-
-    // Broadcast, but not yet in a ledger. The envelope stays valid for its full timebound, so
-    // this may still land and MUST NOT be reported as a failed send — that is precisely what
-    // made a real 39 USDC transfer vanish: the user was shown an error, saw the balance drop,
-    // and was one tap away from sending it twice.
-    //
-    // Nothing is recorded here on purpose. Only the chain knows whether this landed, so the
-    // reconciler records it once the chain says so, rather than writing a row for a payment
-    // that might never have happened.
-    if (result.status === 'unresolved') {
-      console.warn(`[Stellar/Send] Unresolved: txHash=${result.hash}`);
-      return NextResponse.json(
-        {
-          success: false,
-          pending: true,
-          txHash: result.hash,
-          error: 'Still confirming on Stellar. Your funds are safe — do not send again.',
-        },
-        { status: 202 },
-      );
-    }
-
-    // In a ledger and rejected there. The transfer definitively did not happen, so this is the
-    // one branch where telling the user it failed is the truth — and the intent is dropped,
-    // because there is nothing for the reconciler to recover.
-    if (!result.successful) {
-      console.error(`[Stellar/Send] Rejected on-chain: txHash=${result.hash}`);
-      await clearPendingSend(plannedHash);
-      return NextResponse.json(
-        { error: 'The network rejected this transfer. Nothing was sent.' },
-        { status: 400 },
-      );
-    }
-
-    console.log(`[Stellar/Send] Success: txHash=${result.hash}`);
-
-    // The intent is deliberately NOT cleared here, even though the send succeeded.
-    //
-    // The browser still has to write the ledger row, and it can die before it does — a closed
-    // tab, a dropped connection. Leaving the intent means the reconciler covers that gap too:
-    // it finds the row already recorded and simply drops the intent, or records it if the
-    // browser never did. Clearing it now would reopen the window this whole mechanism exists
-    // to close. Cost of leaving it: one extra row for up to one cron cycle.
-
-    // Record the hash against its withdrawal HERE, not from the browser.
-    //
-    // On this chain the deposit can only be tied to a payout by its hash, and the payout is
-    // created after the deposit clears. If the tab closes in between, a browser-written hash is
-    // lost and the deposit becomes unattributable — money in, nothing to finish it with. Writing
-    // it server-side, in the same call that broadcast the transfer, closes that window: the
-    // reconcile cron always has the hash it needs.
-    if (withdrawalOrderId && result.hash) {
+      // Only Horizon's own "submission failed" means nothing was queued. Any other error — a
+      // dropped connection, a timeout — may have reached the network, so it is treated as
+      // unresolved: releasing the order on it is how one withdrawal gets paid twice.
+      let result: Awaited<ReturnType<typeof submitStellarTransaction>>;
       try {
-        const { saveWithdrawalTxHash } = await import('@/lib/supabase/transactions');
-        await saveWithdrawalTxHash(withdrawalOrderId, result.hash);
-      } catch (e) {
-        console.error(`[Stellar/Send] Could not record tx hash for ${withdrawalOrderId}:`, e);
+        result = await submitStellarTransaction(feeBumpXdr);
+      } catch (submitErr) {
+        if (/^Horizon submission failed/.test((submitErr as Error).message)) throw submitErr;
+        console.error('[Stellar/Send] Submission outcome unknown:', submitErr);
+        result = { status: 'unresolved', hash: plannedHash };
       }
-    }
+      broadcast = true;
 
-    return NextResponse.json({ success: true, txHash: result.hash, feeBumped: true });
+      // Broadcast, but not yet in a ledger. The envelope stays valid for its full timebound, so
+      // this may still land and MUST NOT be reported as a failed send — that is precisely what
+      // made a real 39 USDC transfer vanish: the user was shown an error, saw the balance drop,
+      // and was one tap away from sending it twice.
+      //
+      // Nothing is recorded here on purpose. Only the chain knows whether this landed, so the
+      // reconciler records it once the chain says so, rather than writing a row for a payment
+      // that might never have happened.
+      if (result.status === 'unresolved') {
+        console.warn(`[Stellar/Send] Unresolved: txHash=${result.hash}`);
+        // The withdrawal keeps its claim and gets the hash now: it is what matches the deposit
+        // if this lands, and what lets a retry tell whether it did (checkWithdrawalSend).
+        if (withdrawalOrderId) {
+          const { saveWithdrawalTxHash } = await import('@/lib/supabase/transactions');
+          await saveWithdrawalTxHash(String(withdrawalOrderId), result.hash);
+        }
+        return NextResponse.json(
+          {
+            success: false,
+            pending: true,
+            txHash: result.hash,
+            error: 'Still confirming on Stellar. Your funds are safe — do not send again.',
+          },
+          { status: 202 },
+        );
+      }
+
+      // In a ledger and rejected there. The transfer definitively did not happen, so this is the
+      // one branch where telling the user it failed is the truth — and the intent is dropped,
+      // because there is nothing for the reconciler to recover.
+      if (!result.successful) {
+        console.error(`[Stellar/Send] Rejected on-chain: txHash=${result.hash}`);
+        await clearPendingSend(plannedHash);
+        if (withdrawalRowId) await releaseWithdrawalSend(withdrawalRowId);
+        return NextResponse.json(
+          { error: 'The network rejected this transfer. Nothing was sent.' },
+          { status: 400 },
+        );
+      }
+
+      console.log(`[Stellar/Send] Success: txHash=${result.hash}`);
+
+      // The intent is deliberately NOT cleared here, even though the send succeeded.
+      //
+      // The browser still has to write the ledger row, and it can die before it does — a closed
+      // tab, a dropped connection. Leaving the intent means the reconciler covers that gap too:
+      // it finds the row already recorded and simply drops the intent, or records it if the
+      // browser never did. Clearing it now would reopen the window this whole mechanism exists
+      // to close. Cost of leaving it: one extra row for up to one cron cycle.
+
+      // Record the hash against its withdrawal HERE, not from the browser.
+      //
+      // On this chain the deposit can only be tied to a payout by its hash, and the payout is
+      // created after the deposit clears. If the tab closes in between, a browser-written hash is
+      // lost and the deposit becomes unattributable — money in, nothing to finish it with. Writing
+      // it server-side, in the same call that broadcast the transfer, closes that window: the
+      // reconcile cron always has the hash it needs.
+      if (withdrawalOrderId && result.hash) {
+        try {
+          const { saveWithdrawalTxHash } = await import('@/lib/supabase/transactions');
+          await saveWithdrawalTxHash(withdrawalOrderId, result.hash);
+        } catch (e) {
+          console.error(`[Stellar/Send] Could not record tx hash for ${withdrawalOrderId}:`, e);
+        }
+      }
+
+      return NextResponse.json({ success: true, txHash: result.hash, feeBumped: true });
+    } catch (err) {
+      // Failed before anything reached the network: the order may be sent again.
+      if (withdrawalRowId && !broadcast) await releaseWithdrawalSend(withdrawalRowId);
+      throw err;
+    }
   } catch (error) {
     console.error('[Stellar/Send] Error:', error);
     return NextResponse.json(

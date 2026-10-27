@@ -26,6 +26,11 @@ const CURRENCY_SYMBOL_CACHE: Record<string, string> = {
   RWF: 'FRw',
   GMD: 'D',
   MWK: 'MK',
+  ZMW: 'ZK',
+  CDF: 'FC',
+  ETB: 'Br',
+  GNF: 'FG',
+  MAD: 'DH',
   BRL: 'R$',
 };
 
@@ -91,6 +96,21 @@ function hasCurrencySymbol(code: string): boolean {
 }
 
 /**
+ * Flag for a country code (ISO 3166-1 alpha-2), e.g. "SN" → 🇸🇳.
+ *
+ * Prefer this whenever the country is known. A currency flag cannot tell the CFA franc
+ * countries apart — every XOF destination showed Côte d'Ivoire's flag — while a country code
+ * maps to exactly one flag. Falls back to the currency flag for anything that is not a code.
+ */
+export function getCountryFlag(country: string | null | undefined, currency?: string): string {
+  const code = (country ?? '').trim().toUpperCase();
+  if (/^[A-Z]{2}$/.test(code)) {
+    return String.fromCodePoint(...[...code].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65));
+  }
+  return currency ? getCurrencyFlag(currency) : '🏳️';
+}
+
+/**
  * Helper to get flag emoji for a currency code
  */
 export function getCurrencyFlag(code: string): string {
@@ -105,6 +125,11 @@ export function getCurrencyFlag(code: string): string {
     RWF: '🇷🇼',
     GMD: '🇬🇲',
     MWK: '🇲🇼',
+    ZMW: '🇿🇲',
+    CDF: '🇨🇩',
+    ETB: '🇪🇹',
+    GNF: '🇬🇳',
+    MAD: '🇲🇦',
     BRL: '🇧🇷',
   };
   return flags[code] || '🏳️';
@@ -128,7 +153,12 @@ export function getCurrencyCountry(code: string): string | null {
     XAF: 'Central African CFA zone',
     RWF: 'Rwanda',
     GMD: 'The Gambia',
+    ZMW: 'Zambia',
     MWK: 'Malawi',
+    CDF: 'DR Congo',
+    ETB: 'Ethiopia',
+    GNF: 'Guinea',
+    MAD: 'Morocco',
     BRL: 'Brazil',
   };
   return countries[code?.toUpperCase()] ?? null;

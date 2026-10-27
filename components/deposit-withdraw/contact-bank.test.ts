@@ -18,6 +18,15 @@ describe('saved contacts belong to the country whose list has their bank', () =>
     expect(matchContactBank(kenya, { bankCode: '058', bankName: 'Guaranty Trust Bank' })).toBeNull();
   });
 
+  it('does not guess a bank from part of its name', () => {
+    const list = [inst('000009', 'Citibank Nigeria')];
+    expect(matchContactBank(list, { bankCode: 'CITXNGPC', bankName: 'CIT Microfinance Bank' })).toBeNull();
+  });
+
+  it('does not trust a code that names a different bank here', () => {
+    expect(matchContactBank(nigeria, { bankCode: '058', bankName: 'United Bank for Africa' })).toEqual({ code: '033', name: 'United Bank for Africa' });
+  });
+
   it('nothing matches before the country list has loaded', () => {
     expect(matchContactBank([], { bankCode: '058', bankName: 'GTBank' })).toBeNull();
   });
