@@ -9,6 +9,7 @@ import {
   upsertKycVerification,
   getUserIdByVendorData,
   getUserIdBySessionId,
+  getUserKycStatus,
 } from "@/lib/kyc/supabase-kyc";
 
 export const runtime = "nodejs";
@@ -137,6 +138,18 @@ async function handleStatusUpdated(
   if (!userId) {
     console.error(
       `[Didit Webhook] [${requestId}] Could not resolve user for session=${session_id} vendor_data=${vendor_data}`,
+    );
+    return;
+  }
+
+  // An approved record changes only through its own session (a reviewer reversing it). Any
+  // other session of this user's — one opened again by mistake, then left to expire — must not
+  // replace the approved one or undo the approval.
+  const current = await getUserKycStatus(userId);
+  if (current.status === "approved" && current.diditSessionId && current.diditSessionId !== session_id) {
+    console.log(
+      `[Didit Webhook] [${requestId}] Ignored session=${session_id} status="${status}": user=${userId} ` +
+        `is already approved through session=${current.diditSessionId}`,
     );
     return;
   }

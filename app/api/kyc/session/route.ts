@@ -43,6 +43,12 @@ export async function POST() {
 
     // ── 2. Check for an existing active session ────────────────────────────
     const existing = await getUserKycStatus(userId);
+    // Already verified: nothing to start. A new session would replace the approved one on the
+    // record, and every check that reads the verified identity from it (the Brails sender)
+    // would then find an empty session and treat the user as unverified.
+    if (existing.status === "approved") {
+      return NextResponse.json({ alreadyVerified: true, status: "approved" });
+    }
     if (
       existing.diditSessionId &&
       existing.status !== "declined" &&

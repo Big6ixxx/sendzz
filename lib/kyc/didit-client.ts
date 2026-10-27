@@ -139,7 +139,12 @@ export async function getVerifiedIdentity(
     }[];
   }>(`/session/${sessionId}/decision/`);
   if (decision.status !== "Approved") return null;
-  const id = decision.id_verifications?.find((v) => v.status === "Approved");
+  // The session's decision is the verdict. A reviewer approving a session can leave its ID
+  // check reading "In Review", so any ID check not declined is taken, an approved one first.
+  const checks = decision.id_verifications ?? [];
+  const id =
+    checks.find((v) => v.status === "Approved") ??
+    checks.find((v) => v.status !== "Declined" && v.first_name?.trim() && v.last_name?.trim());
   const firstName = id?.first_name?.trim();
   const lastName = id?.last_name?.trim();
   const issuingState = id?.issuing_state?.trim().toUpperCase();

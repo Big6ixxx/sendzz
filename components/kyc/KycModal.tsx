@@ -72,6 +72,10 @@ export function KycModal({ isOpen, onClose, userEmail: propEmail }: KycModalProp
       if (!res.ok) {
         throw new Error(json.error || "Failed to create verification session");
       }
+      if (json.alreadyVerified) {
+        setStep("approved");
+        return;
+      }
 
       setSessionUrl(json.sessionUrl);
       setStep("ready");
