@@ -5,12 +5,14 @@ import { getCurrencySymbol } from "@/lib/currency-config";
 import { cn } from "@/lib/utils";
 import {
   AlertCircle,
+  ArrowRight,
   CheckCircle2,
   Clock,
   Copy,
   Info,
   Loader2,
   Plus,
+  ShieldAlert,
 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
@@ -20,6 +22,8 @@ import { useDepositWithdraw } from "./useDepositWithdraw";
 import { useOnRampAvailability } from "@/lib/hooks/useOnRampAvailability";
 import { ReceiptActions } from "@/components/receipt/ReceiptActions";
 import { ReceiptData } from "@/lib/receipt/types";
+import { KycModal } from "@/components/kyc/KycModal";
+import { namesMatch } from "@/lib/ramp/onramp-kyc";
 
 interface DepositFormProps {
   hook: ReturnType<typeof useDepositWithdraw>;
@@ -27,6 +31,13 @@ interface DepositFormProps {
 
 export function DepositForm({ hook }: DepositFormProps) {
   const [secondsLeft, setSecondsLeft] = React.useState<number | null>(null);
+  const [kycModalOpen, setKycModalOpen] = React.useState(false);
+  const requirement = hook.onRampRequirement;
+  const blocked = requirement?.ok === false ? requirement : null;
+  const canVerify = blocked?.need === "verification" || blocked?.need === "reverify";
+  const verifiedName = requirement?.name;
+  const refundNameMismatch =
+    !!verifiedName && !!hook.bankDetails.accountName && !namesMatch(verifiedName, hook.bankDetails.accountName);
   // Nothing is deducted on the way in, so the estimate is simply the amount at the rate.
   const estimatedUsdc =
     hook.rate && hook.amount
@@ -55,6 +66,56 @@ export function DepositForm({ hook }: DepositFormProps) {
   if (hook.step === 1) {
     return (
       <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        {blocked && (
+          <div
+            role="alert"
+            className="rounded-2xl p-4"
+            style={{
+              background: "linear-gradient(135deg, rgba(245,158,11,0.12) 0%, rgba(217,119,6,0.06) 100%)",
+              border: "1px solid rgba(245,158,11,0.2)",
+            }}
+          >
+            <div className="flex items-start gap-3">
+              <div
+                className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center mt-0.5"
+                style={{ background: "rgba(245,158,11,0.15)" }}
+              >
+                <ShieldAlert className="w-4 h-4" style={{ color: "#f59e0b" }} aria-hidden />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold" style={{ color: "#f59e0b" }}>
+                  {blocked.need === "verification"
+                    ? "Verify your identity to deposit"
+                    : blocked.need === "reverify"
+                      ? "One more verification needed"
+                      : blocked.need === "in_review"
+                        ? "Verification in review"
+                        : "Deposits unavailable"}
+                </p>
+                <p className="text-xs mt-1 leading-relaxed" style={{ color: "rgba(248,248,246,0.5)" }}>
+                  {blocked.message}
+                </p>
+              </div>
+            </div>
+            {canVerify && (
+              <div className="mt-3.5 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setKycModalOpen(true)}
+                  className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 sm:py-2 rounded-xl text-xs font-bold transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+                  style={{
+                    background: "rgba(245,158,11,0.2)",
+                    color: "#f59e0b",
+                    border: "1px solid rgba(245,158,11,0.3)",
+                  }}
+                >
+                  {blocked.need === "reverify" ? "Verify again" : "Verify identity"}
+                  <ArrowRight className="w-3.5 h-3.5 shrink-0" />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
         {depositUnavailable && (
           <div className="card-glass p-4 border-amber-500/20 bg-amber-500/2 flex gap-3">
             <div className="p-2 h-fit rounded-lg bg-amber-500/10">
@@ -148,7 +209,9 @@ export function DepositForm({ hook }: DepositFormProps) {
             <Info className="w-4 h-4 mt-[1px] shrink-0 text-accent" />
             <p className="text-[12.5px] leading-relaxed text-foreground/80">
               Where should we send your money back if anything goes wrong? Give an account in
-              your own name — refunds are only ever returned here.
+              your own name{verifiedName ? ` (${verifiedName})` : ""}. Refunds are only ever
+              returned here.
+              {hook.fiatCurrency === "KES" && " Use your own M-Pesa number."}
             </p>
           </div>
 
@@ -185,6 +248,15 @@ export function DepositForm({ hook }: DepositFormProps) {
               hook.setBankDetails({ ...hook.bankDetails, memo: val })
             }
           />
+
+          {refundNameMismatch && (
+            <p className="flex items-start gap-2 text-[12px] leading-relaxed text-amber-400">
+              <AlertCircle className="w-3.5 h-3.5 mt-[2px] shrink-0" />
+              This account is in the name {hook.bankDetails.accountName}, not {verifiedName}. Use an
+              account in your own name, or the deposit will be refused.
+            </p>
+          )}
+
         </div>
 
         <button
@@ -193,6 +265,7 @@ export function DepositForm({ hook }: DepositFormProps) {
             hook.loading ||
             hook.rateLoading ||
             depositUnavailable ||
+            !!blocked ||
             !hook.amount ||
             !hook.bankDetails.accountName
           }
@@ -204,6 +277,16 @@ export function DepositForm({ hook }: DepositFormProps) {
             "Continue to Deposit"
           )}
         </button>
+
+        <KycModal
+          isOpen={kycModalOpen}
+          onClose={() => {
+            setKycModalOpen(false);
+            hook.refreshOnRampRequirement();
+          }}
+          userEmail={hook.userEmail}
+          depositCurrency={hook.fiatCurrency}
+        />
       </div>
     );
   }
@@ -211,7 +294,21 @@ export function DepositForm({ hook }: DepositFormProps) {
   if (hook.step === 2 && hook.order) {
     return (
       <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        {secondsLeft !== null && (
+        {hook.depositUnderReview && (
+          <div role="status" className="p-4 rounded-2xl border border-amber-500/25 bg-amber-500/[0.06] flex gap-3">
+            <ShieldAlert className="w-5 h-5 shrink-0 text-amber-400" />
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-amber-400">Your payment is being reviewed</p>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                We received it and it is going through a routine check, which can take a few days.
+                Please don&apos;t pay again, as a second payment would be held too. It will either
+                arrive in your balance or be returned to the account it came from.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {secondsLeft !== null && !hook.depositUnderReview && (
           <div
             className={cn(
               "p-4 rounded-2xl border flex items-center justify-between",
@@ -279,8 +376,9 @@ export function DepositForm({ hook }: DepositFormProps) {
         <div className="bg-muted/50 p-4 rounded-xl border border-border flex gap-3">
           <AlertCircle className="w-5 h-5 text-muted-foreground shrink-0" />
           <p className="text-xs leading-relaxed text-muted-foreground">
-            Please make the transfer from your personal bank account. Funds will
-            be credited automatically once confirmed.
+            Pay from a bank account in your own name
+            {verifiedName ? ` (${verifiedName})` : ""}. A payment from anyone else&apos;s
+            account is sent back to it. Funds are credited automatically once confirmed.
           </p>
         </div>
 

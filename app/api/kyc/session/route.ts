@@ -13,11 +13,8 @@ export const runtime = "nodejs";
  *
  * Creates a Didit KYC verification session for the authenticated user.
  * Returns the session URL to redirect/embed in the frontend.
- *
- * Idempotent: if the user already has an active (non-declined) session,
- * returns the existing session URL rather than creating a duplicate.
  */
-export async function POST() {
+export async function POST(req: Request) {
   try {
     // ── Identity from the session ───────────────────────────────────────────
     //
@@ -43,24 +40,53 @@ export async function POST() {
 
     // ── 2. Check for an existing active session ────────────────────────────
     const existing = await getUserKycStatus(userId);
-    // Already verified: nothing to start. A new session would replace the approved one on the
-    // record, and every check that reads the verified identity from it (the Brails sender)
-    // would then find an empty session and treat the user as unverified.
-    if (existing.status === "approved") {
-      return NextResponse.json({ alreadyVerified: true, status: "approved" });
+    // Waiting on an admin: a new session would replace the one under review on the record, and
+    // its review would no longer count. The modal waits on that one instead.
+    if (existing.status === "in_review" && existing.diditSessionId) {
+      return NextResponse.json({ inReview: true, status: "in_review" });
     }
-    if (
-      existing.diditSessionId &&
-      existing.status !== "declined" &&
-      existing.status !== "not_started"
-    ) {
-      // Session exists and is active — caller should re-use the Didit URL.
-      // We can't regenerate the URL from our DB so we tell the client to
-      // create a fresh one (Didit will idempotently return the existing
-      // session if vendor_data matches).
-      console.log(
-        `[KYC Session] User ${userId} already has session ${existing.diditSessionId} (${existing.status})`,
-      );
+
+    // Already verified: nothing to start, unless the ID they verified with lacks what this
+    // deposit currency needs (depositIdentityGap). Then they verify again. The approved session
+    // stays on the record until the new one is approved (applyReverification), so an abandoned
+    // attempt costs the user nothing.
+    if (existing.status === "approved") {
+      const { depositCurrency } = (await req.json().catch(() => ({}))) as { depositCurrency?: string };
+      if (!depositCurrency) return NextResponse.json({ alreadyVerified: true, status: "approved" });
+      const { reverificationUnderWay, verifiedIdentityOf } = await import("@/lib/kyc/verified-identity");
+      const { depositIdentityGap } = await import("@/lib/ramp/onramp-kyc");
+      // A failed lookup is not a reason to verify again: that would send a verified user through
+      // KYC because Didit was briefly unreachable.
+      let identity;
+      try {
+        identity = await verifiedIdentityOf({ id: userId });
+      } catch (err) {
+        console.error(`[KYC Session] Could not read the verified identity for ${userId}:`, err);
+        return NextResponse.json(
+          { error: "We couldn't check your verification just now. Please try again in a moment." },
+          { status: 503 },
+        );
+      }
+      if (identity && !depositIdentityGap(identity, depositCurrency)) {
+        return NextResponse.json({ alreadyVerified: true, status: "approved" });
+      }
+      // What is already under way only saves a session; not knowing it is no reason to stop the
+      // user verifying, so a failed lookup goes on to a new session.
+      const underWay = existing.diditSessionId
+        ? await reverificationUnderWay(userId, existing.diditSessionId).catch((err) => {
+            console.warn(`[KYC Session] Could not list ${userId}'s sessions; starting a new one:`, err);
+            return null;
+          })
+        : null;
+      // A new ID already sent and waiting on an admin: wait on that one, not a third session.
+      if (underWay?.inReview) {
+        return NextResponse.json({ inReview: true, status: "in_review", sessionId: underWay.inReview.sessionId, reverify: true });
+      }
+      // One already started and not finished: continue it, rather than opening (and paying for)
+      // another and leaving the first link orphaned.
+      if (underWay?.open?.url) {
+        return NextResponse.json({ sessionId: underWay.open.sessionId, sessionUrl: underWay.open.url, reverify: true });
+      }
     }
 
     // ── 3. Create session with Didit ───────────────────────────────────────
@@ -70,16 +96,28 @@ export async function POST() {
       callback: `${appUrl}/dashboard/settings`,
     });
 
-    // ── 4. Persist the session record ──────────────────────────────────────
-    const initialStatus = existing?.status && existing.status !== "not_started"
-      ? existing.status
-      : "not_started";
+    // Re-verifying: the new session is not recorded until approved (see above).
+    if (existing.status === "approved") {
+      const { forgetReverification } = await import("@/lib/kyc/verified-identity");
+      if (existing.diditSessionId) forgetReverification(userId, existing.diditSessionId);
+      console.log(`[KYC Session] Created re-verification session ${session.sessionId} for approved user ${userId}`);
+      return NextResponse.json({
+        sessionId: session.sessionId,
+        sessionUrl: session.sessionUrl,
+        status: session.status,
+        reverify: true,
+      });
+    }
 
+    // ── 4. Persist the session record ──────────────────────────────────────
+    // The new session's own status, not the last one's: copying a previous "declined" or
+    // "in_review" onto it would make that same outcome on the new session look like no change,
+    // and its email (or the admins' review alert) would never be sent.
     await upsertKycVerification({
       userId,
       diditSessionId: session.sessionId,
       vendorData: userId,
-      status: initialStatus,
+      status: "not_started",
     });
 
     console.log(

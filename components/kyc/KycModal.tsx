@@ -27,6 +27,7 @@ type ModalStep =
   | "ready"
   | "polling"
   | "approved"
+  | "in_review"
   | "declined"
   | "error";
 
@@ -34,6 +35,9 @@ interface KycModalProps {
   isOpen: boolean;
   onClose: () => void;
   userEmail?: string;
+  /** Opened from a deposit: the currency, so an approved user whose ID falls short for that
+   * corridor can verify again (see /api/kyc/session). */
+  depositCurrency?: string;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -47,14 +51,70 @@ interface KycModalProps {
  * 3. Polls GET /api/kyc/status every 5 seconds to detect completion
  * 4. Shows success or failure state
  */
-export function KycModal({ isOpen, onClose, userEmail: propEmail }: KycModalProps) {
+export function KycModal({ isOpen, onClose, userEmail: propEmail, depositCurrency }: KycModalProps) {
   const { user } = usePrivy();
   const effectiveEmail = propEmail || user?.email?.address || "";
   
   const [step, setStep] = useState<ModalStep>("idle");
   const [sessionUrl, setSessionUrl] = useState<string | null>(null);
+  // Set when an already-approved user is verifying again: their record reads approved
+  // throughout, so only this new session turning approved counts as done.
+  const [reverifySessionId, setReverifySessionId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const pollRef = useRef<NodeJS.Timeout | null>(null);
+
+  // ── Start polling when the user has opened the Didit flow ─────────────────
+  const startPolling = useCallback((sessionOverride?: string) => {
+    setStep("polling");
+    // Passed in when polling starts in the same tick the session id was set, before state has it.
+    const reverifyId = sessionOverride ?? reverifySessionId;
+
+    // A verification is finished in minutes; one still undecided after ten is waiting on
+    // something the user cannot wait out here. They are emailed the result either way.
+    let ticks = 0;
+    pollRef.current = setInterval(async () => {
+      if (++ticks > 120) {
+        clearInterval(pollRef.current!);
+        setErrorMsg("This is taking longer than usual. We'll email you the result as soon as it's decided.");
+        setStep("error");
+        return;
+      }
+      try {
+        const res = await fetch(
+          `/api/kyc/status?email=${encodeURIComponent(effectiveEmail)}` +
+            (reverifyId ? `&session=${encodeURIComponent(reverifyId)}` : ""),
+        );
+        const json = await res.json();
+        // Verifying again: the record reads approved throughout, so the new session says how
+        // it ended. Done only once the record carries it (closing earlier would re-check the
+        // deposit against the old ID), and refused if Didit approved it but it could not replace
+        // the old one. Every ending stops the poll; only a session still being filled in, or an
+        // approval a moment from being applied, keeps it going.
+        const s = json?.session;
+        let status: string | undefined;
+        if (!reverifyId) {
+          status = json?.kyc?.status;
+        } else if (s?.applied) {
+          status = "approved";
+        } else if (s?.message || s?.status === "Declined") {
+          status = "declined";
+          setErrorMsg(s.message ?? null);
+        } else if (s?.status === "Abandoned" || s?.status === "Expired") {
+          status = "declined";
+          setErrorMsg("That verification wasn't finished. Your earlier verification still stands, so you can start again any time.");
+        } else if (s?.status === "In Review") {
+          status = "in_review";
+        }
+
+        if (status === "approved" || status === "declined" || status === "in_review") {
+          clearInterval(pollRef.current!);
+          setStep(status);
+        }
+      } catch {
+        // ignore transient errors during polling
+      }
+    }, 5000);
+  }, [effectiveEmail, reverifySessionId]);
 
   // ── Start the KYC session ─────────────────────────────────────────────────
   const createSession = useCallback(async () => {
@@ -65,7 +125,7 @@ export function KycModal({ isOpen, onClose, userEmail: propEmail }: KycModalProp
       const res = await fetch("/api/kyc/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: effectiveEmail }),
+        body: JSON.stringify({ email: effectiveEmail, depositCurrency }),
       });
       const json = await res.json();
 
@@ -76,40 +136,22 @@ export function KycModal({ isOpen, onClose, userEmail: propEmail }: KycModalProp
         setStep("approved");
         return;
       }
+      if (json.inReview) {
+        // Already submitted and waiting on a reviewer: nothing to open, just wait for it.
+        if (json.reverify) setReverifySessionId(json.sessionId);
+        startPolling(json.reverify ? json.sessionId : undefined);
+        return;
+      }
 
       setSessionUrl(json.sessionUrl);
+      setReverifySessionId(json.reverify ? json.sessionId : null);
       setStep("ready");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unexpected error";
       setErrorMsg(msg);
       setStep("error");
     }
-  }, [effectiveEmail]);
-
-  // ── Start polling when the user has opened the Didit flow ─────────────────
-  const startPolling = useCallback(() => {
-    setStep("polling");
-
-    pollRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(
-          `/api/kyc/status?email=${encodeURIComponent(effectiveEmail)}`,
-        );
-        const json = await res.json();
-        const status = json?.kyc?.status;
-
-        if (status === "approved") {
-          clearInterval(pollRef.current!);
-          setStep("approved");
-        } else if (status === "declined") {
-          clearInterval(pollRef.current!);
-          setStep("declined");
-        }
-      } catch {
-        // ignore transient errors during polling
-      }
-    }, 5000);
-  }, [effectiveEmail]);
+  }, [effectiveEmail, depositCurrency, startPolling]);
 
   // ── Cleanup on unmount / close ────────────────────────────────────────────
   useEffect(() => {
@@ -119,6 +161,7 @@ export function KycModal({ isOpen, onClose, userEmail: propEmail }: KycModalProp
       const t = setTimeout(() => {
         setStep("idle");
         setSessionUrl(null);
+        setReverifySessionId(null);
         setErrorMsg(null);
       }, 300);
       return () => clearTimeout(t);
@@ -215,7 +258,11 @@ export function KycModal({ isOpen, onClose, userEmail: propEmail }: KycModalProp
                   {[
                     {
                       icon: "🪪",
-                      text: "Government-issued photo ID (passport, driving licence)",
+                      text: "A government photo ID that shows your date of birth (in Nigeria, also your NIN or BVN)",
+                    },
+                    {
+                      icon: "📷",
+                      text: "Photograph the original ID, not a printout or a photo of a screen",
                     },
                     { icon: "🤳", text: "Liveness check (selfie)" },
                     { icon: "⏱", text: "Takes ~2 minutes" },
@@ -283,6 +330,38 @@ export function KycModal({ isOpen, onClose, userEmail: propEmail }: KycModalProp
             )}
 
             {/* Approved */}
+            {step === "in_review" && (
+              <motion.div
+                key="in_review"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0 }}
+                className="flex flex-col items-center gap-4 py-8 text-center"
+              >
+                <div
+                  className="w-16 h-16 rounded-full flex items-center justify-center"
+                  style={{ background: "rgba(245,158,11,0.15)" }}
+                >
+                  <Clock className="w-9 h-9" style={{ color: "#f59e0b" }} />
+                </div>
+                <div>
+                  <p className="font-bold text-white text-lg">Being Reviewed</p>
+                  <p className="text-sm mt-1" style={{ color: "rgba(248,248,246,0.5)" }}>
+                    {reverifySessionId
+                      ? "Your new ID is with our team for a quick check. We'll email you the result, and your current verification stays in place until then."
+                      : "Your ID is with our team for a quick check. We'll email you as soon as it's decided."}
+                  </p>
+                </div>
+                <button
+                  onClick={onClose}
+                  className="mt-2 px-8 py-3 rounded-2xl font-bold text-sm border transition-all duration-200 hover:bg-white/5"
+                  style={{ border: "1px solid rgba(255,255,255,0.1)", color: "rgba(248,248,246,0.8)" }}
+                >
+                  Close
+                </button>
+              </motion.div>
+            )}
+
             {step === "approved" && (
               <motion.div
                 key="approved"
@@ -350,8 +429,8 @@ export function KycModal({ isOpen, onClose, userEmail: propEmail }: KycModalProp
                     className="text-sm mt-1"
                     style={{ color: "rgba(248,248,246,0.5)" }}
                   >
-                    We couldn&apos;t verify your identity at this time. Please try
-                    again with a clearer photo ID, or contact support.
+                    {errorMsg ??
+                      "We couldn't verify your identity at this time. Please try again with a clearer photo ID, or contact support."}
                   </p>
                 </div>
                 <div className="flex gap-3 mt-2">

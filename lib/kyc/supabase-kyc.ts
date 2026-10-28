@@ -21,6 +21,7 @@
 
 import { supabaseAdmin } from "@/lib/supabase/adminClient";
 import type { Database, Json } from "@/types/database";
+import { guardedUpdate } from "@/lib/supabase/guarded-update";
 import {
   UNVERIFIED_ALLOWANCE_START,
   UNVERIFIED_WITHDRAWAL_ALLOWANCE,
@@ -176,4 +177,105 @@ export async function getUserIdBySessionId(
 
   if (error || !data) return null;
   return data.user_id;
+}
+
+/** The re-verification notices already announced (claimReverifyNotice): the last NOTICES_KEPT. */
+const NOTICES_KEPT = 20;
+
+function noticesIn(payload: unknown): string[] {
+  const list = (payload as { reverify_notices?: unknown } | null)?.reverify_notices;
+  return Array.isArray(list) ? list.filter((k): k is string => typeof k === "string") : [];
+}
+
+/**
+ * Record a session's status, and say whether this call is the one that changed it.
+ *
+ * The Didit webhook and the status endpoint's live sync can both see the same transition at the
+ * same moment. Each sends the outcome email only when this returns true, and the write is
+ * guarded (guardedUpdate), so exactly one of them does. The same guard keeps the
+ * re-verification notices stored beside the webhook payload (claimReverifyNotice) from being
+ * overwritten by a payload read before they were added.
+ */
+export async function recordKycTransition(params: {
+  userId: string;
+  diditSessionId: string;
+  status: KycStatus;
+  vendorData?: string;
+  webhookPayload?: Record<string, unknown>;
+}): Promise<boolean> {
+  const build = (notices: string[]): Database["public"]["Tables"]["kyc_verifications"]["Update"] => ({
+    didit_session_id: params.diditSessionId,
+    status: params.status,
+    updated_at: new Date().toISOString(),
+    ...(params.vendorData ? { vendor_data: params.vendorData } : {}),
+    ...(params.webhookPayload
+      ? { last_webhook_payload: { ...params.webhookPayload, ...(notices.length ? { reverify_notices: notices } : {}) } as Json }
+      : {}),
+  });
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const result = await guardedUpdate({
+      table: "kyc_verifications",
+      match: { column: "user_id", value: params.userId },
+      change: (row) =>
+        row.didit_session_id === params.diditSessionId && row.status === params.status
+          ? null
+          : build(noticesIn(row.last_webhook_payload)),
+    });
+    if (result !== "missing") return result === "written";
+
+    const { error } = await supabaseAdmin
+      .from("kyc_verifications")
+      .insert({ user_id: params.userId, ...build([]) });
+    if (!error) return true;
+    // A concurrent first record won: go round once more and judge against it.
+    if (error.code !== "23505") throw new Error(`KYC transition failed: ${error.message}`);
+  }
+  return false;
+}
+
+/**
+ * Claim the one announcement of a re-verification outcome that is not on the record (its
+ * review, its decline, or its approval being refused). True for the first caller with this
+ * `key` (session and outcome), false for every redelivery after it, in whatever order they come.
+ *
+ * A re-verification is recorded only once it replaces the approved session, so its other
+ * outcomes cannot be deduplicated by recordKycTransition. The announced keys are kept on the
+ * user's record instead, beside the webhook payload, through the same guarded write. Throws on a
+ * database error, so the webhook fails and Didit redelivers, rather than the announcement being
+ * silently skipped.
+ */
+export async function claimReverifyNotice(userId: string, key: string): Promise<boolean> {
+  const result = await guardedUpdate({
+    table: "kyc_verifications",
+    match: { column: "user_id", value: userId },
+    change: (row) => {
+      const payload =
+        row.last_webhook_payload && typeof row.last_webhook_payload === "object" && !Array.isArray(row.last_webhook_payload)
+          ? (row.last_webhook_payload as Record<string, Json>)
+          : {};
+      const notices = noticesIn(payload);
+      if (notices.includes(key)) return null;
+      return {
+        last_webhook_payload: { ...payload, reverify_notices: [...notices, key].slice(-NOTICES_KEPT) },
+        updated_at: new Date().toISOString(),
+      };
+    },
+  });
+  return result === "written";
+}
+
+/**
+ * Mark the user's verification as started: `not_started` becomes `pending`, and nothing else
+ * changes. One conditional update, so it cannot overwrite a status the webhook recorded between
+ * a read and this write (an `in_review` put back to `pending` would be recorded, and announced,
+ * a second time).
+ */
+export async function markKycStarted(userId: string): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from("kyc_verifications")
+    .update({ status: "pending", updated_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .eq("status", "not_started");
+  if (error) throw new Error(`KYC start failed: ${error.message}`);
 }

@@ -7,6 +7,8 @@ import { isBridgeable } from "@/lib/circle/gateway";
 import { getCorridorFee, getProviderFee, resolveFeeTreasury } from "@/lib/ramp/fees";
 import { resolvePayoutFiat } from "@/lib/ramp/payout-figure";
 import { kycGuard } from "@/lib/kyc/guard";
+import { reverificationUnderWay, verifiedIdentityOf, verifiedRecordOf } from "@/lib/kyc/verified-identity";
+import { buildOnRampCustomer, type OnRampKycNeed } from "@/lib/ramp/onramp-kyc";
 import { consumeAuthorization } from "@/lib/security/transaction-auth";
 import { benefitBalances, resolveWithdrawalFee, spendBenefits } from "@/lib/referrals/benefits";
 import type { BenefitBalances } from "@/lib/referrals/benefit-math";
@@ -88,7 +90,83 @@ export async function pickDepositNetwork(
 }
 
 /**
+ * What this user still needs before a deposit in `currency` can be ordered, asked when the
+ * deposit form opens so it can say so up front rather than after "Continue".
+ *
+ * Paycrest refuses an on-ramp order without the customer's verified details, so an unverified
+ * user cannot deposit at all. `name` is the verified name, which the refund account must match.
+ * The Kenyan phone is not judged here: it comes from the refund account, checked on submit.
+ */
+export async function getOnRampRequirement(
+  currency: string,
+): Promise<
+  { ok: true; name: string } | { ok: false; need: OnRampKycNeed; message: string; name?: string }
+> {
+  const session = await requireUserId().catch(() => null);
+  if (!session) return { ok: false, need: "verification", message: "Please sign in again." };
+  // Not caught: a failed lookup is "unknown", which the form treats as unblocked (the order
+  // checks again), not "unverified", which would lock every verified user out while Didit is down.
+  const record = await verifiedRecordOf({ id: session.userId });
+  const identity = record.identity;
+  if (!identity && record.status === "in_review") {
+    // Waiting on an admin. Offering to verify again here would start a new session over the
+    // one under review (see /api/kyc/session).
+    return {
+      ok: false,
+      need: "in_review",
+      message: "Your identity verification is being reviewed. We'll email you as soon as it's decided, and you can deposit once it's approved.",
+    };
+  }
+  const check = buildOnRampCustomer({ identity, currency, email: session.email, skipPhone: true });
+  if (!check.ok && check.need === "reverify" && record.sessionId) {
+    // Already sent a new ID that is waiting on an admin: say so, rather than offering a third
+    // session on top of the one under review.
+    const underWay = await reverificationUnderWay(session.userId, record.sessionId).catch(() => null);
+    if (underWay?.inReview) {
+      return {
+        ok: false,
+        need: "in_review",
+        message: "Your new ID is being reviewed. We'll email you as soon as it's decided, and you can deposit once it's approved.",
+        name: identity?.fullName,
+      };
+    }
+  }
+  if (!check.ok) return { ...check, name: identity?.fullName };
+  return { ok: true, name: check.customer.personDetails.fullName };
+}
+
+/**
+ * A deposit's order status, with whether it is held for a compliance review, in one call for
+ * the deposit screen's poll. Only for the caller's own deposit: the deposit is looked up under
+ * their account before the order is fetched, so another user's order id returns nothing.
+ *
+ * The hold is read from the order's `statusDetail` when it says so, and otherwise from what the
+ * Paycrest webhook recorded (`payment_order.compliance_hold`): `statusDetail` is informational
+ * and may be absent.
+ */
+export async function getDepositStatus(
+  orderId: string,
+  provider: RampProviderName = "paycrest",
+): Promise<RampOrderResponse & { underReview: boolean }> {
+  const session = await requireUserId();
+  const { data } = await supabaseAdmin
+    .from("deposits")
+    .select("provider_metadata")
+    .eq("provider_order_id", orderId)
+    .eq("user_id", session.userId)
+    .maybeSingle();
+  if (!data) throw new Error("Deposit not found.");
+  const order = await Ramp.getOrder(orderId, provider);
+  const meta = data.provider_metadata as { under_review?: boolean } | null;
+  return { ...order, underReview: order.statusDetail === "under_review" || meta?.under_review === true };
+}
+
+/**
  * ON-RAMP — buy USDC with fiat. Returns the bank/virtual account the user funds.
+ *
+ * A refusal the user can act on (their verification, their refund account) comes back as
+ * `{ ok: false, error }` rather than a throw: Next strips a thrown Server Action's message in
+ * production, which would turn "use your own M-Pesa number" into a generic failure.
  */
 export async function initiateOnRamp({
   amountFiat,
@@ -109,7 +187,7 @@ export async function initiateOnRamp({
   fiatCurrency?: RampCurrency;
   /** Chain the purchased USDC is delivered to (the user's home chain). */
   network?: RampNetwork;
-}): Promise<RampOrderResponse> {
+}): Promise<{ ok: true; order: RampOrderResponse } | { ok: false; error: string }> {
   try {
     // Identity from the session — see the note in executeOffRamp. A caller-supplied id here
     // would let a deposit be booked to another account.
@@ -117,10 +195,16 @@ export async function initiateOnRamp({
     const userId = session.userId;
     const userEmail = session.email;
 
-    // No KYC guard on deposits: money arriving is not rationed. The allowance is spent on the
-    // way out, where the obligation sits — charging it here would mean topping up made it
-    // harder to withdraw. This also removed a live-rate fetch from the deposit path, which
-    // existed only to convert fiat into a USD figure for a limit that no longer exists.
+    // No allowance is spent on deposits — money arriving is not rationed. But the customer's
+    // verified identity is required: Paycrest refuses an on-ramp order without it, and returns
+    // any deposit that did not come from that same person.
+    const customer = buildOnRampCustomer({
+      identity: await verifiedIdentityOf({ id: userId }),
+      currency: fiatCurrency,
+      email: userEmail,
+      refundAccount,
+    });
+    if (!customer.ok) return { ok: false, error: customer.message };
 
     const order = await Ramp.createOnRampOrder({
       amountFiat,
@@ -128,6 +212,7 @@ export async function initiateOnRamp({
       userAddress,
       userEmail,
       refundAccount,
+      customer: customer.customer,
       fiatCurrency,
       network,
     });
@@ -148,11 +233,14 @@ export async function initiateOnRamp({
     // A fiat on-ramp is something the user chose to do, so it extends THIS device's session.
     await markSessionTransacted(accessToken);
 
-    return order;
+    return { ok: true, order };
   } catch (error: unknown) {
     const err = error as Error;
     console.error(`Error initiating on-ramp for ${fiatCurrency}:`, err.message || error);
-    throw error;
+    return {
+      ok: false,
+      error: toUserSafeMessage(err.message) ?? "We couldn't start that deposit. Please try again shortly.",
+    };
   }
 }
 

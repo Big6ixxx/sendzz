@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 import { clearOnchainDepositShadow, triggerWithdrawalNotifications } from '@/lib/supabase/transactions';
 import { paycrestRefundHash, recordPaycrestRefund } from '@/lib/ramp/provider-refund';
+import { guardedUpdate } from '@/lib/supabase/guarded-update';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -88,6 +89,8 @@ export async function POST(req: Request) {
         txHash?: string;
         settlementTxHash?: string;
         transactionHash?: string;
+        refundReason?: string;
+        statusDetail?: string;
         [key: string]: Json | undefined;
       };
       [key: string]: Json | undefined;
@@ -117,7 +120,14 @@ export async function POST(req: Request) {
     console.log(`[Paycrest Webhook] [${requestId}] ${eventType} | order=${orderId} | status=${status} | direction=${direction}`);
 
     // ─── Log to webhook_events (replay-attack guard) ──────────────────────────
-    const eventLogId = event.id || event.eventId || `${orderId}-${status}`;
+    // `payment_order.compliance_hold` arrives with `status: pending`, like the
+    // `payment_order.pending` before it, so its fallback id names the event or it would be
+    // dropped as a redelivery of that one. Every other event keeps the old form, so the events
+    // already logged under it are still recognised.
+    const eventLogId =
+      event.id ||
+      event.eventId ||
+      (eventType === 'payment_order.compliance_hold' ? `${orderId}-${eventType}` : `${orderId}-${status}`);
     const { error: insertError } = await supabaseAdmin
       .from('webhook_events')
       .insert({
@@ -143,7 +153,24 @@ export async function POST(req: Request) {
 
     if (direction === 'onramp') {
       // DEPOSIT
-      if (status && ['settled', 'completed', 'validated', 'deposited'].includes(status)) {
+      if (eventType === 'payment_order.compliance_hold') {
+        // The fiat arrived and is held for review. Not a status change and not final: the order
+        // stays pending, does not expire, and ends settled or refunded. Recorded so the deposit
+        // can say "under review" instead of asking the user to pay again.
+        const ok = await mergeDepositMeta(orderId, {
+          under_review: true,
+          under_review_since: new Date().toISOString(),
+        });
+        if (!ok) {
+          // This event is already logged, so a retry would be dropped as a duplicate. Forget it,
+          // so Paycrest's retry records the hold.
+          await supabaseAdmin.from('webhook_events').delete().eq('provider', 'paycrest').eq('event_id', eventLogId);
+          return new Response('Internal error', { status: 500 });
+        }
+        console.warn(`[Paycrest Webhook] [${requestId}] Deposit ${orderId} held for compliance review`);
+        handled = true;
+
+      } else if (status && ['settled', 'completed', 'validated', 'deposited'].includes(status)) {
         const txHash = orderData.txHash || orderData.settlementTxHash || orderData.transactionHash || null;
         // The scanner may already have recorded this delivery as an unattributed on-chain
         // deposit — drop that shadow so this row can take the hash.
@@ -165,7 +192,9 @@ export async function POST(req: Request) {
         handled = true;
 
       } else if (status && ['failed', 'refunded', 'expired', 'refunding'].includes(status)) {
-        const reason = orderData.failureReason || orderData.reason || 'unknown';
+        // refundReason (payer_mismatch / payer_unverified): returned to whoever paid it, because it
+        // did not come from the customer's own account. The deposit screen reads it off the order.
+        const reason = orderData.refundReason || orderData.failureReason || orderData.reason || 'unknown';
         const finalStatus = ['refunded', 'refunding'].includes(status) ? 'reversed' : 'failed';
         const { error } = await supabaseAdmin
           .from('deposits')
@@ -269,5 +298,31 @@ export async function POST(req: Request) {
   } catch (err) {
     console.error(`[Paycrest Webhook] [${requestId}] Unhandled error after ${Date.now() - requestStart}ms:`, err);
     return new Response('Internal Server Error', { status: 500 });
+  }
+}
+
+/**
+ * Merge into a deposit's provider_metadata. False only on a database error.
+ *
+ * A guarded write (guardedUpdate), so two webhooks for the same order landing together cannot
+ * each write back their own copy and erase the other's key.
+ */
+async function mergeDepositMeta(orderId: string, patch: Record<string, Json>): Promise<boolean> {
+  try {
+    await guardedUpdate({
+      table: 'deposits',
+      match: { column: 'provider_order_id', value: orderId },
+      change: (row) => {
+        const current =
+          row.provider_metadata && typeof row.provider_metadata === 'object' && !Array.isArray(row.provider_metadata)
+            ? (row.provider_metadata as Record<string, Json>)
+            : {};
+        return { provider_metadata: { ...current, ...patch } };
+      },
+    });
+    return true;
+  } catch (err) {
+    console.error(`[Paycrest Webhook] could not update deposit ${orderId}:`, err);
+    return false;
   }
 }

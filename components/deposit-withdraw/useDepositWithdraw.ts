@@ -14,6 +14,8 @@ import {
   getProviderFeePercent,
   getRampNetworks,
   initiateOnRamp,
+  getOnRampRequirement,
+  getDepositStatus,
   pickDepositNetwork,
   verifyBankAccount,
 } from "@/lib/actions/ramp";
@@ -69,6 +71,7 @@ import { type SigningPlan } from "@/lib/signing/plan";
 import { toast } from "sonner";
 import type { KycBlock } from "@/components/kyc/KycRequiredModal";
 import { useCurrencies } from "@/lib/hooks/useCurrencies";
+import type { OnRampKycNeed } from "@/lib/ramp/onramp-kyc";
 
 export type FlowType = "deposit" | "withdraw";
 
@@ -114,6 +117,14 @@ export function useDepositWithdraw(
    * behaviour and still correct for a currency only one country uses.
    */
   const [payoutCountry, setPayoutCountry] = useState<string | null>(null);
+  // Deposits: what the user still needs before Paycrest will take the order (see
+  // getOnRampRequirement). Null while asking.
+  const [onRampRequirement, setOnRampRequirement] = useState<
+    { ok: true; name: string } | { ok: false; need: OnRampKycNeed; message: string; name?: string } | null
+  >(null);
+  const onRampRequest = useRef(0);
+  // Set when the provider holds the deposit for a compliance review (see the poll below).
+  const [depositUnderReview, setDepositUnderReview] = useState(false);
   // Networks at this destination the user must verify their identity to use (see
   // getKycGatedNetworks). Empty for verified users and for corridors that need no sender.
   const [kycGatedNetworks, setKycGatedNetworks] = useState<string[]>([]);
@@ -654,13 +665,28 @@ export function useDepositWithdraw(
     return () => clearTimeout(timeout);
   }, [bankDetails.accountNumber, bankDetails.bankCode, bankDetails.accountName, recipientNameNeeded, verifyingBank, handleVerifyBank]);
 
+  const refreshOnRampRequirement = useCallback(() => {
+    const request = ++onRampRequest.current;
+    setOnRampRequirement(null);
+    getOnRampRequirement(fiatCurrency)
+      .then((r) => { if (request === onRampRequest.current) setOnRampRequirement(r); })
+      .catch(() => {
+        // Unknown is not "blocked": the server checks again when the order is made.
+        if (request === onRampRequest.current) setOnRampRequirement(null);
+      });
+  }, [fiatCurrency]);
+
+  useEffect(() => {
+    if (type !== "deposit") return;
+    refreshOnRampRequirement();
+  }, [type, refreshOnRampRequirement]);
+
   // Flow Handlers
   const handleDepositInitiate = async () => {
     if (!bankDetails.accountName) {
       toast.error("Please verify your refund bank account");
       return;
     }
-
     const val = parseFloat(amount);
     if (isNaN(val) || val <= 0) {
       toast.error("Enter a valid amount");
@@ -681,8 +707,8 @@ export function useDepositWithdraw(
       return;
     }
 
-    // No KYC check on deposits. Money arriving is not rationed — the allowance applies on the
-    // way out, and charging it here would mean topping up made it harder to take anything out.
+    // No allowance is spent on deposits — money arriving is not rationed. The verified identity
+    // the provider requires is checked by initiateOnRamp (the form also holds Continue until it is).
     setLoading(true);
     try {
       // Chosen, not asked — see `Ramp.pickDepositNetwork` for why.
@@ -700,7 +726,12 @@ export function useDepositWithdraw(
         network: network as RampNetwork,
         accessToken: await freshToken(),
       });
-      setOrder(res);
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      setDepositUnderReview(false);
+      setOrder(res.order);
       setStep(2);
     } catch (err) {
       toast.error(parseFriendlyError(err));
@@ -1617,13 +1648,16 @@ export function useDepositWithdraw(
         // notification (sent server-side the moment the webhook lands) beat this screen to the
         // news.
         const [result, ledger] = await Promise.all([
-          getOrderStatus(activeOrder.id, activeOrder.provider),
+          isWithdraw
+            ? getOrderStatus(activeOrder.id, activeOrder.provider)
+            : getDepositStatus(activeOrder.id, activeOrder.provider),
           isWithdraw
             ? getLedgerOrderStatus(activeOrder.id, "withdrawal").catch(() => null)
             : Promise.resolve(null),
         ]);
 
         setTxStatus(ledger === "completed" ? "settled" : result.status);
+        if ("underReview" in result && result.underReview) setDepositUnderReview(true);
 
         // Completion ONLY. `deposited` and `validated` mean the user's USDC arrived and passed
         // checks — the payout has not been made. Treating those as success is what told people
@@ -1718,7 +1752,15 @@ export function useDepositWithdraw(
             toast.error(
               isWithdraw
                 ? "That withdrawal didn't go through. Your money is safe and will be returned to your wallet."
-                : "That deposit didn't go through. You have not been charged.",
+                : result.refundReason === "payer_mismatch" || result.refundReason === "payer_unverified"
+                  ? result.status === "refunding"
+                    ? "Your payment is being sent back to the account it came from, because it wasn't paid from an account in your own name."
+                    : "Your payment was sent back to the account it came from, because it wasn't paid from an account in your own name."
+                  : result.status === "refunding"
+                    ? "That deposit didn't go through. Your payment is being returned to you."
+                    : result.status === "refunded"
+                      ? "That deposit didn't go through. Your payment has been returned to you."
+                      : "That deposit didn't go through. You have not been charged."
             );
           }
         }
@@ -1871,6 +1913,9 @@ export function useDepositWithdraw(
     refreshKycGates,
     recipientNameNeeded,
     isContactGated,
+    onRampRequirement,
+    refreshOnRampRequirement,
+    depositUnderReview,
     dismissKycBlock: () => setKycBlock(null),
     handleWithdrawFinalize,
     executeTransfer,

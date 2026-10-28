@@ -106,6 +106,8 @@ function mapOrder(o: PaycrestOrderResponse): RampOrderResponse {
     txHash: o.txHash,
     settlementTxHash: o.settlementTxHash,
     transactionHash: o.transactionHash,
+    statusDetail: o.statusDetail,
+    refundReason: o.refundReason,
   };
 }
 
@@ -187,6 +189,7 @@ export class PaycrestProvider implements RampProvider {
         type: "fiat",
         currency: params.fiatCurrency,
         refundAccount: params.refundAccount,
+        kyc: params.customer,
       },
       destination: {
         type: "crypto",

@@ -101,3 +101,15 @@ export class RampUnsupportedError extends Error {
     this.name = "RampUnsupportedError";
   }
 }
+
+/**
+ * A provider refused the order because of something only the user can change (a refund account
+ * in someone else's name, say). Its message is for the user. Not a provider failure, so it is
+ * never retried on the fallback provider, which would only replace the reason with its own.
+ */
+export class RampRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RampRefusedError";
+  }
+}

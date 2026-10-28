@@ -802,3 +802,134 @@ export function securityAlertTemplate(title: string, body: string): string {
 }
 
 
+
+/**
+ * The content layout every identity-verification email shares, the user's and the admins' alike,
+ * so the set reads as one: the logo and a status badge, a centred title, a short paragraph,
+ * labelled rows, one button and a footnote. Built on the refund alert's layout. Values are
+ * HTML; callers escape what they put in.
+ */
+export function statusEmailContent(c: {
+  badge: string;
+  badgeColor: string;
+  title: string;
+  subtitle: string;
+  intro: string;
+  rows: Array<[label: string, valueHtml: string]>;
+  mono?: string[];
+  button: { href: string; label: string };
+  note?: string;
+}): string {
+  const rows = c.rows
+    .map(
+      ([label, value]) => `
+      <tr>
+        <td valign="top" style="padding: 14px 16px 14px 0; font-size: 11px; font-weight: 700; color: #707070; text-transform: uppercase; border-bottom: 1px dashed #E2E8E0; white-space: nowrap;">${label}</td>
+        <td style="padding: 14px 0; text-align: right; font-size: 13px; line-height: 1.5; font-weight: 700; color: #111111; border-bottom: 1px dashed #E2E8E0; word-break: break-word;${c.mono?.includes(label) ? " font-family: 'Courier New', Courier, monospace;" : ''}">${value}</td>
+      </tr>`,
+    )
+    .join('');
+
+  return `
+    <div>
+      <table width="100%" border="0" cellpadding="0" cellspacing="0" style="margin-bottom: 24px;">
+        <tr>
+          <td align="left" valign="middle">
+            <img src="${APP_URL}/logo-black.svg" alt="Sendzz" width="90" style="display: block;">
+          </td>
+          <td align="right" valign="middle">
+            <span style="background-color: ${c.badgeColor}; color: #ffffff !important; padding: 6px 14px; border-radius: 20px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; display: inline-block;">${c.badge}</span>
+          </td>
+        </tr>
+      </table>
+
+      <div style="text-align: center; margin: 32px 0;">
+        <h1 style="font-size: 30px; font-weight: 950; color: #111111; margin: 0; letter-spacing: -1px;">${c.title}</h1>
+        <p style="font-size: 13px; color: #707070; margin: 6px 0 0 0;">${c.subtitle}</p>
+      </div>
+
+      <p style="font-size: 14px; line-height: 1.7; color: #3f3f3f; margin: 0 0 8px 0;">${c.intro}</p>
+
+      <table width="100%" border="0" cellpadding="0" cellspacing="0" style="margin-top: 16px; margin-bottom: 8px;">
+        ${rows}
+      </table>
+
+      <table width="100%" border="0" cellpadding="0" cellspacing="0" style="margin-top: 28px;">
+        <tr>
+          <td align="center">
+            <a href="${c.button.href}" target="_blank" rel="noopener noreferrer"
+               style="background-color:#006633;color:#ffffff !important;padding:14px 32px;border-radius:12px;font-size:14px;font-weight:800;text-decoration:none;display:inline-block;">
+              ${c.button.label}
+            </a>
+          </td>
+        </tr>
+      </table>
+      ${c.note ? `
+      <p style="font-size: 12px; line-height: 1.7; color: #909090; margin: 20px 0 0 0; text-align: center;">${c.note}</p>` : ''}
+    </div>
+  `;
+}
+
+/** A reason Didit gave, as a row value: its title, then its explanation in lighter text. */
+function reasonValue(r: { title: string; detail?: string }): string {
+  return `${esc(r.title)}${r.detail ? `<br><span style="font-weight: 400; color: #707070;">${esc(r.detail)}</span>` : ''}`;
+}
+
+/** Didit's reasons as rows: "Reason", or "Reason 1", "Reason 2" when there are several. */
+export function reasonRows(reasons: { title: string; detail?: string }[]): [string, string][] {
+  return reasons.map((r, n) => [reasons.length > 1 ? `Reason ${n + 1}` : 'Reason', reasonValue(r)]);
+}
+
+/**
+ * The result of an identity verification, to the user. `reverify` is a second verification by
+ * someone already verified: a decline then leaves their earlier verification standing, and the
+ * email says so rather than telling them they are now unverified. A decline lists Didit's own
+ * reasons, which are nearly always what to fix.
+ */
+export function kycResultTemplate(
+  outcome: 'approved' | 'declined',
+  opts: { reverify?: boolean; reasons?: { title: string; detail?: string }[] } = {},
+): string {
+  const approved = outcome === 'approved';
+  const light = (text: string) => `<span style="font-weight: 400; color: #3f3f3f;">${text}</span>`;
+
+  if (approved) {
+    return baseTemplate(
+      statusEmailContent({
+        badge: 'Verified',
+        badgeColor: '#006633',
+        title: 'You are verified',
+        subtitle: opts.reverify ? 'your new ID is now on your account' : 'your account is fully set up',
+        intro: opts.reverify
+          ? 'Your new ID has been verified. It is the one we use on your account from now on.'
+          : 'Your identity has been verified. Everything on Sendzz is open to you now.',
+        rows: [
+          ['Send', light('Pay anyone by email or wallet address.')],
+          ['Add money', light('Top up from your bank account.')],
+          ['Cash out', light('Withdraw to your bank or mobile money.')],
+        ],
+        button: { href: `${APP_URL}/dashboard`, label: 'Open Sendzz' },
+      }),
+    );
+  }
+
+  const reasons = opts.reasons ?? [];
+  return baseTemplate(
+    statusEmailContent({
+      badge: 'Not verified',
+      badgeColor: '#B54708',
+      title: "We couldn't verify your ID",
+      subtitle: opts.reverify ? 'your earlier verification still stands' : 'you can try again at any time',
+      intro: opts.reverify
+        ? "We couldn't verify the new ID you sent. Your earlier verification still stands, so nothing on your account has changed."
+        : "We couldn't verify the ID you sent, so your account is not verified yet. Here is what we found, and how to get it through next time.",
+      rows: [
+        ...reasonRows(reasons),
+        ['Original ID', light('Not a printout or a photo of a screen.')],
+        ['Clear details', light('Your name, photo and date of birth in frame and readable.')],
+        ['Good light', light('Lay the ID flat and avoid glare.')],
+      ],
+      button: { href: `${APP_URL}/dashboard`, label: 'Verify Again' },
+    }),
+  );
+}

@@ -1,4 +1,5 @@
 import { toUserSafeMessage } from '@/lib/errors/sanitize';
+import { RampRefusedError } from '@/lib/ramp/provider';
 import {
   PaycrestCurrencyDetail,
   PaycrestInstitution,
@@ -37,17 +38,24 @@ export class PaycrestClient {
     if (!res.ok) {
       const error = await res.text();
       let detail = '';
+      let fieldDetail = '';
       try {
-        const parsed = JSON.parse(error) as { message?: string; detail?: string };
+        const parsed = JSON.parse(error) as { message?: string; detail?: string; data?: { message?: string } };
         detail = (parsed.message || parsed.detail || '').trim();
+        // A validation failure says only "Failed to validate payload"; the reason is in here.
+        fieldDetail = (parsed.data?.message ?? '').trim();
       } catch {
         /* not JSON: gateway failures arrive as a full Cloudflare HTML page */
       }
       // One line with the reason. An HTML error page is reduced to its status, never echoed.
       console.error(
         `[Paycrest] ${options.method || 'GET'} ${path} failed (${res.status})` +
-          (detail ? `: ${detail}` : error.trimStart().startsWith('<') ? '' : `: ${error.slice(0, 200)}`),
+          (detail ? `: ${detail}` : error.trimStart().startsWith('<') ? '' : `: ${error.slice(0, 200)}`) +
+          (fieldDetail ? ` — ${fieldDetail.slice(0, 500)}` : ''),
       );
+      if (/refund account name does not match/i.test(fieldDetail)) {
+        throw new RampRefusedError('The refund account must be in your own name, as it appears on your verified ID.');
+      }
       if (res.status >= 500) {
         throw Object.assign(
           new Error('That service is temporarily unavailable. Please try again shortly.'),

@@ -19,9 +19,17 @@ export const runtime = "nodejs";
  * {
  *   kyc: { status, diditSessionId, updatedAt },
  *   allowance: { total, used, remaining, percentage } | null,  // unverified users only
+ *   session?: { status, applied, message },  // with ?session=<id>, see below
  * }
+ *
+ * `?session=` is for an approved user verifying again. Their record reads approved throughout
+ * and the new session is recorded only once it replaces the old one, so the record alone cannot
+ * say how it ended. This answers with the session's own status and, once Didit approves it,
+ * applies it (applyReverification, as the webhook does, for when the webhook is slow):
+ * `applied` means the record now carries it, `message` why it was refused. Answered only for a
+ * session of this user's.
  */
-export async function GET() {
+export async function GET(req: Request) {
   try {
     // ── Identity from the session ───────────────────────────────────────────
     //
@@ -59,7 +67,7 @@ export async function GET() {
         const { getSessionStatus, normalizeDiditStatus } = await import(
           "@/lib/kyc/didit-client"
         );
-        const { upsertKycVerification } = await import("@/lib/kyc/supabase-kyc");
+        const { recordKycTransition } = await import("@/lib/kyc/supabase-kyc");
 
         const rawDiditStatus = await getSessionStatus(kyc.diditSessionId);
         const normalized = normalizeDiditStatus(rawDiditStatus);
@@ -68,12 +76,18 @@ export async function GET() {
           console.log(
             `[KYC Status] Syncing status from Didit for user ${userId}: ${kyc.status} -> ${normalized} (Didit: ${rawDiditStatus})`,
           );
-          await upsertKycVerification({
+          // Conditional, like the webhook's: whichever of the two records the change sends its
+          // email, and only that one.
+          const changed = await recordKycTransition({
             userId,
             diditSessionId: kyc.diditSessionId,
             status: normalized,
           });
           kyc.status = normalized;
+          if (changed) {
+            const { notifyKycOutcome } = await import("@/lib/kyc/notify-outcome");
+            await notifyKycOutcome({ userId, sessionId: kyc.diditSessionId, diditStatus: rawDiditStatus, reverify: false });
+          }
         }
       } catch (syncErr) {
         console.error("[KYC Status] Live sync with Didit failed:", syncErr);
@@ -106,6 +120,7 @@ export async function GET() {
         updatedAt: kyc.updatedAt,
       },
       allowance,
+      ...(await askedSession(req, userId, kyc)),
     });
   } catch (error) {
     console.error("[KYC Status] Error:", error);
@@ -113,5 +128,30 @@ export async function GET() {
       { error: "Failed to fetch KYC status" },
       { status: 500 },
     );
+  }
+}
+
+/** `?session=<id>`: how that session of this user's ended (see the route's notes). */
+async function askedSession(
+  req: Request,
+  userId: string,
+  kyc: { status: string; diditSessionId: string | null },
+): Promise<{ session?: { status: string; applied: boolean; message?: string } }> {
+  const sessionId = new URL(req.url).searchParams.get("session");
+  if (!sessionId) return {};
+  try {
+    // getSessionState refuses anything but a Didit session id, and the catch answers nothing.
+    const { getSessionState } = await import("@/lib/kyc/didit-client");
+    const state = await getSessionState(sessionId);
+    if (state.vendorData !== userId) return {};
+    if (kyc.diditSessionId === sessionId) return { session: { status: state.status, applied: true } };
+    if (state.status !== "Approved" || kyc.status !== "approved" || !kyc.diditSessionId) {
+      return { session: { status: state.status, applied: false } };
+    }
+    const { applyReverification } = await import("@/lib/kyc/notify-outcome");
+    const result = await applyReverification({ userId, currentSessionId: kyc.diditSessionId, sessionId });
+    return { session: { status: state.status, ...result } };
+  } catch {
+    return {};
   }
 }

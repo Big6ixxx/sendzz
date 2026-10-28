@@ -16,7 +16,7 @@
  *     lib/ops/alert-cooldown.ts rather than being sent on every run.
  */
 import { explorerTxUrl } from "@/lib/explorers";
-import { baseTemplate } from "./templates";
+import { baseTemplate, reasonRows, statusEmailContent } from "./templates";
 import { parseAdminRecipients } from "./admin-recipients";
 import { sendEmail } from "./sendEmail";
 
@@ -442,5 +442,90 @@ export async function sendSolanaFeePayerAlert(alert: SolanaFeePayerAlert): Promi
     console.log(`[AdminAlert] solana-feepayer alert sent to ${to.length} admin(s)`);
   } catch (err) {
     console.error("[AdminAlert] solana-feepayer alert threw:", err);
+  }
+}
+
+export interface KycReviewAlert {
+  userEmail: string;
+  sessionId: string;
+  /** Already verified once, sending a new ID (see app/api/kyc/session). */
+  reverify: boolean;
+  /** Why Didit did not approve it by itself. */
+  reasons?: { title: string; detail?: string }[];
+}
+
+/**
+ * Tell the admins a verification is waiting for a person: Didit could not decide it and put it
+ * In Review. Until somebody approves or declines it in the Didit console, the user stays
+ * unverified (or, sending a new ID, on their earlier verification). An EVENT, sent once per session
+ * entering review. Never throws.
+ */
+export async function sendKycReviewAlert(alert: KycReviewAlert): Promise<void> {
+  try {
+    const to = parseAdminRecipients(process.env.ADMIN_EMAILS);
+    if (to.length === 0) {
+      console.error(
+        "[AdminAlert] KYC in review but NO admin recipients configured — set ADMIN_EMAILS. " +
+          `Session ${alert.sessionId}.`,
+      );
+      return;
+    }
+
+    const { diditConsoleSessionUrl } = await import("@/lib/kyc/didit-client");
+    const consoleUrl = diditConsoleSessionUrl(alert.sessionId);
+    const what = alert.reverify
+      ? "An already verified user sent a new ID, and Didit could not verify it automatically. Their earlier verification stands until you decide."
+      : "Didit could not verify this user automatically. Their account stays unverified until you decide.";
+    const reasons = alert.reasons ?? [];
+
+    // The layout every verification email shares (statusEmailContent), one row per reason Didit
+    // gave, so the decision can be made from the email and checked in the console.
+    const html = baseTemplate(
+      statusEmailContent({
+        badge: "Review needed",
+        badgeColor: "#B54708",
+        title: "Verification in review",
+        subtitle: "waiting for an admin decision",
+        intro: esc(what),
+        rows: [
+          ["User", esc(alert.userEmail)],
+          ["Type", alert.reverify ? "New ID from a verified user" : "First verification"],
+          ["Session", esc(alert.sessionId)],
+          ...(reasons.length
+            ? reasonRows(reasons)
+            : [["Reason", "None given. See the session in Didit."] as [string, string]]),
+        ],
+        mono: ["Session"],
+        button: { href: esc(consoleUrl), label: "Review in Didit" },
+        note: "The user is emailed the outcome when you approve or decline. A note you add when declining is included in that email.",
+      }),
+    );
+
+    const text = [
+      `REVIEW NEEDED: identity verification`,
+      ``,
+      what,
+      ``,
+      `User:    ${alert.userEmail}`,
+      `Type:    ${alert.reverify ? "New ID from a verified user" : "First verification"}`,
+      `Session: ${alert.sessionId}`,
+      ...(reasons.length ? reasons.map((r) => `Reason:  ${r.title}. ${r.detail ?? ""}`) : ["Reason:  none given"]),
+      ``,
+      consoleUrl,
+    ].join("\n");
+
+    const res = await sendEmail({
+      to,
+      subject: `[Review needed] Identity verification for ${alert.userEmail}`,
+      html,
+      text,
+    });
+    if (!res.success) {
+      console.error(`[AdminAlert] kyc-review email failed: ${res.error}`);
+      return;
+    }
+    console.log(`[AdminAlert] kyc-review alert sent to ${to.length} admin(s) for session ${alert.sessionId}`);
+  } catch (err) {
+    console.error("[AdminAlert] kyc-review alert threw:", err);
   }
 }

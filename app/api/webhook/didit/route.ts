@@ -4,13 +4,18 @@ import {
   verifyWebhookSignature,
   isWebhookTimestampValid,
   normalizeDiditStatus,
+  forgetDecision,
+  getSessionState,
+  isDiditSessionId,
 } from "@/lib/kyc/didit-client";
+import { forgetReverification } from "@/lib/kyc/verified-identity";
 import {
-  upsertKycVerification,
+  recordKycTransition,
   getUserIdByVendorData,
   getUserIdBySessionId,
   getUserKycStatus,
 } from "@/lib/kyc/supabase-kyc";
+import { applyReverification, notifyKycOutcome, notifyReverifyOutcome } from "@/lib/kyc/notify-outcome";
 
 export const runtime = "nodejs";
 
@@ -121,6 +126,11 @@ async function handleStatusUpdated(
     console.error(`[Didit Webhook] [${requestId}] Missing session_id in status.updated`);
     return;
   }
+  // Anything but a Didit session id is refused here, once, rather than failing every retry.
+  if (!isDiditSessionId(session_id)) {
+    console.error(`[Didit Webhook] [${requestId}] Malformed session_id ${JSON.stringify(session_id)}; ignored`);
+    return;
+  }
 
   // ── Resolve user ID ────────────────────────────────────────────────────
   // Primary: use vendor_data (= our user ID, set when creating the session)
@@ -142,31 +152,62 @@ async function handleStatusUpdated(
     return;
   }
 
-  // An approved record changes only through its own session (a reviewer reversing it). Any
-  // other session of this user's — one opened again by mistake, then left to expire — must not
-  // replace the approved one or undo the approval.
+  // An approved record changes through its own session (a reviewer reversing it), or by a
+  // newer session approved in its place: a re-verification, applied only when it may replace it
+  // (see applyReverification). Anything else from another session (started, abandoned,
+  // expired, declined) must not replace the approved one or undo the approval. Its review and
+  // decline are still announced, once: the admins have to decide it, and the user is told why.
   const current = await getUserKycStatus(userId);
+  const normalizedStatus = normalizeDiditStatus(status);
+  // Didit has just said this session changed: nothing cached about it may be trusted.
+  forgetDecision(session_id);
+  if (current.diditSessionId) forgetReverification(userId, current.diditSessionId);
   if (current.status === "approved" && current.diditSessionId && current.diditSessionId !== session_id) {
-    console.log(
-      `[Didit Webhook] [${requestId}] Ignored session=${session_id} status="${status}": user=${userId} ` +
-        `is already approved through session=${current.diditSessionId}`,
-    );
+    if (normalizedStatus === "approved") {
+      const result = await applyReverification({
+        userId,
+        currentSessionId: current.diditSessionId,
+        sessionId: session_id,
+        vendorData: vendor_data ?? userId,
+        webhookPayload: payload as unknown as Record<string, unknown>,
+      });
+      console.log(`[Didit Webhook] [${requestId}] Re-verification session=${session_id} applied=${result.applied}`);
+    } else {
+      console.log(
+        `[Didit Webhook] [${requestId}] Not recorded: session=${session_id} status="${status}" — user=${userId} ` +
+          `stays approved through session=${current.diditSessionId}`,
+      );
+      await notifyReverifyOutcome(userId, session_id, current.diditSessionId, status);
+    }
     return;
   }
 
-  // ── Normalize and persist ──────────────────────────────────────────────
-  const normalizedStatus = normalizeDiditStatus(status);
+  // A late event for a session older than the one on record (redelivered, or a reviewer looking
+  // at it again) must not put that session back on the record or announce its old outcome while
+  // the user is on a newer one. Its approval still counts: the user is then verified either way.
+  if (current.diditSessionId && current.diditSessionId !== session_id && normalizedStatus !== "approved") {
+    const [state, onRecord] = await Promise.all([getSessionState(session_id), getSessionState(current.diditSessionId)]);
+    if (Date.parse(state.createdAt ?? "") < Date.parse(onRecord.createdAt ?? "")) {
+      console.log(
+        `[Didit Webhook] [${requestId}] Ignored session=${session_id} status="${status}": older than ` +
+          `session=${current.diditSessionId} on record`,
+      );
+      return;
+    }
+  }
 
-  await upsertKycVerification({
+  // Conditional, so of this webhook and the status endpoint's live sync, only the one that
+  // records the change sends its email.
+  const changed = await recordKycTransition({
     userId,
     diditSessionId: session_id,
     vendorData: vendor_data ?? userId,
     status: normalizedStatus,
     webhookPayload: payload as unknown as Record<string, unknown>,
   });
-
   console.log(
-    `[Didit Webhook] [${requestId}] Updated KYC status for user=${userId} ` +
+    `[Didit Webhook] [${requestId}] ${changed ? "Recorded" : "Unchanged"}: user=${userId} ` +
       `session=${session_id} didit_status="${status}" → internal="${normalizedStatus}"`,
   );
+  if (changed) await notifyKycOutcome({ userId, sessionId: session_id, diditStatus: status, reverify: false });
 }

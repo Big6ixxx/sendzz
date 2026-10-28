@@ -15,7 +15,7 @@ import { BrailsProvider, parseBrailsInstitution } from "./providers/brails";
 import type { PayoutRail } from "./fees";
 import { isMobileMoneyCode } from "./msisdn";
 import { PaycrestProvider } from "./providers/paycrest";
-import { RampUnsupportedError, type RampProvider } from "./provider";
+import { RampRefusedError, RampUnsupportedError, type RampProvider } from "./provider";
 import type {
   CreateOffRampParams,
   CreateOnRampParams,
@@ -127,6 +127,7 @@ async function withFallback<T>(
     try {
       return await op(primary);
     } catch (err) {
+      if (err instanceof RampRefusedError) throw err;
       if (err instanceof RampUnsupportedError) {
         if (!announcedFallback.has(capability)) {
           announcedFallback.add(capability);

@@ -147,6 +147,13 @@ export interface RampOrderResponse {
   settlementTxHash?: string;
   transactionHash?: string;
   /**
+   * On-ramp: "under_review" while the deposit is held for a compliance review. The order stays
+   * `pending` and does not expire meanwhile — the user must not be asked to pay again.
+   */
+  statusDetail?: string;
+  /** On-ramp: why a deposit was returned to whoever paid it ("payer_mismatch", "payer_unverified"). */
+  refundReason?: string;
+  /**
    * Platform fee for this order, resolved server-side from the fee config so the client can
    * execute it without reading secret env. `usdc` is the fee amount on top of `amount` (base).
    * `onchain` collection carries the treasury `address`; `provider` collection is skimmed by
@@ -194,6 +201,28 @@ export interface RampVerifyAccountResponse {
   nameVerified?: boolean;
 }
 
+/**
+ * The customer paying in on an on-ramp, as their verified identity describes them. Required by
+ * Paycrest on every on-ramp order (its `source.kyc`); see lib/ramp/onramp-kyc.ts.
+ */
+export interface OnRampCustomer {
+  entityType: "person";
+  personDetails: {
+    fullName: string;
+    /** YYYY-MM-DD. */
+    birthDate: string;
+    /** ISO 3166-1 alpha-2. */
+    nationality?: string;
+    contact?: { email?: string; phoneE164?: string };
+    idDocument: {
+      type: "passport" | "nationalID" | "driverLicense" | "BVN";
+      number: string;
+      /** ISO 3166-1 alpha-2. */
+      issuerCountry: string;
+    };
+  };
+}
+
 export interface CreateOnRampParams {
   amountFiat: number;
   userId: string;
@@ -204,6 +233,8 @@ export interface CreateOnRampParams {
     accountIdentifier: string;
     accountName: string;
   };
+  /** Who is paying in. The refund account must be in this same name. */
+  customer: OnRampCustomer;
   fiatCurrency: RampCurrency;
   /** Chain the purchased USDC is delivered to (the user's home chain). */
   network: RampNetwork;

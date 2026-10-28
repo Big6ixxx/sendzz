@@ -25,8 +25,9 @@
 import { Resend } from 'resend';
 import { redactEmail } from '@/lib/log';
 import type { ReceiptData } from '@/lib/receipt/types';
-import { claimTransferTemplate, transferReceivedTemplate, depositConfirmedTemplate, bridgeCompletedTemplate, withdrawalCompletedTemplate, securityAlertTemplate, transferSentTemplate, referralEarningTemplate } from './templates';
+import { claimTransferTemplate, transferReceivedTemplate, depositConfirmedTemplate, bridgeCompletedTemplate, withdrawalCompletedTemplate, securityAlertTemplate, transferSentTemplate, referralEarningTemplate, kycResultTemplate } from './templates';
 import { userWantsEmail } from '@/lib/supabase/emailPrefs';
+import type { DiditDecisionReason } from '@/lib/kyc/didit-client';
 
 export interface SendEmailOptions {
   to: string | string[];
@@ -317,3 +318,22 @@ export async function sendTransferSentEmail(
   }
 }
 
+
+/**
+ * Tell a user how their identity verification ended. Sent whatever their email preferences:
+ * it is the answer to something they asked for, and it decides what they can do in the app.
+ * Never throws.
+ */
+export async function sendKycResultEmail(
+  recipientEmail: string,
+  outcome: 'approved' | 'declined',
+  opts: { reverify?: boolean; reasons?: DiditDecisionReason[] } = {},
+): Promise<void> {
+  try {
+    const subject = outcome === 'approved' ? 'Your identity is verified' : "We couldn't verify your identity";
+    const result = await sendEmail({ to: recipientEmail, subject, html: kycResultTemplate(outcome, opts) });
+    if (!result.success) console.error('[sendKycResultEmail] Failed to send email:', result.error);
+  } catch (err) {
+    console.error('[sendKycResultEmail] Error:', err);
+  }
+}

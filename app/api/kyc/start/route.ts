@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/session";
-import { upsertKycVerification, getUserKycStatus } from "@/lib/kyc";
+import { markKycStarted } from "@/lib/kyc/supabase-kyc";
 
 export const runtime = "nodejs";
 
@@ -35,16 +35,7 @@ export async function POST() {
       return NextResponse.json({ error: "Email or user ID required" }, { status: 400 });
     }
 
-    const existing = await getUserKycStatus(userId);
-
-    // Only transition to pending if status is not_started or already pending
-    if (existing.status === "not_started" || existing.status === "pending") {
-      await upsertKycVerification({
-        userId,
-        diditSessionId: existing.diditSessionId || undefined,
-        status: "pending",
-      });
-    }
+    await markKycStarted(userId);
 
     return NextResponse.json({ success: true, status: "pending" });
   } catch (error) {

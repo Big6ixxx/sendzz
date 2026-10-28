@@ -1,3 +1,4 @@
+import type { OnRampCustomer } from '@/lib/ramp/types';
 export type PaycrestCurrency = string;
 
 export interface PaycrestCurrencyDetail {
@@ -49,6 +50,8 @@ export interface PaycrestOrderRequest {
       accountIdentifier: string;
       accountName: string;
     };
+    /** The customer paying in — required on every on-ramp order. */
+    kyc?: OnRampCustomer;
   };
   destination: {
     type: PaycrestOrderType;
@@ -91,6 +94,10 @@ export interface PaycrestOrderResponse {
   txHash?: string;
   settlementTxHash?: string;
   transactionHash?: string;
+  /** On-ramp: "under_review" while the deposit is held for a compliance review. Informational. */
+  statusDetail?: string;
+  /** On-ramp refunds of a deposit returned to its payer: why. */
+  refundReason?: "payer_mismatch" | "payer_unverified" | string;
 }
 
 export interface PaycrestRate {
