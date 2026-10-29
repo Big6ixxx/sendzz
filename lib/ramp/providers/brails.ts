@@ -17,12 +17,16 @@
  *
  * Corridors
  * ─────────
- * Only rails whose beneficiary is what the withdraw form collects: network + phone + name for
- * mobile money, bank + account number + name for Nigerian banks. Some mobile money corridors
- * (the CFA franc countries, DR Congo, Ethiopia, The Gambia, Guinea, Morocco) also need the
- * sender's name and country, which come from the user's Didit verification — so those are served
- * only for verified users (`needsSender`), and everyone else goes to the next provider. Rails
- * needing more than that (South Africa and Egypt banks; Rwanda's sender address) are not offered.
+ * Only countries and rails Brails lists for our account (`GET /v2/wallets/payout/supported-countries/`),
+ * and of those only rails whose beneficiary is what the withdraw form collects: network + phone +
+ * name for mobile money, bank + account number + name for Nigerian banks. A payout quote is no
+ * proof: Brails quotes countries it will not pay (Benin, Morocco…), and the payout then fails
+ * with the USDC already at Brails. Some mobile money corridors (Côte d'Ivoire, Senegal, Togo,
+ * Ethiopia, The Gambia) also need the sender's name and country, which come from the
+ * user's Didit verification — so those are served only for verified users (`needsSender`), and
+ * everyone else goes to the next provider. Rails needing more than that (South Africa and Egypt
+ * banks; Rwanda's sender address) are not offered, nor is DR Congo: its published number rule
+ * (`^243[02456]\d{8}$`) matches no real DRC mobile number, which all start 8 or 9.
  *
  * Institution codes are `COUNTRY:NETWORK` for mobile money (`GH:MTN`) and `COUNTRY:BANKCODE`
  * for banks (`NG:100004`). A payout needs the country as well as the network or bank, so the
@@ -31,7 +35,8 @@
 import { createHash } from "crypto";
 import { getBrailsClient } from "@/lib/brails/client";
 import { getCurrencySymbol } from "@/lib/currency-config";
-import { getCorridorFee } from "../fees";
+import { TtlCache } from "@/lib/cache/ttl-cache";
+import { corridorFeeOverride } from "../fees";
 import { toInternationalMsisdn, validateMobileMoneyNumber } from "../msisdn";
 import { RampUnsupportedError, type RampProvider } from "../provider";
 import type {
@@ -60,12 +65,34 @@ interface Corridor {
   networks: { code: string; name: string }[];
   /** Brails requires the sender's verified name and country here (see brails-sender). */
   needsSender?: boolean;
+  /** Brails' own rule for the number, on international digits; it refuses the payout otherwise. */
+  numberPattern?: RegExp;
+  /** Brails wants the recipient's phone in its own field as well as the account number. */
+  phoneField?: boolean;
+  /** Brails refuses a recipient name of one word. */
+  fullName?: boolean;
 }
 
-/** From Brails' beneficiary guides — each `network` is the exact value its payout API accepts. */
+/**
+ * Brails' supported countries for our account, with each `network`, number pattern and extra field
+ * as `GET /v2/wallets/payout/supported-countries/{country}` gives them. Check it again before
+ * adding a country or a network.
+ */
 const CORRIDORS: Record<string, Corridor> = {
   NG: { name: "Nigeria", currency: "NGN", rail: "bank", minPayout: 500, maxPayout: 500_000_000, networks: [] },
-  GH: { name: "Ghana", currency: "GHS", rail: "mobile_money", minPayout: 20, maxPayout: 15_000, networks: [{ code: "MTN", name: "MTN Mobile Money" }] },
+  // Network names as Bitnob and Paycrest spell them, so the merged list shows each once and any of
+  // the three can pay the one picked (pickBank matches by name across providers).
+  GH: {
+    name: "Ghana",
+    currency: "GHS",
+    rail: "mobile_money",
+    minPayout: 20,
+    maxPayout: 15_000,
+    networks: [
+      { code: "MTN", name: "MTN Mobile Money" },
+      { code: "VODAFONE", name: "Vodafone Cash" },
+    ],
+  },
   KE: { name: "Kenya", currency: "KES", rail: "mobile_money", minPayout: 20, maxPayout: 250_000, networks: [{ code: "MPESA", name: "M-PESA" }] },
   UG: {
     name: "Uganda",
@@ -73,6 +100,8 @@ const CORRIDORS: Record<string, Corridor> = {
     rail: "mobile_money",
     minPayout: 37000,
     maxPayout: 5_000_000,
+    numberPattern: /^256\d{9}$/,
+    fullName: true,
     networks: [
       { code: "MTN", name: "MTN Mobile Money" },
       { code: "AIRTEL", name: "Airtel Money" },
@@ -84,6 +113,7 @@ const CORRIDORS: Record<string, Corridor> = {
     rail: "mobile_money",
     minPayout: 100,
     maxPayout: 3_000_000,
+    numberPattern: /^255\d{9}$/,
     networks: [
       { code: "VODACOM", name: "Vodacom M-Pesa" },
       { code: "AIRTEL", name: "Airtel Money" },
@@ -97,6 +127,7 @@ const CORRIDORS: Record<string, Corridor> = {
     rail: "mobile_money",
     minPayout: 100,
     maxPayout: 20_000,
+    numberPattern: /^260(96|76|95|75|97|77)\d{7}$/,
     networks: [
       { code: "MTN", name: "MTN Mobile Money" },
       { code: "AIRTEL", name: "Airtel Money" },
@@ -109,59 +140,9 @@ const CORRIDORS: Record<string, Corridor> = {
     rail: "mobile_money",
     minPayout: 100,
     maxPayout: 1_000_000,
-    networks: [
-      { code: "MTN", name: "MTN Mobile Money" },
-      { code: "OM", name: "Orange Money" },
-    ],
-  },
-  GA: {
-    name: "Gabon",
-    currency: "XAF",
-    rail: "mobile_money",
-    minPayout: 200,
-    maxPayout: 500_000,
-    networks: [
-      { code: "AIRTEL", name: "Airtel Money" },
-      { code: "MOOV", name: "Moov Money" },
-    ],
-  },
-  MW: {
-    name: "Malawi",
-    currency: "MWK",
-    rail: "mobile_money",
-    minPayout: 100,
-    maxPayout: 750_000,
-    networks: [
-      { code: "TNM", name: "TNM Mpamba" },
-      { code: "AIRTEL", name: "Airtel Money" },
-    ],
+    networks: [{ code: "MTN", name: "MTN Mobile Money" }],
   },
   // ── Below here Brails also requires the sender (see brails-sender) ──
-  BJ: {
-    name: "Benin",
-    currency: "XOF",
-    rail: "mobile_money",
-    minPayout: 100,
-    maxPayout: 2_000_000,
-    needsSender: true,
-    networks: [
-      { code: "MTN", name: "MTN Mobile Money" },
-      { code: "MOOV", name: "Moov Money" },
-      { code: "CELTIS", name: "Celtis Cash" },
-    ],
-  },
-  BF: {
-    name: "Burkina Faso",
-    currency: "XOF",
-    rail: "mobile_money",
-    minPayout: 200,
-    maxPayout: 500_000,
-    needsSender: true,
-    networks: [
-      { code: "ORANGE", name: "Orange Money" },
-      { code: "ONATEL", name: "Moov Money (Onatel)" },
-    ],
-  },
   CI: {
     name: "Côte d'Ivoire",
     currency: "XOF",
@@ -175,32 +156,6 @@ const CORRIDORS: Record<string, Corridor> = {
       { code: "MOOV", name: "Moov Money" },
     ],
   },
-  ML: {
-    name: "Mali",
-    currency: "XOF",
-    rail: "mobile_money",
-    minPayout: 200,
-    maxPayout: 500_000,
-    needsSender: true,
-    networks: [
-      { code: "ORANGE", name: "Orange Money" },
-      { code: "MOOV", name: "Moov Money" },
-    ],
-  },
-  NE: {
-    name: "Niger",
-    currency: "XOF",
-    rail: "mobile_money",
-    minPayout: 500,
-    // Brails' table says 500,000,000 — Nigeria's NGN figure, by the look of it. Capped at the
-    // highest of the other XOF mobile money corridors until Brails confirms the real limit.
-    maxPayout: 2_000_000,
-    needsSender: true,
-    networks: [
-      { code: "AIRTEL", name: "Airtel Money" },
-      { code: "MOOV", name: "Moov Money" },
-    ],
-  },
   SN: {
     name: "Senegal",
     currency: "XOF",
@@ -211,8 +166,6 @@ const CORRIDORS: Record<string, Corridor> = {
     networks: [
       { code: "ORANGE", name: "Orange Money" },
       { code: "WAVE", name: "Wave" },
-      { code: "FREE", name: "Free Money" },
-      { code: "EXPRESSO", name: "E-Money (Expresso)" },
     ],
   },
   TG: {
@@ -222,30 +175,8 @@ const CORRIDORS: Record<string, Corridor> = {
     minPayout: 200,
     maxPayout: 500_000,
     needsSender: true,
+    numberPattern: /^228[279]\d{7}$/,
     networks: [{ code: "TMONEY", name: "T-Money" }],
-  },
-  CG: {
-    name: "Republic of the Congo",
-    currency: "XAF",
-    rail: "mobile_money",
-    minPayout: 10,
-    maxPayout: 50_000,
-    needsSender: true,
-    networks: [{ code: "MTN", name: "MTN Mobile Money" }],
-  },
-  CD: {
-    name: "DR Congo",
-    currency: "CDF",
-    rail: "mobile_money",
-    minPayout: 100,
-    maxPayout: 1_000_000,
-    needsSender: true,
-    networks: [
-      { code: "MPESA", name: "Vodacom M-Pesa" },
-      { code: "AIRTEL", name: "Airtel Money" },
-      { code: "ORANGE", name: "Orange Money" },
-      { code: "AFRICEL", name: "Afrimoney (Africell)" },
-    ],
   },
   ET: {
     name: "Ethiopia",
@@ -254,6 +185,7 @@ const CORRIDORS: Record<string, Corridor> = {
     minPayout: 200,
     maxPayout: 50_000,
     needsSender: true,
+    phoneField: true,
     networks: [
       { code: "ETHIO", name: "telebirr (Ethio Telecom)" },
       { code: "SAFARICOM", name: "M-PESA (Safaricom)" },
@@ -266,31 +198,12 @@ const CORRIDORS: Record<string, Corridor> = {
     minPayout: 10,
     maxPayout: 50_000,
     needsSender: true,
+    numberPattern: /^220\d{7}$/,
+    phoneField: true,
     networks: [
       { code: "AFRIMONEY", name: "Afrimoney" },
       { code: "QMONEY", name: "QMoney" },
     ],
-  },
-  GN: {
-    name: "Guinea",
-    currency: "GNF",
-    rail: "mobile_money",
-    minPayout: 200,
-    maxPayout: 7_196_000,
-    needsSender: true,
-    networks: [
-      { code: "ORANGE", name: "Orange Money" },
-      { code: "MTN", name: "MTN Mobile Money" },
-    ],
-  },
-  MA: {
-    name: "Morocco",
-    currency: "MAD",
-    rail: "mobile_money",
-    minPayout: 10,
-    maxPayout: 50_000,
-    needsSender: true,
-    networks: [{ code: "ORANGE", name: "Orange Money" }],
   },
 };
 
@@ -322,6 +235,26 @@ export interface BrailsInstitution {
   rail: Corridor["rail"];
   /** The mobile network (`MTN`) or the bank code (`100004`). */
   network: string;
+}
+
+/** Does Brails want the recipient's phone in its own `phoneNumber` field here? */
+export function brailsNeedsPhoneField(country: string): boolean {
+  return !!CORRIDORS[country.toUpperCase()]?.phoneField;
+}
+
+/**
+ * Why Brails would refuse this recipient, or null. Its payout checks the number (and, in
+ * Uganda, the name) against its own rules only once the USDC has landed, so they are checked
+ * here first.
+ */
+export function brailsRecipientProblem(country: string, phone: string, accountName?: string): string | null {
+  const c = CORRIDORS[country.toUpperCase()];
+  if (!c) return null;
+  if (c.numberPattern && !c.numberPattern.test(phone)) return `That number can't receive payouts in ${c.name}. Check it and try again.`;
+  if (c.fullName && accountName !== undefined && !/^[^\s@]+(\s+[^\s@]+)+$/.test(accountName.trim())) {
+    return "Enter the recipient's full name, first and last.";
+  }
+  return null;
 }
 
 /** Does Brails need the sender's name and country to pay this country? */
@@ -363,6 +296,68 @@ function corridorFor(currency: string, country?: string): [string, Corridor] | n
   }
   const match = Object.entries(CORRIDORS).find(([, c]) => c.currency === cur);
   return match ?? null;
+}
+
+/** Brails' payout rate for a currency, against USD; refuses an answer that is not a rate. */
+async function brailsSellRate(currency: string): Promise<number> {
+  const { sellRate } = await getBrailsClient().getPayoutRate(currency);
+  if (!(Number(sellRate) > 0)) {
+    throw new RampUnsupportedError("brails", "rates", `Brails returned no ${currency} rate`);
+  }
+  return Number(sellRate);
+}
+
+/**
+ * Brails' own flat fee per payout, in USD, read off a live payout quote (its `fee`, in cents).
+ * The quote is what the payout runs on, so it is the figure Brails charges; a fee schedule in our
+ * code would drift from it. The same at any amount, so one quote serves a country for ten
+ * minutes, and simultaneous asks share it.
+ *
+ * Without `country` it is the highest across the countries paid in `currency` (XOF: Côte
+ * d'Ivoire, Senegal, Togo), the figure to show before the country is known, since the order then
+ * never costs more than was shown. `CORRIDOR_FEE_BRAILS_<CURRENCY>`, when set, replaces the quote:
+ * for a fee Brails takes as the payout runs but leaves off its quote. Throws when Brails cannot
+ * quote.
+ */
+const feeCache = new TtlCache<number>(10 * 60_000, 50);
+const feesInFlight = new Map<string, Promise<number>>();
+
+export async function brailsPayoutFee(currency: string, country?: string): Promise<number> {
+  const override = corridorFeeOverride("brails", currency);
+  if (override !== undefined) return override;
+  if (country) {
+    const corridor = corridorFor(currency, country);
+    if (!corridor) throw new RampUnsupportedError("brails", "offRamp", `Brails does not pay out ${currency} to ${country}`);
+    return countryFee(...corridor);
+  }
+  const cur = currency.toUpperCase();
+  const corridors = Object.entries(CORRIDORS).filter(([, c]) => c.currency === cur);
+  if (!corridors.length) throw new RampUnsupportedError("brails", "offRamp", `Brails does not pay out ${currency}`);
+  const fees = await Promise.allSettled(corridors.map(([code, c]) => countryFee(code, c)));
+  const known = fees.flatMap((f) => (f.status === "fulfilled" ? [f.value] : []));
+  if (!known.length) throw (fees[0] as PromiseRejectedResult).reason;
+  return Math.max(...known);
+}
+
+function countryFee(code: string, c: Corridor): Promise<number> {
+  const hit = feeCache.get(code);
+  if (hit !== undefined) return Promise.resolve(hit);
+  const pending = feesInFlight.get(code);
+  if (pending) return pending;
+  const request = (async () => {
+    const target = Math.min(c.maxPayout, Math.max(c.minPayout, 10 * (await brailsSellRate(c.currency))));
+    const quote = await getBrailsClient().createPayoutQuote({ targetCurrency: c.currency, targetMinor: Math.round(target * 100), country: code });
+    const fee = feeOf(quote);
+    feeCache.set(code, fee);
+    return fee;
+  })().finally(() => feesInFlight.delete(code));
+  feesInFlight.set(code, request);
+  return request;
+}
+
+/** A quote's fee in USD (Brails gives cents). */
+function feeOf(quote: { fee: number }): number {
+  return (Number(quote.fee) || 0) / 100;
 }
 
 /** International digits, no `+` — the form every Brails sample uses. */
@@ -409,8 +404,8 @@ export class BrailsProvider implements RampProvider {
    * the currency rate promised more than the payout would deliver. The quote is for roughly this
    * amount, inside the corridor's limits, and nothing is reserved by asking.
    */
-  private async countryRate(currency: string, country: string, usd: number): Promise<number> {
-    const base = await this.sellRate(currency);
+  private async countryRate(currency: string, country: string, usd: number): Promise<{ rate: number; fee: number }> {
+    const base = await brailsSellRate(currency);
     this.assertWithinLimits(usd * base, currency, country);
     const quote = await getBrailsClient().createPayoutQuote({
       targetCurrency: currency,
@@ -421,15 +416,9 @@ export class BrailsProvider implements RampProvider {
     if (!(rate > 0)) {
       throw new RampUnsupportedError("brails", "rates", `Brails returned no ${currency} quote for ${country}`);
     }
-    return rate;
-  }
-
-  private async sellRate(currency: string): Promise<number> {
-    const { sellRate } = await getBrailsClient().getPayoutRate(currency);
-    if (!(Number(sellRate) > 0)) {
-      throw new RampUnsupportedError("brails", "rates", `Brails returned no ${currency} rate`);
-    }
-    return Number(sellRate);
+    // This order's own fee. Not cached: it was quoted at this order's amount, and the shared
+    // figure brailsPayoutFee shows comes from its own fixed-size quote.
+    return { rate, fee: corridorFeeOverride("brails", currency) ?? feeOf(quote) };
   }
 
   /**
@@ -484,7 +473,7 @@ export class BrailsProvider implements RampProvider {
     if (!corridor) {
       throw new RampUnsupportedError("brails", "offRamp", `Brails does not pay out ${params.fiatCurrency} here`);
     }
-    const rate = await this.countryRate(params.fiatCurrency, corridor[0], params.amountUsdc);
+    const { rate } = await this.countryRate(params.fiatCurrency, corridor[0], params.amountUsdc);
     this.assertWithinLimits(params.amountUsdc * rate, params.fiatCurrency, corridor[0]);
     return {
       provider: "brails",
@@ -508,6 +497,11 @@ export class BrailsProvider implements RampProvider {
       throw new RampUnsupportedError("brails", "offRamp", `Brails does not accept USDC on ${params.network}`);
     }
 
+    if (inst.rail === "mobile_money") {
+      const problem = brailsRecipientProblem(inst.country, brailsPhone(params.bank.accountNumber, inst.country), params.bank.accountName);
+      if (problem) throw new RampUnsupportedError("brails", "offRamp", problem);
+    }
+
     // Before an address exists or anything is sent: a corridor that needs the sender can only be
     // served for a user with a verified name, and the payout cannot add one later.
     if (corridor[1].needsSender) {
@@ -521,7 +515,7 @@ export class BrailsProvider implements RampProvider {
       }
     }
 
-    const rate = await this.countryRate(params.fiatCurrency, corridor[0], params.amountUsdc);
+    const { rate, fee } = await this.countryRate(params.fiatCurrency, corridor[0], params.amountUsdc);
     const fiatAmount =
       params.inputMode === "fiat" && params.fiatAmount ? params.fiatAmount : params.amountUsdc * rate;
     // Before the user sends anything: Brails rejects a payout outside the corridor's limits, and
@@ -533,8 +527,10 @@ export class BrailsProvider implements RampProvider {
     const now = Date.now();
     return {
       // Our reference, not Brails': no Brails transaction exists until the deposit lands and
-      // the webhook starts the payout. It is what the withdrawal row and the webhook key on.
-      id: `brails_${now}_${Math.random().toString(36).slice(2, 8)}`,
+      // the webhook starts the payout. It is what the withdrawal row and the webhook key on, and
+      // what the user is shown and quotes to support, so digits alone: the time and six random
+      // digits, and no provider name. (Older rows read `brails_<time>_<code>`; see publicOrderId.)
+      id: `${now}${String(Math.floor(Math.random() * 1e6)).padStart(6, "0")}`,
       provider: "brails",
       status: "pending",
       providerAccount: {
@@ -551,9 +547,9 @@ export class BrailsProvider implements RampProvider {
       amount: String(params.amountUsdc),
       fiatAmount: fiatAmount.toFixed(2),
       fiatRate: rate,
-      // Brails' own per-payout fee (Tanzania, Zambia, Uganda…), sent on top of the amount so it
-      // comes out of the user's deposit, not out of what the recipient gets or our wallet.
-      providerFee: String(getCorridorFee("brails", params.fiatCurrency, corridor[1].rail)),
+      // Brails' own per-payout fee, from this order's quote (see brailsPayoutFee), sent on top of
+      // the amount so it comes out of the user's deposit, not the recipient's amount or our wallet.
+      providerFee: String(fee),
       createdAt: new Date(now).toISOString(),
     };
   }
@@ -580,7 +576,7 @@ export class BrailsProvider implements RampProvider {
 
   async getRates(amount: number, fiat: RampCurrency): Promise<RampRateResponse> {
     if (!corridorFor(fiat)) throw new RampUnsupportedError("brails", "rates", `Brails does not price ${fiat}`);
-    const rate = await this.sellRate(fiat);
+    const rate = await brailsSellRate(fiat);
     void amount;
     return { data: { sell: { rate, provider_id: "brails" } } };
   }
@@ -613,6 +609,8 @@ export class BrailsProvider implements RampProvider {
     });
     if (!check.ok) throw new Error(check.reason ?? `That ${operator} number isn't valid.`);
     const phone = check.msisdn ?? brailsPhone(accountNumber, inst.country);
+    const problem = brailsRecipientProblem(inst.country, phone);
+    if (problem) throw new Error(problem);
 
     // Brails' name enquiry serves Ghana MTN only. Everywhere else the number's shape is all
     // that can be checked, and the UI must not present that as a confirmed account holder.

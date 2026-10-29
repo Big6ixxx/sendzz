@@ -1,4 +1,5 @@
 import { formatFiat } from '@/lib/currency-config';
+import { publicOrderId } from '@/lib/ramp/public-order-id';
 import type { ReceiptData } from './types';
 
 export const PAGE_BG = '#EFF8E9';
@@ -33,10 +34,21 @@ export function buildReceiptRows(data: ReceiptData): [string, string][] {
   return buildRows(data);
 }
 
+/**
+ * The eight characters a receipt is known by. An id that is a number (an order's time, with or
+ * without an `offramp_` prefix) is told apart by its END: its first digits are the same for every
+ * order made that day. Anything else (a UUID) by its start.
+ */
+export function receiptShortId(rawId: string): string {
+  const id = publicOrderId(rawId).replace(/^[a-z]+_/i, '');
+  return /^\d+$/.test(id) ? id.slice(-8) : id.slice(0, 8);
+}
+
 function buildRows(data: ReceiptData): [string, string][] {
-  const shortId = '#' + data.id.slice(0, 8).toUpperCase();
+  const id = publicOrderId(data.id);
+  const shortId = '#' + receiptShortId(data.id).toUpperCase();
   const rows: [string, string][] = [
-    ['Reference ID', data.id.toUpperCase()],
+    ['Reference ID', id.toUpperCase()],
     ['Transaction Receipt', shortId],
   ];
   if (data.senderEmail) rows.push(['From', data.senderEmail]);
@@ -65,7 +77,7 @@ function buildRows(data: ReceiptData): [string, string][] {
     if (data.txHash) rows.push(['Blockchain TX', data.txHash]);
   }
   
-  if (data.orderId) rows.push(['Order ID', data.orderId]);
+  if (data.orderId) rows.push(['Order ID', publicOrderId(data.orderId)]);
   if (data.note) rows.push(['Reference / Memo', data.note]);
   return rows;
 }

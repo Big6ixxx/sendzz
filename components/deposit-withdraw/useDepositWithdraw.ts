@@ -83,6 +83,16 @@ interface BankDetails {
   memo?: string;
 }
 
+const highest = (values: number[]) => values.reduce((m, v) => Math.max(m, v), 0);
+const retryOnce = <T,>(fn: () => Promise<T>) => fn().catch(() => fn());
+
+/** The highest of the fees that loaded; throws when none did, so a missing fee is never 0. */
+function knownHighest(results: PromiseSettledResult<number>[]): number {
+  const known = results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
+  if (!known.length) throw new Error("no corridor fee could be loaded");
+  return highest(known);
+}
+
 export function useDepositWithdraw(
   type: FlowType,
   userAddress: string,
@@ -427,15 +437,16 @@ export function useDepositWithdraw(
         // what was confirmed, so the figure must cover every one of them. Whichever takes it,
         // the user is charged its own (equal or lower) fee. A failed fetch is retried once, then
         // left unloaded — never taken as 0, which would get every fallback refused.
-        const highest = (values: number[]) => values.reduce((m, v) => Math.max(m, v), 0);
-        const retryOnce = <T,>(fn: () => Promise<T>) => fn().catch(() => fn());
         setFeesLoaded(false);
         const feePercents = Promise.all(candidates.map((p) => retryOnce(() => getProviderFeePercent(p, fiatCurrency))))
           .then(highest);
         // Flat provider fee for this corridor. Fetched alongside the provider so
         // it is known before the amount is validated, not after the order exists.
-        const corridorFees = Promise.all(candidates.map((p) => retryOnce(() => getCorridorFeeAction(p, fiatCurrency))))
-          .then(highest);
+        // A provider whose fee cannot be read is left out rather than counted as free: the
+        // server then refuses it unless its fee fits, and the others still take the order.
+        const corridorFees = Promise.allSettled(
+          candidates.map((p) => retryOnce(() => getCorridorFeeAction(p, fiatCurrency, undefined, payoutCountry ?? undefined))),
+        ).then(knownHighest);
         feePercents.then((v) => { if (!cancelled) setFeePercent(v); }).catch(() => undefined);
         corridorFees.then((v) => { if (!cancelled) setCorridorFee(v); }).catch(() => undefined);
         Promise.all([feePercents, corridorFees])
@@ -536,13 +547,17 @@ export function useDepositWithdraw(
   useEffect(() => {
     if (type !== "withdraw" || !bankDetails.bankCode || feeCandidates.length === 0) return;
     let cancelled = false;
-    Promise.all(feeCandidates.map((p) => getCorridorFeeAction(p, fiatCurrency, bankDetails.bankCode)))
-      .then((v) => { if (!cancelled) setCorridorFee(v.reduce((m, x) => Math.max(m, x), 0)); })
-      .catch(() => undefined);
+    Promise.allSettled(
+      feeCandidates.map((p) => retryOnce(() => getCorridorFeeAction(p, fiatCurrency, bankDetails.bankCode, payoutCountry ?? undefined))),
+    ).then((results) => {
+      // Only a full answer replaces the fee: one with a provider missing could be lower than
+      // that provider charges, and the server would then refuse it.
+      if (!cancelled && results.every((r) => r.status === "fulfilled")) setCorridorFee(knownHighest(results));
+    });
     return () => {
       cancelled = true;
     };
-  }, [type, bankDetails.bankCode, feeCandidates, fiatCurrency]);
+  }, [type, bankDetails.bankCode, feeCandidates, fiatCurrency, payoutCountry]);
 
   // Saved contacts whose bank pays out in the chosen country. The rest are hidden rather than
   // offered and then failing: picking one would address a payout to a bank this corridor lacks.

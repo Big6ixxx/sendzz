@@ -64,12 +64,25 @@ export async function getReferralBenefitBalances(): Promise<BenefitBalances> {
  *
  * Without `bankCode` it is the corridor's highest fee, since some corridors (Ghana) charge
  * bank payouts and not mobile money ones; with it, the fee for that bank or operator.
+ *
+ * Brails' is live, for `country` (brailsPayoutFee), and throws when Brails cannot be asked: an
+ * unknown fee is never shown as none. The form leaves out a provider whose fee it could not
+ * load, and the order then refuses it unless its fee fits what was confirmed (executeOffRamp).
  */
 export async function getCorridorFeeAction(
   provider: RampProviderName,
   currency: string,
   bankCode?: string,
+  country?: string,
 ): Promise<number> {
+  return corridorFeeOf(provider, currency, bankCode, country);
+}
+
+async function corridorFeeOf(provider: RampProviderName, currency: string, bankCode?: string, country?: string): Promise<number> {
+  if (provider === "brails") {
+    const { brailsPayoutFee } = await import("@/lib/ramp/providers/brails");
+    return brailsPayoutFee(currency, country);
+  }
   return getCorridorFee(provider, currency, bankCode ? payoutRailOf(bankCode) : undefined);
 }
 
@@ -690,11 +703,12 @@ export async function executeOffRamp(params: {
         );
         continue;
       }
-      // The flat fee depends on the rail, known only once the bank is resolved.
+      // The flat fee depends on the rail, known only once the bank is resolved. Brails' comes
+      // from the order's own quote, so it is held to the confirmed fee once the order exists.
       if (
+        provider !== "brails" &&
         params.confirmedCorridorFee != null &&
-        getCorridorFee(provider, params.fiatCurrency, payoutRailOf(resolved.code)) >
-          params.confirmedCorridorFee + 1e-9
+        getCorridorFee(provider, params.fiatCurrency, payoutRailOf(resolved.code)) > params.confirmedCorridorFee + 1e-9
       ) {
         skipped.push(`${provider}: charges more than the confirmed fee`);
         console.warn(`[Action] executeOffRamp: SKIPPING ${provider} — it charges more than the user confirmed.`);
@@ -721,6 +735,14 @@ export async function executeOffRamp(params: {
         quoteId: firstChoice === provider ? params.quoteId : undefined,
         quoteReference: firstChoice === provider ? params.quoteReference : undefined,
       });
+
+      // The order's own fee, which can differ from the one checked above: Brails' comes from the
+      // order's fresh quote. Nothing has been sent against the order yet, so it can be dropped.
+      if (params.confirmedCorridorFee != null && Number(created.providerFee ?? 0) > params.confirmedCorridorFee + 1e-9) {
+        skipped.push(`${provider}: its order charges more than the confirmed fee`);
+        console.warn(`[Action] executeOffRamp: SKIPPING ${provider} — order ${created.id} charges ${created.providerFee}, more than confirmed.`);
+        continue;
+      }
 
       const isFiat = params.inputMode === "fiat" && !!params.fiatAmount;
       const finalAmountUsdc = isFiat ? Number(created.amount || params.amountUsdc) : params.amountUsdc;

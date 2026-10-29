@@ -21,6 +21,7 @@ import {
 import Link from 'next/link';
 import { use, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { publicOrderId } from '@/lib/ramp/public-order-id';
 
 interface OrderData {
   id: string;
@@ -230,7 +231,7 @@ export default function TxStatusPage({
               <div className="flex items-center gap-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
                 <code className="text-[10px] font-bold uppercase tracking-widest opacity-30">
-                  REF: {orderId}
+                  REF: {publicOrderId(orderId)}
                 </code>
               </div>
             </div>

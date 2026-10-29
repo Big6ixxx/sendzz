@@ -18,7 +18,7 @@ import 'server-only';
  */
 import { getBrailsClient, type BrailsQuote, type BrailsTransaction } from '@/lib/brails/client';
 import { openBeneficiary } from '@/lib/ramp/beneficiary-vault';
-import { brailsNeedsSender, brailsPhone, parseBrailsInstitution } from '@/lib/ramp/providers/brails';
+import { brailsNeedsPhoneField, brailsNeedsSender, brailsPhone, parseBrailsInstitution } from '@/lib/ramp/providers/brails';
 import { brailsSenderFor } from '@/lib/ramp/brails-sender';
 import { ledgerTransaction } from '@/lib/stellar/privy-wallet';
 import { supabaseAdmin } from '@/lib/supabase/adminClient';
@@ -238,6 +238,7 @@ export async function onBrailsDeposit(data: BrailsEventData): Promise<Outcome> {
               network: inst.network,
               accountNumber: brailsPhone(bank.accountNumber, inst.country),
               accountName: bank.accountName,
+              ...(brailsNeedsPhoneField(inst.country) ? { phoneNumber: brailsPhone(bank.accountNumber, inst.country) } : {}),
               ...(sender ? { sender } : {}),
             },
     });

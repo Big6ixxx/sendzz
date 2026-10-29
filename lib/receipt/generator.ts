@@ -1,7 +1,7 @@
 'use client';
 
 import { ReceiptData } from './types';
-import { PAGE_BG, receiptBodyMarkup, receiptHTMLPage, FONT_STYLES } from './template';
+import { PAGE_BG, receiptBodyMarkup, receiptHTMLPage, FONT_STYLES, receiptShortId } from './template';
 
 const LOGO_PATH = '/logo-black.svg';
 
@@ -51,13 +51,13 @@ export async function downloadReceiptPDF(data: ReceiptData): Promise<void> {
   const h = img.naturalHeight / 2;
   const doc = new jsPDF({ orientation: 'portrait', unit: 'px', format: [w, h] });
   doc.addImage(dataUrl, 'PNG', 0, 0, w, h);
-  doc.save(`sendzz-receipt-${data.id.slice(0, 8)}.pdf`);
+  doc.save(`sendzz-receipt-${receiptShortId(data.id)}.pdf`);
 }
 
 export async function downloadReceiptImage(data: ReceiptData): Promise<void> {
   const dataUrl = await captureReceiptDataUrl(data);
   const a = document.createElement('a');
-  a.download = `sendzz-receipt-${data.id.slice(0, 8)}.png`;
+  a.download = `sendzz-receipt-${receiptShortId(data.id)}.png`;
   a.href = dataUrl;
   a.click();
 }

@@ -66,7 +66,8 @@ vi.mock('@/lib/brails/client', () => ({ getBrailsClient: () => brails }));
 vi.mock('@/lib/ramp/beneficiary-vault', () => ({
   openBeneficiary: () => ({ accountNumber: '0123456789', accountName: 'Ada Obi', bankName: 'Kuda' }),
 }));
-vi.mock('@/lib/ramp/brails-sender', () => ({ brailsSenderFor: async () => null }));
+const sender = vi.hoisted(() => ({ value: null as null | { accountName: string; country: string } }));
+vi.mock('@/lib/ramp/brails-sender', () => ({ brailsSenderFor: async () => sender.value }));
 vi.mock('@/lib/stellar/privy-wallet', () => ({ ledgerTransaction: async () => ({ state: 'unknown' }) }));
 vi.mock('@/lib/supabase/transactions', () => ({ triggerWithdrawalNotifications: async () => {} }));
 vi.mock('@/lib/referrals/accrue', () => ({ accrueReferralEarning: async () => {}, voidReferralEarning: async () => {} }));
@@ -87,6 +88,7 @@ const meta = () => db.rows[0].provider_metadata.brails;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  sender.value = null;
   db.rpcError = null;
   db.rpcCalls = [];
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -104,6 +106,22 @@ describe('onBrailsDeposit', () => {
     await expect(onBrailsDeposit({ id: 'd1' })).resolves.toMatchObject({ ok: true });
     expect(meta()).toMatchObject({ depositId: 'd1', payoutId: 'p1', quoteId: 'q1' });
     expect(db.rows[0].provider_metadata.network).toBe('base');
+  });
+
+  it('gives Brails the phone in its own field where it asks for one (Ethiopia)', async () => {
+    seed();
+    Object.assign(db.rows[0], { fiat_currency: 'ETB', institution_code: 'ET:ETHIO' });
+    sender.value = { accountName: 'Ada Obi', country: 'NG' };
+    await expect(onBrailsDeposit({ id: 'd1' })).resolves.toMatchObject({ ok: true });
+    const { destination } = brails.createBeneficiary.mock.calls[0][0];
+    expect(destination).toMatchObject({ type: 'MOBILEMONEY', network: 'ETHIO', sender: sender.value });
+    expect(destination.phoneNumber).toBe(destination.accountNumber);
+  });
+
+  it('sends no phone field where Brails does not ask for one', async () => {
+    seed();
+    await onBrailsDeposit({ id: 'd1' });
+    expect(brails.createBeneficiary.mock.calls[0][0].destination.phoneNumber).toBeUndefined();
   });
 
   it('releases the claim and asks for a retry when Brails fails before anything is sent', async () => {

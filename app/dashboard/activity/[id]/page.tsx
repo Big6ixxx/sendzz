@@ -34,6 +34,7 @@ import { claimBridgeOnDestination } from '@/lib/web3/bridge-claim';
 import { privySolanaAddress } from '@/lib/solana/privy-address';
 import type { ActivityType } from '@/components/HistoryModule';
 import { CCTP_DOMAINS, type SupportedChain } from '@/lib/circle/gateway';
+import { publicOrderId } from '@/lib/ramp/public-order-id';
 
 /** Middle-truncate long values (hashes / ids) for display; the full value is still copied. */
 function shorten(v: string, head = 10, tail = 8): string {
@@ -592,12 +593,13 @@ export default function ActivityDetailPage({
   type AdvRow = { label: string; value: string; display?: string; copyable?: boolean; href?: string; note?: boolean };
   const advancedRows: AdvRow[] = [];
 
-  if (activity.provider) {
-    const label = activity.provider === 'onchain' ? 'On-chain' : activity.provider;
-    advancedRows.push({ label: 'Settled via', value: label.charAt(0).toUpperCase() + label.slice(1) });
+  // Which payout provider settled it stays ours to know; only an on-chain settlement is named.
+  if (activity.provider === 'onchain') {
+    advancedRows.push({ label: 'Settled via', value: 'On-chain' });
   }
   if (activity.providerOrderId) {
-    advancedRows.push({ label: 'Order ID', value: activity.providerOrderId, display: shorten(activity.providerOrderId), copyable: true });
+    const orderId = publicOrderId(activity.providerOrderId);
+    advancedRows.push({ label: 'Order ID', value: orderId, display: shorten(orderId), copyable: true });
   }
   if (activity.providerRef) {
     advancedRows.push({ label: 'Payout quote', value: activity.providerRef, display: shorten(activity.providerRef), copyable: true });

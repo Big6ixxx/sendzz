@@ -103,13 +103,12 @@ export type PayoutRail = "bank" | "mobile_money";
  * entry is per rail.
  *
  *   Bitnob — "USD to Fiat Payout" fee schedule (African corridors).
- *   Brails — "USD payout - Fiat Payout" table of its fee schedule. Tanzania and Zambia come back
- *            as `fee: 200` (cents) on a payout quote, charged on top of the quoted amount; the
- *            rest is taken as the payout runs.
+ *
+ * Brails is not listed: its fee is read live off its payout quote (brailsPayoutFee), and each
+ * order records the fee it was made with (`corridor_fee_usdc`).
  */
 const FEE_SCHEDULE: Partial<Record<RampProviderName, Record<string, number | Record<PayoutRail, number>>>> = {
   bitnob: { TZS: 3, UGX: 0.35, RWF: 0.35, ZMW: 3, GHS: { bank: 3, mobile_money: 0 } },
-  brails: { TZS: 2, UGX: 0.3, RWF: 0.3, ZMW: 2, GHS: { bank: 2, mobile_money: 0 } },
 };
 
 function readFeeEnv(envVar: string): number | undefined {
@@ -124,6 +123,11 @@ function readFeeEnv(envVar: string): number | undefined {
     return 0;
   }
   return fee;
+}
+
+/** `CORRIDOR_FEE_<PROVIDER>_<CURRENCY>`, when set: an operator's override of a provider's own fee. */
+export function corridorFeeOverride(provider: RampProviderName, currency: string): number | undefined {
+  return readFeeEnv(`CORRIDOR_FEE_${provider.toUpperCase()}_${(currency || "").toUpperCase()}`);
 }
 
 /**
@@ -149,7 +153,7 @@ export function getCorridorFee(provider: RampProviderName, currency: string, rai
   if (!CORRIDOR_FEE_COLLECTED_BY.has(provider)) return 0;
   const cur = (currency || "").toUpperCase();
 
-  const override = readFeeEnv(`CORRIDOR_FEE_${provider.toUpperCase()}_${cur}`);
+  const override = corridorFeeOverride(provider, cur);
   if (override !== undefined) return override;
 
   const scheduled = FEE_SCHEDULE[provider]?.[cur];

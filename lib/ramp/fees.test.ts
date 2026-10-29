@@ -164,9 +164,9 @@ describe('getCorridorFee', () => {
   it("charges each provider's own scheduled fee", () => {
     expect(getCorridorFee('bitnob', 'TZS')).toBe(3);
     expect(getCorridorFee('bitnob', 'UGX')).toBe(0.35);
-    expect(getCorridorFee('brails', 'TZS')).toBe(2);
-    expect(getCorridorFee('brails', 'ZMW')).toBe(2);
-    expect(getCorridorFee('brails', 'UGX')).toBe(0.3);
+    expect(getCorridorFee('bitnob', 'ETB')).toBe(0);
+    // Brails' comes live off its quote (brailsPayoutFee), never from a table here.
+    expect(getCorridorFee('brails', 'TZS')).toBe(0);
   });
 
   it('charges per rail where they differ, and the higher one before the rail is known', () => {

@@ -5,6 +5,7 @@ import { ChevronDown, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { CHAIN_NAMES, type SupportedChain } from '@/lib/circle/gateway';
+import { publicOrderId } from '@/lib/ramp/public-order-id';
 
 interface OrderAdvancedDetailsProps {
   orderId?: string;
@@ -59,7 +60,7 @@ export function OrderAdvancedDetails({
   if (networkName)
     rows.push({ label: 'Network', value: consolidated ? `${networkName} (consolidated)` : networkName });
   if (status) rows.push({ label: 'Status', value: status });
-  if (orderId) rows.push({ label: 'Order ID', value: shorten(orderId), copy: orderId });
+  if (orderId) rows.push({ label: 'Order ID', value: shorten(publicOrderId(orderId)), copy: publicOrderId(orderId) });
   if (receiveAddress)
     rows.push({ label: 'Receive address', value: shorten(receiveAddress), copy: receiveAddress });
   if (validUntil) {
