@@ -3,7 +3,6 @@
 import { cn } from '@/lib/utils';
 import { checkIsAdmin } from '@/lib/supabase/admin';
 import { usePrivy } from '@privy-io/react-auth';
-import { motion } from 'framer-motion';
 import {
   ArrowLeftRight,
   ChevronLeft,
@@ -23,6 +22,9 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { motion } from 'framer-motion';
+import { brandFontVars } from '@/components/landing/fonts';
+import '@/components/landing/landing.css';
 
 const navItems = [
   { name: 'Overview', href: '/admin', icon: LayoutDashboard },
@@ -32,6 +34,10 @@ const navItems = [
   { name: 'Merchants', href: '/admin/merchants', icon: Store },
   { name: 'System Logs', href: '/admin/logs', icon: ShieldAlert },
 ];
+
+/** A section is current on its own page and, past the overview, on the pages beneath it. */
+const isCurrent = (pathname: string, href: string) =>
+  href === '/admin' ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
 
 export default function AdminLayout({
   children,
@@ -45,8 +51,7 @@ export default function AdminLayout({
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
 
   // Desktop collapse, mirroring components/layout/Sidebar.tsx. The key is admin-scoped so
-  // collapsing here doesn't also collapse the user dashboard — different contexts, and an
-  // admin sweeping tables wants the space in a way a user checking a balance may not.
+  // collapsing here doesn't also collapse the user dashboard.
   const [isCollapsed, setIsCollapsed] = useState(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('admin-sidebar-collapsed') === 'true';
@@ -63,8 +68,7 @@ export default function AdminLayout({
   };
 
   useEffect(() => {
-    const section =
-      navItems.find((item) => item.href === pathname)?.name || 'Admin';
+    const section = navItems.find((item) => isCurrent(pathname, item.href))?.name || 'Admin';
     document.title = `${section} | Sendzz`;
   }, [pathname]);
 
@@ -87,75 +91,56 @@ export default function AdminLayout({
 
   if (!ready || isAdmin === null) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center overflow-hidden relative" style={{ background: '#07070a' }}>
-        <div className="fixed inset-0 pointer-events-none overflow-hidden" aria-hidden>
+      <div className={`lp-root ${brandFontVars} min-h-screen flex flex-col items-center justify-center gap-10`}>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+          className="relative grid size-24 place-items-center rounded-[28px] bg-white shadow-[0_0_0_1px_rgb(17_26_19/0.06)]"
+        >
+          <Image src="/landing/logo.svg" alt="Sendzz" width={56} height={20} priority />
           <div
-            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full opacity-20 blur-[120px]"
-            style={{ background: 'radial-gradient(circle, #00e87a 0%, transparent 70%)' }}
+            className="absolute inset-0 rounded-[28px] border-2 border-transparent border-t-[var(--lp-green)] animate-spin"
+            style={{ animationDuration: '2s' }}
           />
-        </div>
-        <div className="relative z-10 flex flex-col items-center gap-12">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-            className="relative"
-          >
-            <div className="absolute inset-0 rounded-full blur-2xl bg-accent/20 scale-150 animate-pulse" />
-            <div className="relative w-24 h-24 rounded-3xl flex items-center justify-center bg-white/5 backdrop-blur-xl p-0 overflow-hidden border border-accent/20">
-              <Image src="/logo.svg" alt="Sendzz" width={48} height={48} className="animate-pulse" priority />
-              <div className="absolute inset-0 border-2 border-transparent border-t-accent rounded-3xl animate-spin" style={{ animationDuration: '2s' }} />
-            </div>
-          </motion.div>
-          <div className="flex flex-col items-center gap-4">
-            <motion.h2
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="font-display text-2xl font-bold tracking-tight text-white"
-            >
-              Syncing <span className="text-accent">Admin</span>
-            </motion.h2>
-            <div className="flex items-center gap-2">
-              {[0, 1, 2].map((i) => (
-                <motion.span
-                  key={i}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: [0.2, 1, 0.2] }}
-                  transition={{ repeat: Infinity, duration: 1.5, delay: i * 0.2 }}
-                  className="w-2 h-2 rounded-full bg-accent"
-                />
-              ))}
-            </div>
+        </motion.div>
+        <div className="flex flex-col items-center gap-3">
+          <p className="lp-mono text-[12px] uppercase text-[var(--lp-muted)]">Admin</p>
+          <h2 className="lp-display text-[28px] font-bold tracking-[-0.03em]">
+            Checking your <span className="lp-serif font-normal tracking-[-0.01em]">access.</span>
+          </h2>
+          <div className="flex items-center gap-2" aria-hidden>
+            {[0, 1, 2].map((i) => (
+              <motion.span
+                key={i}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: [0.2, 1, 0.2] }}
+                transition={{ repeat: Infinity, duration: 1.5, delay: i * 0.2 }}
+                className="size-2 rounded-full bg-[var(--lp-ink)]"
+              />
+            ))}
           </div>
         </div>
-        <motion.p
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 1 }}
-          className="fixed bottom-12 left-1/2 -translate-x-1/2 text-[10px] font-bold uppercase tracking-[0.4em] text-white/20"
-        >
-          Authorizing Secure Access
-        </motion.p>
       </div>
     );
   }
 
   if (isAdmin === false) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-8 text-center relative overflow-hidden" style={{ background: '#07070a' }}>
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-red-500/5 blur-[120px] pointer-events-none" />
-        <div className="relative w-24 h-24 rounded-3xl flex items-center justify-center bg-red-400/5 backdrop-blur-xl border border-red-400/20 mb-8 shadow-2xl">
-          <Lock className="w-10 h-10 text-red-400" />
+      <div className={`lp-root ${brandFontVars} min-h-screen flex flex-col items-center justify-center p-8 text-center`}>
+        <div className="mb-8 grid size-20 place-items-center rounded-[24px] bg-[#a1462c]/10">
+          <Lock className="size-9 text-[#a1462c]" />
         </div>
-        <h1 className="text-4xl font-display font-black text-white mb-4 tracking-tighter">Access Restricted</h1>
-        <p className="text-white/40 max-w-sm mb-10 font-medium leading-relaxed">
+        <p className="lp-mono text-[12px] uppercase text-[var(--lp-muted)]">Admin</p>
+        <h1 className="lp-display mt-2 mb-4 text-[clamp(36px,5vw,56px)] leading-[0.95] tracking-[-0.045em]">
+          Access <span className="lp-serif tracking-[-0.02em]">restricted.</span>
+        </h1>
+        <p className="mb-10 max-w-sm text-[16px] leading-[1.5] text-[var(--lp-body)]">
           This area is restricted to authorized platform administrators only. Your attempt has been logged for security.
         </p>
         <button
           onClick={() => router.push('/dashboard')}
-          className="px-8 py-4 rounded-2xl font-bold transition-all active:scale-95"
-          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.10)', color: '#f8f8f6' }}
+          className="inline-flex h-12 items-center rounded-full bg-[var(--lp-ink)] px-6 text-[15px] font-semibold text-[var(--lp-cream)] transition-[scale] duration-150 active:scale-[0.97]"
         >
           Return to Dashboard
         </button>
@@ -164,170 +149,98 @@ export default function AdminLayout({
   }
 
   return (
-    <div className="flex h-screen overflow-hidden" style={{ background: '#07070a' }}>
-      {/* Ambient glow */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden" aria-hidden>
-        <div
-          className="absolute top-[-10%] left-[20%] w-[500px] h-[500px] rounded-full opacity-[0.06] blur-[100px]"
-          style={{ background: 'radial-gradient(circle, #00e87a, transparent 70%)' }}
-        />
-        <div
-          className="absolute bottom-[5%] right-[10%] w-[400px] h-[400px] rounded-full opacity-[0.04] blur-[80px]"
-          style={{ background: 'radial-gradient(circle, #3b82f6, transparent 70%)' }}
-        />
-      </div>
-
+    <div className={`lp-root ${brandFontVars} flex h-dvh overflow-hidden`}>
       {/* Mobile overlay */}
       {isSidebarOpen && (
         <div
           className="fixed inset-0 z-40 lg:hidden"
-          style={{ background: 'rgba(7,7,10,0.7)', backdropFilter: 'blur(4px)' }}
+          style={{ background: 'rgba(17,26,19,0.35)', backdropFilter: 'blur(4px)' }}
           onClick={() => setIsSidebarOpen(false)}
         />
       )}
 
-      {/* Sidebar */}
+      {/* Sidebar: the user dashboard's, in the cream style */}
       <aside
         className={cn(
           'fixed inset-y-0 left-0 z-50 transform transition-all duration-300 ease-in-out lg:relative lg:translate-x-0',
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full',
           isCollapsed ? 'w-64 lg:w-20' : 'w-64',
         )}
-        style={{
-          background: 'rgba(10, 10, 11, 0.7)',
-          backdropFilter: 'blur(32px) saturate(180%)',
-          borderRight: '1px solid rgba(255,255,255,0.06)',
-        }}
+        style={{ background: '#fbf9f4', borderRight: '1px solid #e3dcce' }}
       >
-        <div
-          className={cn(
-            'flex flex-col h-full overflow-y-auto transition-all duration-300',
-            isCollapsed ? 'p-3 lg:px-4' : 'p-5',
-          )}
-        >
+        <div className={cn('flex h-full flex-col overflow-y-auto transition-all duration-300', isCollapsed ? 'p-3 lg:px-4' : 'p-5')}>
           {/* Logo */}
-          <div
-            className={cn(
-              'flex items-center justify-between mb-10 shrink-0',
-              isCollapsed ? 'lg:flex-col lg:gap-4 lg:items-center' : 'px-2',
-            )}
-          >
-            <Link href="/" className="block shrink-0">
+          <div className={cn('mb-8 flex shrink-0 items-center justify-between', isCollapsed ? 'lg:flex-col lg:items-center lg:gap-4' : 'px-2')}>
+            <Link href="/admin" className="flex shrink-0 items-center gap-2.5">
               {isCollapsed ? (
-                <div className="w-8 h-8 relative flex items-center justify-center">
-                  <Image
-                    src="/Sendz-512.png"
-                    alt="Sendzz"
-                    width={32}
-                    height={32}
-                    priority
-                    className="object-contain"
-                  />
-                </div>
+                <Image src="/landing/mark.svg" alt="Sendzz" width={24} height={30} priority />
               ) : (
-                <Image src="/logo.svg" alt="Sendzz" width={100} height={30} priority />
+                <>
+                  <Image src="/landing/logo.svg" alt="Sendzz" width={100} height={30} priority />
+                  <span className="lp-mono rounded-full bg-[var(--lp-ink)] px-2 py-0.5 text-[10px] uppercase text-[var(--lp-green)]">
+                    Admin
+                  </span>
+                </>
               )}
             </Link>
 
-            {/* Desktop collapse toggle */}
             <button
               onClick={toggleCollapse}
-              className="hidden lg:flex p-1.5 rounded-lg transition-colors text-white/40 hover:text-white/80 hover:bg-white/5 outline-none"
+              className="hidden rounded-lg p-1.5 text-[var(--lp-muted)] outline-none transition-colors hover:bg-[var(--lp-cream)] hover:text-[var(--lp-ink)] lg:flex"
               title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             >
-              {isCollapsed ? (
-                <ChevronRight className="w-4.5 h-4.5" />
-              ) : (
-                <ChevronLeft className="w-4.5 h-4.5" />
-              )}
+              {isCollapsed ? <ChevronRight className="w-4.5 h-4.5" /> : <ChevronLeft className="w-4.5 h-4.5" />}
             </button>
 
             <button
               onClick={() => setIsSidebarOpen(false)}
-              className="p-1.5 rounded-lg transition-colors lg:hidden"
-              style={{ color: 'rgba(248,248,246,0.4)' }}
+              aria-label="Close menu"
+              className="rounded-lg p-1.5 text-[var(--lp-muted)] transition-colors hover:bg-[var(--lp-cream)] lg:hidden"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
 
           {/* Nav */}
-          <nav className="flex-1 space-y-1">
+          <nav className="flex-1 space-y-1" aria-label="Admin">
+            {!isCollapsed && <p className="lp-mono px-3 pb-2 text-[11px] uppercase text-[var(--lp-muted)]">Manage</p>}
             {navItems.map((item) => {
-              const active = pathname === item.href;
+              const active = isCurrent(pathname, item.href);
               return (
                 <Link
-                  key={item.name}
+                  key={item.href}
                   href={item.href}
                   onClick={() => setIsSidebarOpen(false)}
                   title={isCollapsed ? item.name : undefined}
+                  aria-current={active ? 'page' : undefined}
                   className={cn(
-                    'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all relative',
+                    'relative flex items-center gap-3 rounded-full px-3 py-2.5 text-sm font-medium transition-all',
                     isCollapsed && 'lg:justify-center lg:px-0',
+                    active
+                      ? 'bg-[var(--lp-ink)] text-[var(--lp-cream)]'
+                      : 'text-[var(--lp-body)] hover:bg-[#f0ebe0] hover:text-[var(--lp-ink)]',
                   )}
-                  style={{
-                    color: active ? '#f8f8f6' : 'rgba(248,248,246,0.4)',
-                    background: active ? 'rgba(255,255,255,0.07)' : 'transparent',
-                    border: active ? '1px solid rgba(255,255,255,0.08)' : '1px solid transparent',
-                    backdropFilter: active ? 'blur(8px)' : 'none',
-                  }}
                 >
-                  {active && !isCollapsed && (
-                    <div
-                      className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-full"
-                      style={{ background: '#00e87a' }}
-                    />
-                  )}
-                  <item.icon className="w-4 h-4 shrink-0" />
-                  <span
-                    className={cn(
-                      'transition-all duration-300',
-                      isCollapsed ? 'lg:hidden' : 'inline',
-                    )}
-                  >
-                    {item.name}
-                  </span>
+                  <item.icon className={cn('w-4.5 h-4.5 shrink-0', active && 'text-[var(--lp-green)]')} />
+                  <span className={cn('transition-all duration-300', isCollapsed ? 'lg:hidden' : 'inline')}>{item.name}</span>
                 </Link>
               );
             })}
           </nav>
 
           {/* User + logout */}
-          <div className="mt-auto pt-5 space-y-2" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-            <div
-              className={cn(
-                'px-3 py-3 rounded-xl transition-all',
-                isCollapsed && 'lg:bg-transparent lg:border-transparent lg:px-0 lg:py-1',
-              )}
-              style={
-                isCollapsed
-                  ? undefined
-                  : {
-                      background: 'rgba(255,255,255,0.04)',
-                      border: '1px solid rgba(255,255,255,0.06)',
-                    }
-              }
-            >
+          <div className="mt-auto space-y-2 pt-5" style={{ borderTop: '1px solid #e3dcce' }}>
+            <div className={cn('px-3 py-3 transition-all', isCollapsed ? 'lg:px-0 lg:py-1' : 'rounded-[18px] bg-[var(--lp-cream)]')}>
               <div className={cn('flex items-center gap-2.5', isCollapsed && 'lg:justify-center')}>
                 <div
-                  className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
-                  style={{ background: 'rgba(0,232,122,0.15)', color: '#00e87a' }}
+                  className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[var(--lp-green)] text-[var(--lp-ink)]"
                   title={isCollapsed ? user?.email?.address : undefined}
                 >
                   <User className="w-3.5 h-3.5" />
                 </div>
-                <div
-                  className={cn(
-                    'flex-1 min-w-0 transition-all duration-300',
-                    isCollapsed ? 'lg:hidden' : 'block',
-                  )}
-                >
-                  <p className="text-xs font-semibold truncate" style={{ color: 'rgba(248,248,246,0.8)' }}>
-                    {user?.email?.address}
-                  </p>
-                  <p className="text-[9px] uppercase tracking-widest font-bold" style={{ color: 'rgba(248,248,246,0.25)' }}>
-                    Admin Account
-                  </p>
+                <div className={cn('min-w-0 flex-1 transition-all duration-300', isCollapsed ? 'lg:hidden' : 'block')}>
+                  <p className="truncate text-xs font-semibold text-[var(--lp-ink)]">{user?.email?.address}</p>
+                  <p className="lp-mono text-[10px] uppercase text-[var(--lp-muted)]">Admin account</p>
                 </div>
               </div>
             </div>
@@ -336,55 +249,39 @@ export default function AdminLayout({
               onClick={() => logout()}
               title={isCollapsed ? 'Sign Out' : undefined}
               className={cn(
-                'flex items-center gap-3 px-3 py-2.5 w-full rounded-xl text-sm font-medium transition-all',
+                'flex w-full items-center gap-3 rounded-full px-3 py-2.5 text-sm font-medium text-[var(--lp-muted)] transition-all hover:bg-[#a1462c]/[0.08] hover:text-[#a1462c]',
                 isCollapsed && 'lg:justify-center lg:px-0',
               )}
-              style={{ color: 'rgba(248,248,246,0.35)' }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = '#f87171';
-                e.currentTarget.style.background = 'rgba(248,113,113,0.08)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = 'rgba(248,248,246,0.35)';
-                e.currentTarget.style.background = 'transparent';
-              }}
             >
               <LogOut className="w-4 h-4 shrink-0" />
-              <span
-                className={cn('transition-all duration-300', isCollapsed ? 'lg:hidden' : 'inline')}
-              >
-                Sign Out
-              </span>
+              <span className={cn('transition-all duration-300', isCollapsed ? 'lg:hidden' : 'inline')}>Sign Out</span>
             </button>
           </div>
         </div>
       </aside>
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        {/* Mobile Header */}
+      {/* Main content */}
+      <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+        {/* Mobile header */}
         <header
-          className="lg:hidden flex items-center justify-between p-4 sticky top-0 z-30"
-          style={{
-            background: 'rgba(7,7,10,0.75)',
-            backdropFilter: 'blur(24px) saturate(180%)',
-            borderBottom: '1px solid rgba(255,255,255,0.05)',
-          }}
+          className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 lg:hidden"
+          style={{ background: 'rgba(246,242,233,0.9)', backdropFilter: 'blur(6px)', borderBottom: '1px solid #e3dcce' }}
         >
-          <Link href="/">
-            <Image src="/logo.svg" alt="Sendzz" width={100} height={30} priority />
+          <Link href="/admin" className="flex items-center gap-2.5">
+            <Image src="/landing/logo.svg" alt="Sendzz" width={100} height={30} priority />
+            <span className="lp-mono rounded-full bg-[var(--lp-ink)] px-2 py-0.5 text-[10px] uppercase text-[var(--lp-green)]">Admin</span>
           </Link>
           <button
             onClick={() => setIsSidebarOpen(true)}
-            className="p-2 rounded-xl transition-colors"
-            style={{ color: 'rgba(248,248,246,0.5)' }}
+            aria-label="Open menu"
+            className="grid size-11 place-items-center rounded-full bg-[var(--lp-ink)] text-[var(--lp-cream)]"
           >
-            <Menu className="w-5 h-5" />
+            <Menu className="size-5" />
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-4 md:p-8 lg:p-12">
-          {children}
+        <div className="flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-[1360px] px-4 pb-24 pt-6 md:px-7 md:pt-10">{children}</div>
         </div>
       </main>
     </div>

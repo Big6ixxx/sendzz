@@ -19,9 +19,12 @@ import type { AdminPendingRefund } from '@/types/admin';
 import { usePrivy } from '@privy-io/react-auth';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { AlertTriangle, Check, Copy, ExternalLink, Loader2, RefreshCw } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { AlertTriangle, Check, Copy, ExternalLink, Landmark, Loader2, Undo2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
+import { EASE } from '@/components/landing/motion';
+import { CardsShimmer, PageHeader, Panel, PrimaryButton, RefreshButton, SecondaryButton, Shimmer } from '../components/ui';
 
 export default function AdminRefunds() {
   const { user, getAccessToken } = usePrivy();
@@ -29,7 +32,7 @@ export default function AdminRefunds() {
   const [openFor, setOpenFor] = useState<string | null>(null);
   const [hashInput, setHashInput] = useState('');
 
-  const { data, isLoading, refetch, isRefetching } = useQuery({
+  const { data, isPending, refetch, isRefetching } = useQuery({
     queryKey: ['admin-refunds', user?.email?.address],
     queryFn: async () => getPendingRefunds((await getAccessToken()) ?? undefined),
     enabled: !!user?.email?.address,
@@ -61,8 +64,7 @@ export default function AdminRefunds() {
    * both be undone: one returns USDC, the other declares the withdrawal delivered.
    */
   const payFiat = useMutation({
-    mutationFn: async ({ id }: { id: string }) =>
-      markFiatPayoutSent(id, undefined, (await getAccessToken()) ?? undefined),
+    mutationFn: async ({ id }: { id: string }) => markFiatPayoutSent(id, undefined, (await getAccessToken()) ?? undefined),
     onSuccess: (res) => {
       if (!res.ok) {
         toast.error(res.reason ?? 'Could not record the payout.');
@@ -80,97 +82,103 @@ export default function AdminRefunds() {
   };
 
   return (
-    <div className="space-y-6">
-      {/* ── Header ─────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black tracking-tight">Refunds Owed</h1>
-          <p className="text-[12px] mt-1" style={{ color: 'rgba(248,248,246,0.4)' }}>
-            Withdrawals where the deposit landed but no payout was made. The user is out of
-            pocket until each of these is sent back.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => refetch()}
-          disabled={isRefetching}
-          className="flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] font-bold uppercase tracking-widest transition-colors hover:bg-white/5"
-          style={{
-            border: '1px solid rgba(255,255,255,0.08)',
-            color: 'rgba(248,248,246,0.6)',
-          }}
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${isRefetching ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
-      </div>
+    <div className="space-y-5 md:space-y-8">
+      <PageHeader
+        eyebrow="Refunds"
+        title="Money we"
+        italic="owe back."
+        aside="Withdrawals where the deposit landed but no payout was made. The user is out of pocket until each of these is settled."
+        actions={<RefreshButton onClick={() => refetch()} spinning={isRefetching} disabled={isRefetching} />}
+      />
 
-      {/* ── Total outstanding ───────────────────────────────────── */}
-      {refunds.length > 0 && (
-        <div
-          className="flex items-center gap-3 px-4 py-3 rounded-xl"
-          style={{
-            background: 'rgba(239,68,68,0.08)',
-            border: '1px solid rgba(239,68,68,0.2)',
-          }}
-        >
-          <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
-          <span className="text-[12.5px]">
-            <span className="font-bold text-red-400">
-              {totalOwed.toFixed(6)} USDC
-            </span>{' '}
-            <span style={{ color: 'rgba(248,248,246,0.6)' }}>
-              owed across {refunds.length} withdrawal{refunds.length === 1 ? '' : 's'}
-            </span>
-          </span>
-        </div>
-      )}
+      {/* ── What is outstanding ───────────────────────────────────────────── */}
+      <motion.section
+        initial={{ opacity: 0, y: 28 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.9, ease: EASE, delay: 0.06 }}
+        className={
+          !isPending && refunds.length === 0
+            ? 'rounded-[28px] bg-[var(--lp-green)] p-5 sm:p-8 md:rounded-[36px] md:p-10'
+            : 'rounded-[28px] bg-[var(--lp-forest)] p-5 text-[var(--lp-cream)] sm:p-8 md:rounded-[36px] md:p-10'
+        }
+      >
+        {isPending ? (
+          <>
+            <Shimmer onDark className="h-4 w-32" />
+            <Shimmer onDark className="mt-5 h-[clamp(40px,9vw,80px)] w-3/5" />
+          </>
+        ) : refunds.length === 0 ? (
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <span className="lp-mono text-[12px] uppercase sm:text-[13px]">Outstanding</span>
+              <p className="lp-display mt-4 text-[clamp(40px,9vw,80px)] leading-[0.9] tracking-[-0.05em]">
+                Nothing <span className="lp-serif tracking-[-0.02em]">owed.</span>
+              </p>
+            </div>
+            <p className="max-w-[320px] text-[15px] leading-normal sm:text-right">Every funded withdrawal either paid out or has been refunded.</p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="min-w-0">
+              <span className="lp-mono flex items-center gap-2 text-[12px] uppercase text-[#f5c451] sm:text-[13px]">
+                <AlertTriangle className="size-4" /> Outstanding
+              </span>
+              <p className="lp-display mt-4 break-words text-[clamp(36px,8.4vw,80px)] leading-[0.9] tracking-[-0.05em] tabular-nums">
+                {totalOwed.toFixed(6)} <span className="lp-serif text-[0.45em] tracking-[-0.01em] text-[#cfe0d6]">USDC</span>
+              </p>
+            </div>
+            <p className="text-[15px] text-[#cfe0d6] sm:text-right">
+              Owed across{' '}
+              <strong className="font-semibold text-[var(--lp-cream)]">
+                {refunds.length} withdrawal{refunds.length === 1 ? '' : 's'}
+              </strong>
+            </p>
+          </div>
+        )}
+      </motion.section>
 
-      {/* ── List ────────────────────────────────────────────────── */}
-      {isLoading ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-6 h-6 animate-spin" style={{ color: 'rgba(248,248,246,0.3)' }} />
-        </div>
-      ) : refunds.length === 0 ? (
-        <div
-          className="flex flex-col items-center justify-center py-20 rounded-2xl"
-          style={{ border: '1px solid rgba(255,255,255,0.06)' }}
-        >
-          <Check className="w-8 h-8 mb-3" style={{ color: '#00e87a' }} />
-          <p className="text-[13px] font-bold">Nothing owed</p>
-          <p className="text-[11.5px] mt-1" style={{ color: 'rgba(248,248,246,0.35)' }}>
-            Every funded withdrawal either paid out or has been refunded.
-          </p>
-        </div>
+      {/* ── Each debt ─────────────────────────────────────────────────────── */}
+      {isPending ? (
+        <CardsShimmer />
       ) : (
-        <div className="space-y-3">
-          {refunds.map((r) => (
-            <RefundCard
-              key={r.withdrawalId}
-              refund={r}
-              open={openFor === r.withdrawalId}
-              onToggle={() => {
-                setOpenFor(openFor === r.withdrawalId ? null : r.withdrawalId);
-                setHashInput('');
-              }}
-              hashInput={hashInput}
-              setHashInput={setHashInput}
-              onCopy={copy}
-              onRecord={() =>
-                record.mutate({
-                  id: r.withdrawalId,
-                  hash: hashInput,
-                  amount: r.owedUsdc,
-                })
-              }
-              recording={record.isPending}
-              onPayFiat={() => payFiat.mutate({ id: r.withdrawalId })}
-              payingFiat={payFiat.isPending}
-            />
-          ))}
-        </div>
+        refunds.length > 0 && (
+          <div className="space-y-4 md:space-y-5">
+            {refunds.map((r) => (
+              <RefundCard
+                key={r.withdrawalId}
+                refund={r}
+                open={openFor === r.withdrawalId}
+                onToggle={() => {
+                  setOpenFor(openFor === r.withdrawalId ? null : r.withdrawalId);
+                  setHashInput('');
+                }}
+                hashInput={hashInput}
+                setHashInput={setHashInput}
+                onCopy={copy}
+                onRecord={() => record.mutate({ id: r.withdrawalId, hash: hashInput, amount: r.owedUsdc })}
+                recording={record.isPending}
+                onPayFiat={() => payFiat.mutate({ id: r.withdrawalId })}
+                payingFiat={payFiat.isPending}
+              />
+            ))}
+          </div>
+        )
       )}
     </div>
+  );
+}
+
+function CopyChip({ text, label, onCopy }: { text: string; label: string; onCopy: (text: string, label: string) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onCopy(text, label)}
+      className="lp-mono inline-flex max-w-full items-center gap-2 rounded-[14px] bg-white px-3 py-2 text-left text-[12px] text-[var(--lp-ink)] shadow-[0_0_0_1px_rgb(17_26_19/0.08)] transition-colors hover:bg-[#fbf9f4]"
+      aria-label={`Copy ${label.toLowerCase()}`}
+    >
+      <span className="break-all">{text}</span>
+      <Copy className="size-3.5 shrink-0 opacity-50" />
+    </button>
   );
 }
 
@@ -200,217 +208,141 @@ function RefundCard({
   const original = explorerTxUrl(r.chain, r.txHash);
 
   return (
-    <div
-      className="rounded-2xl overflow-hidden"
-      style={{
-        background: 'rgba(255,255,255,0.02)',
-        border: '1px solid rgba(255,255,255,0.07)',
-      }}
-    >
-      <div className="p-4 space-y-3">
-        {/* Who + how much */}
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-[13px] font-bold truncate">
-                {r.email ?? 'unknown account'}
-              </span>
-              {r.email && (
-                <button
-                  type="button"
-                  onClick={() => onCopy(r.email!, 'Email')}
-                  className="opacity-40 hover:opacity-100 transition-opacity"
-                  aria-label="Copy email"
-                >
-                  <Copy className="w-3 h-3" />
-                </button>
+    <Panel className="p-5 sm:p-8">
+      {/* Who, and how much */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="truncate text-[17px] font-semibold">{r.email ?? 'Unknown account'}</p>
+            {r.email && (
+              <button
+                type="button"
+                onClick={() => onCopy(r.email!, 'Email')}
+                className="grid size-8 shrink-0 place-items-center rounded-full text-[var(--lp-muted)] transition-colors hover:bg-[var(--lp-cream)] hover:text-[var(--lp-ink)]"
+                aria-label="Copy email"
+              >
+                <Copy className="size-3.5" />
+              </button>
+            )}
+          </div>
+          <p className="mt-0.5 text-[13px] text-[var(--lp-muted)]">
+            {format(new Date(r.createdAt), 'd MMM yyyy, HH:mm')} · {r.provider ?? '—'} · {r.chain ?? '—'}
+          </p>
+        </div>
+        <div className="shrink-0 sm:text-right">
+          <p className="lp-display text-[clamp(24px,6vw,32px)] leading-none tracking-[-0.03em] text-[#a1462c] tabular-nums">
+            {r.owedUsdc.toFixed(6)} <span className="text-[0.55em]">USDC</span>
+          </p>
+          <p className="mt-1 text-[13px] text-[var(--lp-muted)] tabular-nums">
+            {r.amountUsdc.toFixed(6)} payout + {r.feeUsdc.toFixed(6)} fee
+          </p>
+        </div>
+      </div>
+
+      <dl className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="rounded-[18px] bg-[var(--lp-cream)] px-4 py-3">
+          <dt className="text-[13px] text-[var(--lp-muted)]">Was to receive</dt>
+          <dd className="mt-0.5 text-[15px] font-semibold">
+            {r.fiatAmount != null ? `${r.fiatAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${r.fiatCurrency}` : '—'}
+          </dd>
+        </div>
+        <div className="min-w-0 rounded-[18px] bg-[var(--lp-cream)] px-4 py-3">
+          <dt className="text-[13px] text-[var(--lp-muted)]">Order</dt>
+          <dd className="lp-mono mt-0.5 break-all text-[13px]">{r.orderId ?? '—'}</dd>
+        </div>
+      </dl>
+
+      {/* Two ways to settle. They are different outcomes, and neither can be undone. */}
+      <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <div className="flex flex-col rounded-[22px] border border-[#e3dcce] p-4 sm:p-5">
+          <p className="flex items-center gap-2 text-[15px] font-semibold">
+            <Undo2 className="size-4" /> Reverse in USDC
+          </p>
+          <div className="mt-3 space-y-3 text-[13px]">
+            <div className="space-y-1.5">
+              <p className="text-[var(--lp-muted)]">Send back to the wallet the deposit came from</p>
+              {r.refundAddress ? (
+                <CopyChip text={r.refundAddress} label="Address" onCopy={onCopy} />
+              ) : (
+                <p className="text-[#8a5a00]">No {r.chain ?? ''} wallet on file. Ask the user where to send it.</p>
               )}
             </div>
-            <p className="text-[11px] mt-0.5" style={{ color: 'rgba(248,248,246,0.35)' }}>
-              {format(new Date(r.createdAt), 'd MMM yyyy, HH:mm')} · {r.provider ?? '—'} ·{' '}
-              {r.chain ?? '—'}
-            </p>
-          </div>
-
-          <div className="text-right shrink-0">
-            <p className="text-[15px] font-black tabular-nums text-red-400">
-              {r.owedUsdc.toFixed(6)} USDC
-            </p>
-            <p className="text-[10.5px]" style={{ color: 'rgba(248,248,246,0.35)' }}>
-              {r.amountUsdc.toFixed(6)} payout + {r.feeUsdc.toFixed(6)} fee
-            </p>
-          </div>
-        </div>
-
-        {/* What they were expecting */}
-        <div className="flex flex-wrap gap-x-6 gap-y-1.5 text-[11px]">
-          <Field label="Was to receive">
-            {r.fiatAmount != null
-              ? `${r.fiatAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${r.fiatCurrency}`
-              : '—'}
-          </Field>
-          <Field label="Order">{r.orderId ?? '—'}</Field>
-        </div>
-
-        {/* Refund destination — the wallet the deposit came from */}
-        <div className="flex flex-wrap items-center gap-2 text-[11px]">
-          <span style={{ color: 'rgba(248,248,246,0.35)' }}>Send back to</span>
-          {r.refundAddress ? (
-            <>
-              <code
-                className="px-2 py-1 rounded-lg font-mono text-[10.5px] break-all"
-                style={{ background: 'rgba(255,255,255,0.05)' }}
-              >
-                {r.refundAddress}
-              </code>
-              <button
-                type="button"
-                onClick={() => onCopy(r.refundAddress!, 'Address')}
-                className="opacity-40 hover:opacity-100 transition-opacity"
-                aria-label="Copy address"
-              >
-                <Copy className="w-3 h-3" />
-              </button>
-            </>
-          ) : (
-            <span className="text-amber-400">
-              no {r.chain ?? ''} wallet on file — ask the user where to send it
-            </span>
-          )}
-        </div>
-
-        {/* Proof their money left */}
-        {r.txHash && (
-          <div className="flex items-center gap-2 text-[11px]">
-            <span style={{ color: 'rgba(248,248,246,0.35)' }}>Their deposit</span>
-            <code className="font-mono text-[10.5px] truncate max-w-[280px]">{r.txHash}</code>
-            {original && (
-              <a
-                href={original}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="opacity-40 hover:opacity-100 transition-opacity"
-                aria-label="View on explorer"
-              >
-                <ExternalLink className="w-3 h-3" />
-              </a>
+            {r.txHash && (
+              <div className="space-y-1.5">
+                <p className="text-[var(--lp-muted)]">Their deposit</p>
+                <div className="flex min-w-0 items-center gap-2">
+                  <code className="lp-mono min-w-0 truncate text-[12px]">{r.txHash}</code>
+                  {original && (
+                    <a
+                      href={original}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="grid size-8 shrink-0 place-items-center rounded-full text-[var(--lp-muted)] transition-colors hover:bg-[var(--lp-cream)] hover:text-[var(--lp-ink)]"
+                      aria-label="View on explorer"
+                    >
+                      <ExternalLink className="size-3.5" />
+                    </a>
+                  )}
+                </div>
+              </div>
             )}
           </div>
-        )}
 
-        {/* Where the fiat was headed — the other way to settle this */}
-        <div className="flex flex-wrap items-center gap-2 text-[11px]">
-          <span style={{ color: 'rgba(248,248,246,0.35)' }}>Pay bank</span>
-          {r.payout.payable ? (
-            <>
-              <code
-                className="px-2 py-1 rounded-lg font-mono text-[10.5px] break-all"
-                style={{ background: 'rgba(255,255,255,0.05)' }}
-              >
-                {r.payout.accountNumber}
-              </code>
-              <button
-                type="button"
-                onClick={() => onCopy(r.payout.accountNumber!, 'Account number')}
-                className="opacity-40 hover:opacity-100 transition-opacity"
-                aria-label="Copy account number"
-              >
-                <Copy className="w-3 h-3" />
-              </button>
-              <span style={{ color: 'rgba(248,248,246,0.45)' }}>
-                {r.payout.bankName ?? 'bank unknown'}
-                {r.payout.accountName ? ` · ${r.payout.accountName}` : ''}
-              </span>
-              {r.payout.source === 'contact' && (
-                <span className="text-amber-400/80 text-[10px]">
-                  from a saved contact — check it matches
-                </span>
-              )}
-            </>
+          {!open ? (
+            <PrimaryButton onClick={onToggle} className="mt-5 w-full lg:mt-auto">
+              Reverse in USDC
+            </PrimaryButton>
           ) : (
-            <span className="text-amber-400">
-              not recoverable{r.payout.masked ? ` (only ${r.payout.masked} on file)` : ''} — reverse the USDC instead
-            </span>
-          )}
-        </div>
-
-        {/* Settle by paying the bank. Separate from the reversal below: they are different
-            outcomes, and neither can be undone. */}
-        {r.payout.payable && !open && (
-          <button
-            type="button"
-            onClick={onPayFiat}
-            disabled={payingFiat}
-            className="w-full py-2.5 rounded-xl text-[11.5px] font-bold transition-transform hover:scale-[1.01] disabled:opacity-40"
-            style={{ background: 'rgba(96,165,250,0.14)', color: '#60a5fa' }}
-          >
-            {payingFiat ? (
-              <Loader2 className="w-4 h-4 animate-spin mx-auto" />
-            ) : (
-              `I paid ${r.fiatAmount ?? ''} ${r.fiatCurrency} to this account`
-            )}
-          </button>
-        )}
-
-        {/* Record the payment */}
-        {!open ? (
-          <button
-            type="button"
-            onClick={onToggle}
-            className="w-full mt-1 py-2.5 rounded-xl text-[11.5px] font-bold transition-transform hover:scale-[1.01]"
-            style={{ background: 'rgba(0,232,122,0.13)', color: '#00e87a' }}
-          >
-            Reverse in USDC
-          </button>
-        ) : (
-          <div className="space-y-2 pt-1">
-            <p className="text-[10.5px]" style={{ color: 'rgba(248,248,246,0.4)' }}>
-              Send {r.owedUsdc.toFixed(6)} USDC on {r.chain ?? 'the original chain'}, then paste
-              the transaction hash below. This marks the withdrawal reversed and cannot be
-              undone.
-            </p>
-            <div className="flex flex-wrap gap-2">
+            <div className="mt-5 space-y-3">
+              <p className="text-[13px] leading-normal text-[var(--lp-body)]">
+                Send {r.owedUsdc.toFixed(6)} USDC on {r.chain ?? 'the original chain'}, then paste the transaction hash. This marks the
+                withdrawal reversed and cannot be undone.
+              </p>
               <input
                 value={hashInput}
                 onChange={(e) => setHashInput(e.target.value)}
                 placeholder="Refund transaction hash"
-                className="flex-1 min-w-[220px] text-base md:text-[11.5px] px-3 py-2.5 rounded-xl outline-none font-mono"
-                style={{
-                  background: 'rgba(255,255,255,0.05)',
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  color: '#f8f8f6',
-                }}
+                className="lp-mono h-12 w-full rounded-full bg-[var(--lp-cream)] px-4 text-base outline-2 outline-offset-2 outline-transparent transition-[outline-color] focus:outline-[var(--lp-ink)] sm:text-[13px]"
               />
-              <button
-                type="button"
-                onClick={onRecord}
-                disabled={!hashInput.trim() || recording}
-                className="px-4 py-2.5 rounded-xl text-[11.5px] font-bold disabled:opacity-30 transition-opacity"
-                style={{ background: 'rgba(0,232,122,0.15)', color: '#00e87a' }}
-              >
-                {recording ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirm'}
-              </button>
-              <button
-                type="button"
-                onClick={onToggle}
-                className="px-3 py-2.5 rounded-xl text-[11.5px] font-medium hover:bg-white/5 transition-colors"
-                style={{ color: 'rgba(248,248,246,0.4)' }}
-              >
-                Cancel
-              </button>
+              <div className="flex gap-2">
+                <SecondaryButton onClick={onToggle} className="flex-1">
+                  Cancel
+                </SecondaryButton>
+                <PrimaryButton onClick={onRecord} disabled={!hashInput.trim() || recording} className="flex-1">
+                  {recording ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />} Confirm
+                </PrimaryButton>
+              </div>
             </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+          )}
+        </div>
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <span>
-      <span style={{ color: 'rgba(248,248,246,0.35)' }}>{label} </span>
-      <span className="font-medium">{children}</span>
-    </span>
+        <div className="flex flex-col rounded-[22px] border border-[#e3dcce] p-4 sm:p-5">
+          <p className="flex items-center gap-2 text-[15px] font-semibold">
+            <Landmark className="size-4" /> Pay their bank instead
+          </p>
+          <div className="mt-3 space-y-1.5 text-[13px]">
+            {r.payout.payable ? (
+              <>
+                <p className="text-[var(--lp-muted)]">
+                  {r.payout.bankName ?? 'Bank unknown'}
+                  {r.payout.accountName ? ` · ${r.payout.accountName}` : ''}
+                </p>
+                <CopyChip text={r.payout.accountNumber!} label="Account number" onCopy={onCopy} />
+                {r.payout.source === 'contact' && <p className="text-[#8a5a00]">From a saved contact. Check it matches.</p>}
+              </>
+            ) : (
+              <p className="text-[#8a5a00]">
+                Not recoverable{r.payout.masked ? ` (only ${r.payout.masked} on file)` : ''}. Reverse the USDC instead.
+              </p>
+            )}
+          </div>
+          {r.payout.payable && !open && (
+            <SecondaryButton onClick={onPayFiat} disabled={payingFiat} className="mt-5 h-auto min-h-12 w-full whitespace-normal py-3 lg:mt-auto">
+              {payingFiat ? <Loader2 className="size-4 animate-spin" /> : `I paid ${r.fiatAmount ?? ''} ${r.fiatCurrency} to this account`}
+            </SecondaryButton>
+          )}
+        </div>
+      </div>
+    </Panel>
   );
 }

@@ -7,19 +7,33 @@ import { usePrivy } from '@privy-io/react-auth';
 import { useQuery } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
-import {
-  Activity,
-  Clock,
-  Code2,
-  RefreshCw,
-  Search,
-  Terminal,
-  UserCheck,
-  Webhook,
-} from 'lucide-react';
+import { ChevronRight, Terminal, Webhook } from 'lucide-react';
 import { useState } from 'react';
+import { EASE } from '@/components/landing/motion';
+import { EmptyState, ForestStat, PageHeader, Panel, Pills, RefreshButton, RowsShimmer, SearchField, statusTone } from '../components/ui';
 
 import { LogDetailModal, summariseCause } from './LogDetailModal';
+
+/** A webhook event's outcome, from its type ("payment_order.settled" → "settled") or, failing that, whether it was processed. */
+function webhookOutcome(wl: WebhookLog): { label: string; tone: string } {
+  const rawType = wl.event_type || '';
+  const s = rawType.includes('.') ? rawType.split('.').pop() ?? '' : rawType;
+  if (['settled', 'completed', 'failed', 'refunded', 'expired', 'refunding', 'validated', 'deposited'].includes(s)) {
+    return { label: s === 'completed' ? 'Settled' : s.charAt(0).toUpperCase() + s.slice(1), tone: statusTone(s) };
+  }
+  return wl.processed ? { label: 'Processed', tone: statusTone('processed') } : { label: 'Pending', tone: statusTone('pending') };
+}
+
+const formatTimeAgo = (date: Date | null) => {
+  if (!date) return 'Never';
+  const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
+  if (seconds < 60) return 'Just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+};
 
 export default function AdminLogs() {
   const { user, getAccessToken } = usePrivy();
@@ -27,7 +41,7 @@ export default function AdminLogs() {
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<AdminLog | null>(null);
 
-  const { data, isLoading, refetch, isRefetching } = useQuery({
+  const { data, isPending, refetch, isRefetching } = useQuery({
     queryKey: ['admin-logs', logType, user?.email?.address],
     queryFn: async () => {
       if (!user?.email?.address) return [];
@@ -37,334 +51,128 @@ export default function AdminLogs() {
   });
 
   const logs = data || [];
+  const filteredLogs = logs.filter((log) => !search || JSON.stringify(log).toLowerCase().includes(search.toLowerCase()));
 
-  const filteredLogs = logs.filter((log) => {
-    if (!search) return true;
-    const searchLower = search.toLowerCase();
-    const content = JSON.stringify(log).toLowerCase();
-    return content.includes(searchLower);
-  });
-
-  // Calculate Webhook Health Stats
+  // Webhook health
   const webhookLogs = logType === 'webhooks' ? (logs as WebhookLog[]) : [];
-  const totalEvents = webhookLogs.length;
-  const lastEvent = webhookLogs[0];
-  const lastEventTime = lastEvent ? new Date(lastEvent.created_at) : null;
-
+  const lastEventTime = webhookLogs[0] ? new Date(webhookLogs[0].created_at) : null;
   const now = new Date();
   const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const eventsLast24h = webhookLogs.filter(
-    (log) => new Date(log.created_at) >= oneDayAgo,
-  ).length;
-
-  let healthStatus: 'healthy' | 'idle' | 'inactive' = 'inactive';
-  let healthLabel = 'No Activity';
-  let healthColor = 'text-white/40 border-white/10 bg-white/5';
-
-  if (lastEventTime) {
-    const hoursSinceLastEvent = (now.getTime() - lastEventTime.getTime()) / (1000 * 60 * 60);
-    if (hoursSinceLastEvent < 24) {
-      healthStatus = 'healthy';
-      healthLabel = 'Active & Healthy';
-      healthColor = 'text-accent border-accent/20 bg-accent/10';
-    } else {
-      healthStatus = 'idle';
-      healthLabel = 'Idle (> 24h)';
-      healthColor = 'text-amber-400 border-amber-500/20 bg-amber-500/10';
-    }
-  }
-
-  const formatTimeAgo = (date: Date | null) => {
-    if (!date) return 'Never';
-    const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
-    if (seconds < 60) return 'Just now';
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    return `${days}d ago`;
-  };
+  const eventsLast24h = webhookLogs.filter((log) => new Date(log.created_at) >= oneDayAgo).length;
+  const health: { label: string; word: string; dot: string } = !lastEventTime
+    ? { label: 'No activity', word: 'Offline', dot: 'bg-[#a9c2b5]' }
+    : (now.getTime() - lastEventTime.getTime()) / 3_600_000 < 24
+      ? { label: 'Active and healthy', word: 'Online', dot: 'bg-[var(--lp-green)] lp-pulse' }
+      : { label: 'Idle for over 24h', word: 'Warning', dot: 'bg-[#f5c451]' };
 
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div>
-          <h1 className="text-3xl font-display font-bold text-white tracking-tight">
-            System Logs
-          </h1>
-          <p className="text-white/40 mt-1 font-medium">
-            Monitoring internal operations and external webhooks.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => refetch()}
-            disabled={isLoading || isRefetching}
-            className="p-3 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white transition-colors"
-          >
-            <RefreshCw
-              className={cn(
-                'w-4 h-4',
-                (isLoading || isRefetching) && 'animate-spin',
-              )}
-            />
-          </button>
-        </div>
-      </div>
+    <div className="space-y-5 md:space-y-8">
+      <PageHeader
+        eyebrow="Logs"
+        title="System"
+        italic="logs."
+        aside="Webhooks from our providers and the audit trail of admin and account actions."
+        actions={<RefreshButton onClick={() => refetch()} spinning={isPending || isRefetching} disabled={isPending || isRefetching} />}
+      />
 
-      {/* Webhook Health Cards */}
-      {logType === 'webhooks' && !isLoading && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="card-glass p-6 flex items-center justify-between border border-white/5">
-            <div className="space-y-1">
-              <p className="text-[10px] font-bold text-white/40 uppercase tracking-[0.2em]">
-                Webhook Status
-              </p>
-              <div className="flex items-center gap-2 mt-1">
-                <span
-                  className={cn(
-                    'w-2.5 h-2.5 rounded-full animate-pulse',
-                    healthStatus === 'healthy'
-                      ? 'bg-accent shadow-[0_0_8px_var(--color-accent)]'
-                      : healthStatus === 'idle'
-                        ? 'bg-amber-400 shadow-[0_0_8px_#fbbf24]'
-                        : 'bg-white/25',
-                  )}
-                />
-                <span className="text-sm font-bold text-white tracking-tight">
-                  {healthLabel}
+      <Pills
+        label="Log type"
+        options={[
+          { label: 'Webhooks', value: 'webhooks' as const },
+          { label: 'Audit logs', value: 'audit' as const },
+        ]}
+        value={logType}
+        onChange={(t) => {
+          setLogType(t);
+          setSelected(null);
+        }}
+      />
+
+      {logType === 'webhooks' && (
+        <motion.section
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.7, ease: EASE }}
+          className="grid grid-cols-1 gap-2 rounded-[28px] bg-[var(--lp-forest)] p-3 text-[var(--lp-cream)] sm:grid-cols-3 sm:p-4 md:rounded-[32px]"
+        >
+          {[
+            {
+              label: 'Webhook status',
+              value: (
+                <span className="flex items-center gap-2.5">
+                  <span className={cn('size-2.5 shrink-0 rounded-full', health.dot)} />
+                  {health.word}
                 </span>
-              </div>
-            </div>
-            <div
-              className={cn(
-                'px-3 py-1.5 rounded-lg border text-[10px] font-black uppercase tracking-wider',
-                healthColor,
-              )}
-            >
-              {healthStatus === 'healthy'
-                ? 'Online'
-                : healthStatus === 'idle'
-                  ? 'Warning'
-                  : 'Offline'}
-            </div>
-          </div>
-
-          <div className="card-glass p-6 flex items-center justify-between border border-white/5">
-            <div className="space-y-1">
-              <p className="text-[10px] font-bold text-white/40 uppercase tracking-[0.2em]">
-                Last Event Received
-              </p>
-              <p className="text-sm font-bold text-white tracking-tight mt-1">
-                {formatTimeAgo(lastEventTime)}
-              </p>
-            </div>
-            <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-white/40">
-              <Clock className="w-5 h-5" />
-            </div>
-          </div>
-
-          <div className="card-glass p-6 flex items-center justify-between border border-white/5">
-            <div className="space-y-1">
-              <p className="text-[10px] font-bold text-white/40 uppercase tracking-[0.2em]">
-                Events (Last 24h / Total)
-              </p>
-              <p className="text-sm font-bold text-white tracking-tight mt-1">
-                {eventsLast24h}{' '}
-                <span className="text-white/40 font-normal">/ {totalEvents}</span>
-              </p>
-            </div>
-            <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-white/40">
-              <Activity className="w-5 h-5" />
-            </div>
-          </div>
-        </div>
+              ),
+              hint: health.label,
+            },
+            { label: 'Last event', value: formatTimeAgo(lastEventTime), hint: lastEventTime ? format(lastEventTime, 'd MMM, HH:mm') : 'Nothing received yet' },
+            {
+              label: 'Events',
+              value: (
+                <>
+                  {eventsLast24h} <span className="lp-serif text-[0.6em] text-[#cfe0d6]">today</span>
+                </>
+              ),
+              hint: `${webhookLogs.length} loaded in total`,
+            },
+          ].map((s) => (
+            <ForestStat key={s.label} className="rounded-[20px] px-4 py-4 sm:px-5" label={s.label} value={s.value} hint={s.hint} loading={isPending} />
+          ))}
+        </motion.section>
       )}
 
-      {/* Type Switch & Search */}
-      <div className="flex flex-col lg:flex-row gap-6">
-        <div className="flex p-1 bg-white/5 border border-white/10 rounded-2xl w-fit">
-          <button
-            onClick={() => setLogType('webhooks')}
-            className={cn(
-              'flex items-center gap-2 px-6 py-3 rounded-xl text-xs font-bold uppercase tracking-widest transition-all',
-              logType === 'webhooks'
-                ? 'bg-white/10 text-white shadow-xl'
-                : 'text-white/30 hover:text-white/60',
-            )}
-          >
-            <Webhook className="w-4 h-4" />
-            Webhooks
-          </button>
-          <button
-            onClick={() => setLogType('audit')}
-            className={cn(
-              'flex items-center gap-2 px-6 py-3 rounded-xl text-xs font-bold uppercase tracking-widest transition-all',
-              logType === 'audit'
-                ? 'bg-white/10 text-white shadow-xl'
-                : 'text-white/30 hover:text-white/60',
-            )}
-          >
-            <UserCheck className="w-4 h-4" />
-            Audit Logs
-          </button>
-        </div>
+      <SearchField value={search} onChange={setSearch} placeholder="Filter by anything in the payload" />
 
-        <div className="relative flex-1 group">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 group-focus-within:text-accent transition-colors" />
-          <input
-            type="text"
-            placeholder="Filter log payload or content..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 text-sm text-white focus:outline-none focus:border-accent/50 transition-all"
-          />
-        </div>
-      </div>
-
-      {/* Logs Feed */}
-      <div className="space-y-4">
-        {isLoading ? (
-          Array.from({ length: 6 }).map((_, i) => (
-            <div
-              key={i}
-              className="h-20 bg-white/5 rounded-2xl animate-pulse"
-            />
-          ))
+      <Panel className="overflow-hidden">
+        {isPending ? (
+          <RowsShimmer rows={8} />
         ) : filteredLogs.length === 0 ? (
-          <div className="py-20 text-center card-glass">
-            <p className="text-white/20 font-medium">No log entries found.</p>
-          </div>
+          <EmptyState title="No entries" italic={search ? 'match that.' : 'yet.'} body={search ? 'Try a shorter or different search.' : undefined} />
         ) : (
-          filteredLogs.map((log: AdminLog, i: number) => (
-            <motion.div
-              key={log.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.03 }}
-              onClick={() => setSelected(log)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  setSelected(log);
-                }
-              }}
-              className="card-glass p-5 flex flex-col md:flex-row md:items-center justify-between gap-6 hover:bg-white/6 transition-all group cursor-pointer focus:outline-none focus:ring-1 focus:ring-white/20"
-            >
-              <div className="flex items-center gap-5">
-                <div
-                  className={cn(
-                    'w-10 h-10 rounded-xl flex items-center justify-center border',
-                    logType === 'webhooks'
-                       ? (() => {
-                          const wl = log as WebhookLog;
-                          const rawType = wl.event_type || '';
-                          const s = rawType.includes('.') ? rawType.split('.').pop() : rawType;
-                          if (['settled', 'completed'].includes(s ?? '') || wl.processed)
-                            return 'bg-accent/10 border-accent/20 text-accent';
-                          if (['failed', 'refunded', 'expired', 'refunding'].includes(s ?? ''))
-                            return 'bg-red-500/10 border-red-500/20 text-red-400';
-                          return 'bg-amber-400/10 border-amber-400/20 text-amber-400';
-                        })()
-                      : 'bg-blue-400/10 border-blue-400/20 text-blue-400',
-                  )}
-                >
-                  {logType === 'webhooks' ? (
-                    <Webhook className="w-5 h-5" />
-                  ) : (
-                    <Terminal className="w-5 h-5" />
-                  )}
-                </div>
-                <div>
-                  <div className="flex items-center gap-3">
-                    <h4 className="text-sm font-bold text-white tracking-tight">
-                      {logType === 'webhooks'
-                        ? (log as WebhookLog).provider
-                        : (log as AuditLog).action}
-                    </h4>
-                    {logType === 'webhooks' && (() => {
-                      const wl = log as WebhookLog;
-                      // Derive badge from event_type if available, fall back to processed boolean
-                      const rawType = wl.event_type || '';
-                      // e.g. "payment_order.settled" → "settled"
-                      const eventStatus = rawType.includes('.') ? rawType.split('.').pop() : rawType;
-
-                      type BadgeStyle = { label: string; className: string };
-                      const badge: BadgeStyle = (() => {
-                        if (['settled', 'completed'].includes(eventStatus ?? ''))
-                          return { label: 'Settled', className: 'bg-accent/10 text-accent' };
-                        if (['failed', 'refunded', 'expired', 'refunding'].includes(eventStatus ?? ''))
-                          return { label: eventStatus!.charAt(0).toUpperCase() + eventStatus!.slice(1), className: 'bg-red-500/10 text-red-400' };
-                        if (eventStatus === 'validated')
-                          return { label: 'Validated', className: 'bg-blue-400/10 text-blue-400' };
-                        if (eventStatus === 'deposited')
-                          return { label: 'Deposited', className: 'bg-purple-400/10 text-purple-400' };
-                        // Fall back to processed boolean
-                        return wl.processed
-                          ? { label: 'Processed', className: 'bg-accent/10 text-accent' }
-                          : { label: 'Pending', className: 'bg-amber-400/10 text-amber-400' };
-                      })();
-
-                      return (
-                        <span className={cn('text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full', badge.className)}>
-                          {badge.label}
-                        </span>
-                      );
-                    })()}
-                  </div>
-                  <p className="text-[10px] font-mono text-white/20 mt-1 uppercase tracking-widest">
-                    ID: {log.id.slice(0, 16)}... •{' '}
-                    {format(new Date(log.created_at), 'HH:mm:ss.SSS')}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-4">
-                <div className="hidden lg:block">
-                  {(() => {
-                    // Surface the reason itself rather than the first 100 characters of raw
-                    // JSON — for a failed or expired payout that one line is the whole reason
-                    // an admin opened this page.
-                    const payload =
-                      logType === 'webhooks'
-                        ? (log as WebhookLog).payload_json
-                        : (log as AuditLog).metadata_json;
-                    const cause = summariseCause(payload);
-                    return (
-                      <>
-                        <p className="text-[10px] font-bold text-white/20 uppercase tracking-[0.2em] mb-1">
-                          {cause ? 'Reported Cause' : 'Payload'}
-                        </p>
-                        <p
-                          className={cn(
-                            'text-[10px] truncate max-w-[260px]',
-                            cause ? 'text-amber-400/80 font-medium' : 'text-white/40 italic',
-                          )}
-                        >
-                          {cause ?? `${JSON.stringify(payload).slice(0, 100)}...`}
-                        </p>
-                      </>
-                    );
-                  })()}
-                </div>
-                <button className="p-3 rounded-xl bg-white/5 border border-white/10 text-white/40 hover:text-white hover:bg-white/10 transition-all">
-                  <Code2 className="w-4 h-4" />
-                </button>
-              </div>
-            </motion.div>
-          ))
+          <ul className="divide-y divide-[#ece6da]">
+            {filteredLogs.map((log: AdminLog) => {
+              const isWebhook = logType === 'webhooks';
+              const outcome = isWebhook ? webhookOutcome(log as WebhookLog) : null;
+              const payload = isWebhook ? (log as WebhookLog).payload_json : (log as AuditLog).metadata_json;
+              // Surface the reason itself rather than the first characters of raw JSON — for a
+              // failed or expired payout that one line is the whole reason an admin opened this.
+              const cause = summariseCause(payload);
+              return (
+                <li key={log.id}>
+                  <button
+                    type="button"
+                    onClick={() => setSelected(log)}
+                    className="flex w-full items-start gap-3 px-5 py-4 text-left transition-colors hover:bg-[#fbf9f4] focus:bg-[#fbf9f4] focus:outline-none sm:items-center sm:gap-4 sm:px-6"
+                  >
+                    <span className={cn('grid size-10 shrink-0 place-items-center rounded-full', outcome ? outcome.tone : 'bg-[#2a78d6]/10 text-[#1d5fb4]')}>
+                      {isWebhook ? <Webhook className="size-[18px]" /> : <Terminal className="size-[18px]" />}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span className="text-[15px] font-semibold">{isWebhook ? (log as WebhookLog).provider : (log as AuditLog).action}</span>
+                        {outcome && <span className={cn('rounded-full px-2.5 py-0.5 text-[12px] font-semibold', outcome.tone)}>{outcome.label}</span>}
+                      </span>
+                      <span className="lp-mono mt-0.5 block truncate text-[12px] text-[var(--lp-muted)]">
+                        {isWebhook && (log as WebhookLog).event_type ? `${(log as WebhookLog).event_type} · ` : ''}
+                        {format(new Date(log.created_at), 'd MMM, HH:mm:ss')}
+                      </span>
+                      {cause && <span className="mt-1.5 block text-[13px] text-[#8a5a00] lg:hidden">{cause}</span>}
+                    </span>
+                    <span className="hidden max-w-[320px] min-w-0 text-right lg:block">
+                      <span className="lp-mono block text-[11px] uppercase text-[var(--lp-muted)]">{cause ? 'Reported cause' : 'Payload'}</span>
+                      <span className={cn('block truncate text-[13px]', cause ? 'font-medium text-[#8a5a00]' : 'text-[var(--lp-muted)]')}>
+                        {cause ?? `${JSON.stringify(payload).slice(0, 80)}…`}
+                      </span>
+                    </span>
+                    <ChevronRight className="mt-2.5 size-4 shrink-0 text-[var(--lp-muted)] sm:mt-0" />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         )}
-      </div>
-
-      <div className="flex items-center justify-center py-10">
-        <p className="text-[10px] font-bold text-white/10 uppercase tracking-[0.5em]">
-          End of Log Stream
-        </p>
-      </div>
+      </Panel>
 
       <LogDetailModal log={selected} logType={logType} onClose={() => setSelected(null)} />
     </div>

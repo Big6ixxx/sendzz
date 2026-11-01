@@ -13,17 +13,14 @@
  * transacting" produces a better application later.
  */
 
-import {
-  decideMerchantApplication,
-  getPendingMerchantApplications,
-  type PendingMerchantApplication,
-} from '@/lib/actions/merchant';
+import { decideMerchantApplication, getPendingMerchantApplications, type PendingMerchantApplication } from '@/lib/actions/merchant';
 import { usePrivy } from '@privy-io/react-auth';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { Check, Loader2, RefreshCw, Store, X } from 'lucide-react';
+import { Check, Loader2, Store, X } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
+import { Avatar, CardsShimmer, EmptyState, PageHeader, Panel, PrimaryButton, RefreshButton, SecondaryButton } from '../components/ui';
 
 export default function AdminMerchants() {
   const { getAccessToken } = usePrivy();
@@ -31,7 +28,7 @@ export default function AdminMerchants() {
   const [noteFor, setNoteFor] = useState<string | null>(null);
   const [note, setNote] = useState('');
 
-  const { data: applications = [], isLoading, refetch, isFetching } = useQuery({
+  const { data: applications = [], isPending, refetch, isFetching } = useQuery({
     queryKey: ['merchant-applications'],
     queryFn: async () => getPendingMerchantApplications((await getAccessToken()) ?? undefined),
   });
@@ -57,37 +54,23 @@ export default function AdminMerchants() {
   });
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
-          <h1 className="text-3xl font-display font-bold tracking-tight text-brand-secondary">
-            Merchant applications
-          </h1>
-          <p className="text-brand-secondary/40 font-medium">
-            Approving moves a referrer onto the cash revenue share
-          </p>
-        </div>
-        <button
-          onClick={() => refetch()}
-          disabled={isFetching}
-          className="btn-secondary gap-2 shrink-0"
-        >
-          <RefreshCw className={isFetching ? 'w-4 h-4 animate-spin' : 'w-4 h-4'} />
-          Refresh
-        </button>
-      </div>
+    <div className="space-y-5 md:space-y-8">
+      <PageHeader
+        eyebrow="Merchants"
+        title="Merchant"
+        italic="applications."
+        aside="Approving moves a referrer onto the cash revenue share, paid from the treasury."
+        actions={<RefreshButton onClick={() => refetch()} spinning={isFetching} disabled={isFetching} />}
+      />
 
-      {isLoading ? (
-        <div className="h-[40vh] flex items-center justify-center">
-          <Loader2 className="w-7 h-7 animate-spin text-brand-secondary/25" />
-        </div>
+      {isPending ? (
+        <CardsShimmer />
       ) : applications.length === 0 ? (
-        <div className="card-glass p-12 text-center space-y-3">
-          <Store className="w-8 h-8 mx-auto text-brand-secondary/20" />
-          <p className="text-sm text-brand-secondary/50">Nothing waiting.</p>
-        </div>
+        <Panel>
+          <EmptyState icon={<Store className="size-5" />} title="Nothing" italic="waiting." body="New merchant applications show up here for a decision." />
+        </Panel>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-4 md:space-y-5">
           {applications.map((application) => (
             <ApplicationCard
               key={application.id}
@@ -102,9 +85,7 @@ export default function AdminMerchants() {
               }}
               onCancelNote={() => setNoteFor(null)}
               onApprove={() => decide.mutate({ id: application.id, approve: true })}
-              onReject={() =>
-                decide.mutate({ id: application.id, approve: false, note })
-              }
+              onReject={() => decide.mutate({ id: application.id, approve: false, note })}
             />
           ))}
         </div>
@@ -135,90 +116,97 @@ function ApplicationCard({
   onReject: () => void;
 }) {
   return (
-    <div className="card-glass p-6 space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <Panel className="p-5 sm:p-8">
+      <div className="flex items-center gap-3">
+        <Avatar email={application.userEmail} />
         <div className="min-w-0">
-          <p className="font-bold text-brand-secondary break-all">{application.userEmail}</p>
-          <p className="text-[12px] text-brand-secondary/40 mt-0.5">
-            Applied {format(new Date(application.createdAt), 'd MMM yyyy')}
-          </p>
-        </div>
-
-        {/* What we can verify, beside what they claimed. */}
-        <div className="flex gap-6 shrink-0">
-          <Figure
-            label="Network this month"
-            value={`$${application.monthlyNetworkVolumeUsdc.toLocaleString()}`}
-          />
-          <Figure label="People referred" value={String(application.refereeCount)} />
-          <Figure
-            label="They expect"
-            value={
-              application.expectedMonthlyVolumeUsdc != null
-                ? `$${application.expectedMonthlyVolumeUsdc.toLocaleString()}`
-                : '—'
-            }
-          />
+          <p className="break-all text-[17px] font-semibold">{application.userEmail}</p>
+          <p className="text-[13px] text-[var(--lp-muted)]">Applied {format(new Date(application.createdAt), 'd MMM yyyy')}</p>
         </div>
       </div>
 
-      <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {/* What we can verify, beside what they claimed. */}
+      <dl className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <Figure label="Network this month" value={`$${application.monthlyNetworkVolumeUsdc.toLocaleString()}`} verified />
+        <Figure label="People referred" value={String(application.refereeCount)} verified />
+        <Figure
+          label="They expect"
+          value={application.expectedMonthlyVolumeUsdc != null ? `$${application.expectedMonthlyVolumeUsdc.toLocaleString()}` : '—'}
+        />
+      </dl>
+
+      <dl className="mt-5 grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
         <Field label="Organisation" value={application.organisation} />
         <Field label="Audience" value={application.audience} />
-      </dl>
-      {application.notes && <Field label="Notes" value={application.notes} />}
-
-      {noteOpen ? (
-        <div className="space-y-3 pt-2 border-t border-white/5">
-          <label className="block">
-            <span className="block mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
-              Why not? — shown to them
-            </span>
-            <textarea
-              value={note}
-              onChange={(e) => onNoteChange(e.target.value)}
-              rows={3}
-              autoFocus
-              placeholder="Not yet — come back when your group is transacting regularly."
-              className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-[13px] text-brand-secondary focus:outline-none focus:border-accent/60"
-            />
-          </label>
-          <div className="flex gap-3">
-            <button onClick={onCancelNote} disabled={busy} className="btn-secondary flex-1">
-              Cancel
-            </button>
-            <button
-              onClick={onReject}
-              disabled={busy}
-              className="btn-primary flex-1 !bg-red-500 !text-white hover:!bg-red-600"
-            >
-              {busy ? 'Declining…' : 'Decline'}
-            </button>
+        {application.notes && (
+          <div className="sm:col-span-2">
+            <Field label="Notes" value={application.notes} />
           </div>
-        </div>
-      ) : (
-        <div className="flex gap-3 pt-2 border-t border-white/5">
-          <button onClick={onOpenNote} disabled={busy} className="btn-secondary flex-1 gap-2">
-            <X className="w-4 h-4" />
-            Decline
-          </button>
-          <button onClick={onApprove} disabled={busy} className="btn-primary flex-1 gap-2">
-            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-            Approve as Merchant
-          </button>
-        </div>
-      )}
-    </div>
+        )}
+      </dl>
+
+      <div className="mt-6 border-t border-[#e3dcce] pt-5">
+        {noteOpen ? (
+          <div className="space-y-3">
+            <label className="block">
+              <span className="mb-2 block text-[14px] font-semibold">
+                Why not? <span className="font-normal text-[var(--lp-muted)]">This is shown to them.</span>
+              </span>
+              <textarea
+                value={note}
+                onChange={(e) => onNoteChange(e.target.value)}
+                rows={3}
+                autoFocus
+                placeholder="Not yet. Come back when your group is transacting regularly."
+                className="w-full rounded-[20px] bg-[var(--lp-cream)] px-4 py-3 text-base outline-2 outline-offset-2 outline-transparent transition-[outline-color] focus:outline-[var(--lp-ink)] sm:text-[15px]"
+              />
+            </label>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <SecondaryButton onClick={onCancelNote} disabled={busy} className="sm:flex-1">
+                Cancel
+              </SecondaryButton>
+              <button
+                onClick={onReject}
+                disabled={busy}
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-[#a1462c] px-5 text-[15px] font-semibold text-white transition-[scale,opacity] duration-150 active:scale-[0.97] disabled:opacity-40 sm:flex-1"
+              >
+                {busy ? <Loader2 className="size-4 animate-spin" /> : <X className="size-4" />}
+                {busy ? 'Declining…' : 'Decline application'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <SecondaryButton onClick={onOpenNote} disabled={busy} className="sm:flex-1">
+              <X className="size-4" /> Decline
+            </SecondaryButton>
+            <PrimaryButton onClick={onApprove} disabled={busy} className="sm:flex-1">
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
+              Approve as Merchant
+            </PrimaryButton>
+          </div>
+        )}
+      </div>
+    </Panel>
   );
 }
 
-function Figure({ label, value }: { label: string; value: string }) {
+function Figure({ label, value, verified }: { label: string; value: string; verified?: boolean }) {
   return (
-    <div className="text-right">
-      <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-brand-secondary/30">
+    <div className="flex items-center justify-between gap-3 rounded-[18px] bg-[var(--lp-cream)] px-4 py-3 sm:block">
+      <dt className="flex items-center gap-2 text-[13px] text-[var(--lp-muted)]">
         {label}
-      </p>
-      <p className="font-bold text-brand-secondary mt-0.5">{value}</p>
+        <span
+          className={
+            verified
+              ? 'rounded-full bg-[#00e87a]/15 px-2 py-px text-[11px] font-semibold text-[#0e7a45]'
+              : 'rounded-full bg-[#f5c451]/30 px-2 py-px text-[11px] font-semibold text-[#8a5a00]'
+          }
+        >
+          {verified ? 'Verified' : 'Claimed'}
+        </span>
+      </dt>
+      <dd className="lp-display text-[22px] leading-none tracking-[-0.03em] tabular-nums sm:mt-2 sm:text-[26px]">{value}</dd>
     </div>
   );
 }
@@ -226,12 +214,8 @@ function Figure({ label, value }: { label: string; value: string }) {
 function Field({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
-      <dt className="text-[10px] font-bold uppercase tracking-[0.15em] text-brand-secondary/30">
-        {label}
-      </dt>
-      <dd className="text-[13px] text-brand-secondary/80 mt-1 leading-relaxed whitespace-pre-wrap">
-        {value || '—'}
-      </dd>
+      <dt className="lp-mono text-[12px] uppercase text-[var(--lp-muted)]">{label}</dt>
+      <dd className="mt-1 whitespace-pre-wrap text-[15px] leading-relaxed">{value || '—'}</dd>
     </div>
   );
 }

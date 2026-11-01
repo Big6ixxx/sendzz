@@ -3,12 +3,14 @@
 import { format } from 'date-fns';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Check, Copy, Globe, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 
+import { brandFontVars } from '@/components/landing/fonts';
 import { getCurrencyCountry, getCurrencyFlag } from '@/lib/currency-config';
 import { cn } from '@/lib/utils';
 import type { AdminLog, AuditLog, WebhookLog } from '@/types/admin';
+import { useCopied } from '../components/ui';
 
 /**
  * Keys that answer "what happened and why".
@@ -108,7 +110,11 @@ function resolveDestination(payload: unknown): {
   const currency = findKeys(payload, CURRENCY_KEYS)[0]?.value?.toUpperCase() ?? null;
   const explicit = findKeys(payload, ['country', 'countryCode', 'country_code'])[0]?.value ?? null;
   const country = explicit ?? (currency ? getCurrencyCountry(currency) : null);
-  return { currency, country, flag: currency ? getCurrencyFlag(currency) : '🏳️' };
+  return {
+    currency,
+    country,
+    flag: currency ? getCurrencyFlag(currency) : '🏳️',
+  };
 }
 
 function labelise(key: string): string {
@@ -119,18 +125,14 @@ function labelise(key: string): string {
 }
 
 function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, copy] = useCopied();
   return (
     <button
       type="button"
-      onClick={() => {
-        navigator.clipboard.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1400);
-      }}
-      className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-[10px] font-bold uppercase tracking-widest text-white/40 hover:text-white transition-colors"
+      onClick={() => copy(text)}
+      className="inline-flex h-9 items-center gap-2 rounded-full border border-[rgba(17,26,19,0.15)] px-3.5 text-[13px] font-semibold transition-colors hover:border-[var(--lp-ink)]"
     >
-      {copied ? <Check className="w-3 h-3 text-[#00e87a]" /> : <Copy className="w-3 h-3" />}
+      {copied ? <Check className="w-3 h-3 text-[#0e7a45]" /> : <Copy className="w-3 h-3" />}
       {copied ? 'Copied' : 'Copy JSON'}
     </button>
   );
@@ -146,9 +148,8 @@ export function LogDetailModal({
   onClose: () => void;
 }) {
   const payload =
-    log && (logType === 'webhooks'
-      ? (log as WebhookLog).payload_json
-      : (log as AuditLog).metadata_json);
+    log &&
+    (logType === 'webhooks' ? (log as WebhookLog).payload_json : (log as AuditLog).metadata_json);
 
   const destination = log ? resolveDestination(payload) : null;
   const causes = log ? findKeys(payload, CAUSE_KEYS) : [];
@@ -177,162 +178,168 @@ export function LogDetailModal({
   /**
    * Portalled to <body> rather than rendered in place.
    *
-   * The admin layout nests pages inside `overflow-hidden` panels and a sidebar that creates its
-   * own stacking context with a backdrop-filter — enough to trap a `position: fixed` overlay so
-   * it mounts but is never visible. Escaping to the body sidesteps every ancestor's overflow,
-   * transform and z-index, which is why the modal opened but nothing appeared.
+   * The admin layout nests pages inside `overflow-hidden` scroll panels, which can trap a
+   * `position: fixed` overlay so it mounts but is never visible. Escaping to the body sidesteps
+   * every ancestor's overflow, transform and z-index.
+   *
+   * Out there it is also outside the admin's `lp-root`, so it brings the brand scope with it:
+   * without it the text takes the app's global near-white and the cream fills have no colour.
+   * `contents` keeps the wrapper itself out of the layout.
    */
   return createPortal(
-    <AnimatePresence>
-      {log && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          onClick={onClose}
-          className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-6"
-          style={{ background: 'rgba(7,7,10,0.75)', backdropFilter: 'blur(6px)' }}
-        >
+    <div className={`lp-root ${brandFontVars} contents`}>
+      <AnimatePresence>
+        {log && (
           <motion.div
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 24 }}
-            onClick={(e) => e.stopPropagation()}
-            className="card-glass w-full sm:max-w-3xl max-h-[90vh] overflow-y-auto border-white/10 p-6 sm:rounded-3xl rounded-t-3xl"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-6"
+            style={{
+              background: 'rgba(17,26,19,0.5)',
+              backdropFilter: 'blur(6px)',
+            }}
           >
-            {/* Header */}
-            <div className="flex items-start justify-between gap-4 mb-6">
-              <div className="min-w-0">
-                <h2 className="text-lg font-bold text-white tracking-tight break-words">
-                  {title}
-                </h2>
-                <p className="text-[10px] font-mono text-white/25 mt-1 uppercase tracking-widest break-all">
-                  {format(new Date(log.created_at), 'd MMM yyyy, HH:mm:ss.SSS')} · {log.id}
-                </p>
+            <motion.div
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 24 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-h-[90vh] overflow-y-auto rounded-t-[28px] bg-white p-5 shadow-[0_24px_64px_-24px_rgb(17_26_19/0.45)] sm:max-w-3xl sm:rounded-[32px] sm:p-8"
+            >
+              {/* Header */}
+              <div className="flex items-start justify-between gap-4 mb-6">
+                <div className="min-w-0">
+                  <p className="lp-mono text-[11px] uppercase text-[var(--lp-muted)] sm:text-[12px]">
+                    {logType === 'webhooks' ? 'Webhook' : 'Audit log'}
+                  </p>
+                  <h2 className="lp-display mt-1 break-words text-[clamp(22px,5vw,32px)] leading-[1.05] tracking-[-0.03em]">
+                    {title}
+                  </h2>
+                  <p className="lp-mono mt-2 break-all text-[12px] text-[var(--lp-muted)]">
+                    {format(new Date(log.created_at), 'd MMM yyyy, HH:mm:ss.SSS')} · {log.id}
+                  </p>
+                </div>
+                <button
+                  onClick={onClose}
+                  aria-label="Close"
+                  className="grid size-10 shrink-0 place-items-center rounded-full bg-[var(--lp-cream)] transition-colors hover:bg-[#ece6da]"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-              <button
-                onClick={onClose}
-                className="p-2 rounded-xl bg-white/5 border border-white/10 text-white/40 hover:text-white transition-colors shrink-0"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
 
-            {/* Destination — which currency and where it was headed */}
-            {destination && (destination.currency || destination.country) && (
-              <div className="mb-6 flex items-center gap-4 rounded-2xl border border-white/8 bg-white/3 px-5 py-4">
-                <span className="text-2xl leading-none">{destination.flag}</span>
-                <div className="flex flex-wrap items-center gap-x-8 gap-y-2">
-                  <div>
-                    <p className="text-[9px] font-bold text-white/25 uppercase tracking-[0.2em]">
-                      Currency
-                    </p>
-                    <p className="text-sm font-bold text-white mt-0.5">
-                      {destination.currency ?? '—'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[9px] font-bold text-white/25 uppercase tracking-[0.2em] flex items-center gap-1.5">
-                      <Globe className="w-3 h-3" /> Destination
-                    </p>
-                    <p className="text-sm font-bold text-white mt-0.5">
-                      {destination.country ?? 'Unknown'}
-                    </p>
+              {/* Destination — which currency and where it was headed */}
+              {destination && (destination.currency || destination.country) && (
+                <div className="mb-6 flex items-center gap-4 rounded-[22px] bg-[var(--lp-cream)] px-5 py-4">
+                  <span className="text-2xl leading-none">{destination.flag}</span>
+                  <div className="flex flex-wrap items-center gap-x-8 gap-y-2">
+                    <div>
+                      <p className="lp-mono text-[11px] text-[var(--lp-muted)] uppercase">
+                        Currency
+                      </p>
+                      <p className="text-sm font-bold text-[var(--lp-ink)] mt-0.5">
+                        {destination.currency ?? '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="lp-mono text-[11px] text-[var(--lp-muted)] uppercase flex items-center gap-1.5">
+                        <Globe className="w-3 h-3" /> Destination
+                      </p>
+                      <p className="text-sm font-bold text-[var(--lp-ink)] mt-0.5">
+                        {destination.country ?? 'Unknown'}
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Why — shown ONLY when the provider actually told us. No canned explanation of
+              {/* Why — shown ONLY when the provider actually told us. No canned explanation of
                 what a status means: an admin opening a log already knows what "expired" is, and
                 filling the space with boilerplate hides the fact that the real cause is absent. */}
-            {causes.length > 0 && (
-              <div className="mb-7 border-l-2 border-amber-400/70 pl-5">
-                {causes.map((c, i) => (
-                  <div key={c.key} className={i > 0 ? 'mt-5' : undefined}>
-                    <p className="text-[15px] leading-relaxed text-white/90">{c.value}</p>
-                    <p className="text-[11px] text-white/30 mt-2">
-                      {labelise(c.key)} · reported by{' '}
-                      {logType === 'webhooks'
-                        ? (log as WebhookLog).provider
-                        : 'Sendzz'}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Record-level fields */}
-            <div className="grid sm:grid-cols-2 gap-3 mb-6">
-              {(logType === 'webhooks'
-                ? [
-                    ['Provider', (log as WebhookLog).provider],
-                    ['Event Type', (log as WebhookLog).event_type],
-                    ['Event ID', (log as WebhookLog).event_id],
-                    ['Processed', String((log as WebhookLog).processed)],
-                  ]
-                : [
-                    ['Action', (log as AuditLog).action],
-                    ['User ID', (log as AuditLog).user_id ?? '—'],
-                    ['IP', (log as AuditLog).ip ?? '—'],
-                    ['User Agent', (log as AuditLog).user_agent ?? '—'],
-                  ]
-              ).map(([label, value]) => (
-                <div
-                  key={label as string}
-                  className="rounded-xl bg-white/3 border border-white/5 px-4 py-3 min-w-0"
-                >
-                  <p className="text-[9px] font-bold text-white/25 uppercase tracking-[0.2em]">
-                    {label}
-                  </p>
-                  <p className="text-xs text-white/70 mt-1 break-all">{value || '—'}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* Facts pulled out of the payload */}
-            {facts.length > 0 && (
-              <div className="mb-6">
-                <h3 className="text-[10px] font-bold text-white/30 uppercase tracking-[0.2em] mb-3">
-                  Key Fields
-                </h3>
-                <div className="grid sm:grid-cols-2 gap-3">
-                  {facts.map((f) => (
-                    <div
-                      key={f.key}
-                      className="rounded-xl bg-white/3 border border-white/5 px-4 py-3 min-w-0"
-                    >
-                      <p className="text-[9px] font-bold text-white/25 uppercase tracking-[0.2em]">
-                        {labelise(f.key)}
+              {causes.length > 0 && (
+                <div className="mb-7 rounded-[22px] border-l-4 border-[#f5c451] bg-[#f5c451]/15 py-4 pl-5 pr-4">
+                  {causes.map((c, i) => (
+                    <div key={c.key} className={i > 0 ? 'mt-5' : undefined}>
+                      <p className="text-[16px] leading-relaxed text-[var(--lp-ink)]">{c.value}</p>
+                      <p className="text-[13px] text-[var(--lp-muted)] mt-2">
+                        {labelise(c.key)} · reported by{' '}
+                        {logType === 'webhooks' ? (log as WebhookLog).provider : 'Sendzz'}
                       </p>
-                      <p className="text-xs text-white/70 mt-1 break-all">{f.value}</p>
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Raw payload — the final authority when the extraction misses something */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-[10px] font-bold text-white/30 uppercase tracking-[0.2em]">
-                  Raw Payload
-                </h3>
-                <CopyButton text={json} />
+              {/* Record-level fields */}
+              <div className="grid sm:grid-cols-2 gap-3 mb-6">
+                {(logType === 'webhooks'
+                  ? [
+                      ['Provider', (log as WebhookLog).provider],
+                      ['Event Type', (log as WebhookLog).event_type],
+                      ['Event ID', (log as WebhookLog).event_id],
+                      ['Processed', String((log as WebhookLog).processed)],
+                    ]
+                  : [
+                      ['Action', (log as AuditLog).action],
+                      ['User ID', (log as AuditLog).user_id ?? '—'],
+                      ['IP', (log as AuditLog).ip ?? '—'],
+                      ['User Agent', (log as AuditLog).user_agent ?? '—'],
+                    ]
+                ).map(([label, value]) => (
+                  <div
+                    key={label as string}
+                    className="min-w-0 rounded-[18px] bg-[var(--lp-cream)] px-4 py-3"
+                  >
+                    <p className="text-[13px] text-[var(--lp-muted)]">{label}</p>
+                    <p className="mt-0.5 break-all text-[14px] font-semibold">{value || '—'}</p>
+                  </div>
+                ))}
               </div>
-              <pre
-                className={cn(
-                  'text-[11px] leading-relaxed text-white/60 font-mono',
-                  'rounded-2xl bg-black/40 border border-white/5 p-4 overflow-x-auto max-h-96',
-                )}
-              >
-                {json}
-              </pre>
-            </div>
+
+              {/* Facts pulled out of the payload */}
+              {facts.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="lp-mono mb-3 text-[12px] uppercase text-[var(--lp-muted)]">
+                    Key fields
+                  </h3>
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    {facts.map((f) => (
+                      <div
+                        key={f.key}
+                        className="min-w-0 rounded-[18px] bg-[var(--lp-cream)] px-4 py-3"
+                      >
+                        <p className="text-[13px] text-[var(--lp-muted)]">{labelise(f.key)}</p>
+                        <p className="mt-0.5 break-all text-[14px] font-semibold">{f.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Raw payload — the final authority when the extraction misses something */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="lp-mono text-[12px] uppercase text-[var(--lp-muted)]">
+                    Raw payload
+                  </h3>
+                  <CopyButton text={json} />
+                </div>
+                <pre
+                  className={cn(
+                    'lp-mono text-[12px] leading-relaxed text-[#cfe0d6]',
+                    'max-h-96 overflow-x-auto rounded-[22px] bg-[var(--lp-ink)] p-4 sm:p-5',
+                  )}
+                >
+                  {json}
+                </pre>
+              </div>
+            </motion.div>
           </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>,
+        )}
+      </AnimatePresence>
+    </div>,
     document.body,
   );
 }
