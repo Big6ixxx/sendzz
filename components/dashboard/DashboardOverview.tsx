@@ -11,6 +11,7 @@ import { useBalanceVisibility } from "@/components/providers/BalanceVisibilityPr
 import { AnimatedBalance } from "@/components/ui/AnimatedBalance";
 import { CHAIN_NAMES } from "@/lib/circle/gateway";
 import { RecentActivity } from "./RecentActivity";
+import { FlowLabel } from "@/components/flow/ui";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -84,7 +85,7 @@ export function DashboardOverview({
         transition={{ duration: 0.8, ease: EASE }}
         className="pt-2"
       >
-        <p className="lp-mono text-[12px] uppercase text-[var(--lp-muted)]">Overview</p>
+        <FlowLabel>Overview</FlowLabel>
         <h1 className="lp-display mt-2 text-[clamp(36px,5.4vw,64px)] leading-[0.95] tracking-[-0.045em]">
           {greeting()}
           {name ? (
@@ -247,8 +248,8 @@ function QuickSend({ onSend }: { onSend: (email: string) => void }) {
 
   return (
     <Reveal>
-      <section className="rounded-[28px] bg-white p-6 shadow-[0_0_0_1px_rgb(17_26_19/0.06)] sm:p-8">
-        <p className="lp-mono text-[12px] uppercase text-[var(--lp-muted)]">Send by email</p>
+      <section className="lp-card rounded-[28px] p-6 sm:p-8">
+        <FlowLabel>Send by email</FlowLabel>
         <h2 className="lp-display mt-3 text-[clamp(26px,3vw,34px)] font-bold leading-none tracking-[-0.03em]">
           Who are you paying <span className="lp-serif font-normal tracking-[-0.01em]">today?</span>
         </h2>

@@ -104,7 +104,7 @@ export function describeCryptoSend(params: {
         kind: 'wait',
         title: 'Wait for the networks to agree',
         detail:
-          'Nothing to do here — the two networks confirm the move between themselves. You can ' +
+          'Nothing to do here. The two networks confirm the move between themselves. You can ' +
           'leave this page; we will finish it for you.',
         signature: false,
         estimateSeconds: 60,
@@ -160,7 +160,7 @@ export function describeBridge(params: {
         kind: 'wait',
         title: 'Wait for the two networks to agree',
         detail:
-          'Your money is in transit and is not lost — it just is not visible on either ' +
+          'Your money is in transit and is not lost. It just is not visible on either ' +
           'network yet. You can close this page; we will finish the delivery for you.',
         signature: false,
         estimateSeconds: 90,
@@ -206,7 +206,7 @@ export function describeWithdrawal(params: {
         kind: 'wait',
         title: `Getting your money to ${bankLabel}`,
         detail:
-          'Nothing more to confirm — we take it from here. Most banks show the money within ' +
+          'Nothing more to confirm. We take it from here. Most banks show the money within ' +
           'minutes, though some take longer. We will email you when it lands.',
         signature: false,
         estimateSeconds: 120,

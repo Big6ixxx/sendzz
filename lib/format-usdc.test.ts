@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatFeeSummary, formatUsdc, usdcDecimalsFor } from './format-usdc';
+import { formatFeeSummary, formatMoney, formatUsd, formatUsdc, usdcDecimalsFor } from './format-usdc';
 
 describe('fee summary formatting', () => {
   /** The reported case: 0.03 USDC at 0.01%, which rendered as 0.03 / 0.00 / 0.03. */
@@ -39,5 +39,30 @@ describe('fee summary formatting', () => {
   it('handles bad input without throwing', () => {
     expect(formatUsdc(NaN)).toBe('0.00');
     expect(formatUsdc(Infinity)).toBe('0.00');
+  });
+});
+
+describe('formatMoney', () => {
+  it('groups thousands at two decimals', () => {
+    expect(formatMoney(1234.5)).toBe('1,234.50');
+    expect(formatUsd(0)).toBe('$0.00');
+  });
+  it('keeps a tiny real amount visible instead of rounding it to zero', () => {
+    expect(formatMoney(0.004)).toBe('0.004');
+    expect(formatUsd(0.0004)).toBe('$0.0004');
+  });
+  it('treats a non-number as zero', () => {
+    expect(formatMoney('abc')).toBe('0.00');
+  });
+});
+
+describe('formatMoney edge cases', () => {
+  it('shows a bound, never zero, below USDC precision', () => {
+    expect(formatMoney(0.0000004)).toBe('< 0.000001');
+    expect(formatUsd(0.0000004)).toBe('< $0.000001');
+  });
+  it('never prints infinity', () => {
+    expect(formatMoney(Infinity)).toBe('0.00');
+    expect(formatUsd(-Infinity)).toBe('$0.00');
   });
 });

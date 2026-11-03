@@ -16,10 +16,10 @@ import { useStellarWallet } from "@/hooks/useStellarWallet";
 import { PendingBridgeClaims } from "@/components/bridge/PendingBridgeClaims";
 import { DashboardOverview } from "@/components/dashboard/DashboardOverview";
 import { LandingSupport } from "@/components/landing/LandingSupport";
-import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { type ChainBalances } from "@/lib/web3/routing";
+import { PageSkeleton } from "@/components/dashboard/PageSkeleton";
 
 export default function Dashboard() {
   const { ready, authenticated, user } = usePrivy();
@@ -175,11 +175,7 @@ export default function Dashboard() {
   }, [ready, authenticated, wallets, user, embeddedSolWallet?.address]);
 
   if (!ready || !authenticated || !user) {
-    return (
-      <div className="flex h-[60vh] items-center justify-center">
-        <Loader2 className="size-8 animate-spin text-[var(--lp-muted)]" />
-      </div>
-    );
+    return <PageSkeleton variant="overview" />;
   }
 
   const openRamp = (type: "deposit" | "withdraw") => {
@@ -209,7 +205,6 @@ export default function Dashboard() {
         // when funds appear to be missing.
         pending={
           <PendingBridgeClaims
-            tone="light"
             userEmail={email}
             solanaAddress={embeddedSolWallet?.address}
             stellarWallet={
@@ -217,7 +212,7 @@ export default function Dashboard() {
             }
           />
         }
-        incoming={<PendingIncomingPanel tone="light" userId={user.id} userEmail={email} />}
+        incoming={<PendingIncomingPanel userId={user.id} userEmail={email} />}
       />
 
       <ActivityDetailModal

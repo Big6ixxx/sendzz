@@ -14,8 +14,10 @@
  *   Where is it?    A number on screen, and a list of what has actually been sent.
  */
 
-import { DashboardPageHeader } from '@/components/layout/DashboardPageHeader';
-import { Check, ChevronRight, Copy, Gift, Loader2, Share2, Wallet } from 'lucide-react';
+import { PageHeader } from '@/components/dashboard/PageHeader';
+import { Notice } from '@/components/flow/ui';
+import { ArrowRight, Check, Copy, Share2, Wallet } from 'lucide-react';
+import Link from 'next/link';
 import { usePrivy } from '@privy-io/react-auth';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -25,6 +27,8 @@ import { getMyMerchantApplication, type MerchantApplication } from '@/lib/action
 import { MerchantApplicationCard } from '@/components/referrals/MerchantApplicationCard';
 import { referralsEnabled } from '@/lib/features';
 import { ComingSoon } from '@/components/ComingSoon';
+import { Skeleton } from '@/components/ui/skeleton';
+import { formatUsd } from '@/lib/format-usdc';
 
 interface PayoutRow {
   id: string;
@@ -67,7 +71,7 @@ export default function ReferralsPage() {
     return (
       <ComingSoon
         title="Refer & Earn"
-        body="Earn a share of what the people you bring to Sendzz withdraw. We are finishing the payout side before opening it up — nothing is lost in the meantime."
+        body="Earn a share of what the people you bring to Sendzz withdraw. We are finishing the payout side before opening it up. Nothing is lost in the meantime."
       />
     );
   }
@@ -143,19 +147,23 @@ function ReferralsDashboard() {
 
   if (loading) {
     return (
-      <div className="h-[50vh] flex items-center justify-center">
-        <Loader2 className="w-7 h-7 animate-spin text-brand-secondary/25" />
+      <div className="mx-auto max-w-[1080px] space-y-6 pb-24" aria-label="Loading">
+        <Skeleton tone="page" className="h-24 w-2/3 rounded-[24px]" />
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+          <Skeleton tone="page" className="h-64 rounded-[32px]" />
+          <Skeleton tone="page" className="h-64 rounded-[32px]" />
+        </div>
       </div>
     );
   }
 
   if (!data) {
     return (
-      <div className="space-y-8">
-        <DashboardPageHeader title="Refer & Earn" subtitle="Share Sendzz, earn a cut" />
-        <p className="text-sm text-brand-secondary/50">
-          We could not load your referral details. Refresh the page to try again.
-        </p>
+      <div className="mx-auto max-w-[1080px] space-y-6 pb-24">
+        <PageHeader eyebrow="Refer & earn" title="Bring a friend," italic="share the upside." />
+        <Notice tone="danger" title="We couldn't load your referral details">
+          Refresh the page to try again.
+        </Notice>
       </div>
     );
   }
@@ -166,155 +174,168 @@ function ReferralsDashboard() {
   // page rather than a different programme.
   const isMerchant = data.program === 'merchant';
 
+  const stats = isMerchant
+    ? [
+        { label: 'Your tier', value: TIER_LABELS[data.tier], note: `${data.tierRatePercent}% of every cash-out` },
+        { label: 'People joined', value: String(data.referredCount) },
+        { label: 'Waiting to be paid', value: formatUsd(data.pendingUsdc), note: toGo > 0 ? `${formatUsd(toGo)} to the next payout` : undefined },
+        { label: 'Paid to your wallet', value: formatUsd(data.paidUsdc) },
+      ]
+    : [
+        { label: 'People joined', value: String(data.referredCount) },
+        { label: 'Fee credit earned', value: formatUsd(data.feeCreditUsdc), note: 'Comes off your own fees' },
+        { label: 'Your fee-free allowance', value: formatUsd(data.waiverVolumeUsdc), wide: true },
+      ];
+
+  const steps = isMerchant
+    ? [
+        {
+          title: 'You earn when they cash out to a bank',
+          body: `You keep ${data.tierRatePercent}% of every withdrawal the people you invited make. It comes out of the fee Sendzz charges, never out of their money. They pay exactly the same whether they used your link or not.`,
+        },
+        {
+          title: "Your rate doesn't change with theirs",
+          body: `Some countries cost us more to pay out to, so the fee there is higher. Your ${data.tierRatePercent}% stays the same either way, so you are never paid less because of where someone banks.`,
+        },
+        {
+          title: 'We pay into your Sendzz wallet automatically',
+          body: `Once you've earned ${formatUsd(data.minimumPayoutUsdc)}, your balance is sent to your wallet as USDC. Nothing to claim, it just arrives.${
+            toGo > 0 && data.pendingUsdc > 0 ? ` You're ${formatUsd(toGo)} away from your next payout.` : ''
+          }`,
+        },
+      ]
+    : [
+        {
+          title: 'Share your link',
+          body: 'Anyone who signs up through it is linked to you for good.',
+        },
+        {
+          title: 'They get their first cash-outs free',
+          body: "Anyone who joins with your link pays no Sendzz fee on their first withdrawals, up to a set amount. That's the part worth telling them about: it costs them nothing to try you out.",
+        },
+        {
+          title: `You get ${formatUsd(data.milestoneCreditUsdc)} once they cash out $${data.milestoneVolumeUsdc}`,
+          body: 'It lands as Sendzz fee credit, which comes off your own withdrawal fees automatically. No claiming, no minimum, nothing to withdraw. Counted across all their cash-outs, not one big one.',
+        },
+      ];
+
+  const tierProgress =
+    isMerchant && data.nextTier
+      ? Math.min(100, (data.monthlyVolumeUsdc / (data.monthlyVolumeUsdc + data.nextTier.volumeNeededUsdc)) * 100)
+      : 0;
+
   return (
-    <div className="space-y-8 max-w-3xl">
-      <DashboardPageHeader
-        title="Refer & Earn"
+    <div className="mx-auto max-w-[1080px] space-y-6 pb-24 md:space-y-8">
+      <PageHeader
+        eyebrow="Refer & earn"
+        title="Bring a friend,"
+        italic="share the upside."
         subtitle={
           isMerchant
-            ? 'Share Sendzz, earn on every cash-out your people make'
-            : 'Give your friends free transfers, earn credit on yours'
+            ? 'Share Sendzz, earn on every cash-out your people make.'
+            : 'Give your friends free transfers, earn credit on yours.'
         }
       />
 
-      {/* ── The link ──────────────────────────────────────────────────────── */}
-      <div className="card-glass p-6 md:p-8 space-y-5">
-        <div className="flex items-start gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent shrink-0">
-            <Gift className="w-6 h-6" />
-          </div>
-          <div className="space-y-1 min-w-0">
-            <p className="font-bold text-brand-secondary">Your invite link</p>
-            <p className="text-[13px] text-brand-secondary/50 leading-relaxed">
-              Anyone who signs up through this link is linked to you for good.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex flex-col sm:flex-row gap-2.5">
-          <div className="flex-1 min-w-0 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30 mb-1">
-              Your code
-            </p>
-            <p className="font-mono text-[15px] font-bold text-brand-secondary tracking-wider break-all">
-              {data.code}
-            </p>
-          </div>
-
-          <div className="flex gap-2.5 sm:flex-col sm:justify-center">
-            <button onClick={copy} className="btn-secondary flex-1 gap-2 whitespace-nowrap">
-              {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] lg:gap-5">
+        {/* ── The link ──────────────────────────────────────────────────────── */}
+        <section className="relative overflow-hidden rounded-[32px] bg-[var(--lp-forest)] p-6 text-[var(--lp-cream)] sm:p-8">
+          <p className="lp-mono text-[12px] uppercase text-[var(--lp-green)]">Your invite code</p>
+          <p className="lp-display mt-2 break-all text-[clamp(36px,7vw,56px)] leading-[0.95] tracking-[-0.03em]">{data.code}</p>
+          <p className="lp-mono mt-3 truncate text-[13px] text-[#a9c2b5]" title={link}>
+            {link.replace(/^https?:\/\//, '')}
+          </p>
+          <p className="mt-4 max-w-[380px] text-[14px] leading-[1.5] text-[#cfe0d6]">
+            Anyone who signs up through this link is linked to you for good.
+          </p>
+          <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              onClick={copy}
+              className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-full bg-[var(--lp-cream)] px-5 text-[15px] font-semibold text-[var(--lp-ink)] transition-transform duration-150 active:scale-[0.98]"
+            >
+              {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
               {copied ? 'Copied' : 'Copy link'}
             </button>
-            <button onClick={share} className="btn-primary flex-1 gap-2 whitespace-nowrap">
-              <Share2 className="w-4 h-4" />
-              Share
+            <button
+              type="button"
+              onClick={share}
+              className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-full bg-[var(--lp-green)] px-5 text-[15px] font-semibold text-[var(--lp-ink)] transition-transform duration-150 active:scale-[0.98]"
+            >
+              <Share2 className="size-4" /> Share
             </button>
           </div>
-        </div>
-      </div>
+        </section>
 
-      {/* ── What it has earned ────────────────────────────────────────────── */}
-      {isMerchant ? (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <Stat label="Your tier" value={TIER_LABELS[data.tier]} />
-          <Stat label="People joined" value={String(data.referredCount)} />
-          <Stat label="Waiting to be paid" value={`$${data.pendingUsdc.toFixed(2)}`} />
-          <Stat label="Paid to your wallet" value={`$${data.paidUsdc.toFixed(2)}`} />
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-          <Stat label="People joined" value={String(data.referredCount)} />
-          <Stat label="Fee credit earned" value={`$${data.feeCreditUsdc.toFixed(2)}`} />
-          <Stat
-            label="Your fee-free allowance"
-            value={`$${data.waiverVolumeUsdc.toFixed(2)}`}
-          />
-        </div>
-      )}
+        {/* ── What it has earned ────────────────────────────────────────────── */}
+        <section className="grid grid-cols-2 gap-3" aria-label="Your numbers">
+          {stats.map((s) => (
+            <div
+              key={s.label}
+              className={`lp-card flex flex-col justify-between rounded-[24px] p-5 ${'wide' in s && s.wide ? 'col-span-2' : ''}`}
+            >
+              <p className="text-[14px] text-[var(--lp-muted)]">{s.label}</p>
+              <div className="mt-6">
+                <p className="lp-display text-[clamp(28px,4vw,36px)] leading-none tracking-[-0.04em] tabular-nums">{s.value}</p>
+                {s.note && <p className="mt-1.5 text-[13px] text-[var(--lp-muted)]">{s.note}</p>}
+              </div>
+            </div>
+          ))}
+        </section>
+      </div>
 
       {/* Progress towards the next tier. Only shown when there is one to reach — a Gold
           affiliate being told they are 0% of the way to nothing is worse than silence. */}
       {isMerchant && data.nextTier && (
-        <div className="card-glass p-6 space-y-3">
-          <div className="flex items-baseline justify-between gap-4">
-            <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-brand-secondary/35">
-              Next tier
-            </p>
-            <p className="text-[12px] text-brand-secondary/50">
-              ${data.monthlyVolumeUsdc.toLocaleString()} withdrawn this month
-            </p>
+        <section className="lp-card rounded-[28px] p-6 sm:p-7">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="lp-display text-[24px] tracking-[-0.03em]">
+              Next: <span className="lp-serif">{TIER_LABELS[data.nextTier.name as keyof typeof TIER_LABELS] ?? data.nextTier.name}</span>
+            </h2>
+            <p className="text-[14px] text-[var(--lp-muted)]">${data.monthlyVolumeUsdc.toLocaleString()} cashed out this month</p>
           </div>
-          <p className="text-[13.5px] text-brand-secondary/80 leading-relaxed">
-            <span className="font-semibold text-brand-secondary">
-              ${data.nextTier.volumeNeededUsdc.toLocaleString()} more
-            </span>{' '}
-            in cash-outs from the people you invited and you reach{' '}
-            <span className="font-semibold text-brand-secondary">
-              {TIER_LABELS[data.nextTier.name as keyof typeof TIER_LABELS] ?? data.nextTier.name}
-            </span>
-            , which pays {data.nextTier.ratePercent}% instead of {data.tierRatePercent}%.
+          <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-[var(--lp-cream)]" role="progressbar" aria-valuenow={Math.round(tierProgress)} aria-valuemin={0} aria-valuemax={100}>
+            <div className="h-full rounded-full bg-[var(--lp-green)]" style={{ width: `${tierProgress}%` }} />
+          </div>
+          <p className="mt-4 text-[15px] leading-[1.55] text-[var(--lp-body)]">
+            <span className="font-semibold text-[var(--lp-ink)]">${data.nextTier.volumeNeededUsdc.toLocaleString()} more</span> in cash-outs from the
+            people you invited and you move up, earning {data.nextTier.ratePercent}% instead of {data.tierRatePercent}%.
           </p>
-        </div>
+        </section>
       )}
 
       {/* ── How it works, in plain words ──────────────────────────────────── */}
-      <div className="card-glass p-6 md:p-8 space-y-4">
-        <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-brand-secondary/35">
-          How this works
-        </p>
-
-        <div className="space-y-3.5">
-          {isMerchant ? (
-            <>
-              <Point
-                title="You earn when they cash out to a bank"
-                body={`You keep ${data.tierRatePercent}% of every withdrawal the people you invited make. It comes out of the fee Sendzz charges, never out of their money — they pay exactly the same whether they used your link or not.`}
-              />
-              <Point
-                title="Your rate doesn't change with theirs"
-                body={`Some countries cost us more to pay out to, so the fee there is higher. Your ${data.tierRatePercent}% stays the same either way — you are never paid less because of where someone banks.`}
-              />
-              <Point
-                title="We pay into your Sendzz wallet automatically"
-                body={`Once you've earned $${data.minimumPayoutUsdc.toFixed(2)}, your balance is sent to your wallet as USDC. Nothing to claim — it just arrives.${
-                  toGo > 0 && data.pendingUsdc > 0
-                    ? ` You're $${toGo.toFixed(2)} away from your next payout.`
-                    : ''
-                }`}
-              />
-            </>
-          ) : (
-            <>
-              <Point
-                title="They get their first cash-outs free"
-                body="Anyone who joins with your link pays no Sendzz fee on their first withdrawals, up to a set amount. That's the part worth telling them about — it costs them nothing to try you out."
-              />
-              <Point
-                title={`You get $${data.milestoneCreditUsdc.toFixed(2)} once they cash out $${data.milestoneVolumeUsdc}`}
-                body="It lands as Sendzz fee credit, which comes off your own withdrawal fees automatically — no claiming, no minimum, nothing to withdraw. Counted across all their cash-outs, not one big one."
-              />
-            </>
-          )}
-        </div>
-      </div>
+      <section>
+        <h2 className="lp-display text-[clamp(26px,4vw,34px)] tracking-[-0.03em]">
+          How it <span className="lp-serif">works.</span>
+        </h2>
+        <ol className="mt-4 grid gap-3 md:grid-cols-3">
+          {steps.map((st, i) => (
+            <li key={st.title} className="lp-card rounded-[24px] p-5 sm:p-6">
+              <span className="lp-serif text-[40px] leading-none text-[#0e7a45]">{i + 1}</span>
+              <p className="mt-4 text-[16px] font-semibold leading-snug">{st.title}</p>
+              <p className="mt-2 text-[14px] leading-[1.55] text-[var(--lp-body)]">{st.body}</p>
+            </li>
+          ))}
+        </ol>
+      </section>
 
       {/* A Merchant's full view lives on its own screen — network, monthly history, tier
           progress. Linked from here rather than the sidebar, so retail users are not shown a
           nav item for a track they are not on. */}
       {isMerchant && (
-        <a
+        <Link
           href="/dashboard/merchant"
-          className="card-glass p-6 flex items-center justify-between gap-4 hover:border-accent/30 transition-colors"
+          className="flex items-center justify-between gap-4 rounded-[28px] bg-[var(--lp-sand)] p-6 transition-transform duration-150 hover:-translate-y-px"
         >
-          <div className="min-w-0">
-            <p className="font-bold text-brand-secondary">Your Merchant dashboard</p>
-            <p className="text-[13px] text-brand-secondary/50 mt-0.5">
-              Monthly earnings, your network, and progress to the next tier.
-            </p>
-          </div>
-          <ChevronRight className="w-5 h-5 shrink-0 text-brand-secondary/30" />
-        </a>
+          <span className="min-w-0">
+            <span className="block text-[17px] font-semibold">Your Merchant dashboard</span>
+            <span className="mt-1 block text-[14px] text-[var(--lp-body)]">Monthly earnings, your network, and progress to the next tier.</span>
+          </span>
+          <span className="grid size-11 shrink-0 place-items-center rounded-full bg-[var(--lp-ink)] text-[var(--lp-cream)]">
+            <ArrowRight className="size-5" />
+          </span>
+        </Link>
       )}
 
       {/* Only for retail referrers — a Merchant is already on the track this applies to. */}
@@ -329,66 +350,49 @@ function ReferralsDashboard() {
 
       {/* ── What has actually been sent ───────────────────────────────────── */}
       {isMerchant && data.payouts.length > 0 && (
-        <div className="space-y-3">
-          <p className="text-xs font-bold uppercase tracking-widest text-brand-secondary/35 px-1">
-            Payouts
-          </p>
-          <div className="card-glass p-0 overflow-hidden divide-y divide-white/5">
-            {data.payouts.map((payout) => (
-              <div key={payout.id} className="p-5 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-4 min-w-0">
-                  <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/8 flex items-center justify-center text-brand-secondary/40 shrink-0">
-                    <Wallet className="w-5 h-5" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="font-bold text-brand-secondary">
-                      ${payout.amountUsdc.toFixed(2)}
-                    </p>
-                    <p className="text-[12px] text-brand-secondary/40">
-                      {new Date(payout.createdAt).toLocaleDateString(undefined, {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
-                      })}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="text-right shrink-0">
-                  <p
-                    className={
-                      payout.status === 'paid'
-                        ? 'text-[11px] font-bold uppercase tracking-widest text-accent'
-                        : payout.status === 'failed'
-                          ? 'text-[11px] font-bold uppercase tracking-widest text-orange-400'
-                          : 'text-[11px] font-bold uppercase tracking-widest text-brand-secondary/35'
-                    }
-                  >
-                    {payout.status === 'paid'
-                      ? 'Sent'
-                      : payout.status === 'failed'
-                        ? 'Retrying'
-                        : 'On its way'}
-                  </p>
-                  {/* Only once there is a real on-chain hash. A payout is marked sent as
-                      soon as Circle accepts it, which is before the transaction is mined —
-                      linking then would send people to an explorer page that does not exist
-                      yet, which reads as the money having gone missing. */}
-                  {payout.status === 'paid' && receiptUrl(payout) && (
-                    <a
-                      href={receiptUrl(payout)!}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[11px] text-brand-secondary/35 hover:text-brand-secondary/70 transition-colors"
+        <section className="lp-card rounded-[28px] p-2">
+          <h2 className="px-4 pb-1 pt-3 lp-display text-[22px] tracking-[-0.02em]">Payouts</h2>
+          <ul className="flex flex-col gap-0.5 p-1">
+            {data.payouts.map((payout) => {
+              const url = receiptUrl(payout);
+              return (
+                <li key={payout.id} className="flex items-center gap-3 rounded-[20px] px-3 py-3">
+                  <span className="grid size-11 shrink-0 place-items-center rounded-full bg-[#cdf5de] text-[#0e7a45]">
+                    <Wallet className="size-[18px]" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[15px] font-semibold tabular-nums">+{formatUsd(payout.amountUsdc)}</span>
+                    <span className="block text-[13px] text-[var(--lp-muted)]">
+                      {new Date(payout.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </span>
+                  </span>
+                  <span className="flex shrink-0 flex-col items-end gap-1">
+                    <span
+                      className={`rounded-full px-2 py-px text-[11px] font-semibold ${
+                        payout.status === 'paid'
+                          ? 'bg-[#cdf5de] text-[#0e7a45]'
+                          : payout.status === 'failed'
+                            ? 'bg-[#fbe7df] text-[#a1462c]'
+                            : 'bg-[#fbedcc] text-[#8a5a00]'
+                      }`}
                     >
-                      View receipt
-                    </a>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+                      {payout.status === 'paid' ? 'Sent' : payout.status === 'failed' ? 'Retrying' : 'On its way'}
+                    </span>
+                    {/* Only once there is a real on-chain hash. A payout is marked sent as
+                        soon as Circle accepts it, which is before the transaction is mined —
+                        linking then would send people to an explorer page that does not exist
+                        yet, which reads as the money having gone missing. */}
+                    {payout.status === 'paid' && url && (
+                      <a href={url} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline-offset-2 hover:underline">
+                        View receipt
+                      </a>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
       )}
     </div>
   );
@@ -404,23 +408,3 @@ const TIER_LABELS = {
   silver: 'Silver',
   gold: 'Gold',
 } as const;
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="card-glass p-5">
-      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
-        {label}
-      </p>
-      <p className="text-2xl font-black tracking-tight text-brand-secondary mt-1.5">{value}</p>
-    </div>
-  );
-}
-
-function Point({ title, body }: { title: string; body: string }) {
-  return (
-    <div>
-      <p className="text-[13.5px] font-semibold text-brand-secondary">{title}</p>
-      <p className="text-[12.5px] text-brand-secondary/50 leading-relaxed mt-0.5">{body}</p>
-    </div>
-  );
-}

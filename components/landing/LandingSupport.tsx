@@ -3,15 +3,15 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { HelpCircle, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { TelegramMark } from "@/components/support/SupportWidget";
+import { TelegramMark } from "@/components/support/TelegramMark";
 import { TELEGRAM_URL } from "@/lib/social";
 import { FAQ_SECTIONS } from "@/lib/support/faq";
 import { EASE, MEDIA, useMedia } from "./motion";
 
 /**
- * The support widget in the landing page's light style. Same answers and the same Telegram
- * route as the dashboard's dark one (components/support/SupportWidget.tsx) — only the dress
- * differs.
+ * The support widget: a fixed list of answers, with the Telegram route to a person in the list
+ * itself. There is no text box on purpose: this answers questions about money that has already
+ * left someone's wallet, where an invented answer is worse than none.
  */
 export function LandingSupport() {
   const [open, setOpen] = useState(false);

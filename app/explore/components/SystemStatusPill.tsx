@@ -16,23 +16,15 @@ export function SystemStatusPill({ stats, loading, timeZone, timeMode }: SystemS
   const meta = STATUS_META[stats?.system_status ?? 'operational'];
 
   return (
-    <div
-      className={cn('inline-flex items-center gap-3 px-4 py-2 rounded-full border', meta.ring)}
-      role="status"
-      aria-live="polite"
-    >
-      <span className="relative flex h-2.5 w-2.5">
-        <span
-          className={cn('absolute inline-flex h-full w-full rounded-full opacity-60 animate-ping', meta.dot)}
-        />
-        <span className={cn('relative inline-flex rounded-full h-2.5 w-2.5', meta.dot)} />
+    <div className={cn('inline-flex flex-wrap items-center gap-x-3 gap-y-1 rounded-full px-4 py-2', meta.ring)} role="status" aria-live="polite">
+      <span className="relative flex size-2.5">
+        <span className={cn('absolute inline-flex size-full animate-ping rounded-full opacity-60', meta.dot)} />
+        <span className={cn('relative inline-flex size-2.5 rounded-full', meta.dot)} />
       </span>
-      <span className={cn('text-xs font-bold uppercase tracking-widest', meta.text)}>
-        {loading ? 'Checking status…' : meta.label}
-      </span>
+      <span className={cn('text-[14px] font-semibold', meta.text)}>{loading ? 'Checking status…' : meta.label}</span>
       {stats?.last_tx_at && (
-        <span className="text-[10px] font-medium text-white/40 tracking-wide border-l border-white/15 pl-3">
-          Last activity {formatFeedDate(stats.last_tx_at, timeZone, timeMode, 'short')}
+        <span className="text-[13px] text-[var(--lp-body)]">
+          · Last activity {formatFeedDate(stats.last_tx_at, timeZone, timeMode, 'short')}
         </span>
       )}
     </div>

@@ -20,6 +20,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { FlowLabel } from "@/components/flow/ui";
 
 const WINDOW_MS = 2 * 60 * 1000;
 
@@ -68,7 +69,7 @@ export function SettlementCountdown() {
             fill="none"
             stroke="currentColor"
             strokeWidth="2"
-            className="text-white/[0.07]"
+            className="text-[#e3dcce]"
           />
           <circle
             cx="52"
@@ -90,12 +91,12 @@ export function SettlementCountdown() {
 
         <div className="absolute inset-0 flex items-center justify-center">
           {isOvertime ? (
-            <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-secondary/40">
+            <FlowLabel as="span">
               Almost
-            </span>
+            </FlowLabel>
           ) : (
             <span
-              className="font-display text-[1.75rem] leading-none font-bold tracking-tight tabular-nums text-brand-secondary"
+              className="lp-display text-[28px] leading-none tracking-[-0.03em] tabular-nums text-[var(--lp-ink)]"
               aria-live="off"
             >
               {clock(remaining)}
@@ -108,7 +109,7 @@ export function SettlementCountdown() {
         The copy lives here rather than in the parent so it can never disagree with the ring
         about which phase we are in.
       */}
-      <p className="text-sm text-muted-foreground leading-relaxed max-w-[19rem]">
+      <p className="max-w-[19rem] text-[15px] leading-[1.55] text-[var(--lp-body)]">
         {isOvertime
           ? "This one is taking longer than usual. It has not failed and your money is not stuck. You can close this and carry on, we will email you as soon as it lands."
           : "Most withdrawals reach the bank within two minutes. Some land sooner, a few take a little longer. You can wait here, or close this and we will email you when it arrives."}

@@ -30,7 +30,7 @@ import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { privySolanaAddress } from "@/lib/solana/privy-address";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowRight, CircleDollarSign, Clock, Loader2 } from "lucide-react";
+import { ArrowRight, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -41,17 +41,13 @@ interface PendingBridgeClaimsProps {
   userEmail: string;
   solanaAddress?: string;
   stellarWallet?: { walletId: string; address: string } | null;
-  /** "light" is the cream brand style; other dashboard routes keep the dark default for now. */
-  tone?: "dark" | "light";
 }
 
 export function PendingBridgeClaims({
   userEmail,
   solanaAddress,
   stellarWallet,
-  tone = "dark",
 }: PendingBridgeClaimsProps) {
-  const light = tone === "light";
   const { user } = usePrivy();
   const { wallets } = useWallets();
   const queryClient = useQueryClient();
@@ -147,7 +143,7 @@ export function PendingBridgeClaims({
       } else {
         // Telling someone their money arrived when it did not is worse than any error: they
         // stop looking. The claim stays on this list, so they can see it is still open.
-        toast.info("Still confirming. Your money is safe — check back in a minute.");
+        toast.info("Still confirming. Your money is safe, check back in a minute.");
       }
       await settle();
     } catch (err) {
@@ -167,7 +163,7 @@ export function PendingBridgeClaims({
         if (delivered) {
           toast.success("Your money is already in your balance.");
         } else {
-          toast.info("Still confirming. Your money is safe — check back in a minute.");
+          toast.info("Still confirming. Your money is safe, check back in a minute.");
         }
         await settle();
       } else if (classified.category === "attestation_expired") {
@@ -183,7 +179,7 @@ export function PendingBridgeClaims({
         toast.info(
           reissued
             ? classified.message
-            : "Still confirming. Your money is safe — this will clear on its own.",
+            : "Still confirming. Your money is safe and this will clear on its own.",
         );
         await settle();
       } else if (!classified.isSilent) {
@@ -217,41 +213,24 @@ export function PendingBridgeClaims({
               initial={{ opacity: 0, y: -12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
-              className={
-                light
-                  ? "rounded-[28px] bg-white p-5 shadow-[0_0_0_1px_rgb(17_26_19/0.06)] sm:p-6"
-                  : "card-glass p-6 border-amber-500/30 bg-gradient-to-r from-amber-500/5 to-yellow-500/5"
-              }
+              className="lp-card rounded-[28px] p-5 sm:p-6"
             >
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5">
                 <div className="flex items-start gap-4">
-                  <div
-                    className={
-                      light
-                        ? "grid size-12 shrink-0 place-items-center rounded-full bg-[#fbedcc] text-[#8a5a00]"
-                        : "p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 h-fit"
-                    }
-                  >
-                    {claim.ready ? (
-                      <CircleDollarSign className="w-6 h-6" />
-                    ) : (
-                      <Clock className="w-6 h-6" />
-                    )}
-                  </div>
                   <div className="space-y-1 text-left">
-                    <h4 className={light ? "lp-mono text-[12px] uppercase text-[#8a5a00]" : "text-[10px] font-bold text-amber-400 uppercase tracking-[0.2em]"}>
+                    <h4 className="lp-mono text-[12px] uppercase text-[#8a5a00]">
                       Money waiting for you
                     </h4>
-                    <p className={light ? "lp-display text-[22px] font-semibold tracking-[-0.02em] text-[var(--lp-ink)]" : "text-lg font-bold text-white tracking-tight"}>
+                    <p className="lp-display text-[22px] font-semibold tracking-[-0.02em] text-[var(--lp-ink)]">
                       {claim.amount} USDC
                     </p>
-                    <p className={light ? "text-[14px] leading-[1.5] text-[var(--lp-body)]" : "text-xs text-white/40 font-medium"}>
+                    <p className="text-[14px] leading-[1.5] text-[var(--lp-body)]">
                       {claim.ready
                         ? "Your money is safe. Tap Claim to add it to your balance."
                         : "Almost ready. You can claim it in a minute or two."}
                     </p>
                     {needsSolWallet && (
-                      <p className={light ? "text-[13px] text-[#8a5a00]" : "text-xs text-amber-400/70 font-medium"}>
+                      <p className="text-[13px] text-[#8a5a00]">
                         Still loading your wallet…
                       </p>
                     )}
@@ -262,20 +241,10 @@ export function PendingBridgeClaims({
                   onClick={() => handleClaim(claim)}
                   disabled={disabled}
                   className={cn(
-                    "h-12 px-6 flex items-center gap-2 justify-center shrink-0 transition-all",
-                    light
-                      ? cn(
-                          "rounded-full text-[15px] font-semibold active:scale-[0.97]",
-                          disabled
-                            ? "bg-[var(--lp-cream)] text-[var(--lp-muted)] cursor-not-allowed"
-                            : "bg-[var(--lp-ink)] text-[var(--lp-cream)] cursor-pointer",
-                        )
-                      : cn(
-                          "rounded-xl font-bold text-xs uppercase tracking-widest",
-                          disabled
-                            ? "bg-white/5 border border-white/10 text-white/25 cursor-not-allowed"
-                            : "bg-amber-500 hover:bg-amber-400 text-black cursor-pointer",
-                        ),
+                    "h-12 px-6 flex items-center gap-2 justify-center shrink-0 rounded-full text-[15px] font-semibold transition-all active:scale-[0.97]",
+                    disabled
+                      ? "bg-[var(--lp-cream)] text-[var(--lp-muted)] cursor-not-allowed"
+                      : "bg-[var(--lp-ink)] text-[var(--lp-cream)] cursor-pointer",
                   )}
                 >
                   {isClaiming ? (

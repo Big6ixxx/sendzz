@@ -124,7 +124,7 @@ async function claimOnSolana(params: BridgeClaimParams): Promise<string | undefi
   // or claims again.
   if (data.pending) {
     throw new Error(
-      'Your claim was sent and is still confirming on Solana. Your funds are safe — check back in a minute.',
+      'Your claim was sent and is still confirming on Solana. Your funds are safe, check back in a minute.',
     );
   }
   return data.txHash;

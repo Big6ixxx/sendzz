@@ -21,6 +21,7 @@ import { Check, Loader2, Store, X } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Avatar, CardsShimmer, EmptyState, PageHeader, Panel, PrimaryButton, RefreshButton, SecondaryButton } from '../components/ui';
+import { FlowLabel } from '@/components/flow/ui';
 
 export default function AdminMerchants() {
   const { getAccessToken } = usePrivy();
@@ -45,7 +46,7 @@ export default function AdminMerchants() {
       return result;
     },
     onSuccess: (_data, input) => {
-      toast.success(input.approve ? 'Approved — they are now a Merchant.' : 'Application declined.');
+      toast.success(input.approve ? 'Approved. They are now a Merchant.' : 'Application declined.');
       setNoteFor(null);
       setNote('');
       queryClient.invalidateQueries({ queryKey: ['merchant-applications'] });
@@ -214,7 +215,7 @@ function Figure({ label, value, verified }: { label: string; value: string; veri
 function Field({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
-      <dt className="lp-mono text-[12px] uppercase text-[var(--lp-muted)]">{label}</dt>
+      <FlowLabel as="dt">{label}</FlowLabel>
       <dd className="mt-1 whitespace-pre-wrap text-[15px] leading-relaxed">{value || '—'}</dd>
     </div>
   );

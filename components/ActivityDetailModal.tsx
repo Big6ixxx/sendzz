@@ -1,20 +1,7 @@
 "use client";
 
 import { format } from "date-fns";
-import {
-  ArrowDownLeft,
-  ArrowUpRight,
-  ArrowRight,
-  Clock,
-  ExternalLink,
-  History,
-  Landmark,
-  MessageSquare,
-  Network,
-  Receipt,
-  RefreshCw,
-  Wallet,
-} from "lucide-react";
+import { ArrowRight, Copy, ExternalLink, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useWallets, usePrivy } from "@privy-io/react-auth";
@@ -31,6 +18,9 @@ import { activityToReceiptData } from "@/lib/receipt/utils";
 import { getOffRampRate } from "@/lib/actions/ramp";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { CHAIN_META } from "@/components/deposit-withdraw/deposit-shared";
+import { ACTIVITY_LOOK, activityStatus, detailHasIdentifier, shortenDetail } from "@/components/dashboard/activity-look";
+import { formatMoney } from "@/lib/format-usdc";
+import { FlowLabel } from "@/components/flow/ui";
 
 const ACTIVITY_LABELS: Record<string, string> = {
   sent: "Transfer Sent",
@@ -146,7 +136,7 @@ export function ActivityDetailModal({
         const isPendingConfirmations = data.status === "pending_confirmations";
         const wait = isPendingConfirmations ? "1–2 minutes" : "2–5 minutes";
         const detail = isPendingConfirmations
-          ? "Block finality almost reached — nearly there."
+          ? "Almost there, the network is nearly done confirming."
           : "Waiting for block confirmations on the source chain.";
         toast.error(
           `${chainLabel} bridge is still being verified. ${detail} Try again in ${wait}.`,
@@ -199,7 +189,7 @@ export function ActivityDetailModal({
           console.log(
             "[Manual Claim] Stellar destination — server-side claim...",
           );
-          toast.info("Delivering your money on Stellar — we cover the network fee.");
+          toast.info("Delivering your money on Stellar. We cover the network fee.");
 
           // Resolve the user's Stellar wallet so the claim can add the USDC trustline
           // if it's missing — without it `mint_and_forward` reverts on the transfer leg.
@@ -363,13 +353,6 @@ export function ActivityDetailModal({
 
   if (!activity) return null;
 
-  const isSuccess =
-    activity.status.toLowerCase() === "settled" ||
-    activity.status.toLowerCase() === "completed" ||
-    activity.status.toLowerCase() === "confirmed" ||
-    activity.status.toLowerCase() === "success" ||
-    activity.status.toLowerCase() === "complete";
-
   // Network / route line.
   const networkValue =
     activity.type === "bridge" && activity.sourceChain
@@ -383,244 +366,161 @@ export function ActivityDetailModal({
     router.push(`/dashboard/activity/${activity.id}`);
   };
 
+  const look = ACTIVITY_LOOK[activity.type] ?? ACTIVITY_LOOK.sent;
+  // Settled reads as done; anything else names its real state.
+  const status = activityStatus(activity.status) ?? { text: "Completed", tone: "bg-[#00e87a]/15 text-[#0e7a45]" };
+  const receiptData = (() => {
+    const base = activityToReceiptData(activity);
+    if (activity.type === "withdrawal" && base.fiatPayoutAmount == null && estimatedFiatRate) {
+      return { ...base, fiatPayoutAmount: Math.round(activity.amount * estimatedFiatRate), exchangeRate: estimatedFiatRate };
+    }
+    return base;
+  })();
+  const pill =
+    "inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-full border border-[rgba(17,26,19,0.15)] bg-white px-4 text-[14px] font-semibold transition-colors hover:border-[var(--lp-ink)]";
+  const rows = [
+    { label: "When", value: format(new Date(activity.timestamp), "d MMM yyyy, HH:mm") },
+    // Cut to one row: a full address, hash or long email would push the dialog past the screen.
+    // The whole value is on hover, and a tap copies it.
+    {
+      label: "Details",
+      value: shortenDetail(activity.details),
+      full: activity.details,
+      copyable: detailHasIdentifier(activity.details),
+    },
+    ...(networkValue
+      ? [{ label: activity.type === "bridge" || (activity.type === "withdrawal" && activity.consolidated) ? "Route" : "Network", value: networkValue }]
+      : []),
+  ];
+
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-sm p-0 overflow-hidden">
-        <DialogTitle className="sr-only">
-          {activity ? ACTIVITY_LABELS[activity.type] : "Activity Detail"}
-        </DialogTitle>
+      <DialogContent
+        showCloseButton={false}
+        className="grid-cols-[minmax(0,1fr)] gap-0 p-0 sm:max-w-[440px] max-sm:top-auto max-sm:bottom-0 max-sm:translate-y-0 max-sm:max-w-none max-sm:w-full max-sm:rounded-b-none"
+      >
+        <DialogTitle className="sr-only">{ACTIVITY_LABELS[activity.type] ?? "Activity"}</DialogTitle>
 
-        <div className="p-8 text-center space-y-8">
-          <div className="flex justify-center">
-            <div
-              className="w-20 h-20 rounded-4xl flex items-center justify-center shadow-2xl relative group"
-              style={{
-                background: isSuccess
-                  ? "rgba(0, 232, 122, 0.1)"
-                  : activity.type === "sent"
-                    ? "rgba(248, 113, 113, 0.1)"
-                    : activity.type === "received"
-                      ? "rgba(0, 232, 122, 0.1)"
-                      : activity.type === "deposit"
-                        ? "rgba(59, 130, 246, 0.1)"
-                        : activity.type === "bridge"
-                          ? "rgba(96, 165, 250, 0.1)"
-                          : "rgba(251, 146, 60, 0.1)",
-                color: isSuccess
-                  ? "#00e87a"
-                  : activity.type === "sent"
-                    ? "#f87171"
-                    : activity.type === "received"
-                      ? "#00e87a"
-                      : activity.type === "deposit"
-                        ? "#3b82f6"
-                        : activity.type === "bridge"
-                          ? "#60a5fa"
-                          : "#fb923c",
-                border: `1px solid ${
-                  isSuccess
-                    ? "rgba(0, 232, 122, 0.2)"
-                    : activity.type === "sent"
-                      ? "rgba(248, 113, 113, 0.2)"
-                      : activity.type === "received"
-                        ? "rgba(0, 232, 122, 0.2)"
-                        : activity.type === "deposit"
-                          ? "rgba(59, 130, 246, 0.2)"
-                          : activity.type === "bridge"
-                            ? "rgba(96, 165, 250, 0.2)"
-                            : "rgba(251, 146, 60, 0.2)"
-                }`,
-              }}
-            >
-              <div className="absolute inset-0 rounded-4xl blur-xl opacity-20 bg-current group-hover:opacity-40 transition-opacity" />
-              {activity.type === "sent" && (
-                <ArrowUpRight className="w-10 h-10 relative z-10" />
-              )}
-              {activity.type === "received" && (
-                <ArrowDownLeft className="w-10 h-10 relative z-10" />
-              )}
-              {activity.type === "deposit" && (
-                <Wallet className="w-10 h-10 relative z-10" />
-              )}
-              {activity.type === "withdrawal" && (
-                <Landmark className="w-10 h-10 relative z-10" />
-              )}
-              {activity.type === "bridge" && (
-                <RefreshCw className="w-10 h-10 relative z-10" />
-              )}
-            </div>
-          </div>
-
-          <div className="space-y-1">
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
-              {ACTIVITY_LABELS[activity.type]}
-            </p>
-            <h3 className="font-display text-4xl font-bold tracking-tighter text-brand-secondary">
-              {activity.amount.toLocaleString()}{" "}
-              <span className="text-lg opacity-30 font-bold uppercase">
-                {activity.asset}
+        <div className="min-w-0 p-5 sm:p-7">
+          <div className="flex items-center justify-between gap-3">
+            <span className="flex items-center gap-2.5">
+              <span className={`grid size-10 place-items-center rounded-full ${look.badge}`}>
+                <look.icon className="size-[18px]" />
               </span>
-            </h3>
-            <div className="flex justify-center mt-3">
-              <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-widest bg-white/4 border border-white/8 text-brand-secondary/60">
-                {activity.status}
-              </span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 text-left">
-            <div className="p-4 rounded-2xl bg-white/2 border border-white/4">
-              <p className="text-[10px] font-bold uppercase tracking-widest mb-1 flex items-center gap-2 text-brand-secondary/20">
-                <Clock className="w-3 h-3" /> Timestamp
-              </p>
-              <p className="text-xs font-semibold uppercase truncate text-brand-secondary">
-                {format(new Date(activity.timestamp), "MMMM dd, yyyy @ HH:mm")}
-              </p>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-white/2 border border-white/4">
-              <p className="text-[10px] font-bold uppercase tracking-widest mb-1 flex items-center gap-2 text-brand-secondary/20">
-                <History className="w-3 h-3" /> Details
-              </p>
-              <p className="text-xs font-semibold uppercase truncate text-brand-secondary">
-                {activity.details}
-              </p>
-            </div>
-
-            {networkValue && (
-              <div className="p-4 rounded-2xl bg-white/2 border border-white/4">
-                <p className="text-[10px] font-bold uppercase tracking-widest mb-1 flex items-center gap-2 text-brand-secondary/20">
-                  <Network className="w-3 h-3" />{" "}
-                  {activity.type === "bridge" ||
-                  (activity.type === "withdrawal" && activity.consolidated)
-                    ? "Route"
-                    : "Network"}
-                </p>
-                <p className="text-xs font-semibold uppercase truncate text-brand-secondary">
-                  {networkValue}
-                </p>
-              </div>
-            )}
-
-            {activity.note && (
-              <div className="p-4 rounded-2xl bg-accent/5 border border-accent/10">
-                <p className="text-[10px] font-bold uppercase tracking-widest mb-1 flex items-center gap-2 text-accent">
-                  <MessageSquare className="w-3 h-3" /> Memo
-                </p>
-                <p className="text-sm font-medium leading-relaxed text-brand-secondary/80">
-                  {activity.note}
-                </p>
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/20 text-center flex items-center justify-center gap-2">
-              <Receipt className="w-3 h-3" /> Receipt
-            </p>
-            <ReceiptActions
-              data={(() => {
-                const base = activityToReceiptData(activity);
-                if (
-                  activity.type === "withdrawal" &&
-                  base.fiatPayoutAmount == null &&
-                  estimatedFiatRate
-                ) {
-                  return {
-                    ...base,
-                    fiatPayoutAmount: Math.round(
-                      activity.amount * estimatedFiatRate,
-                    ),
-                    exchangeRate: estimatedFiatRate,
-                  };
-                }
-                return base;
-              })()}
-            />
-          </div>
-
-          <div className="flex flex-col gap-3">
-            <div className="flex gap-3">
-              {activity.type === "bridge" ? (
-                <>
-                  {activity.txHash && !isPlaceholderHash(activity.txHash) && (
-                    <a
-                      href={explorerFor(activity.sourceChain, activity.txHash)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest transition-all bg-white/6 text-brand-secondary border border-white/10 hover:bg-white/10 outline-none focus:ring-2 focus:ring-accent/50"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" /> Burn Tx
-                    </a>
-                  )}
-
-                  {(() => {
-                    const hasValidMint = !!activity.mintTxHash && explorerFor(activity.destChain ?? "base", activity.mintTxHash) !== undefined;
-                    if (hasValidMint) {
-                      return (
-                        <a
-                          href={explorerFor(
-                            activity.destChain ?? "base",
-                            activity.mintTxHash,
-                          )}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest transition-all bg-white/6 text-brand-secondary border border-white/10 hover:bg-white/10 outline-none focus:ring-2 focus:ring-accent/50"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" /> Mint Tx
-                        </a>
-                      );
-                    }
-                    // Delivered, but with no transaction to link to: delivery was confirmed by
-                    // reading the destination chain rather than by watching our own claim land.
-                    // Explain that instead of showing nothing — a burn button with an empty
-                    // space beside it reads as a transfer that never finished.
-                    if (activity.status === "complete") {
-                      return (
-                        <div className="flex-1 min-h-12 rounded-xl flex items-center justify-center text-center px-3 py-2 text-[11px] leading-snug font-medium bg-emerald-500/8 text-emerald-400/80 border border-emerald-500/20">
-                          Delivered on {chainLabel(activity.destChain ?? "base")}. We have no
-                          receipt link for this one.
-                        </div>
-                      );
-                    }
-                    return (
-                      <button
-                        onClick={handleClaim}
-                        disabled={isClaiming}
-                        className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest transition-all bg-accent text-background border border-accent hover:opacity-90 outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50"
-                      >
-                        {isClaiming ? "Claiming..." : "Claim USDC"}
-                      </button>
-                    );
-                  })()}
-                </>
-              ) : (
-                activity.txHash && (
-                  <a
-                    href={explorerFor(activity.sourceChain, activity.txHash)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest transition-all bg-white/6 text-brand-secondary border border-white/10 hover:bg-white/10 outline-none focus:ring-2 focus:ring-accent/50"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" /> Explorer
-                  </a>
-                )
-              )}
-            </div>
-
-            <button
-              onClick={viewFullDetails}
-              className="btn-accent w-full h-12 rounded-xl text-[10px] font-bold uppercase tracking-widest flex items-center justify-center gap-2 outline-none focus:ring-2 focus:ring-accent/50"
-            >
-              View Full Details <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+              <FlowLabel as="span">{ACTIVITY_LABELS[activity.type] ?? look.label}</FlowLabel>
+            </span>
             <button
               onClick={onClose}
-              className="w-full h-12 rounded-xl text-[10px] font-bold uppercase tracking-widest bg-white/5 border border-white/8 text-brand-secondary/60 hover:bg-white/10 transition-all outline-none focus:ring-2 focus:ring-accent/50"
+              aria-label="Close"
+              className="lp-card grid size-10 place-items-center rounded-full outline-none transition-[scale] duration-150 focus-visible:ring-2 focus-visible:ring-[var(--lp-ink)] active:scale-[0.94]"
             >
-              Close
+              <X className="size-4" />
             </button>
           </div>
+
+          <div className="mt-6">
+            <p className="lp-display break-words text-[clamp(40px,11vw,56px)] leading-[0.92] tracking-[-0.05em] tabular-nums">
+              {look.sign}
+              {formatMoney(activity.amount)}{" "}
+              <span className="lp-serif text-[0.45em] tracking-[-0.01em] text-[var(--lp-muted)]">{activity.asset}</span>
+            </p>
+            <span className={`mt-3 inline-flex rounded-full px-2.5 py-1 text-[12px] font-semibold ${status.tone}`}>
+              {status.text}
+            </span>
+          </div>
+
+          <dl className="lp-card mt-6 rounded-[22px] px-5">
+            {rows.map((r) => (
+              <div key={r.label} className="flex items-center justify-between gap-4 border-b border-[#ece6da] py-3.5 last:border-b-0">
+                <dt className="shrink-0 text-[14px] text-[var(--lp-muted)]">{r.label}</dt>
+                <dd className="flex min-w-0 items-center justify-end gap-1.5 text-[15px] font-semibold">
+                  {"copyable" in r && r.copyable ? (
+                    <button
+                      type="button"
+                      title={r.full}
+                      onClick={() => {
+                        navigator.clipboard.writeText(r.full);
+                        toast.success("Copied");
+                      }}
+                      className="-mr-2 flex min-w-0 items-center gap-1.5 rounded-[12px] px-2 py-0.5 transition-colors hover:bg-[var(--lp-cream)]"
+                    >
+                      <span className="line-clamp-3 break-words text-right">{r.value}</span>
+                      <Copy className="size-3.5 shrink-0 text-[var(--lp-muted)]" />
+                    </button>
+                  ) : (
+                    <span className="line-clamp-3 break-words text-right" title={"full" in r ? r.full : r.value}>
+                      {r.value}
+                    </span>
+                  )}
+                </dd>
+              </div>
+            ))}
+          </dl>
+
+          {activity.note && (
+            <div className="mt-3 rounded-[22px] bg-[#00e87a]/12 px-5 py-4">
+              <p className="text-[13px] text-[#0b5e36]">Memo</p>
+              <p className="mt-0.5 break-words text-[15px] leading-[1.5] [overflow-wrap:anywhere]">{activity.note}</p>
+            </div>
+          )}
+
+          <div className="mt-5">
+            <ReceiptActions data={receiptData} />
+          </div>
+
+          <div className="mt-3 flex gap-2">
+            {activity.type === "bridge" ? (
+              <>
+                {activity.txHash && !isPlaceholderHash(activity.txHash) && (
+                  <a href={explorerFor(activity.sourceChain, activity.txHash)} target="_blank" rel="noopener noreferrer" className={pill}>
+                    <ExternalLink className="size-4" /> Sent from
+                  </a>
+                )}
+                {(() => {
+                  const hasValidMint = !!activity.mintTxHash && explorerFor(activity.destChain ?? "base", activity.mintTxHash) !== undefined;
+                  if (hasValidMint) {
+                    return (
+                      <a href={explorerFor(activity.destChain ?? "base", activity.mintTxHash)} target="_blank" rel="noopener noreferrer" className={pill}>
+                        <ExternalLink className="size-4" /> Arrived on
+                      </a>
+                    );
+                  }
+                  // Delivered, but with no transaction to link to: delivery was confirmed by reading
+                  // the destination chain rather than by watching our own claim land. Said rather
+                  // than left blank, which reads as a transfer that never finished.
+                  if (activity.status === "complete") {
+                    return (
+                      <p className="flex flex-1 items-center justify-center rounded-full bg-[#00e87a]/12 px-4 py-2 text-center text-[13px] text-[#0b5e36]">
+                        Delivered on {chainLabel(activity.destChain ?? "base")}
+                      </p>
+                    );
+                  }
+                  return (
+                    <button
+                      onClick={handleClaim}
+                      disabled={isClaiming}
+                      className="inline-flex h-11 flex-1 items-center justify-center rounded-full bg-[var(--lp-green)] px-4 text-[14px] font-semibold text-[var(--lp-ink)] transition-[scale,opacity] duration-150 active:scale-[0.97] disabled:opacity-50"
+                    >
+                      {isClaiming ? "Claiming…" : "Claim USDC"}
+                    </button>
+                  );
+                })()}
+              </>
+            ) : (
+              activity.txHash && (
+                <a href={explorerFor(activity.sourceChain, activity.txHash)} target="_blank" rel="noopener noreferrer" className={pill}>
+                  <ExternalLink className="size-4" /> View on explorer
+                </a>
+              )
+            )}
+          </div>
+
+          <button
+            onClick={viewFullDetails}
+            className="mt-3 inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[var(--lp-ink)] px-5 text-[15px] font-semibold text-[var(--lp-cream)] transition-[scale] duration-150 active:scale-[0.98]"
+          >
+            View full details <ArrowRight className="size-4" />
+          </button>
         </div>
       </DialogContent>
     </Dialog>

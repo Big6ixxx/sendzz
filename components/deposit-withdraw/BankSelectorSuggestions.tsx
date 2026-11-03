@@ -30,62 +30,40 @@ export function BankSelectorSuggestions({
   );
 
   return (
-    <div
-      className="absolute z-50 top-full left-0 right-0 mt-2 border rounded-xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200 p-2"
-      style={{ background: '#0a0a0c', borderColor: 'rgba(255,255,255,0.1)' }}
-    >
+    <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-[20px] bg-white p-2 shadow-[0_0_0_1px_rgb(17_26_19/0.08),0_20px_48px_-16px_rgb(17_26_19/0.35)] animate-in fade-in slide-in-from-top-2 duration-200">
       {contacts.length === 0 ? (
-        <div className="px-4 py-6 text-center">
-          <p className="text-xs font-bold text-white/30 uppercase tracking-widest mb-4">
-            No bank contacts saved
-          </p>
+        <div className="px-4 py-5 text-center">
+          <p className="text-[14px] text-[var(--lp-muted)]">No saved accounts yet.</p>
           <button
             type="button"
             onClick={onAddNew}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-accent text-accent-foreground font-black text-[10px] uppercase tracking-widest hover:scale-105 transition-all shadow-lg"
+            className="mt-3 inline-flex h-10 items-center gap-2 rounded-full bg-[var(--lp-ink)] px-4 text-[14px] font-semibold text-[var(--lp-cream)] transition-[scale] duration-150 active:scale-[0.97]"
           >
-            <Plus className="w-3.5 h-3.5" />
-            Add Bank Account
+            <Plus className="size-4" /> Save an account
           </button>
         </div>
       ) : (
         <>
-          <div className="px-2 py-1 flex items-center justify-between border-b border-white/5 mb-2">
-            <span className="text-[9px] font-black text-white/20 uppercase tracking-[0.2em]">
-              Saved Accounts
-            </span>
-            <button
-              type="button"
-              onClick={onAddNew}
-              className="text-[9px] font-black text-accent uppercase tracking-widest hover:text-accent-dim transition-colors"
-            >
-              + New
+          <div className="flex items-center justify-between px-2 pb-2 pt-1">
+            <span className="lp-mono text-[11px] uppercase text-[var(--lp-muted)]">Saved accounts</span>
+            <button type="button" onClick={onAddNew} className="text-[13px] font-semibold transition-colors hover:text-[#00a857]">
+              + Add new
             </button>
           </div>
-          <div className="max-h-48 overflow-y-auto space-y-1">
+          <div className="max-h-52 space-y-0.5 overflow-y-auto">
             {filteredContacts.map((c) => (
-              <div
-                key={c.id}
-                className="w-full flex items-center gap-2 group"
-              >
+              <div key={c.id} className="group flex items-center gap-1">
                 <button
                   type="button"
                   onClick={() => {
-                    onSelectContact({
-                      bankCode: c.bank_code,
-                      bankName: c.bank_name,
-                      accountNumber: c.account_number,
-                      accountName: c.account_name,
-                    });
+                    onSelectContact({ bankCode: c.bank_code, bankName: c.bank_name, accountNumber: c.account_number, accountName: c.account_name });
                     onClose();
                   }}
-                  className="flex-1 text-left p-3 rounded-lg hover:bg-white/5 transition-colors"
+                  className="min-w-0 flex-1 rounded-[14px] px-3 py-2.5 text-left transition-colors hover:bg-[var(--lp-cream)]"
                 >
-                  <p className="font-bold text-xs text-foreground group-hover:text-accent transition-colors truncate">
-                    {c.account_name}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground font-mono">
-                    {c.bank_name} • {c.account_number}
+                  <p className="truncate text-[15px] font-semibold">{c.account_name}</p>
+                  <p className="truncate text-[13px] text-[var(--lp-muted)]">
+                    {c.bank_name} · <span className="tabular-nums">{c.account_number}</span>
                   </p>
                 </button>
                 <button
@@ -94,10 +72,11 @@ export function BankSelectorSuggestions({
                     e.stopPropagation();
                     onDeleteContact(c.id);
                   }}
-                  className="p-2 text-white/20 hover:text-red-400 transition-colors shrink-0 rounded-lg hover:bg-red-400/10"
+                  className="grid size-9 shrink-0 place-items-center rounded-full text-[var(--lp-muted)] transition-colors hover:bg-[#a1462c]/10 hover:text-[#a1462c]"
                   title="Remove saved account"
+                  aria-label={`Remove ${c.account_name}`}
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Trash2 className="size-4" />
                 </button>
               </div>
             ))}

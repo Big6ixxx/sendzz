@@ -1,51 +1,34 @@
 'use client';
 
-import { cn } from '@/lib/utils';
 import type { PublicFeedTotals, TxType } from '@/types/public';
-import { formatUsdc, TYPE_META } from '../shared';
+import { TYPE_META } from '../shared';
+import { formatMoney } from '@/lib/format-usdc';
 
 interface TotalsBarProps {
   totals: PublicFeedTotals | null;
 }
 
+/** What the current filters match, read as a sentence, then the count per kind. */
 export function TotalsBar({ totals }: TotalsBarProps) {
+  const kinds = (Object.keys(TYPE_META) as TxType[]).filter((t) => totals?.by_type?.[t]);
   return (
-    <section
-      aria-label="Totals for current filters"
-      className="card-glass flex flex-wrap items-center gap-x-10 gap-y-4 py-5!"
-    >
-      <div>
-        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/40">
-          Matching transactions
-        </p>
-        <p className="text-2xl font-display font-bold text-white" aria-live="polite">
-          {(totals?.total_count ?? 0).toLocaleString()}
-        </p>
-      </div>
-      <div>
-        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/40">Settled volume</p>
-        <p className="text-2xl font-display font-bold text-accent" aria-live="polite">
-          ${formatUsdc(totals?.total_volume ?? 0)}
-        </p>
-      </div>
-      <div className="flex flex-wrap gap-2 sm:ml-auto">
-        {(Object.keys(TYPE_META) as TxType[]).map((t) => {
-          const count = totals?.by_type?.[t] ?? 0;
-          if (!count) return null;
-          return (
-            <span
-              key={t}
-              className={cn(
-                'px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest',
-                TYPE_META[t].bg,
-                TYPE_META[t].color,
-              )}
-            >
-              {TYPE_META[t].label}s · {count.toLocaleString()}
-            </span>
-          );
-        })}
-      </div>
+    <section aria-label="Totals for current filters" className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-3">
+      <p className="text-[17px] leading-[1.5]" aria-live="polite">
+        <span className="lp-display text-[24px] tracking-[-0.03em] tabular-nums">{(totals?.total_count ?? 0).toLocaleString()}</span>{' '}
+        <span className="text-[var(--lp-body)]">transactions match, with</span>{' '}
+        <span className="lp-display text-[24px] tracking-[-0.03em] text-[#0e7a45] tabular-nums">${formatMoney(totals?.total_volume ?? 0)}</span>{' '}
+        <span className="text-[var(--lp-body)]">settled.</span>
+      </p>
+      {kinds.length > 0 && (
+        <ul className="flex flex-wrap gap-2">
+          {kinds.map((t) => (
+            <li key={t} className="rounded-full bg-white px-3 py-1.5 text-[13px] shadow-[0_0_0_1px_rgb(17_26_19/0.08)]">
+              <span className="font-semibold">{TYPE_META[t].label}s</span>{' '}
+              <span className="tabular-nums text-[var(--lp-muted)]">{(totals?.by_type?.[t] ?? 0).toLocaleString()}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

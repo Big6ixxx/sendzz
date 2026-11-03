@@ -10,7 +10,8 @@ import { Check, Copy } from 'lucide-react';
 import { getChainInfo, getSecondaryHash, getTxHash } from '@/lib/receipt/txHelpers';
 import { ADMIN_DATE_RANGE_LABELS, type AdminDateRange, type AdminTransaction } from '@/types/admin';
 import { cn } from '@/lib/utils';
-import { EmptyState, Pills, RowsShimmer, SearchField, StatusBadge, TxTypeBadge, txTypeLook, usd, useCopied } from './ui';
+import { EmptyState, Pills, RowsShimmer, SearchField, StatusBadge, TxTypeBadge, txTypeLook, useCopied } from './ui';
+import { formatUsd } from '@/lib/format-usdc';
 
 const TYPE_OPTIONS: { label: string; value: string | null }[] = [
   { label: 'All', value: null },
@@ -115,7 +116,7 @@ export function TransactionList({
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-3">
                     <p className="text-[15px] font-semibold">{txTypeLook(tx.tx_type).label}</p>
-                    <p className="lp-display shrink-0 text-[18px] leading-tight tracking-[-0.02em] tabular-nums">{usd(Number(tx.amount))}</p>
+                    <p className="lp-display shrink-0 text-[18px] leading-tight tracking-[-0.02em] tabular-nums">{formatUsd(Number(tx.amount))}</p>
                   </div>
                   <p className="truncate text-[13px] text-[var(--lp-muted)]">{getChainInfo(tx)}</p>
                 </div>
@@ -176,7 +177,7 @@ export function TransactionList({
                     <StatusBadge status={tx.status ?? ''} />
                   </td>
                   <td className="px-4 py-4 text-right">
-                    <span className="lp-display text-[18px] tracking-[-0.02em] tabular-nums">{usd(Number(tx.amount))}</span>
+                    <span className="lp-display text-[18px] tracking-[-0.02em] tabular-nums">{formatUsd(Number(tx.amount))}</span>
                     <span className="lp-mono ml-1.5 text-[11px] text-[var(--lp-muted)]">USDC</span>
                   </td>
                   <td className="whitespace-nowrap px-6 py-4 text-right">

@@ -11,6 +11,7 @@ import { getCurrencyCountry, getCurrencyFlag } from '@/lib/currency-config';
 import { cn } from '@/lib/utils';
 import type { AdminLog, AuditLog, WebhookLog } from '@/types/admin';
 import { useCopied } from '../components/ui';
+import { FlowLabel } from '@/components/flow/ui';
 
 /**
  * Keys that answer "what happened and why".
@@ -321,9 +322,9 @@ export function LogDetailModal({
               {/* Raw payload — the final authority when the extraction misses something */}
               <div>
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="lp-mono text-[12px] uppercase text-[var(--lp-muted)]">
+                  <FlowLabel as="h3">
                     Raw payload
-                  </h3>
+                  </FlowLabel>
                   <CopyButton text={json} />
                 </div>
                 <pre

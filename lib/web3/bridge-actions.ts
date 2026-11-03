@@ -657,7 +657,7 @@ export async function executeReceiveMessage(
   // BRIDGE_DISABLED_CHAINS in lib/circle/gateway.ts. Both are needed.
   if (destChain === 'ethereum') {
     throw new Error(
-      'Claiming to Ethereum is temporarily unavailable. Your funds are safe and the transfer stays claimable — please contact support.',
+      'Claiming to Ethereum is temporarily unavailable. Your funds are safe and the transfer stays claimable. Please contact support.',
     );
 
     // const { createWalletClient, custom } = await import('viem');

@@ -9,7 +9,8 @@ import { Download } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { matchesTxSearch, TransactionFilters, TransactionList } from '../components/TransactionList';
-import { PageHeader, Pagination, Panel, PrimaryButton, StatTile, usd } from '../components/ui';
+import { PageHeader, Pagination, Panel, PrimaryButton, StatTile } from '../components/ui';
+import { formatUsd } from '@/lib/format-usdc';
 
 const ITEMS_PER_PAGE = 20;
 
@@ -81,7 +82,7 @@ export default function AdminTransactions() {
 
       <div className="grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
         <StatTile label="Transactions" value={count.toLocaleString('en-US')} loading={isPending} hint={ADMIN_DATE_RANGE_LABELS[dateRange]} />
-        <StatTile label="Volume" value={usd(summary.volume, 0)} loading={isPending} hint="Matching the filters" />
+        <StatTile label="Volume" value={formatUsd(summary.volume, 0)} loading={isPending} hint="Matching the filters" />
         <StatTile label="Settled" value={summary.settled.toLocaleString('en-US')} loading={isPending} tone="text-[#0e7a45]" hint={count ? `${Math.round((summary.settled / count) * 100)}% of these` : '—'} />
         <StatTile
           label="Needs attention"

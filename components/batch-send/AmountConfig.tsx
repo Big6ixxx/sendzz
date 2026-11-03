@@ -2,10 +2,11 @@
 
 import { CurrencySelector } from '@/components/CurrencySelector';
 import { getCurrencySymbol } from '@/lib/currency-config';
-import { Label } from '@/components/ui/label';
-import { cn } from '@/lib/utils';
-import { AlertCircle, ChevronLeft } from 'lucide-react';
+import { ArrowLeft, ArrowRight } from 'lucide-react';
+import { AmountField, AsideFigure, AsideRows, FlowButton, FlowFrame, FlowInput, FlowSteps, Notice } from '@/components/flow/ui';
 import { useBatchSend } from './useBatchSend';
+import { BATCH_STEPS } from './steps';
+import { formatUsd } from '@/lib/format-usdc';
 
 interface AmountConfigProps {
   hook: ReturnType<typeof useBatchSend>;
@@ -14,115 +15,92 @@ interface AmountConfigProps {
 
 export function AmountConfig({ hook, maxAmount }: AmountConfigProps) {
   const isOverBalance = hook.totalAmount > maxAmount;
+  const isFiat = hook.currency !== 'USD';
+  const symbol = isFiat ? getCurrencySymbol(hook.currency) : '$';
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <Label className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-            Amount per Person
-          </Label>
-          <CurrencySelector selected={hook.currency} onChange={(c) => { hook.setCurrency(c); hook.setAmount(''); }} />
-          </div>
+    <FlowFrame
+      main={
+        <div className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <FlowSteps steps={BATCH_STEPS} current={1} />
 
-        <div className="relative">
-          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-4xl font-black opacity-20 pointer-events-none">
-            {hook.currency === 'USD' ? '$' : getCurrencySymbol(hook.currency)}
-          </span>
-          <input
-            type="text"
-            inputMode="decimal"
-            placeholder="0.00"
-            className="w-full bg-transparent border-none text-6xl font-black text-right pr-4 h-24 outline-none focus:ring-0 placeholder:opacity-10"
+          <AmountField
+            label="Each person gets"
             value={hook.amount}
-            onChange={(e) =>
-              hook.setAmount(e.target.value.replace(/[^0-9.]/g, ''))
-            }
+            onChange={(v) => hook.setAmount(v.replace(/[^0-9.]/g, ''))}
+            symbol={symbol}
+            placeholder="0.00"
             autoFocus
+            currency={
+              <CurrencySelector
+                selected={hook.currency}
+                onChange={(c) => {
+                  hook.setCurrency(c);
+                  hook.setAmount('');
+                }}
+                size="md"
+              />
+            }
+            footer={
+              <div className="flex flex-wrap gap-1.5">
+                {[5, 10, 25, 50, 100].map((v) => {
+                  const val = isFiat ? v * 1000 : v;
+                  return (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => hook.setAmount(val.toString())}
+                      className="rounded-full bg-[var(--lp-cream)] px-3.5 py-1.5 text-[14px] font-semibold transition-colors hover:bg-[#ece6da]"
+                    >
+                      {isFiat ? `${symbol}${v}k` : `$${v}`}
+                    </button>
+                  );
+                })}
+              </div>
+            }
+          />
+
+          {isOverBalance && (
+            <Notice tone="danger" title="That's more than your balance">
+              {formatUsd(hook.totalAmount)} in total, and you have {formatUsd(maxAmount)} available. Lower the amount, or remove some people.
+            </Notice>
+          )}
+
+          <FlowInput
+            label={
+              <>
+                What&apos;s it for? <span className="font-normal text-[var(--lp-muted)]">(optional)</span>
+              </>
+            }
+            type="text"
+            placeholder="e.g. Payroll, May 2026"
+            value={hook.note}
+            onChange={(e) => hook.setNote(e.target.value)}
           />
         </div>
-
-        <div className="grid grid-cols-5 gap-2">
-          {[5, 10, 25, 50, 100].map((v) => {
-            const isFiat = hook.currency !== 'USD';
-            const val = isFiat ? v * 1000 : v;
-            return (
-              <button
-                key={v}
-                onClick={() => hook.setAmount(val.toString())}
-                className="py-2.5 bg-muted/50 rounded-xl text-xs font-bold hover:bg-muted transition-colors border border-border/50"
-              >
-                {isFiat ? `${getCurrencySymbol(hook.currency)}${v}k` : `$${v}`}
-              </button>
-            );
-          })}
+      }
+      aside={
+        <div className="space-y-6">
+          <AsideFigure label="Total" value={formatUsd(hook.totalAmount)} unit="USDC" />
+          <AsideRows
+            rows={[
+              { label: 'People', value: hook.validRecipients.length },
+              { label: 'Each', value: formatUsd(hook.amountUsd) },
+              { label: 'Available', value: formatUsd(maxAmount) },
+            ]}
+          />
         </div>
-      </div>
-
-      <div
-        className={cn(
-          'p-6 rounded-2xl border transition-all space-y-4',
-          isOverBalance
-            ? 'bg-red-50 border-red-100'
-            : 'bg-muted/30 border-border',
-        )}
-      >
-        <div className="flex justify-between items-end border-b border-border/50 pb-4">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-            Total Payout
-          </span>
-          <span
-            className={cn(
-              'text-3xl font-black',
-              isOverBalance ? 'text-red-600' : 'text-foreground',
-            )}
-          >
-            ${hook.totalAmount.toFixed(2)}{' '}
-            <span className="text-xs font-bold opacity-40">USDC</span>
-          </span>
+      }
+      action={
+        <div className="flex gap-2">
+          <FlowButton tone="quiet" onClick={() => hook.setStep('recipients')} className="w-auto shrink-0 px-5" aria-label="Back">
+            <ArrowLeft className="size-5" />
+          </FlowButton>
+          <FlowButton tone="accent" onClick={() => hook.setStep('preview')} disabled={!hook.amount || hook.amountUsd <= 0 || isOverBalance} className="flex-1">
+            Check the list <ArrowRight className="size-5" />
+          </FlowButton>
         </div>
-
-        <div className="flex justify-between text-xs font-bold uppercase tracking-wider">
-          <span className="text-muted-foreground">Recipients</span>
-          <span>{hook.validRecipients.length} People</span>
-        </div>
-
-        {isOverBalance && (
-          <div className="flex gap-2 items-center text-[10px] font-black uppercase text-red-600">
-            <AlertCircle className="w-3 h-3" />
-            Insufficient Balance (${maxAmount.toFixed(2)} available)
-          </div>
-        )}
-      </div>
-
-      <div className="space-y-2 px-1">
-        <Label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-          What is this for? (Optional)
-        </Label>
-        <input
-          type="text"
-          placeholder="e.g. Payroll May 2026"
-          className="input-elegant text-sm"
-          value={hook.note}
-          onChange={(e) => hook.setNote(e.target.value)}
-        />
-      </div>
-
-      <div className="flex gap-4 pt-4">
-        <button
-          onClick={() => hook.setStep('recipients')}
-          className="btn-secondary flex-1 gap-2"
-        >
-          <ChevronLeft className="w-4 h-4" /> Back
-        </button>
-        <button
-          onClick={() => hook.setStep('preview')}
-          disabled={!hook.amount || hook.amountUsd <= 0 || isOverBalance}
-          className="btn-primary flex-1 disabled:opacity-50"
-        >
-          Review List
-        </button>
-      </div>
-    </div>
+      }
+    />
   );
 }

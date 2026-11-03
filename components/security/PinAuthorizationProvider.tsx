@@ -31,16 +31,12 @@
 
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
-import { AlertTriangle, ChevronRight, Loader2 } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
+import { FlowButton, FlowLabel } from "@/components/flow/ui";
 
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { ForgotPinDialog } from "@/components/security/ForgotPinDialog";
-import { PinInput } from "@/components/security/PinInput";
+import { PinPad } from "@/components/security/PinPad";
 import { PinSetup } from "@/components/PasskeySetupWizard";
 import {
   durationEstimate,
@@ -165,41 +161,6 @@ function planSummary(plan: SigningPlan): string {
 }
 
 /**
- * Whether this person has already been through a flow of this shape.
- *
- * The steps open themselves the first time and stay shut afterwards. Someone bridging for the
- * first time gets the explanation without asking; someone on their tenth bridge gets a compact
- * dialog. Per-purpose, because a first withdrawal is a first withdrawal even for a practised
- * bridger.
- *
- * localStorage can throw in a private window or with site data blocked, and it can come back
- * empty for a returning user. Both failure modes land on "show the explanation", which is the
- * side to be wrong on.
- */
-const PLAN_SEEN_KEY = "sendzz.signing.plan-seen";
-
-function hasSeenPlan(purpose: AuthorizationPurpose): boolean {
-  try {
-    const raw = window.localStorage.getItem(PLAN_SEEN_KEY);
-    return raw ? (JSON.parse(raw) as string[]).includes(purpose) : false;
-  } catch {
-    return false;
-  }
-}
-
-function rememberPlanSeen(purpose: AuthorizationPurpose): void {
-  try {
-    const raw = window.localStorage.getItem(PLAN_SEEN_KEY);
-    const seen = raw ? (JSON.parse(raw) as string[]) : [];
-    if (!seen.includes(purpose)) {
-      window.localStorage.setItem(PLAN_SEEN_KEY, JSON.stringify([...seen, purpose]));
-    }
-  } catch {
-    // A preference that cannot be saved is not worth failing a payment over.
-  }
-}
-
-/**
  * The PIN prompt for the payment paths.
  *
  * Throws when used outside the provider rather than returning a no-op. A silently missing
@@ -224,7 +185,6 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [forgotOpen, setForgotOpen] = useState(false);
-  const [planOpen, setPlanOpen] = useState(false);
   const [needsSetup, setNeedsSetup] = useState(false);
 
   // The promise the caller is awaiting. Held in a ref because resolving it must not depend on
@@ -256,13 +216,6 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
         setPin("");
         setError(null);
         setNeedsSetup(false);
-
-        // Decided once, here, as the prompt opens — not in an effect reacting to it. Flipping
-        // the disclosure under somebody who has started reading would be worse than either
-        // default, and an effect would do exactly that on re-render.
-        const multiStep = (next.plan?.steps.length ?? 0) > 1;
-        setPlanOpen(multiStep && !hasSeenPlan(next.purpose));
-        if (multiStep) rememberPlanSeen(next.purpose);
 
         setRequest(next);
       }),
@@ -323,204 +276,166 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
 
       <Dialog open={!!request} onOpenChange={(open) => !open && settle(null)}>
         <DialogContent
-          className="bg-[#0d0d0f] border-white/10 rounded-2xl shadow-2xl max-w-md p-0 gap-0 overflow-hidden flex flex-col"
           showCloseButton={false}
+          // Focus goes to the sheet itself, not the "1" key (which would read as pressed), and
+          // never stays on the button that opened it: Enter there would press that button again
+          // instead of confirming. The keypad listens to the whole window, so typing works at once.
+          tabIndex={-1}
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            (e.currentTarget as HTMLElement | null)?.focus({ preventScroll: true });
+          }}
+          className="grid max-h-[calc(100dvh-2rem)] max-w-[820px] grid-cols-[minmax(0,1fr)] sm:max-w-[820px] gap-0 overflow-hidden p-0 md:grid-cols-[minmax(0,1fr)_minmax(0,360px)] max-md:inset-0 max-md:h-dvh max-md:max-h-dvh max-md:max-w-none max-md:translate-x-0 max-md:translate-y-0 max-md:grid-rows-[minmax(0,1fr)_auto] max-md:rounded-none"
         >
-          {/* Three zones, fixed on purpose. The headline says what is being approved and the
-              footer holds the PIN and the buttons; only the middle scrolls. However much
-              explanation a flow carries, the thing being asked for is never pushed off-screen —
-              which is precisely what used to happen on a bridge. */}
+          {/* ── The slip: what you are approving ─────────────────────────────── */}
+          {/* Laid out like a payment slip because that is what it is: the amount as the figure,
+              the payee on its own line, and the rest as leader rows to check against. The only
+              part of the sheet allowed to scroll — the keypad never leaves the screen. */}
+          <div className="min-h-0 overflow-y-auto px-4 pb-6 pt-5 sm:px-6 sm:pt-6 md:flex md:items-center md:py-8">
+            <div className="mx-auto w-full max-w-[420px]">
+              <div className="lp-card relative rounded-t-[24px] px-6 pb-7 pt-6">
+                <div className="flex items-center justify-between gap-3">
+                  <DialogTitle className="lp-mono text-[12px] font-normal uppercase text-[var(--lp-muted)]">
+                    {purposeHeading(request?.purpose)}
+                  </DialogTitle>
+                  <FlowLabel as="span">
+                    {new Date().toLocaleDateString(undefined, { day: "numeric", month: "short" })}
+                  </FlowLabel>
+                </div>
 
-          {/* ── What you are approving ─────────────────────────────────────── */}
-          {/* The amount is the hero. What someone needs to read before typing a PIN is how much
-              is leaving and where it is going — the kind of action is an eyebrow above it, not
-              the biggest thing on the dialog. */}
-          <DialogHeader className="shrink-0 px-6 pt-7 pb-5 space-y-3 text-center border-b border-white/[0.06]">
-            <DialogTitle className="text-[10px] font-bold uppercase tracking-[0.22em] text-brand-secondary/35">
-              {purposeHeading(request?.purpose)}
-            </DialogTitle>
-
-            <p className="text-[34px] leading-none font-black tracking-tighter text-brand-secondary tabular-nums">
-              {request?.amount}
-            </p>
-
-            {/* Boxed rather than left as a line of prose, because this is a VALUE to check, not
-                a sentence to read. A 42-character address set as body text wraps mid-word and
-                gets skimmed; the whole string is kept — nothing is truncated on a screen whose
-                job is confirming where money goes. */}
-            {request?.destination && (
-              <div className="pt-0.5">
-                <span className="block text-[9.5px] font-bold uppercase tracking-[0.2em] text-brand-secondary/25 mb-1.5">
-                  To
-                </span>
-                <p className="mx-auto max-w-full rounded-lg bg-white/[0.04] border border-white/[0.06] px-3 py-2 text-[12.5px] font-medium text-brand-secondary/75 break-all leading-relaxed">
-                  {request.destination}
+                <p className="lp-display mt-6 break-words text-[clamp(44px,12vw,60px)] leading-[0.9] tracking-[-0.05em] tabular-nums">
+                  {request?.amount}
                 </p>
+
+                {/* The whole destination, never cut: this screen's job is confirming where the
+                    money goes, and a shortened address is exactly what gets skimmed. */}
+                {request?.destination && (
+                  <div className="mt-6">
+                    <p className="text-[13px] text-[var(--lp-muted)]">Pay to</p>
+                    <p className="mt-1 break-all border-b-2 border-dashed border-[var(--lp-line)] pb-2 text-[16px] font-semibold leading-snug">
+                      {request.destination}
+                    </p>
+                  </div>
+                )}
+
+                {request?.details && request.details.length > 0 && (
+                  <dl className="mt-5 space-y-2.5">
+                    {request.details.map((detail) => (
+                      <div key={detail.label} className="flex items-baseline gap-2 text-[14px]">
+                        <dt className="shrink-0 text-[var(--lp-muted)]">{detail.label}</dt>
+                        <span aria-hidden className="min-w-4 flex-1 translate-y-[-3px] border-b border-dotted border-[rgba(17,26,19,0.25)]" />
+                        <dd className="max-w-[60%] break-all text-right font-semibold tabular-nums">{detail.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+
+                {request?.warning && (
+                  <p className="mt-5 flex items-start gap-2 text-[13px] leading-[1.5] text-[#6b4600]">
+                    <AlertTriangle className="mt-[2px] size-4 shrink-0 text-[#8a5a00]" />
+                    <span>{request.warning}</span>
+                  </p>
+                )}
+
+                {/* Always shown: the summary says a second confirmation is coming and roughly how
+                    long it takes, and the steps say what each one is. */}
+                {request?.plan && request.plan.steps.length > 1 && (
+                  <div className="mt-5 rounded-[16px] bg-[var(--lp-cream)] px-3.5 py-3">
+                    <p className="text-[13px] font-semibold leading-snug">{planSummary(request.plan)}</p>
+                    <ol className="mt-2.5 space-y-2.5">
+                      {request.plan.steps.map((step, index) => (
+                        <li key={`${step.kind}-${index}`} className="flex gap-2.5 text-[13px] leading-[1.5]">
+                          <span className="grid size-5 shrink-0 place-items-center rounded-full bg-white text-[11px] font-semibold">
+                            {index + 1}
+                          </span>
+                          <span className="min-w-0">
+                            <span className="font-semibold">{step.title}</span>
+                            {step.detail && <span className="block text-[var(--lp-muted)]">{step.detail}</span>}
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+              </div>
+              {/* The torn edge: a row of half-circles cut out of the slip's foot. */}
+              <div
+                aria-hidden
+                className="h-3 drop-shadow-[0_1px_0_rgb(17_26_19/0.06)]"
+                style={{
+                  background: "radial-gradient(circle at 8px 12px, transparent 6px, #fff 6.5px) 0 0 / 16px 12px repeat-x",
+                }}
+              />
+            </div>
+          </div>
+
+          {/* ── The keypad: what we are asking for ───────────────────────────── */}
+          <div className="flex flex-col bg-[var(--lp-forest)] px-6 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 text-[var(--lp-cream)] md:justify-center md:py-8">
+            {needsSetup ? (
+              /* No PIN exists, and we only found out at the moment of paying. Rather than
+                 reject and drop them back to the form, the pending authorisation is held open
+                 and setup happens right here — then they approve with the PIN they just chose. */
+              <div className="space-y-4">
+                <p className="text-center text-[14px] leading-[1.5] text-[#cfe0d6]">
+                  You haven&apos;t set a transaction PIN yet. Choose one now and this payment carries on
+                  straight after.
+                </p>
+                <PinSetup tone="forest" onDone={() => setNeedsSetup(false)} />
+                <button
+                  type="button"
+                  onClick={() => settle(null)}
+                  className="w-full text-center text-[14px] font-semibold text-[#a9c2b5] hover:text-[var(--lp-cream)]"
+                >
+                  Cancel this payment
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3 md:space-y-5">
+                <p className="text-center text-[15px] font-semibold">Enter your PIN to approve</p>
+                {/* Submits itself on the fourth digit. A 4-digit PIN has nothing to review and no
+                    reason to need a second tap — every phone unlock works this way. */}
+                <PinPad
+                  value={pin}
+                  onChange={(next) => {
+                    setError(null);
+                    setPin(next);
+                  }}
+                  onEnter={confirm}
+                  onComplete={confirm}
+                  error={error}
+                  disabled={busy}
+                  label="Transaction PIN"
+                />
+                <div className="mx-auto max-w-[300px] space-y-3">
+                  <FlowButton tone="accent" onClick={confirm} loading={busy} disabled={pin.length < 4}>
+                    {request?.confirmLabel ?? "Confirm"}
+                  </FlowButton>
+                  <div className="flex items-center justify-between text-[14px] font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => settle(null)}
+                      disabled={busy}
+                      className="text-[#a9c2b5] transition-colors hover:text-[var(--lp-cream)] disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    {/* Offered here, where the problem is actually discovered. Someone staring at a
+                        prompt they cannot answer will not go looking through Settings for it. */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setForgotOpen(true);
+                        settle(null);
+                      }}
+                      className="text-[#a9c2b5] transition-colors hover:text-[var(--lp-cream)]"
+                    >
+                      Forgot PIN?
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
-          </DialogHeader>
-
-          {needsSetup ? (
-            /* No PIN exists, and we only found out at the moment of paying. Rather than
-               reject and drop them back to the form, the pending authorisation is held open
-               and setup happens right here — then they approve with the PIN they just chose.
-               The alternative is a dead end: an error under four empty boxes, and no way from
-               there to the screen that would fix it. */
-            <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-5">
-              <p className="text-sm font-medium text-brand-secondary/55 leading-relaxed text-center">
-                You have not set a transaction PIN yet. Choose one now — it takes a moment, and
-                this payment carries on straight after.
-              </p>
-              <PinSetup onDone={() => setNeedsSetup(false)} />
-              <button
-                type="button"
-                onClick={() => settle(null)}
-                className="w-full text-[12.5px] font-medium text-brand-secondary/40 hover:text-brand-secondary/80 transition-colors"
-              >
-                Cancel this payment
-              </button>
-            </div>
-          ) : (
-            <>
-          {/* ── The detail, which is the only part allowed to scroll ────────── */}
-          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-3">
-            {request?.warning && (
-              <p className="flex items-start gap-2 text-[12.5px] text-amber-200/70 leading-relaxed">
-                <AlertTriangle className="w-3.5 h-3.5 mt-[3px] shrink-0 text-amber-300/60" />
-                <span>{request.warning}</span>
-              </p>
-            )}
-
-            {request?.details && request.details.length > 0 && (
-              <dl className="rounded-xl border border-white/[0.07] bg-white/[0.02] divide-y divide-white/[0.05]">
-                {request.details.map((detail) => (
-                  <div
-                    key={detail.label}
-                    className="flex items-baseline justify-between gap-4 px-3.5 py-2.5"
-                  >
-                    <dt className="text-[11px] font-semibold uppercase tracking-[0.12em] text-brand-secondary/35 shrink-0">
-                      {detail.label}
-                    </dt>
-                    <dd className="text-[12.5px] font-semibold text-brand-secondary text-right break-all">
-                      {detail.value}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            )}
-
-            {/* The step list is education: essential the first time somebody bridges, furniture
-                by the third. The two facts that actually change what they do — that a second
-                confirmation is coming, and roughly how long it takes — stay on the summary line
-                whether it is open or shut. It opens itself until they have been through the
-                flow once; see hasSeenPlan. */}
-            {request?.plan && request.plan.steps.length > 1 && (
-              <details
-                open={planOpen}
-                onToggle={(e) => setPlanOpen((e.currentTarget as HTMLDetailsElement).open)}
-                className="group rounded-xl border border-white/[0.07] bg-white/[0.02]"
-              >
-                <summary className="flex items-center gap-2 px-3.5 py-2.5 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
-                  <ChevronRight className="w-3.5 h-3.5 shrink-0 text-brand-secondary/35 transition-transform group-open:rotate-90" />
-                  <span className="text-[12px] text-brand-secondary/65 leading-snug">
-                    {planSummary(request.plan)}
-                  </span>
-                </summary>
-
-                <ol className="px-3.5 pb-3.5 pt-0.5 space-y-2 border-t border-white/[0.05] mt-0.5">
-                  {request.plan.steps.map((step, index) => (
-                    <li key={`${step.kind}-${index}`} className="flex gap-2.5 pt-2">
-                      <span className="mt-[1px] w-4 h-4 shrink-0 rounded-full border border-white/12 flex items-center justify-center text-[9px] font-bold text-brand-secondary/35">
-                        {index + 1}
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block text-[12px] font-medium text-brand-secondary/80">
-                          {step.title}
-                        </span>
-                        {step.detail && (
-                          <span className="block text-[11.5px] text-brand-secondary/40 leading-relaxed mt-0.5">
-                            {step.detail}
-                          </span>
-                        )}
-                      </span>
-                    </li>
-                  ))}
-                </ol>
-              </details>
-            )}
           </div>
-
-          {/* ── What we are asking for ──────────────────────────────────────── */}
-          <div className="shrink-0 px-6 pt-4 pb-5 space-y-2.5 border-t border-white/[0.06] bg-white/[0.015]">
-            {/* The label and the way out share one row. They were two rows plus a sentence
-                explaining that the PIN approves only this payment — true, and worth saying
-                once during PIN setup, but restating it on every single payment cost a line
-                on a dialog that was already overflowing. The shield keeps the connotation. */}
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/35">
-                Enter your PIN
-              </span>
-              {/* Offered here, where the problem is actually discovered. Someone staring at a
-                  prompt they cannot answer will not go looking through Settings for the way
-                  out — they will give up, or write in. */}
-              <button
-                type="button"
-                onClick={() => {
-                  setForgotOpen(true);
-                  settle(null);
-                }}
-                className="text-[11.5px] text-brand-secondary/40 hover:text-brand-secondary/80 transition-colors shrink-0"
-              >
-                Forgot your PIN?
-              </button>
-            </div>
-
-            {/* Submits itself on the fourth digit. A 4-digit PIN has nothing to review and no
-                reason to need a second tap — every phone unlock works this way, and the Confirm
-                button stays for anyone who reaches it by keyboard or after an error. */}
-            <PinInput
-              value={pin}
-              onChange={(next) => {
-                setError(null);
-                setPin(next);
-              }}
-              onEnter={confirm}
-              onComplete={confirm}
-              error={error}
-              label="Enter your transaction PIN"
-              srOnlyLabel
-              disabled={busy}
-              autoFocus
-            />
-
-            <div className="flex flex-col-reverse sm:flex-row gap-2.5 pt-1">
-              <button
-                type="button"
-                onClick={() => settle(null)}
-                disabled={busy}
-                className="btn-secondary w-full sm:w-auto h-14 text-sm font-bold tracking-wide"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={confirm}
-                disabled={busy || pin.length < 4}
-                className="btn-primary w-full sm:w-auto sm:flex-1 h-14 text-sm font-bold tracking-wide"
-              >
-                {busy ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <Loader2 className="animate-spin w-5 h-5" />
-                    Confirming…
-                  </span>
-                ) : (
-                  (request?.confirmLabel ?? "Confirm")
-                )}
-              </button>
-            </div>
-          </div>
-            </>
-          )}
         </DialogContent>
       </Dialog>
 

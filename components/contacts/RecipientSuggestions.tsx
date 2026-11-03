@@ -29,28 +29,20 @@ export function RecipientSuggestions({
       c.email.toLowerCase().includes(inputVal.toLowerCase())
   );
 
+  const small =
+    'inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold transition-colors';
+
   return (
-    <div className="absolute left-0 right-0 top-full mt-2 bg-brand-primary border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-100 max-h-64 overflow-y-auto p-2">
+    <div className="absolute left-0 right-0 top-full z-100 mt-2 max-h-72 overflow-y-auto rounded-[22px] bg-white p-1.5 shadow-[0_0_0_1px_rgb(17_26_19/0.08),0_24px_48px_-20px_rgb(17_26_19/0.35)]">
       {contacts.length === 0 ? (
-        <div className="px-4 py-6 text-center">
-          <p className="text-xs font-bold text-white/30 uppercase tracking-widest mb-4">
-            No contacts saved
-          </p>
-          <div className="flex items-center justify-center gap-3">
-            <button
-              type="button"
-              onClick={onAddNew}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-accent text-accent-foreground font-black text-[10px] uppercase tracking-widest hover:scale-105 transition-all shadow-lg"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Add Contact
+        <div className="px-4 py-5 text-center">
+          <p className="text-[14px] text-[var(--lp-muted)]">No saved contacts yet.</p>
+          <div className="mt-3 flex items-center justify-center gap-2">
+            <button type="button" onClick={onAddNew} className={`${small} bg-[var(--lp-ink)] text-[var(--lp-cream)]`}>
+              <Plus className="size-3.5" /> Add a contact
             </button>
             {onClose && (
-              <button
-                type="button"
-                onClick={onClose}
-                className="inline-flex items-center px-4 py-2 rounded-xl bg-white/5 text-white/40 font-black text-[10px] uppercase tracking-widest hover:bg-white/10 hover:text-white transition-all shadow-lg"
-              >
+              <button type="button" onClick={onClose} className={`${small} text-[var(--lp-muted)] hover:bg-[var(--lp-cream)]`}>
                 Close
               </button>
             )}
@@ -58,35 +50,21 @@ export function RecipientSuggestions({
         </div>
       ) : (
         <>
-          <div className="px-3 py-2 flex items-center justify-between border-b border-white/5 mb-1">
-            <span className="text-[9px] font-black text-white/20 uppercase tracking-widest">
-              Suggestions
-            </span>
-            <div className="flex items-center gap-4">
-              <button
-                type="button"
-                onClick={onAddNew}
-                className="text-[9px] font-black text-accent uppercase tracking-widest hover:text-accent-dim transition-colors"
-              >
-                + New
+          <div className="flex items-center justify-between gap-2 px-3 pb-1 pt-2">
+            <span className="lp-mono text-[11.5px] uppercase text-[var(--lp-muted)]">Your contacts</span>
+            <span className="flex items-center gap-1">
+              <button type="button" onClick={onAddNew} className={`${small} hover:bg-[var(--lp-cream)]`}>
+                <Plus className="size-3.5" /> New
               </button>
               {onClose && (
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="text-[9px] font-black text-white/40 uppercase tracking-widest hover:text-white transition-colors"
-                >
+                <button type="button" onClick={onClose} className={`${small} text-[var(--lp-muted)] hover:bg-[var(--lp-cream)]`}>
                   Close
                 </button>
               )}
-            </div>
+            </span>
           </div>
           {filteredContacts.length === 0 ? (
-            <div className="px-4 py-6 text-center">
-              <p className="text-xs font-bold text-white/30 uppercase tracking-widest">
-                No contacts match your filter
-              </p>
-            </div>
+            <p className="px-4 py-5 text-center text-[14px] text-[var(--lp-muted)]">No contact matches that.</p>
           ) : (
             filteredContacts.map((c) => (
               <button
@@ -97,21 +75,20 @@ export function RecipientSuggestions({
                   e.stopPropagation();
                   onSelect(c.email);
                 }}
-                className="w-full text-left px-4 py-3 rounded-xl hover:bg-white/5 transition-colors flex items-center justify-between group"
+                className="group flex w-full items-center gap-3 rounded-[16px] px-3 py-2.5 text-left transition-colors hover:bg-[var(--lp-cream)]"
               >
-                <div className="flex flex-col">
-                  <span className="font-bold text-sm text-foreground group-hover:text-accent transition-colors">
-                    {c.name}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground/60">{c.email}</span>
-                </div>
-                <div className="w-6 h-6 rounded-full bg-white/5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                  {actionIcon === 'send' ? (
-                    <Send className="w-3 h-3 text-accent" />
-                  ) : (
-                    <ChevronRight className="w-3 h-3 text-accent" />
-                  )}
-                </div>
+                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[var(--lp-sand)] text-[14px] font-semibold uppercase">
+                  {(c.name || c.email).charAt(0)}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[15px] font-semibold">{c.name}</span>
+                  <span className="block truncate text-[13px] text-[var(--lp-muted)]">{c.email}</span>
+                </span>
+                {actionIcon === 'send' ? (
+                  <Send className="size-4 shrink-0 text-[var(--lp-muted)] opacity-0 transition-opacity group-hover:opacity-100" />
+                ) : (
+                  <ChevronRight className="size-4 shrink-0 text-[var(--lp-muted)] opacity-0 transition-opacity group-hover:opacity-100" />
+                )}
               </button>
             ))
           )}

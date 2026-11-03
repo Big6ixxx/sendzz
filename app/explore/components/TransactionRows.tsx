@@ -6,13 +6,13 @@ import type { PublicFeedRow } from '@/types/public';
 import { ExternalLink, MoreVertical } from 'lucide-react';
 import {
   formatFeedDate,
-  formatStatus,
-  formatUsdc,
   shortHash,
-  statusClasses,
+  statusBadge,
   type TimeMode,
   TypeBadge,
 } from '../shared';
+import { Skeleton } from '@/components/ui/skeleton';
+import { formatMoney } from '@/lib/format-usdc';
 
 interface RowProps {
   row: PublicFeedRow;
@@ -24,15 +24,15 @@ interface RowProps {
 
 function ConsolidatedBadge({ className }: { className?: string }) {
   return (
-    <span
-      className={cn(
-        'inline-block px-2 py-0.5 rounded-md bg-amber-400/15 text-amber-300 text-[9px] font-bold uppercase tracking-widest',
-        className,
-      )}
-    >
-      Consolidated
+    <span className={cn('inline-block rounded-full bg-[#fbedcc] px-2 py-px text-[11px] font-semibold text-[#8a5a00]', className)}>
+      Combined
     </span>
   );
+}
+
+function StatusChip({ status }: { status: string }) {
+  const badge = statusBadge(status);
+  return <span className={cn('whitespace-nowrap rounded-full px-2.5 py-1 text-[12px] font-semibold', badge.tone)}>{badge.text}</span>;
 }
 
 function ActionsButton({ row, onOpenActions }: Pick<RowProps, 'row' | 'onOpenActions'>) {
@@ -41,186 +41,134 @@ function ActionsButton({ row, onOpenActions }: Pick<RowProps, 'row' | 'onOpenAct
       type="button"
       onClick={(e) => onOpenActions(row, e.currentTarget)}
       aria-haspopup="menu"
-      aria-label={`Actions for ${row.tx_type} of ${formatUsdc(row.amount)} USDC`}
-      className="grid place-items-center w-9 h-9 rounded-lg text-white/40 hover:text-white hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:outline-none transition-colors"
+      aria-label={`Actions for ${row.tx_type} of ${formatMoney(row.amount)} USDC`}
+      className="grid size-9 place-items-center rounded-full text-[var(--lp-muted)] outline-none transition-colors hover:bg-[var(--lp-cream)] hover:text-[var(--lp-ink)] focus-visible:ring-2 focus-visible:ring-[var(--lp-ink)]"
     >
-      <MoreVertical className="w-4 h-4" />
+      <MoreVertical className="size-4" />
     </button>
   );
 }
 
-function MintLine({ row }: { row: PublicFeedRow }) {
-  const mintUrl = secondaryExplorerUrlFor(row);
-  return (
-    <div className="flex items-center gap-1.5 pl-0.5">
-      <span className="text-[9px] font-bold uppercase tracking-widest text-purple-300/70">Mint</span>
-      {mintUrl ? (
-        <a
-          href={mintUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 font-mono text-[10px] text-white/40 hover:text-accent transition-colors focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:outline-none rounded"
-        >
-          {shortHash(row.secondary_tx_hash!, 8, 6)}
-          <ExternalLink className="w-2.5 h-2.5" aria-hidden />
-        </a>
-      ) : (
-        <span className="font-mono text-[10px] text-white/40">{shortHash(row.secondary_tx_hash!, 8, 6)}</span>
-      )}
-    </div>
+/** A hash, linked to its explorer when there is one. */
+function HashLink({ hash, url, head = 10, tail = 8 }: { hash: string; url: string | null; head?: number; tail?: number }) {
+  const text = <span className="lp-mono text-[13px]">{shortHash(hash, head, tail)}</span>;
+  return url ? (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1.5 rounded-full bg-[var(--lp-cream)] px-3 py-1 outline-none transition-colors hover:bg-[var(--lp-sand)] focus-visible:ring-2 focus-visible:ring-[var(--lp-ink)]"
+    >
+      {text}
+      <ExternalLink className="size-3 text-[var(--lp-muted)]" aria-hidden />
+    </a>
+  ) : (
+    text
   );
 }
+
+function MintLine({ row }: { row: PublicFeedRow }) {
+  return (
+    <p className="flex items-center gap-2 text-[12px] text-[var(--lp-muted)]">
+      Arrived
+      <HashLink hash={row.secondary_tx_hash!} url={secondaryExplorerUrlFor(row)} head={8} tail={6} />
+    </p>
+  );
+}
+
+const bar = (w: string) => <Skeleton className={cn('h-3.5', w)} />;
 
 /** Column-aware skeleton row mirroring the desktop table layout. */
 export function TxTableRowSkeleton() {
   return (
-    <tr className="animate-pulse">
-      <td className="px-6 py-4">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-white/5" />
-          <div className="h-3 w-16 rounded bg-white/5" />
-        </div>
+    <tr>
+      <td className="px-5 py-4">
+        <span className="flex items-center gap-2.5">
+          <Skeleton className="size-9" />
+          {bar('w-16')}
+        </span>
       </td>
-      <td className="px-6 py-4">
-        <div className="h-6 w-32 rounded-lg bg-white/5" />
-      </td>
-      <td className="px-6 py-4">
-        <div className="h-3 w-24 rounded bg-white/5" />
-      </td>
-      <td className="px-6 py-4">
-        <div className="h-3 w-16 rounded bg-white/5" />
-      </td>
-      <td className="px-6 py-4">
-        <div className="h-5 w-20 rounded-full bg-white/5" />
-      </td>
-      <td className="px-6 py-4">
-        <div className="h-3 w-28 rounded bg-white/5" />
-      </td>
-      <td className="px-6 py-4">
-        <div className="ml-auto w-9 h-9 rounded-lg bg-white/5" />
-      </td>
+      <td className="px-5 py-4">{bar('w-36')}</td>
+      <td className="px-5 py-4">{bar('w-24')}</td>
+      <td className="px-5 py-4">{bar('w-16')}</td>
+      <td className="px-5 py-4">{bar('w-20')}</td>
+      <td className="px-5 py-4">{bar('w-28')}</td>
+      <td className="px-5 py-4" />
     </tr>
   );
 }
 
-/** Skeleton mirroring the mobile card layout. */
+/** Skeleton mirroring the phone row. */
 export function TxCardSkeleton() {
   return (
-    <div className="card-glass p-4! space-y-3 animate-pulse">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-white/5" />
-          <div className="h-3 w-16 rounded bg-white/5" />
-        </div>
-        <div className="h-5 w-16 rounded-full bg-white/5" />
-      </div>
-      <div className="flex items-center justify-between">
-        <div className="h-5 w-24 rounded bg-white/5" />
-        <div className="h-3 w-20 rounded bg-white/5" />
-      </div>
-      <div className="flex items-center justify-between">
-        <div className="h-3 w-24 rounded bg-white/5" />
-        <div className="h-3 w-16 rounded bg-white/5" />
-      </div>
-    </div>
+    <li className="flex items-center gap-3 py-4">
+      <Skeleton className="size-9" />
+      <span className="flex-1 space-y-2">
+        {bar('w-1/3')}
+        {bar('w-1/2')}
+      </span>
+      {bar('w-16')}
+    </li>
   );
 }
 
-/** Desktop table row. Actions live in the trailing kebab menu, not a whole-row click. */
+/** Desktop table row. Actions live in the trailing menu, not a whole-row click. */
 export function TxTableRow({ row, timeZone, timeMode, onOpenActions }: RowProps) {
-  const explorerUrl = explorerUrlFor(row);
   const showMint = row.tx_type === 'bridge' && !!row.secondary_tx_hash;
   return (
-    <tr className="hover:bg-white/2 transition-colors">
-      <td className="px-6 py-4">
+    <tr className="transition-colors hover:bg-[#fbf9f4]">
+      <td className="px-5 py-4">
         <TypeBadge type={row.tx_type} />
       </td>
-      <td className="px-6 py-4">
+      <td className="px-5 py-4">
         <div className="space-y-1.5">
-          {row.tx_hash ? (
-            explorerUrl ? (
-              <a
-                href={explorerUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 font-mono text-[11px] text-white/70 hover:text-accent bg-white/5 px-2.5 py-1.5 rounded-lg border border-white/8 transition-colors focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:outline-none"
-              >
-                {shortHash(row.tx_hash, 10, 8)}
-                <ExternalLink className="w-3 h-3" aria-hidden />
-              </a>
-            ) : (
-              <span className="font-mono text-[11px] text-white/70">{shortHash(row.tx_hash, 10, 8)}</span>
-            )
-          ) : (
-            <span className="font-mono text-[11px] text-white/25">—</span>
-          )}
+          {row.tx_hash ? <HashLink hash={row.tx_hash} url={explorerUrlFor(row)} /> : <span className="text-[var(--lp-muted)]">—</span>}
           {showMint && <MintLine row={row} />}
         </div>
       </td>
-      <td className="px-6 py-4">
-        <span className="text-xs font-medium text-white/70">{routeLabel(row)}</span>
+      <td className="px-5 py-4 text-[14px] text-[var(--lp-body)]">
+        {routeLabel(row)}
         {row.consolidated && <ConsolidatedBadge className="ml-2" />}
       </td>
-      <td className="px-6 py-4">
-        <span className="text-sm font-bold text-white">${formatUsdc(row.amount)}</span>
-        <span className="ml-1 text-[10px] font-bold text-white/30 uppercase">{row.asset}</span>
+      <td className="whitespace-nowrap px-5 py-4">
+        <span className="lp-display text-[17px] tracking-[-0.02em] tabular-nums">${formatMoney(row.amount)}</span>
+        <span className="ml-1 text-[12px] text-[var(--lp-muted)]">{row.asset}</span>
       </td>
-      <td className="px-6 py-4">
-        <span
-          className={cn(
-            'px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest whitespace-nowrap',
-            statusClasses(row.status),
-          )}
-        >
-          {formatStatus(row.status)}
-        </span>
+      <td className="px-5 py-4">
+        <StatusChip status={row.status} />
       </td>
-      <td className="px-6 py-4 text-xs font-medium text-white/50 whitespace-nowrap">
-        {formatFeedDate(row.created_at, timeZone, timeMode, 'long')}
-      </td>
-      <td className="px-6 py-4 text-right">
+      <td className="whitespace-nowrap px-5 py-4 text-[14px] text-[var(--lp-muted)]">{formatFeedDate(row.created_at, timeZone, timeMode, 'long')}</td>
+      <td className="px-5 py-4 text-right">
         <ActionsButton row={row} onOpenActions={onOpenActions} />
       </td>
     </tr>
   );
 }
 
-/** Mobile card. Actions live in the header kebab menu. */
+/** Phone row: the dashboard's activity row shape, with the hash and route underneath. */
 export function TxCard({ row, timeZone, timeMode, onOpenActions }: RowProps) {
   return (
-    <div className="card-glass p-4! space-y-3">
-      <div className="flex items-center justify-between gap-3">
+    <li className="space-y-2 py-4">
+      <div className="flex items-center gap-3">
         <TypeBadge type={row.tx_type} />
-        <div className="flex items-center gap-1.5">
-          <span
-            className={cn(
-              'px-2.5 py-1 rounded-full text-[9px] font-bold uppercase tracking-widest',
-              statusClasses(row.status),
-            )}
-          >
-            {formatStatus(row.status)}
-          </span>
-          <ActionsButton row={row} onOpenActions={onOpenActions} />
-        </div>
-      </div>
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="text-lg font-display font-bold text-white">
-          ${formatUsdc(row.amount)}{' '}
-          <span className="text-[10px] font-bold text-white/30 uppercase">{row.asset}</span>
+        <span className="ml-auto flex shrink-0 flex-col items-end gap-1">
+          <span className="lp-display text-[17px] tracking-[-0.02em] tabular-nums">${formatMoney(row.amount)}</span>
+          <StatusChip status={row.status} />
         </span>
-        <span className="text-[11px] font-medium text-white/50">{routeLabel(row)}</span>
+        <ActionsButton row={row} onOpenActions={onOpenActions} />
       </div>
-      <div className="flex items-center justify-between gap-3 text-[11px] text-white/40">
-        <span className="font-mono">{row.tx_hash ? shortHash(row.tx_hash, 8, 6) : '—'}</span>
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 pl-12 text-[13px] text-[var(--lp-muted)]">
+        <span>{routeLabel(row)}</span>
+        <span aria-hidden>·</span>
         <span>{formatFeedDate(row.created_at, timeZone, timeMode, 'short')}</span>
-      </div>
-      {row.tx_type === 'bridge' && row.secondary_tx_hash && (
-        <div className="flex items-center gap-1.5 text-[10px]">
-          <span className="text-[9px] font-bold uppercase tracking-widest text-purple-300/70">Mint</span>
-          <span className="font-mono text-white/40">{shortHash(row.secondary_tx_hash, 8, 6)}</span>
-        </div>
-      )}
-      {row.consolidated && <ConsolidatedBadge />}
-    </div>
+        {row.tx_hash && (
+          <>
+            <span aria-hidden>·</span>
+            <span className="lp-mono">{shortHash(row.tx_hash, 6, 4)}</span>
+          </>
+        )}
+        {row.consolidated && <ConsolidatedBadge />}
+      </p>
+    </li>
   );
 }

@@ -20,44 +20,30 @@ export function BankSelectorDropdown({
   if (!isOpen) return null;
 
   return (
-    <div
-      className="absolute z-50 top-full left-0 right-0 mt-2 border rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200"
-      style={{ background: '#1a1a1c', borderColor: 'rgba(255,255,255,0.1)' }}
-    >
-      <div className="p-2 border-b border-border bg-muted/30">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder="Search banks..."
-            className="w-full bg-transparent pl-9 pr-3 py-2 text-sm outline-none"
-            autoFocus
-            value={search}
-            onChange={(e) => onSearchChange(e.target.value)}
-          />
-        </div>
-      </div>
-      <div className="max-h-60 overflow-y-auto">
+    <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-[20px] bg-white shadow-[0_0_0_1px_rgb(17_26_19/0.08),0_20px_48px_-16px_rgb(17_26_19/0.35)] animate-in fade-in zoom-in-95 duration-200">
+      <label className="m-2 flex h-11 items-center gap-2 rounded-full bg-[var(--lp-cream)] px-3">
+        <Search className="size-4 shrink-0 text-[var(--lp-muted)]" />
+        <input
+          type="text"
+          placeholder="Search banks"
+          className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-[rgba(91,100,93,0.8)] md:text-[15px]"
+          autoFocus
+          value={search}
+          onChange={(e) => onSearchChange(e.target.value)}
+        />
+      </label>
+      <div className="max-h-64 overflow-y-auto px-2 pb-2">
         {filteredInstitutions.map((inst) => (
           <button
             key={inst.code}
             type="button"
-            onClick={() => {
-              onSelect({
-                code: inst.institutionCode || inst.code,
-                name: inst.name,
-              });
-            }}
-            className="w-full text-left px-4 py-3 text-sm hover:bg-muted transition-colors border-b border-border/50 last:border-0"
+            onClick={() => onSelect({ code: inst.institutionCode || inst.code, name: inst.name })}
+            className="w-full rounded-[14px] px-3 py-3 text-left text-[15px] transition-colors hover:bg-[var(--lp-cream)]"
           >
             {inst.name}
           </button>
         ))}
-        {filteredInstitutions.length === 0 && (
-          <div className="p-8 text-center text-sm text-muted-foreground">
-            No banks found
-          </div>
-        )}
+        {filteredInstitutions.length === 0 && <p className="px-4 py-8 text-center text-[14px] text-[var(--lp-muted)]">No bank matches that.</p>}
       </div>
     </div>
   );

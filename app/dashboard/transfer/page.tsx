@@ -2,10 +2,12 @@
 
 import { BatchSendDialog } from "@/components/batch-send/BatchSendDialog";
 import { ChainLogo } from "@/components/deposit-withdraw/ChainLogo";
-import { HistoryModule } from "@/components/HistoryModule";
-import { DashboardPageHeader } from "@/components/layout/DashboardPageHeader";
+import type { Activity } from "@/components/HistoryModule";
+import { ActivityDetailModal } from "@/components/ActivityDetailModal";
+import { RecentActivity } from "@/components/dashboard/RecentActivity";
+import { PageHeader } from "@/components/dashboard/PageHeader";
+import { useBalanceVisibility } from "@/components/providers/BalanceVisibilityProvider";
 import { TransferModule } from "@/components/TransferModule";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { useSolanaBridge } from "@/hooks/useSolanaBridge";
 import { CHAIN_NAMES } from "@/lib/circle/gateway";
@@ -14,9 +16,10 @@ import { type ChainBalances } from "@/lib/web3/routing";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { stellarSourceFor } from "@/lib/web3/stellar-bridge";
 import { useStellarWallet } from '@/hooks/useStellarWallet';
-import { ArrowRight, Loader2, ShieldCheck, Users } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { ArrowRight, Users } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
+import { PageSkeleton } from "@/components/dashboard/PageSkeleton";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -35,7 +38,8 @@ function TransfersPageContent() {
   const prefill = EMAIL_RE.test(to) ? to : undefined;
   const { ready, authenticated, user } = usePrivy();
   const { wallets } = useWallets();
-  const router = useRouter();
+  const { hideBalance } = useBalanceVisibility();
+  const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
   const [smartAddress, setSmartAddress] = useState<string>("");
   const [batchSendDialogOpen, setBatchSendDialogOpen] = useState(false);
   const [twoFaThreshold, setTwoFaThreshold] = useState(500);
@@ -134,159 +138,113 @@ function TransfersPageContent() {
   }, [ready, authenticated, wallets, user?.email?.address]);
 
   if (!ready || !authenticated || !user) {
-    return (
-      <div className="h-[60vh] flex items-center justify-center">
-        <Loader2 className="animate-spin w-8 h-8 text-muted-foreground/40" />
-      </div>
-    );
+    return <PageSkeleton variant="form" />;
   }
 
-  return (
-    <TooltipProvider>
-      <div className="max-w-5xl mx-auto space-y-8">
-        <DashboardPageHeader
-          title="Transfer"
-          subtitle="Send to an email or wallet — we route from whichever network holds your funds."
-        />
+  const chainName = (chain: string) =>
+    CHAIN_NAMES[chain as keyof typeof CHAIN_NAMES] ??
+    (chain === "solana" ? "Solana" : chain === "stellar" ? "Stellar" : chain);
 
-        <div className="grid lg:grid-cols-12 gap-8 items-start">
-          <div className="lg:col-span-7">
-            <TransferModule
-              key={prefill}
-              initialRecipientEmail={prefill}
-              smartAddress={smartAddress}
-              embeddedProvider={wallets.find(
-                (w) => w.walletClientType === "privy",
-              )}
-              balance={totalSpendable}
-              chainBalances={evmChainBalances}
-              solanaSource={solanaSource}
-              senderEmail={user?.email?.address || ""}
-            />
-          </div>
-
-          <div className="lg:col-span-5 space-y-6">
-            {/* Per-network balance breakdown */}
-            <div className="card-glass p-6 space-y-4">
-              <div className="flex items-baseline justify-between">
-                <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-brand-secondary/40">
-                  Available to send
-                </h3>
-                <span className="font-display text-lg font-bold text-brand-secondary">
-                  ${totalSpendable}
+  const sideCards = (
+    <>
+      <section className="lp-card rounded-[28px] p-5 sm:p-6">
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="text-[15px] font-semibold">Available to send</h2>
+          <span className="lp-display text-[22px] tracking-[-0.03em] tabular-nums">
+            {hideBalance ? "••••" : `$${totalSpendable}`}
+          </span>
+        </div>
+        {fundedChains.length === 0 ? (
+          <p className="mt-3 text-[14px] text-[var(--lp-muted)]">Nothing yet. Add money to get started.</p>
+        ) : (
+          <ul className="mt-3 divide-y divide-[var(--lp-line)]">
+            {fundedChains.map((c) => (
+              <li key={c.chain} className="flex items-center justify-between gap-3 py-2.5">
+                <span className="flex items-center gap-2.5 text-[14px]">
+                  <ChainLogo chain={c.chain} size={20} />
+                  {chainName(c.chain)}
                 </span>
-              </div>
-              {fundedChains.length === 0 ? (
-                <p className="text-xs text-brand-secondary/35 py-2">
-                  No funds yet — deposit to get started.
-                </p>
-              ) : (
-                <div className="space-y-1">
-                  {fundedChains.map((c) => (
-                    <div
-                      key={c.chain}
-                      className="flex items-center justify-between px-2 py-2 rounded-xl hover:bg-white/3 transition-colors"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <ChainLogo chain={c.chain} size={18} />
-                        <span className="text-sm font-medium text-brand-secondary/80">
-                          {CHAIN_NAMES[c.chain as keyof typeof CHAIN_NAMES] ??
-                            (c.chain === "solana" ? "Solana" : c.chain === "stellar" ? "Stellar" : c.chain)}
-                        </span>
-                      </div>
-                      <span className="text-sm font-mono font-bold text-brand-secondary">
-                        ${parseFloat(c.balance).toFixed(2)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <p className="text-[11px] text-brand-secondary/30 leading-relaxed pt-1 border-t border-white/5">
-                We automatically pay from the cheapest network that holds your
-                funds, and bridge across networks when needed.
-              </p>
-            </div>
+                <span className="text-[14px] font-semibold tabular-nums">
+                  {hideBalance ? "••••" : `$${parseFloat(c.balance).toFixed(2)}`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="mt-3 text-[13px] leading-[1.5] text-[var(--lp-muted)]">
+          We pay from the cheapest network that holds your money, and move it across when needed. Network fees are on us.
+        </p>
+      </section>
 
-            {/* Batch */}
-            <div className="card-glass p-6 space-y-5">
-              <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center border border-white/10">
-                <Users className="w-6 h-6 text-accent" />
-              </div>
-              <div className="space-y-1.5">
-                <h3 className="text-lg font-bold tracking-tight text-brand-secondary">
-                  Batch Payments
-                </h3>
-                <p className="text-sm text-brand-secondary/50 leading-relaxed">
-                  Pay a team or group — send to many emails at once, routed and
-                  consolidated across networks automatically.
-                </p>
-              </div>
-              <button
-                onClick={() => setBatchSendDialogOpen(true)}
-                className="w-full btn-accent h-12 rounded-2xl flex items-center justify-center gap-3 group text-xs font-bold uppercase tracking-widest"
-              >
-                Launch Batch Engine
-                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-              </button>
-            </div>
+      <section className="rounded-[28px] bg-[var(--lp-sand)] p-5 sm:p-6">
+        <span className="grid size-11 place-items-center rounded-full bg-[var(--lp-ink)] text-[var(--lp-cream)]">
+          <Users className="size-5" />
+        </span>
+        <h2 className="lp-display mt-4 text-[24px] leading-none tracking-[-0.03em]">
+          Paying <span className="lp-serif">a group?</span>
+        </h2>
+        <p className="mt-2 text-[14px] leading-[1.5] text-[var(--lp-body)]">
+          Send to a whole team at once, by email. One confirmation for everyone.
+        </p>
+        <button
+          type="button"
+          onClick={() => setBatchSendDialogOpen(true)}
+          className="mt-4 inline-flex h-11 items-center gap-2 rounded-full bg-[var(--lp-ink)] px-5 text-[14px] font-semibold text-[var(--lp-cream)] transition-transform duration-150 hover:-translate-y-px"
+        >
+          Pay everyone at once <ArrowRight className="size-4" />
+        </button>
+      </section>
+    </>
+  );
 
-            <div className="card-glass p-6 space-y-3">
-              <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-accent">
-                <ShieldCheck className="w-4 h-4" />
-                Gas-Sponsored
-              </div>
-              <p className="text-xs text-brand-secondary/40 font-medium leading-relaxed">
-                Every transfer is gas-sponsored across all networks — you never
-                hold ETH or pay network fees.
-              </p>
-            </div>
-          </div>
-        </div>
+  return (
+    <div className="mx-auto max-w-[1180px] space-y-6 pb-24 md:space-y-8">
+      <PageHeader eyebrow="Transfer" title="Send money" italic="to anyone." />
 
-        {/* Recent transfers inline */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between px-1">
-            <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-brand-secondary/40">
-              Recent Activity
-            </h3>
-            <button
-              onClick={() => router.push("/dashboard/history")}
-              className="text-[10px] font-bold uppercase tracking-widest text-accent/70 hover:text-accent transition-colors"
-            >
-              View All
-            </button>
-          </div>
-          <div className="card-glass p-1 rounded-3xl overflow-hidden">
-            <HistoryModule
-              userId={user.id}
-              userEmail={user.email?.address || ""}
-              limit={5}
-              hideHeader
-              hideLoadMore
-              onTxClick={(a) => router.push(`/dashboard/activity/${a.id}`)}
-            />
-          </div>
-        </div>
+      <TransferModule
+        key={prefill}
+        initialRecipientEmail={prefill}
+        smartAddress={smartAddress}
+        embeddedProvider={wallets.find(
+          (w) => w.walletClientType === "privy",
+        )}
+        balance={totalSpendable}
+        chainBalances={evmChainBalances}
+        solanaSource={solanaSource}
+        senderEmail={user?.email?.address || ""}
+        extra={sideCards}
+      />
 
-        <BatchSendDialog
-          open={batchSendDialogOpen}
-          onOpenChange={setBatchSendDialogOpen}
-          maxAmount={parseFloat(totalSpendable)}
-          smartAddress={smartAddress}
-          embeddedProvider={wallets.find((w) => w.walletClientType === "privy")}
-          senderEmail={user?.email?.address || ""}
-          twoFaThreshold={twoFaThreshold}
-          totpEnabled={totpEnabled}
-          passkeyEnabled={passkeyEnabled}
-          chainBalances={evmChainBalances}
-          solanaSource={solanaSource}
-          stellarSource={stellarSourceFor(
-            stellarWallet,
-            stellarBalance,
-            wallets.find((w) => w.walletClientType === "privy"),
-          )}
-        />
-      </div>
-    </TooltipProvider>
+      <RecentActivity
+        userId={user.id}
+        userEmail={user.email?.address || ""}
+        onOpen={setSelectedActivity}
+      />
+
+      <ActivityDetailModal
+        activity={selectedActivity}
+        isOpen={!!selectedActivity}
+        onClose={() => setSelectedActivity(null)}
+      />
+
+      <BatchSendDialog
+        open={batchSendDialogOpen}
+        onOpenChange={setBatchSendDialogOpen}
+        maxAmount={parseFloat(totalSpendable)}
+        smartAddress={smartAddress}
+        embeddedProvider={wallets.find((w) => w.walletClientType === "privy")}
+        senderEmail={user?.email?.address || ""}
+        twoFaThreshold={twoFaThreshold}
+        totpEnabled={totpEnabled}
+        passkeyEnabled={passkeyEnabled}
+        chainBalances={evmChainBalances}
+        solanaSource={solanaSource}
+        stellarSource={stellarSourceFor(
+          stellarWallet,
+          stellarBalance,
+          wallets.find((w) => w.walletClientType === "privy"),
+        )}
+      />
+    </div>
   );
 }

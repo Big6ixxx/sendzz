@@ -17,7 +17,8 @@ import {
 } from 'recharts';
 import { AnimatedNumber, EASE, Reveal } from '@/components/landing/motion';
 import { cn } from '@/lib/utils';
-import { ForestStat, Panel, Shimmer, usd } from './ui';
+import { ForestStat, Panel, Shimmer } from './ui';
+import { formatUsd } from '@/lib/format-usdc';
 
 export interface OverviewMetrics {
   totalUsers: number;
@@ -110,7 +111,7 @@ export function VolumeHero({
             {statsLoading ? (
               <Shimmer onDark className="h-[0.85em] w-[4.2em]" />
             ) : (
-              <AnimatedNumber value={metrics.totalVolume} format={(n) => usd(n, 0)} />
+              <AnimatedNumber value={metrics.totalVolume} format={(n) => formatUsd(n, 0)} />
             )}
           </p>
           <p className="lp-serif mt-2 text-[clamp(18px,4.6vw,28px)] text-[#cfe0d6]">moved through Sendzz, all time.</p>
@@ -146,7 +147,7 @@ export function VolumeHero({
             <div className="min-w-0">
               <span className="lp-mono block text-[11px] uppercase text-[#a9c2b5] sm:text-[12px]">Volume · {periodLabel}</span>
               <span className="lp-display mt-1.5 block text-[clamp(22px,5.6vw,30px)] leading-none tracking-[-0.03em] tabular-nums">
-                {ready ? usd(total) : <Shimmer onDark className="h-[0.8em] w-[5em]" />}
+                {ready ? formatUsd(total) : <Shimmer onDark className="h-[0.8em] w-[5em]" />}
               </span>
             </div>
             {ready && total > 0 && (
@@ -211,7 +212,7 @@ export function VolumeHero({
                     {...TOOLTIP}
                     cursor={{ stroke: 'rgba(246,242,233,0.35)', strokeWidth: 1 }}
                     labelFormatter={(v) => shortDate(v as string)}
-                    formatter={(v) => [usd(Number(v)), 'Volume']}
+                    formatter={(v) => [formatUsd(Number(v)), 'Volume']}
                   />
                   <Area
                     type="monotone"
@@ -403,7 +404,7 @@ export function MoneyFlow({ metrics, loading }: { metrics: OverviewMetrics; load
             <div className="min-w-0 rounded-[20px] bg-[var(--lp-cream)] p-4 sm:rounded-[24px] sm:p-6">
               <dt className="text-[13px] text-[var(--lp-muted)] sm:text-[14px]">Across all four</dt>
               <dd className="lp-display mt-1 truncate text-[clamp(22px,6vw,40px)] leading-none tracking-[-0.04em] tabular-nums">
-                {loading ? <Shimmer className="h-[0.8em] w-[4em]" /> : <AnimatedNumber value={total} format={(n) => usd(n, 0)} />}
+                {loading ? <Shimmer className="h-[0.8em] w-[4em]" /> : <AnimatedNumber value={total} format={(n) => formatUsd(n, 0)} />}
               </dd>
             </div>
             <div className="min-w-0 rounded-[20px] bg-[var(--lp-cream)] p-4 sm:rounded-[24px] sm:p-6">
@@ -417,7 +418,7 @@ export function MoneyFlow({ metrics, loading }: { metrics: OverviewMetrics; load
                 {loading ? (
                   <Shimmer className="h-[0.8em] w-[4em]" />
                 ) : (
-                  <AnimatedNumber value={net} format={(n) => `${n < 0 ? '−' : '+'}${usd(Math.abs(n), 0)}`} />
+                  <AnimatedNumber value={net} format={(n) => `${n < 0 ? '−' : '+'}${formatUsd(Math.abs(n), 0)}`} />
                 )}
               </dd>
             </div>
@@ -446,7 +447,7 @@ export function MoneyFlow({ metrics, loading }: { metrics: OverviewMetrics; load
                           i === 0 ? 'text-[clamp(20px,5.4vw,30px)]' : 'text-[clamp(18px,4.6vw,24px)]',
                         )}
                       >
-                        {loading ? <Shimmer className="h-[0.8em] w-[4em]" /> : <AnimatedNumber value={r.value} format={(n) => usd(n)} />}
+                        {loading ? <Shimmer className="h-[0.8em] w-[4em]" /> : <AnimatedNumber value={r.value} format={(n) => formatUsd(n)} />}
                       </p>
                       <p className="lp-mono mt-1 text-[11px] text-[var(--lp-muted)] sm:text-[12px]">
                         {loading ? '' : `${(share * 100).toFixed(1)}%`}

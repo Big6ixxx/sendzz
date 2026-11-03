@@ -49,7 +49,7 @@ export default function AdminRefunds() {
         toast.error(res.reason ?? 'Could not record the refund.');
         return;
       }
-      toast.success('Refund recorded — the withdrawal now shows as reversed.');
+      toast.success('Refund recorded. The withdrawal now shows as reversed.');
       setOpenFor(null);
       setHashInput('');
       queryClient.invalidateQueries({ queryKey: ['admin-refunds'] });
@@ -70,7 +70,7 @@ export default function AdminRefunds() {
         toast.error(res.reason ?? 'Could not record the payout.');
         return;
       }
-      toast.success('Payout recorded — the withdrawal now shows as completed and the user has been notified.');
+      toast.success('Payout recorded. The withdrawal now shows as completed and the user has been notified.');
       queryClient.invalidateQueries({ queryKey: ['admin-refunds'] });
     },
     onError: () => toast.error('Could not record the payout.'),

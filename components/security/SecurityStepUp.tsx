@@ -16,16 +16,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { startAuthentication } from "@simplewebauthn/browser";
-import { Fingerprint, Loader2, Mail, ShieldAlert, Smartphone } from "lucide-react";
+import { Fingerprint } from "lucide-react";
+import { FlowButton, FlowDialog, FlowTabs } from "@/components/flow/ui";
+import { PinPanel, PinPanelAction } from "@/components/security/PinPad";
 import { toast } from "sonner";
 
-import { cn } from "@/lib/utils";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 
 export type SecurityControl = "two_fa" | "threshold" | "totp" | "passkey" | "pin";
 type Method = "email" | "totp" | "passkey";
@@ -162,128 +157,83 @@ export function SecurityStepUp({
   };
 
   return (
-    <Dialog open={!!request} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="card-glass border-white/10 max-w-md">
-        <DialogHeader>
-          <DialogTitle className="text-xl text-brand-secondary">
-            {request?.title ?? "Confirm this change"}
-          </DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-5 py-2">
-          <p className="text-sm text-brand-secondary/70 leading-relaxed">
-            {request?.description}
-          </p>
-
+    <FlowDialog
+      open={!!request}
+      onClose={onClose}
+      eyebrow="Confirm it's you"
+      title={request?.title ?? "Confirm this change"}
+      description={request?.description}
+    >
+        <div className="space-y-5">
           {/* Said out loud, because it is the question people ask here. */}
-          <p className="flex items-start gap-2 text-[12px] text-brand-secondary/45 leading-relaxed">
-            <ShieldAlert className="w-3.5 h-3.5 mt-0.5 shrink-0 text-accent/60" />
-            <span>
-              We ask for this instead of your PIN. Your PIN approves payments — if it also
-              switched protections off, one secret would open both doors.
-            </span>
+          <p className="text-[13px] leading-[1.5] text-[var(--lp-muted)]">
+            We ask for this instead of your PIN. Your PIN approves payments. If it also switched protections off, one
+            secret would open both doors.
           </p>
 
           {methods.length > 1 && (
-            <div className="flex gap-2">
-              {methods.map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => {
-                    setMethod(m);
-                    setCode("");
-                    setError(null);
-                  }}
-                  className={cn(
-                    "flex items-center gap-2 px-3.5 py-2 rounded-lg text-[12.5px] font-medium transition-colors",
-                    method === m
-                      ? "bg-accent text-black"
-                      : "bg-white/5 text-brand-secondary/60 hover:bg-white/10",
-                  )}
-                >
-                  {m === "passkey" ? (
-                    <Fingerprint className="w-4 h-4" />
-                  ) : m === "totp" ? (
-                    <Smartphone className="w-4 h-4" />
-                  ) : (
-                    <Mail className="w-4 h-4" />
-                  )}
-                  {m === "passkey" ? "Passkey" : m === "totp" ? "App" : "Email"}
-                </button>
-              ))}
-            </div>
+            <FlowTabs
+              label="How to confirm"
+              value={method}
+              onChange={(m) => {
+                setMethod(m);
+                setCode("");
+                setError(null);
+              }}
+              options={methods.map((m) => ({ value: m, label: m === "totp" ? "App" : m === "passkey" ? "Passkey" : "Email" }))}
+            />
           )}
 
           {method === "passkey" ? (
-            <button
-              type="button"
-              onClick={usePasskey}
-              disabled={busy}
-              className="btn-primary w-full h-12 gap-2"
-            >
-              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Fingerprint className="w-4 h-4" />}
-              {busy ? "Waiting for your device…" : "Confirm with your passkey"}
-            </button>
+            <>
+              <div className="lp-card rounded-[22px] p-5 text-center">
+              <p className="text-[15px] font-semibold">Use your face, fingerprint or device PIN</p>
+              <p className="mt-1 text-[14px] text-[var(--lp-muted)]">Your device will ask once you press the button.</p>
+            </div>
+              <div className="flex flex-col-reverse gap-2 sm:flex-row">
+                <FlowButton tone="quiet" onClick={onClose} disabled={busy} className="sm:w-32">
+                  Cancel
+                </FlowButton>
+                <FlowButton onClick={usePasskey} loading={busy} className="sm:flex-1">
+                  <Fingerprint className="size-5" /> Confirm with passkey
+                </FlowButton>
+              </div>
+            </>
           ) : (
-            <label className="block">
-              <span className="block mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
-                {method === "totp" ? "Code from your app" : "Code from your email"}
-              </span>
-              <input
-                value={code}
-                onChange={(e) => {
-                  setError(null);
-                  setCode(e.target.value.replace(/\D/g, "").slice(0, 6));
-                }}
-                onKeyDown={(e) => e.key === "Enter" && submitCode()}
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                autoFocus
-                disabled={busy}
-                className="w-full h-14 rounded-xl border border-white/10 bg-white/[0.03] px-4 text-center text-xl font-bold tracking-[0.4em] text-brand-secondary focus:outline-none focus:border-accent/60"
-              />
-            </label>
-          )}
-
-          {method === "email" && (
-            <p className="text-[12px] text-brand-secondary/40 text-center">
-              {sending ? (
-                "Sending…"
-              ) : (
-                <button
-                  type="button"
-                  onClick={sendEmailCode}
-                  className="hover:text-brand-secondary/80 transition-colors"
-                >
-                  Didn&apos;t get it? Send another
-                </button>
-              )}
-            </p>
-          )}
-
-          {error && <p className="text-[12.5px] text-orange-400 text-center">{error}</p>}
-        </div>
-
-        <div className="flex flex-col-reverse sm:flex-row gap-3 pt-2">
-          <button type="button" onClick={onClose} disabled={busy} className="btn-secondary w-full sm:w-auto">
-            Cancel
-          </button>
-          {method !== "passkey" && (
-            <button
-              type="button"
-              onClick={submitCode}
-              disabled={busy || code.length < 6}
-              className={cn(
-                "btn-primary w-full sm:w-auto sm:flex-1",
-                request?.destructive && "!bg-red-500 !text-white hover:!bg-red-600",
-              )}
-            >
-              {busy ? "Confirming…" : (request?.confirmLabel ?? "Confirm")}
-            </button>
+            <PinPanel
+              length={6}
+              label={method === "totp" ? "Code from your authenticator app" : "Code we emailed you"}
+              action={
+                method === "email" && (
+                  <PinPanelAction onClick={sendEmailCode} disabled={sending}>
+                    {sending ? "Sending…" : "Send another"}
+                  </PinPanelAction>
+                )
+              }
+              value={code}
+              onChange={(digits) => {
+                setError(null);
+                setCode(digits);
+              }}
+              onComplete={submitCode}
+              onEnter={submitCode}
+              disabled={busy}
+              error={error}
+              footer={
+                <>
+                  <FlowButton tone={request?.destructive ? "danger" : "accent"} onClick={submitCode} loading={busy} disabled={code.length < 6}>
+                    {request?.confirmLabel ?? "Confirm"}
+                  </FlowButton>
+                  <p className="text-center text-[14px]">
+                    <PinPanelAction onClick={onClose} disabled={busy}>
+                      Cancel
+                    </PinPanelAction>
+                  </p>
+                </>
+              }
+            />
           )}
         </div>
-      </DialogContent>
-    </Dialog>
+    </FlowDialog>
   );
 }

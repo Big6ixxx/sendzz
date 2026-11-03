@@ -24,9 +24,10 @@
  * to run a programme, and the detail would only be enough to pressure people.
  */
 
-import { DashboardPageHeader } from '@/components/layout/DashboardPageHeader';
+import { PageHeader } from '@/components/dashboard/PageHeader';
 import { usePrivy } from '@privy-io/react-auth';
-import { Loader2, Users } from 'lucide-react';
+import { ArrowRight, Users } from 'lucide-react';
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import {
   Bar,
@@ -39,16 +40,27 @@ import {
 } from 'recharts';
 import { referralsEnabled } from '@/lib/features';
 import { ComingSoon } from '@/components/ComingSoon';
+import { Skeleton } from '@/components/ui/skeleton';
 
 /**
- * The single series colour.
- *
- * NOT the brand accent (#00e87a), which sits at L 0.816 — too light for a data mark on this
- * near-black surface, where it glares rather than reads. This is the same hue stepped down
- * until it passes the categorical lightness band and 3:1 against the surface. Validated, not
- * eyeballed.
+ * The single series colour: the brand green, on the forest card. Against #0b3b29 it is well
+ * past 3:1 and reads as the same green as everywhere else in the cream brand.
  */
-const SERIES = '#0aa85a';
+const SERIES = '#00e87a';
+const MONO = 'var(--font-geist-mono), ui-monospace, monospace';
+
+/** The chart tooltip: a white card in the page's own type, as on the admin overview. */
+const TOOLTIP = {
+  contentStyle: {
+    backgroundColor: '#fff',
+    border: 'none',
+    borderRadius: 16,
+    boxShadow: '0 0 0 1px rgb(17 26 19 / 0.06), 0 12px 32px -12px rgb(17 26 19 / 0.25)',
+    padding: '10px 14px',
+  },
+  itemStyle: { color: '#111a13', fontSize: 13, fontWeight: 600 },
+  labelStyle: { color: '#5b645d', fontSize: 12, marginBottom: 2 },
+};
 
 interface MonthlyPoint {
   month: string;
@@ -80,6 +92,13 @@ const ACTIVITY_LABELS = {
   starting: 'Getting started',
   active: 'Active',
   high: 'High volume',
+} as const;
+
+const ACTIVITY_TONE = {
+  none: 'bg-[var(--lp-cream)] text-[var(--lp-muted)]',
+  starting: 'bg-[#fbedcc] text-[#8a5a00]',
+  active: 'bg-[#cdf5de] text-[#0e7a45]',
+  high: 'bg-[var(--lp-green)] text-[var(--lp-ink)]',
 } as const;
 
 function monthLabel(key: string): string {
@@ -142,28 +161,28 @@ function MerchantDashboard() {
 
   if (loading) {
     return (
-      <div className="h-[50vh] flex items-center justify-center">
-        <Loader2 className="w-7 h-7 animate-spin text-brand-secondary/25" />
+      <div className="mx-auto max-w-[1080px] space-y-6 pb-24" aria-label="Loading">
+        <Skeleton tone="page" className="h-24 w-2/3 rounded-[24px]" />
+        <Skeleton tone="page" className="h-80 rounded-[32px]" />
       </div>
     );
   }
 
   if (forbidden || !data) {
     return (
-      <div className="space-y-6 max-w-2xl">
-        <DashboardPageHeader
-          title="Merchant"
-          subtitle="Earn a share of the fees your network generates"
-        />
-        <div className="card-glass p-8 space-y-3">
-          <p className="text-sm text-brand-secondary/70 leading-relaxed">
-            This is for people bringing real volume — community leaders, agencies, group
-            admins. You are not on the Merchant track yet.
+      <div className="mx-auto max-w-[1080px] space-y-6 pb-24">
+        <PageHeader eyebrow="Merchant" title="Earn on" italic="your network." />
+        <section className="max-w-[640px] rounded-[28px] bg-[var(--lp-sand)] p-6 sm:p-8">
+          <p className="text-[16px] leading-[1.55] text-[var(--lp-body)]">
+            This is for people bringing real volume: community leaders, agencies, group admins. You are not on the Merchant track yet.
           </p>
-          <a href="/dashboard/referrals" className="btn-primary inline-flex">
-            Apply from Refer &amp; Earn
-          </a>
-        </div>
+          <Link
+            href="/dashboard/referrals"
+            className="mt-5 inline-flex h-12 items-center gap-2 rounded-full bg-[var(--lp-ink)] px-6 text-[15px] font-semibold text-[var(--lp-cream)]"
+          >
+            Apply from Refer &amp; earn <ArrowRight className="size-4" />
+          </Link>
+        </section>
       </div>
     );
   }
@@ -173,67 +192,49 @@ function MerchantDashboard() {
     label: monthLabel(point.month),
   }));
   const hasEarnings = data.history.some((point) => point.earnedUsdc > 0);
+  const whole = (n: number) => `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
   return (
-    <div className="space-y-8 max-w-4xl">
-      <DashboardPageHeader
-        title="Merchant"
-        subtitle={`${TIER_LABELS[data.tier]} — you earn ${data.tierRatePercent}% of what your network cashes out`}
+    <div className="mx-auto max-w-[1080px] space-y-6 pb-24 md:space-y-8">
+      <PageHeader
+        eyebrow="Merchant"
+        title="Earn on"
+        italic="your network."
+        subtitle={`${TIER_LABELS[data.tier]} tier. You earn ${data.tierRatePercent}% of what your network cashes out.`}
       />
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <Stat label="Tier" value={TIER_LABELS[data.tier]} />
-        <Stat label="Your rate" value={`${data.tierRatePercent}%`} />
-        <Stat
-          label="Network this month"
-          value={`$${data.monthlyVolumeUsdc.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
-        />
-        <Stat label="Earned all time" value={`$${data.lifetimeEarnedUsdc.toFixed(2)}`} />
-      </div>
-
       {/* ── Earnings by month ─────────────────────────────────────────────── */}
-      <div className="card-glass p-6 space-y-5">
-        <div>
-          <h2 className="font-bold text-brand-secondary">What you earned, by month</h2>
-          <p className="text-[12px] text-brand-secondary/40 mt-0.5">
-            Commission in USDC. Network volume is in the table below.
+      <section className="rounded-[32px] bg-[var(--lp-forest)] p-6 text-[var(--lp-cream)] sm:p-8">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="lp-mono text-[12px] uppercase text-[var(--lp-green)]">Earned all time</p>
+            <p className="lp-display mt-2 text-[clamp(44px,8vw,72px)] leading-[0.9] tracking-[-0.05em] tabular-nums">
+              ${data.lifetimeEarnedUsdc.toFixed(2)}
+            </p>
+          </div>
+          <p className="max-w-[280px] text-[14px] leading-[1.5] text-[#a9c2b5]">
+            What you earned, by month, in USDC. Network volume is in the table below.
           </p>
         </div>
 
         {hasEarnings ? (
-          <div className="h-56 -ml-2">
+          <div className="-ml-2 mt-6 h-56">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="rgba(255,255,255,0.05)"
-                  vertical={false}
-                />
-                <XAxis
-                  dataKey="label"
-                  stroke="rgba(255,255,255,0.2)"
-                  tickLine={false}
-                  axisLine={false}
-                  fontSize={11}
-                />
+                <CartesianGrid stroke="rgba(246,242,233,0.08)" vertical={false} />
+                <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: '#a9c2b5', fontSize: 11, fontFamily: MONO }} />
                 <YAxis
-                  stroke="rgba(255,255,255,0.2)"
                   tickLine={false}
                   axisLine={false}
-                  fontSize={11}
                   width={48}
+                  tick={{ fill: '#a9c2b5', fontSize: 11, fontFamily: MONO }}
                   tickFormatter={(value: number) => `$${value}`}
                 />
                 <Tooltip
-                  cursor={{ fill: 'rgba(255,255,255,0.04)' }}
-                  contentStyle={{
-                    background: 'rgba(10,10,11,0.92)',
-                    backdropFilter: 'blur(16px)',
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    borderRadius: 14,
-                    fontSize: 12,
-                  }}
-                  labelStyle={{ color: 'rgba(248,248,246,0.55)' }}
+                  cursor={{ fill: 'rgba(246,242,233,0.06)' }}
+                  contentStyle={TOOLTIP.contentStyle}
+                  itemStyle={TOOLTIP.itemStyle}
+                  labelStyle={TOOLTIP.labelStyle}
                   formatter={(value) => [`$${Number(value ?? 0).toFixed(2)}`, 'Earned']}
                 />
                 {/* Rounded data-ends, anchored to the baseline. One series, so no legend —
@@ -243,126 +244,113 @@ function MerchantDashboard() {
             </ResponsiveContainer>
           </div>
         ) : (
-          <p className="text-sm text-brand-secondary/40 py-8 text-center">
+          <p className="mt-6 rounded-[22px] bg-[rgba(246,242,233,0.06)] px-5 py-8 text-center text-[15px] text-[#cfe0d6]">
             Nothing yet. Earnings appear here as the people you invited cash out.
           </p>
         )}
+      </section>
 
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="Your numbers">
+        {[
+          { label: 'Tier', value: TIER_LABELS[data.tier] },
+          { label: 'Your rate', value: `${data.tierRatePercent}%` },
+          { label: 'Network this month', value: whole(data.monthlyVolumeUsdc) },
+          { label: 'Network all time', value: whole(data.lifetimeVolumeUsdc) },
+        ].map((s) => (
+          <div key={s.label} className="lp-card rounded-[24px] p-5">
+            <p className="text-[14px] text-[var(--lp-muted)]">{s.label}</p>
+            <p className="lp-display mt-5 text-[clamp(26px,4vw,34px)] leading-none tracking-[-0.04em] tabular-nums">{s.value}</p>
+          </div>
+        ))}
+      </section>
+
+      <div className="grid gap-5 lg:grid-cols-2">
         {/* The same figures as a table, so the chart is never the only way to read them. */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="border-b border-white/5">
-                <Th>Month</Th>
-                <Th align="right">Network volume</Th>
-                <Th align="right">You earned</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.history.map((point) => (
-                <tr key={point.month} className="border-b border-white/[0.03]">
-                  <Td>{monthLabel(point.month)}</Td>
-                  <Td align="right">
-                    ${point.volumeUsdc.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                  </Td>
-                  <Td align="right">${point.earnedUsdc.toFixed(2)}</Td>
+        <section className="lp-card rounded-[28px] p-5 sm:p-6">
+          <h2 className="lp-display text-[22px] tracking-[-0.02em]">Month by month</h2>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="border-b border-[var(--lp-line)]">
+                  <Th>Month</Th>
+                  <Th align="right">Network volume</Th>
+                  <Th align="right">You earned</Th>
                 </tr>
+              </thead>
+              <tbody>
+                {data.history.map((point) => (
+                  <tr key={point.month} className="border-b border-[var(--lp-line)] last:border-b-0">
+                    <Td>{monthLabel(point.month)}</Td>
+                    <Td align="right">{whole(point.volumeUsdc)}</Td>
+                    <Td align="right" strong>
+                      ${point.earnedUsdc.toFixed(2)}
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        {/* ── The network ───────────────────────────────────────────────────── */}
+        <section className="lp-card rounded-[28px] p-2">
+          <div className="flex items-baseline justify-between gap-3 px-4 pb-1 pt-3">
+            <h2 className="lp-display text-[22px] tracking-[-0.02em]">Your network</h2>
+            <span className="text-[14px] text-[var(--lp-muted)]">
+              {data.network.length} {data.network.length === 1 ? 'person' : 'people'}
+            </span>
+          </div>
+
+          {data.network.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 px-6 pb-8 pt-6 text-center">
+              <span className="grid size-12 place-items-center rounded-full bg-[var(--lp-cream)]">
+                <Users className="size-5" />
+              </span>
+              <p className="text-[15px] text-[var(--lp-muted)]">Nobody has joined with your link yet.</p>
+            </div>
+          ) : (
+            <ul className="flex flex-col gap-0.5 p-1">
+              {data.network.map((member) => (
+                <li key={member.ref} className="flex items-center gap-3 rounded-[20px] px-3 py-3">
+                  <span className="grid size-10 shrink-0 place-items-center rounded-full bg-[var(--lp-sand)] text-[13px] font-semibold">
+                    {member.ref.slice(-2).toUpperCase()}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[15px] font-semibold">{member.ref}</span>
+                    <span className="block text-[13px] text-[var(--lp-muted)]">
+                      Joined {new Date(member.joinedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </span>
+                  </span>
+                  <span className="flex shrink-0 flex-col items-end gap-1">
+                    <span className="text-[15px] font-semibold tabular-nums">${member.earnedUsdc.toFixed(2)}</span>
+                    <span className={`rounded-full px-2 py-px text-[11px] font-semibold ${ACTIVITY_TONE[member.activity]}`}>
+                      {ACTIVITY_LABELS[member.activity]}
+                    </span>
+                  </span>
+                </li>
               ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* ── The network ───────────────────────────────────────────────────── */}
-      <div className="space-y-3">
-        <div className="flex items-baseline justify-between px-1">
-          <h2 className="text-xs font-bold uppercase tracking-widest text-brand-secondary/35">
-            Your network
-          </h2>
-          <p className="text-[11px] text-brand-secondary/30">
-            {data.network.length} {data.network.length === 1 ? 'person' : 'people'}
+            </ul>
+          )}
+          <p className="px-4 pb-3 pt-1 text-[13px] leading-[1.5] text-[var(--lp-muted)]">
+            People you invited are shown anonymously. You can see how active they are and what they have earned you, but not who they are or what they moved.
           </p>
-        </div>
-
-        {data.network.length === 0 ? (
-          <div className="card-glass p-10 text-center space-y-3">
-            <Users className="w-7 h-7 mx-auto text-brand-secondary/20" />
-            <p className="text-sm text-brand-secondary/40">
-              Nobody has joined with your link yet.
-            </p>
-          </div>
-        ) : (
-          <div className="card-glass p-0 overflow-hidden divide-y divide-white/5">
-            {data.network.map((member) => (
-              <div
-                key={member.ref}
-                className="p-4 px-5 flex items-center justify-between gap-4"
-              >
-                <div className="min-w-0">
-                  <p className="font-semibold text-brand-secondary text-[13.5px]">
-                    {member.ref}
-                  </p>
-                  <p className="text-[11.5px] text-brand-secondary/35">
-                    Joined{' '}
-                    {new Date(member.joinedAt).toLocaleDateString(undefined, {
-                      day: 'numeric',
-                      month: 'short',
-                      year: 'numeric',
-                    })}
-                  </p>
-                </div>
-                <div className="flex items-center gap-5 shrink-0">
-                  <span className="text-[11px] font-bold uppercase tracking-widest text-brand-secondary/35">
-                    {ACTIVITY_LABELS[member.activity]}
-                  </span>
-                  <span className="font-bold text-brand-secondary tabular-nums">
-                    ${member.earnedUsdc.toFixed(2)}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <p className="text-[11.5px] text-brand-secondary/30 px-1 leading-relaxed">
-          People you invited are shown anonymously. You can see how active they are and what
-          they have earned you — not who they are or what they moved.
-        </p>
+        </section>
       </div>
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="card-glass p-5">
-      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
-        {label}
-      </p>
-      <p className="text-2xl font-black tracking-tight text-brand-secondary mt-1.5">{value}</p>
     </div>
   );
 }
 
 function Th({ children, align }: { children: React.ReactNode; align?: 'right' }) {
   return (
-    <th
-      className={`py-2 text-[10px] font-bold uppercase tracking-[0.15em] text-brand-secondary/30 ${
-        align === 'right' ? 'text-right' : ''
-      }`}
-    >
+    <th className={`lp-mono py-2 text-[11.5px] font-normal uppercase text-[var(--lp-muted)] ${align === 'right' ? 'text-right' : ''}`}>
       {children}
     </th>
   );
 }
 
-function Td({ children, align }: { children: React.ReactNode; align?: 'right' }) {
+function Td({ children, align, strong }: { children: React.ReactNode; align?: 'right'; strong?: boolean }) {
   return (
-    <td
-      className={`py-2.5 text-[13px] text-brand-secondary/70 tabular-nums ${
-        align === 'right' ? 'text-right' : ''
-      }`}
-    >
+    <td className={`py-3 text-[14px] tabular-nums ${strong ? 'font-semibold' : 'text-[var(--lp-body)]'} ${align === 'right' ? 'text-right' : ''}`}>
       {children}
     </td>
   );

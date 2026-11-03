@@ -5,54 +5,28 @@
 import { cn } from '@/lib/utils';
 import type { TxType } from '@/types/public';
 import { formatDistanceToNowStrict } from 'date-fns';
-import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Link2 } from 'lucide-react';
+import { ArrowLeftRight } from 'lucide-react';
+import { ACTIVITY_LOOK, SETTLED_TONE, activityStatus } from '@/components/dashboard/activity-look';
 import type { ComponentType } from 'react';
 
 export type TimeMode = 'absolute' | 'relative';
 
-export const TYPE_META: Record<
-  TxType,
-  { label: string; Icon: ComponentType<{ className?: string }>; color: string; bg: string }
-> = {
-  deposit: { label: 'Deposit', Icon: ArrowDownLeft, color: 'text-[#00e87a]', bg: 'bg-[#00e87a]/10' },
-  withdrawal: { label: 'Withdrawal', Icon: ArrowUpRight, color: 'text-red-400', bg: 'bg-red-400/10' },
-  transfer: { label: 'Transfer', Icon: ArrowLeftRight, color: 'text-blue-400', bg: 'bg-blue-400/10' },
-  bridge: { label: 'Bridge', Icon: Link2, color: 'text-purple-400', bg: 'bg-purple-400/10' },
+/**
+ * Each kind of public record, marked as the dashboard marks it (ACTIVITY_LOOK), so a deposit
+ * looks like a deposit everywhere. Only the words differ: the public record names a transfer
+ * without saying which side of it you are on.
+ */
+export const TYPE_META: Record<TxType, { label: string; Icon: ComponentType<{ className?: string }>; badge: string }> = {
+  deposit: { label: 'Deposit', Icon: ACTIVITY_LOOK.deposit.icon, badge: ACTIVITY_LOOK.deposit.badge },
+  withdrawal: { label: 'Withdrawal', Icon: ACTIVITY_LOOK.withdrawal.icon, badge: ACTIVITY_LOOK.withdrawal.badge },
+  transfer: { label: 'Transfer', Icon: ArrowLeftRight, badge: ACTIVITY_LOOK.sent.badge },
+  bridge: { label: 'Move', Icon: ACTIVITY_LOOK.bridge.icon, badge: ACTIVITY_LOOK.bridge.badge },
 };
 
-/** Status → chip classes. AA-contrast on the #0a0a0b background. */
-export function statusClasses(status: string): string {
-  switch (status.toLowerCase()) {
-    case 'completed':
-    case 'claimed':
-    case 'confirmed':
-    case 'complete':
-      return 'bg-[#00e87a]/15 text-[#00e87a]';
-    case 'pending':
-    case 'pending_claim':
-    case 'awaiting_verification':
-    case 'processing':
-      return 'bg-amber-400/15 text-amber-300';
-    case 'failed':
-    case 'cancelled':
-      return 'bg-red-400/15 text-red-300';
-    case 'reversed':
-    case 'refunded':
-      return 'bg-sky-400/15 text-sky-300';
-    default:
-      return 'bg-white/10 text-white/60';
-  }
-}
-
-export function formatStatus(status: string): string {
-  return status.replace(/_/g, ' ');
-}
-
-export function formatUsdc(amount: number): string {
-  return Number(amount || 0).toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+/** A record's status chip: the dashboard's badge, or a green one naming the settled state. */
+export function statusBadge(status: string): { text: string; tone: string } {
+  const words = status.replace(/_/g, ' ');
+  return activityStatus(status) ?? { text: words.charAt(0).toUpperCase() + words.slice(1), tone: SETTLED_TONE };
 }
 
 export function shortHash(hash: string, head = 8, tail = 6): string {
@@ -137,10 +111,10 @@ export function TypeBadge({ type }: { type: TxType }) {
   const { Icon } = meta;
   return (
     <span className="inline-flex items-center gap-2.5">
-      <span className={cn('grid place-items-center w-8 h-8 rounded-lg shrink-0', meta.bg)}>
-        <Icon className={cn('w-4 h-4', meta.color)} />
+      <span className={cn('grid size-9 shrink-0 place-items-center rounded-full', meta.badge)}>
+        <Icon className="size-4" />
       </span>
-      <span className="text-xs font-bold text-white/80 uppercase tracking-wider">{meta.label}</span>
+      <span className="text-[15px] font-semibold">{meta.label}</span>
     </span>
   );
 }

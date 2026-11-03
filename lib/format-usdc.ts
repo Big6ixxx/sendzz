@@ -48,3 +48,26 @@ export function formatFeeSummary(amount: number, fee: number, total: number) {
     total: formatUsdc(total, dp),
   };
 }
+
+/**
+ * A money amount for display: thousands separated, fixed decimals ("1,234.50"). The one
+ * formatter for every amount on screen; a non-number shows as 0. A real amount too small for the
+ * decimals keeps the precision it needs ("0.004"), so it never reads as nothing.
+ */
+export function formatMoney(value: number | string, decimals = 2): string {
+  const parsed = Number(value);
+  const n = Number.isFinite(parsed) ? parsed : 0;
+  if (n !== 0 && Number(n.toFixed(decimals)) === 0) {
+    // Below USDC's own precision there is nothing truthful to print but a bound.
+    if (Number(n.toFixed(MAX_DECIMALS)) === 0) return `< ${(10 ** -MAX_DECIMALS).toFixed(MAX_DECIMALS)}`;
+    const dp = usdcDecimalsFor([n], decimals);
+    return n.toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp });
+  }
+  return n.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+}
+
+/** `formatMoney` with a dollar sign ("$1,234.50", "< $0.000001"). */
+export function formatUsd(value: number | string, decimals = 2): string {
+  const money = formatMoney(value, decimals);
+  return money.startsWith('<') ? `< $${money.slice(2)}` : `$${money}`;
+}

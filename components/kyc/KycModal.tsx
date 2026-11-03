@@ -1,23 +1,11 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  ShieldX,
-  Shield,
-  Loader2,
-  ExternalLink,
-  CheckCircle2,
-  Clock,
-} from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { ExternalLink, Loader2 } from "lucide-react";
+import { FlowButton, FlowDialog, FlowSuccess, Notice } from "@/components/flow/ui";
 
 import { usePrivy } from "@privy-io/react-auth";
+import { Skeleton, SkeletonGroup } from "@/components/ui/skeleton";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -45,9 +33,9 @@ interface KycModalProps {
 /**
  * KycModal
  *
- * Guides the user through the Didit KYC verification flow:
+ * Guides the user through identity verification (the provider is never named in the UI):
  * 1. Creates a verification session (POST /api/kyc/session)
- * 2. Shows a link to the Didit-hosted flow (opens in new tab)
+ * 2. Shows a link to the hosted flow (opens in new tab)
  * 3. Polls GET /api/kyc/status every 5 seconds to detect completion
  * 4. Shows success or failure state
  */
@@ -188,312 +176,117 @@ export function KycModal({ isOpen, onClose, userEmail: propEmail, depositCurrenc
   };
 
   // ─── Render ───────────────────────────────────────────────────────────────
+  const titles: Record<ModalStep, [string, string]> = {
+    idle: ["Verify", "your identity."],
+    creating: ["Verify", "your identity."],
+    ready: ["Verify", "your identity."],
+    polling: ["Checking", "your ID."],
+    in_review: ["Being", "reviewed."],
+    approved: ["You're", "verified."],
+    declined: ["Not", "approved yet."],
+    error: ["Something", "went wrong."],
+  };
+  const actions = (primary: React.ReactNode, secondary?: React.ReactNode) => (
+    <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row">
+      {secondary}
+      {primary}
+    </div>
+  );
+
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent
-        className="sm:max-w-md rounded-3xl p-0 overflow-hidden border-0"
-        style={{
-          background: "rgba(12,12,16,0.97)",
-          border: "1px solid rgba(255,255,255,0.06)",
-          boxShadow: "0 32px 80px rgba(0,0,0,0.6)",
-        }}
-      >
-        {/* Header */}
-        <DialogHeader className="px-7 pt-7 pb-0">
-          <div className="flex items-center justify-between">
-            <DialogTitle className="flex items-center gap-3 text-white font-bold text-lg">
-              <div
-                className="w-9 h-9 rounded-xl flex items-center justify-center"
-                style={{ background: "rgba(0,232,122,0.12)" }}
-              >
-                <Shield className="w-5 h-5" style={{ color: "#00e87a" }} />
-              </div>
-              Identity Verification
-            </DialogTitle>
+    <FlowDialog open={isOpen} onClose={onClose} eyebrow="Identity check" title={titles[step][0]} italic={titles[step][1]}>
+      {(step === "idle" || step === "creating") && (
+        <SkeletonGroup label="Starting a secure check" className="space-y-5">
+          <div className="lp-card space-y-4 rounded-[22px] p-5">
+            <Skeleton className="h-3 w-28" />
+            <Skeleton className="h-3.5 w-full" />
+            <Skeleton className="h-3.5 w-4/5" />
+            <Skeleton className="h-3.5 w-3/5" />
           </div>
-        </DialogHeader>
+          <Skeleton tone="page" className="h-14 w-full" />
+        </SkeletonGroup>
+      )}
 
-        {/* Body */}
-        <div className="px-7 py-6">
-          <AnimatePresence mode="wait">
-            {/* Creating session */}
-            {step === "creating" && (
-              <motion.div
-                key="creating"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="flex flex-col items-center gap-4 py-8"
-              >
-                <Loader2
-                  className="w-10 h-10 animate-spin"
-                  style={{ color: "#00e87a" }}
-                />
-                <p
-                  className="text-sm"
-                  style={{ color: "rgba(248,248,246,0.5)" }}
-                >
-                  Setting up your verification session…
-                </p>
-              </motion.div>
-            )}
+      {(step === "ready" || step === "polling") && (
+        <div className="space-y-5">
+          <div>
+            <p className="text-[15px] font-semibold">What you&apos;ll need</p>
+            <ul className="mt-2 divide-y divide-[var(--lp-line)] border-y border-[var(--lp-line)] text-[15px] leading-[1.5] text-[var(--lp-body)]">
+              <li className="py-3">A government photo ID that shows your date of birth. In Nigeria, also your NIN or BVN.</li>
+              <li className="py-3">The original ID in front of you, not a printout or a photo of a screen.</li>
+              <li className="py-3">A quick selfie, to show it&apos;s really you.</li>
+              <li className="py-3">About two minutes.</li>
+            </ul>
+          </div>
+          <p className="text-[13px] leading-[1.5] text-[var(--lp-muted)]">
+            The check opens in a new tab. Your documents are encrypted and Sendzz never stores them.
+          </p>
 
-            {/* Ready — show Didit link */}
-            {(step === "ready" || step === "polling") && (
-              <motion.div
-                key="ready"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                className="flex flex-col gap-5"
-              >
-                {/* Info cards */}
-                <div
-                  className="rounded-2xl p-4 flex flex-col gap-3"
-                  style={{
-                    background: "rgba(255,255,255,0.03)",
-                    border: "1px solid rgba(255,255,255,0.06)",
-                  }}
-                >
-                  {[
-                    {
-                      icon: "🪪",
-                      text: "A government photo ID that shows your date of birth (in Nigeria, also your NIN or BVN)",
-                    },
-                    {
-                      icon: "📷",
-                      text: "Photograph the original ID, not a printout or a photo of a screen",
-                    },
-                    { icon: "🤳", text: "Liveness check (selfie)" },
-                    { icon: "⏱", text: "Takes ~2 minutes" },
-                  ].map(({ icon, text }) => (
-                    <div key={text} className="flex items-center gap-3">
-                      <span className="text-lg">{icon}</span>
-                      <p
-                        className="text-sm"
-                        style={{ color: "rgba(248,248,246,0.6)" }}
-                      >
-                        {text}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-
-                <p
-                  className="text-xs text-center"
-                  style={{ color: "rgba(248,248,246,0.35)" }}
-                >
-                  Powered by{" "}
-                  <a
-                    href="https://didit.me"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline hover:opacity-80"
-                  >
-                    Didit
-                  </a>{" "}
-                  · Your data is encrypted and never stored by Sendzz.
-                </p>
-
-                {step === "polling" ? (
-                  <div className="flex flex-col items-center gap-3">
-                    <div
-                      className="flex items-center gap-2 text-sm"
-                      style={{ color: "rgba(248,248,246,0.5)" }}
-                    >
-                      <Clock className="w-4 h-4 animate-pulse" />
-                      Waiting for verification result…
-                    </div>
-                    <p
-                      className="text-xs text-center"
-                      style={{ color: "rgba(248,248,246,0.3)" }}
-                    >
-                      Completed? This page will update automatically.
-                    </p>
-                  </div>
-                ) : (
-                  <button
-                    id="kyc-modal-open-didit-btn"
-                    onClick={handleOpenDidit}
-                    className="w-full py-3.5 rounded-2xl flex items-center justify-center gap-2 font-bold text-sm transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
-                    style={{
-                      background:
-                        "linear-gradient(135deg, #00e87a 0%, #00c468 100%)",
-                      color: "#07070a",
-                    }}
-                  >
-                    Start Verification
-                    <ExternalLink className="w-4 h-4" />
-                  </button>
-                )}
-              </motion.div>
-            )}
-
-            {/* Approved */}
-            {step === "in_review" && (
-              <motion.div
-                key="in_review"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0 }}
-                className="flex flex-col items-center gap-4 py-8 text-center"
-              >
-                <div
-                  className="w-16 h-16 rounded-full flex items-center justify-center"
-                  style={{ background: "rgba(245,158,11,0.15)" }}
-                >
-                  <Clock className="w-9 h-9" style={{ color: "#f59e0b" }} />
-                </div>
-                <div>
-                  <p className="font-bold text-white text-lg">Being Reviewed</p>
-                  <p className="text-sm mt-1" style={{ color: "rgba(248,248,246,0.5)" }}>
-                    {reverifySessionId
-                      ? "Your new ID is with our team for a quick check. We'll email you the result, and your current verification stays in place until then."
-                      : "Your ID is with our team for a quick check. We'll email you as soon as it's decided."}
-                  </p>
-                </div>
-                <button
-                  onClick={onClose}
-                  className="mt-2 px-8 py-3 rounded-2xl font-bold text-sm border transition-all duration-200 hover:bg-white/5"
-                  style={{ border: "1px solid rgba(255,255,255,0.1)", color: "rgba(248,248,246,0.8)" }}
-                >
-                  Close
-                </button>
-              </motion.div>
-            )}
-
-            {step === "approved" && (
-              <motion.div
-                key="approved"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0 }}
-                className="flex flex-col items-center gap-4 py-8 text-center"
-              >
-                <div
-                  className="w-16 h-16 rounded-full flex items-center justify-center"
-                  style={{ background: "rgba(0,232,122,0.15)" }}
-                >
-                  <CheckCircle2
-                    className="w-9 h-9"
-                    style={{ color: "#00e87a" }}
-                  />
-                </div>
-                <div>
-                  <p className="font-bold text-white text-lg">
-                    Verification Complete!
-                  </p>
-                  <p
-                    className="text-sm mt-1"
-                    style={{ color: "rgba(248,248,246,0.5)" }}
-                  >
-                    Your identity has been verified. You can now transact
-                    freely.
-                  </p>
-                </div>
-                <button
-                  id="kyc-modal-done-btn"
-                  onClick={onClose}
-                  className="mt-2 px-8 py-3 rounded-2xl font-bold text-sm transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
-                  style={{
-                    background:
-                      "linear-gradient(135deg, #00e87a 0%, #00c468 100%)",
-                    color: "#07070a",
-                  }}
-                >
-                  Done
-                </button>
-              </motion.div>
-            )}
-
-            {/* Declined */}
-            {step === "declined" && (
-              <motion.div
-                key="declined"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0 }}
-                className="flex flex-col items-center gap-4 py-8 text-center"
-              >
-                <div
-                  className="w-16 h-16 rounded-full flex items-center justify-center"
-                  style={{ background: "rgba(239,68,68,0.12)" }}
-                >
-                  <ShieldX className="w-9 h-9" style={{ color: "#ef4444" }} />
-                </div>
-                <div>
-                  <p className="font-bold text-white text-lg">
-                    Verification Not Approved
-                  </p>
-                  <p
-                    className="text-sm mt-1"
-                    style={{ color: "rgba(248,248,246,0.5)" }}
-                  >
-                    {errorMsg ??
-                      "We couldn't verify your identity at this time. Please try again with a clearer photo ID, or contact support."}
-                  </p>
-                </div>
-                <div className="flex gap-3 mt-2">
-                  <button
-                    onClick={createSession}
-                    className="px-6 py-2.5 rounded-xl font-bold text-sm border transition-all duration-200 hover:bg-white/5"
-                    style={{
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      color: "rgba(248,248,246,0.7)",
-                    }}
-                  >
-                    Try Again
-                  </button>
-                  <button
-                    onClick={onClose}
-                    className="px-6 py-2.5 rounded-xl font-bold text-sm transition-all duration-200 hover:opacity-80"
-                    style={{
-                      background: "rgba(255,255,255,0.06)",
-                      color: "rgba(248,248,246,0.5)",
-                    }}
-                  >
-                    Close
-                  </button>
-                </div>
-              </motion.div>
-            )}
-
-            {/* Error */}
-            {step === "error" && (
-              <motion.div
-                key="error"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="flex flex-col items-center gap-4 py-8 text-center"
-              >
-                <ShieldX className="w-10 h-10" style={{ color: "#ef4444" }} />
-                <div>
-                  <p className="font-bold text-white">Something went wrong</p>
-                  <p
-                    className="text-sm mt-1"
-                    style={{ color: "rgba(248,248,246,0.5)" }}
-                  >
-                    {errorMsg ??
-                      "Could not start verification. Please try again."}
-                  </p>
-                </div>
-                <button
-                  onClick={createSession}
-                  className="px-6 py-2.5 rounded-xl font-bold text-sm"
-                  style={{
-                    background: "rgba(0,232,122,0.1)",
-                    color: "#00e87a",
-                    border: "1px solid rgba(0,232,122,0.2)",
-                  }}
-                >
-                  Retry
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {step === "polling" ? (
+            <div className="lp-card rounded-[20px] p-4 text-center">
+              <p className="flex items-center justify-center gap-2 text-[15px] font-semibold">
+                <Loader2 className="size-4 animate-spin" /> Waiting for your result
+              </p>
+              <p className="mt-1 text-[14px] text-[var(--lp-muted)]">Finished in the other tab? This updates by itself.</p>
+            </div>
+          ) : (
+            <FlowButton id="kyc-modal-open-didit-btn" tone="accent" onClick={handleOpenDidit}>
+              Start verification <ExternalLink className="size-4" />
+            </FlowButton>
+          )}
         </div>
-      </DialogContent>
-    </Dialog>
+      )}
+
+      {step === "in_review" && (
+        <div className="space-y-5">
+          <p className="text-[15px] leading-[1.55] text-[var(--lp-body)]">
+            {reverifySessionId
+              ? "Your new ID is with our team for a quick check. We'll email you the result, and your current verification stays in place until then."
+              : "Your ID is with our team for a quick check. We'll email you as soon as it's decided."}
+          </p>
+          <FlowButton tone="quiet" onClick={onClose}>
+            Close
+          </FlowButton>
+        </div>
+      )}
+
+      {step === "approved" && (
+        <FlowSuccess title="You're" italic="verified." body="Your identity is confirmed. You can cash out any amount.">
+          <FlowButton id="kyc-modal-done-btn" onClick={onClose}>
+            Done
+          </FlowButton>
+        </FlowSuccess>
+      )}
+
+      {step === "declined" && (
+        <div className="space-y-5">
+          <Notice tone="danger">
+            {errorMsg ?? "We couldn't verify your identity this time. Try again with a clearer photo of your ID, or contact support."}
+          </Notice>
+          {actions(
+            <FlowButton onClick={createSession} className="sm:flex-1">
+              Try again
+            </FlowButton>,
+            <FlowButton tone="quiet" onClick={onClose} className="sm:w-32">
+              Close
+            </FlowButton>,
+          )}
+        </div>
+      )}
+
+      {step === "error" && (
+        <div className="space-y-5">
+          <Notice tone="danger">{errorMsg ?? "We couldn't start the check. Please try again."}</Notice>
+          {actions(
+            <FlowButton onClick={createSession} className="sm:flex-1">
+              Try again
+            </FlowButton>,
+            <FlowButton tone="quiet" onClick={onClose} className="sm:w-32">
+              Close
+            </FlowButton>,
+          )}
+        </div>
+      )}
+    </FlowDialog>
   );
 }

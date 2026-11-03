@@ -199,7 +199,7 @@ export function useBatchSend(
         // Per-recipient failures are shown in the results list, not thrown, so report them here
         // or they never reach the server log.
         reportClientError(
-          new Error(`Batch: ${failed.length}/${results.length} failed — ${[...new Set(failed.map((r) => r.detail ?? r.error))].join("; ")}`),
+          new Error(`Batch: ${failed.length}/${results.length} failed: ${[...new Set(failed.map((r) => r.detail ?? r.error))].join("; ")}`),
           "Some transfers failed. Review and retry.",
         );
         toast.error("Some transfers failed. Review and retry.");

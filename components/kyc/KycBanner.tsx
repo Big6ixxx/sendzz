@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { ShieldAlert, X, ArrowRight, Clock } from "lucide-react";
+import { motion } from "framer-motion";
+import { X, ArrowRight } from "lucide-react";
 import { KycModal } from "./KycModal";
 
 import type { Allowance } from "./LimitsMeter";
@@ -14,8 +14,6 @@ interface KycData {
 
 interface KycBannerProps {
   userEmail: string;
-  /** "light" is the cream brand style; other dashboard routes keep the dark default for now. */
-  tone?: "dark" | "light";
 }
 
 /**
@@ -29,7 +27,7 @@ interface KycBannerProps {
  * that windows no longer bind an unverified account, so this banner had stopped appearing at
  * all — the first a user heard of the limit was a refused withdrawal.
  */
-export function KycBanner({ userEmail, tone = "dark" }: KycBannerProps) {
+export function KycBanner({ userEmail }: KycBannerProps) {
   const [data, setData] = useState<KycData | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const [kycModalOpen, setKycModalOpen] = useState(false);
@@ -108,181 +106,48 @@ export function KycBanner({ userEmail, tone = "dark" }: KycBannerProps) {
     />
   );
 
-  if (tone === "light") {
-    const accent = isAtLimit
-      ? { soft: "#fbe7df", ink: "#a1462c" }
-      : isPending || isInReview
-        ? { soft: "#cdf5de", ink: "#0e7a45" }
-        : { soft: "#fbedcc", ink: "#8a5a00" };
-    const Icon = isPending || isInReview ? Clock : ShieldAlert;
-    return (
-      <>
-        <motion.div
-          initial={{ opacity: 0, y: -16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-          className="relative mx-4 mt-4 rounded-[24px] bg-white p-4 shadow-[0_0_0_1px_rgb(17_26_19/0.06)] sm:p-5 md:mx-6 lg:mx-8"
-          role="alert"
-          aria-live="polite"
-        >
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-            <div className="flex min-w-0 flex-1 items-start gap-3.5">
-              <span className="grid size-10 shrink-0 place-items-center rounded-full" style={{ background: accent.soft, color: accent.ink }}>
-                <Icon className="size-[18px]" aria-hidden />
-              </span>
-              <div className="min-w-0 pr-8 sm:pr-0">
-                <p className="text-[15px] font-semibold text-[var(--lp-ink)]">{title}</p>
-                <p className="mt-0.5 text-[14px] leading-[1.5] text-[var(--lp-body)]">{body}</p>
-              </div>
-            </div>
-            {!isInReview && (
-              <button
-                id="kyc-banner-verify-btn"
-                onClick={() => setKycModalOpen(true)}
-                className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-[var(--lp-ink)] px-5 text-[14px] font-semibold text-[var(--lp-cream)] transition-[scale] duration-150 active:scale-[0.97] sm:mr-10"
-              >
-                {isPending ? "Continue verification" : "Verify identity"}
-                <ArrowRight className="size-4" />
-              </button>
-            )}
-          </div>
-          <button
-            onClick={() => setDismissed(true)}
-            className="absolute right-3.5 top-3.5 grid size-8 place-items-center rounded-full bg-[var(--lp-cream)] text-[var(--lp-muted)] transition-colors hover:text-[var(--lp-ink)] sm:top-1/2 sm:-translate-y-1/2"
-            aria-label="Dismiss KYC banner"
-          >
-            <X className="size-4" />
-          </button>
-        </motion.div>
-        {modal}
-      </>
-    );
-  }
-
+  const accent = isAtLimit
+    ? "#a1462c"
+    : isPending || isInReview
+      ? "#0e7a45"
+      : "#8a5a00";
   return (
     <>
-      <AnimatePresence>
-        <motion.div
-          initial={{ opacity: 0, y: -16 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -16 }}
-          transition={{ type: "spring", stiffness: 300, damping: 30 }}
-          className="relative mx-4 md:mx-6 lg:mx-8 mt-4 rounded-2xl overflow-hidden"
-          style={{
-            background: isAtLimit
-              ? "linear-gradient(135deg, rgba(239,68,68,0.12) 0%, rgba(220,38,38,0.06) 100%)"
-              : (isPending || isInReview)
-              ? "linear-gradient(135deg, rgba(59,130,246,0.12) 0%, rgba(37,99,235,0.06) 100%)"
-              : "linear-gradient(135deg, rgba(245,158,11,0.12) 0%, rgba(217,119,6,0.06) 100%)",
-            border: `1px solid ${
-              isAtLimit
-                ? "rgba(239,68,68,0.2)"
-                : (isPending || isInReview)
-                ? "rgba(59,130,246,0.2)"
-                : "rgba(245,158,11,0.2)"
-            }`,
-          }}
-          role="alert"
-          aria-live="polite"
-        >
-          <div className="p-4 sm:p-5">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-start gap-3 flex-1 min-w-0">
-                {/* Icon */}
-                <div
-                  className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center mt-0.5"
-                  style={{
-                    background: isAtLimit
-                      ? "rgba(239,68,68,0.15)"
-                      : (isPending || isInReview)
-                      ? "rgba(59,130,246,0.15)"
-                      : "rgba(245,158,11,0.15)",
-                  }}
-                >
-                  {(isPending || isInReview) ? (
-                    <Clock
-                      className="w-4 h-4"
-                      style={{ color: "#3b82f6" }}
-                      aria-hidden
-                    />
-                  ) : isAtLimit ? (
-                    <ShieldAlert
-                      className="w-4 h-4"
-                      style={{ color: "#ef4444" }}
-                      aria-hidden
-                    />
-                  ) : (
-                    <ShieldAlert
-                      className="w-4 h-4"
-                      style={{ color: "#f59e0b" }}
-                      aria-hidden
-                    />
-                  )}
-                </div>
-
-                {/* Text */}
-                <div className="flex-1 min-w-0">
-                  <p
-                    className="text-sm font-semibold"
-                    style={{
-                      color: isAtLimit
-                        ? "#ef4444"
-                        : (isPending || isInReview)
-                        ? "#60a5fa"
-                        : "#f59e0b",
-                    }}
-                  >
-                    {title}
-                  </p>
-                  <p className="text-xs mt-1 leading-relaxed" style={{ color: "rgba(248,248,246,0.5)" }}>
-                    {body}
-                  </p>
-                </div>
-              </div>
-
-              {/* Dismiss */}
-              <button
-                onClick={() => setDismissed(true)}
-                className="shrink-0 p-1.5 rounded-lg transition-colors hover:bg-white/5 -mr-1 -mt-1"
-                style={{ color: "rgba(248,248,246,0.3)" }}
-                aria-label="Dismiss KYC banner"
-              >
-                <X className="w-4 h-4" />
-              </button>
+      <motion.div
+        initial={{ opacity: 0, y: -16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+        className="lp-card relative mx-4 mt-4 rounded-[24px] p-4 sm:p-5 md:mx-6 lg:mx-8"
+        role="alert"
+        aria-live="polite"
+      >
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+          <div className="flex min-w-0 flex-1 items-start gap-3.5">
+            <span className="mt-[7px] size-2 shrink-0 rounded-full" style={{ background: accent }} aria-hidden />
+            <div className="min-w-0 pr-8 sm:pr-0">
+              <p className="text-[15px] font-semibold text-[var(--lp-ink)]">{title}</p>
+              <p className="mt-0.5 text-[14px] leading-[1.5] text-[var(--lp-body)]">{body}</p>
             </div>
-
-            {/* CTA */}
-            {!isInReview && (
-              <div className="mt-3.5 sm:mt-3 flex justify-end">
-                <button
-                  id="kyc-banner-verify-btn"
-                  onClick={() => setKycModalOpen(true)}
-                  className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 sm:py-2 rounded-xl text-xs font-bold transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
-                  style={{
-                    background: isAtLimit
-                      ? "rgba(239,68,68,0.2)"
-                      : isPending
-                      ? "rgba(59,130,246,0.2)"
-                      : "rgba(245,158,11,0.2)",
-                    color: isAtLimit ? "#ef4444" : isPending ? "#60a5fa" : "#f59e0b",
-                    border: `1px solid ${
-                      isAtLimit
-                        ? "rgba(239,68,68,0.3)"
-                        : isPending
-                        ? "rgba(59,130,246,0.3)"
-                        : "rgba(245,158,11,0.3)"
-                    }`,
-                  }}
-                >
-                  {isPending ? "Continue Verification" : "Verify Identity"}
-                  <ArrowRight className="w-3.5 h-3.5 shrink-0" />
-                </button>
-              </div>
-            )}
           </div>
-        </motion.div>
-      </AnimatePresence>
-
+          {!isInReview && (
+            <button
+              id="kyc-banner-verify-btn"
+              onClick={() => setKycModalOpen(true)}
+              className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-[var(--lp-ink)] px-5 text-[14px] font-semibold text-[var(--lp-cream)] transition-[scale] duration-150 active:scale-[0.97] sm:mr-10"
+            >
+              {isPending ? "Continue verification" : "Verify identity"}
+              <ArrowRight className="size-4" />
+            </button>
+          )}
+        </div>
+        <button
+          onClick={() => setDismissed(true)}
+          className="absolute right-3.5 top-3.5 grid size-8 place-items-center rounded-full bg-[var(--lp-cream)] text-[var(--lp-muted)] transition-colors hover:text-[var(--lp-ink)] sm:top-1/2 sm:-translate-y-1/2"
+          aria-label="Dismiss KYC banner"
+        >
+          <X className="size-4" />
+        </button>
+      </motion.div>
       {modal}
     </>
   );

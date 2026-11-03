@@ -8,7 +8,8 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 
 import { getAdminUsers } from '@/lib/supabase/admin';
 import { cn } from '@/lib/utils';
-import { Avatar, EmptyState, PageHeader, Pagination, Panel, RowsShimmer, SearchField, Shimmer, StatTile, usd } from '../components/ui';
+import { Avatar, EmptyState, PageHeader, Pagination, Panel, RowsShimmer, SearchField, Shimmer, StatTile } from '../components/ui';
+import { formatUsd } from '@/lib/format-usdc';
 
 const ITEMS_PER_PAGE = 20;
 
@@ -130,7 +131,7 @@ function UserDirectory() {
 
       <div className="grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
         <StatTile label="Users" value={filteredUsers.length.toLocaleString('en-US')} loading={isPending} hint={searchTerm ? 'Matching your search' : 'All accounts'} />
-        <StatTile label="Combined volume" value={usd(summary.volume, 0)} loading={isPending} hint="Lifetime, settled" />
+        <StatTile label="Combined volume" value={formatUsd(summary.volume, 0)} loading={isPending} hint="Lifetime, settled" />
         <StatTile label="Whales" value={summary.whales.toLocaleString('en-US')} loading={isPending} hint="$10,000+ moved" />
         <StatTile label="Power users" value={summary.power.toLocaleString('en-US')} loading={isPending} tone="text-[#0e7a45]" hint="$1,000+ moved" />
       </div>
@@ -195,13 +196,13 @@ function UserDirectory() {
                         </td>
                         {[user.total_deposits, user.total_sent, user.total_received, user.total_withdrawals, user.total_bridge].map((v, i) => (
                           <td key={i} className={cn('px-3 py-4 text-right text-[14px] tabular-nums', v ? 'text-[var(--lp-body)]' : 'text-[rgba(91,100,93,0.6)]')}>
-                            {usd(v || 0)}
+                            {formatUsd(v || 0)}
                           </td>
                         ))}
                         <td className="px-3 py-4 text-right">
                           <div className="flex items-center justify-end gap-2">
                             {tier && <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', tier.className)}>{tier.label}</span>}
-                            <span className="lp-display text-[17px] tracking-[-0.02em] tabular-nums">{usd(user.total_volume || 0)}</span>
+                            <span className="lp-display text-[17px] tracking-[-0.02em] tabular-nums">{formatUsd(user.total_volume || 0)}</span>
                           </div>
                         </td>
                         <td className="whitespace-nowrap px-6 py-4 text-right text-[14px] text-[var(--lp-muted)]">{joined(user.created_at)}</td>
@@ -254,13 +255,13 @@ function UserCard({ user, ...props }: { user: AdminUserRow } & React.HTMLAttribu
           Total volume
           {tier && <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', tier.className)}>{tier.label}</span>}
         </span>
-        <span className="lp-display text-[20px] tracking-[-0.02em] tabular-nums">{usd(user.total_volume || 0)}</span>
+        <span className="lp-display text-[20px] tracking-[-0.02em] tabular-nums">{formatUsd(user.total_volume || 0)}</span>
       </div>
       <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 px-1 sm:grid-cols-4">
         {parts.map((p) => (
           <div key={p.label} className="flex items-baseline justify-between gap-2 sm:block">
             <dt className="text-[12px] text-[var(--lp-muted)]">{p.label}</dt>
-            <dd className="text-[13px] tabular-nums">{usd(p.value || 0)}</dd>
+            <dd className="text-[13px] tabular-nums">{formatUsd(p.value || 0)}</dd>
           </div>
         ))}
       </dl>

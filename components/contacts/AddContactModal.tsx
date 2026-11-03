@@ -2,15 +2,9 @@
 
 import * as React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Loader2, Plus, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { addContact } from '@/lib/supabase/contacts';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { FlowButton, FlowDialog, FlowInput, Notice } from '@/components/flow/ui';
 
 interface AddContactModalProps {
   isOpen: boolean;
@@ -73,72 +67,45 @@ export function AddContactModal({
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-accent/10 flex items-center justify-center shrink-0">
-              <UserPlus className="w-6 h-6 text-accent" />
-            </div>
-            <div>
-              <DialogTitle className="text-xl font-bold">Save Contact</DialogTitle>
-              <p className="text-xs text-muted-foreground uppercase tracking-widest font-medium mt-0.5">
-                Add to your address book
-              </p>
-            </div>
-          </div>
-        </DialogHeader>
+    <FlowDialog
+      open={isOpen}
+      onClose={handleClose}
+      eyebrow="Saved recipients"
+      title="Save"
+      italic="a contact."
+      description="Pick them from a list next time instead of typing their email."
+    >
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <FlowInput
+          label="Their name"
+          type="text"
+          required
+          value={newContactName}
+          onChange={(e) => setNewContactName(e.target.value)}
+          placeholder="Ada Okafor"
+          autoComplete="off"
+        />
+        <FlowInput
+          label="Their email"
+          type="email"
+          required
+          value={newContactEmail}
+          onChange={(e) => setNewContactEmail(e.target.value)}
+          placeholder="name@example.com"
+          autoComplete="off"
+        />
 
-        <form onSubmit={handleSubmit} className="space-y-6 mt-2">
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em]">Full Name</label>
-            <input
-              type="text"
-              required
-              value={newContactName}
-              onChange={(e) => setNewContactName(e.target.value)}
-              placeholder="e.g. Satoshi Nakamoto"
-              className="input-elegant h-14 bg-white/5"
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em]">Email Address</label>
-            <input
-              type="email"
-              required
-              value={newContactEmail}
-              onChange={(e) => setNewContactEmail(e.target.value)}
-              placeholder="name@example.com"
-              className="input-elegant h-14 bg-white/5"
-            />
-          </div>
+        {addError && <Notice tone="danger">{addError}</Notice>}
 
-          {addError && (
-            <div className="p-4 rounded-xl bg-red-400/5 border border-red-400/10 text-red-400 text-xs font-bold uppercase">
-              {addError}
-            </div>
-          )}
-
-          <div className="flex gap-3 pt-2">
-            <button
-              type="button"
-              onClick={handleClose}
-              disabled={isAddingPending}
-              className="flex-1 h-14 rounded-xl text-xs font-bold uppercase tracking-widest border border-white/10 text-muted-foreground hover:bg-white/5 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isAddingPending}
-              className="flex-1 btn-accent h-14 text-sm gap-2"
-            >
-              {isAddingPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-              Save
-            </button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
+        <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row">
+          <FlowButton type="button" tone="quiet" onClick={handleClose} disabled={isAddingPending} className="sm:w-32">
+            Cancel
+          </FlowButton>
+          <FlowButton type="submit" loading={isAddingPending} disabled={!newContactName.trim() || !newContactEmail.trim()} className="sm:flex-1">
+            Save contact
+          </FlowButton>
+        </div>
+      </form>
+    </FlowDialog>
   );
 }

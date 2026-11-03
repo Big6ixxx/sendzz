@@ -1,129 +1,245 @@
-'use client';
+import type { Metadata } from 'next';
+import { Blank, Bullets, LegalPage, Sub, type LegalSection } from '@/components/legal/LegalPage';
 
-import { SiteHeader } from '@/components/layout/SiteHeader';
-import { SiteFooter } from '@/components/layout/SiteFooter';
-import {
-  Eye,
-  FileText,
-  Shield,
-  UserCheck
-} from 'lucide-react';
+export const metadata: Metadata = {
+  title: 'Privacy policy',
+  description: 'What Sendzz collects about you, why we need it, who sees it, and the choices you have.',
+};
+
+// Copy from the Privacy policy frame in Figma. Payment partners are not named, per the product's
+// rule against naming providers in what users read.
+const sections: LegalSection[] = [
+  {
+    id: 'who-we-are',
+    title: 'Who we are',
+    body: (
+      <>
+        <p>
+          Sendzz is run by <Blank>registered company name</Blank>, a company registered in <Blank>country of registration</Blank> at{' '}
+          <Blank>registered address</Blank>. We decide how your personal information is used, which makes us its &ldquo;data
+          controller&rdquo;.
+        </p>
+        <p>
+          This policy covers the Sendzz website and app. If anything in it is unclear, write to <Blank>contact email</Blank>.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: 'what-we-collect',
+    title: 'What we collect',
+    body: (
+      <>
+        <Sub>What you give us</Sub>
+        <Bullets
+          items={[
+            ['Your email address', ', which you use to sign in and to receive payments.'],
+            ['Your passkey’s public key.', ' Your face or fingerprint never leaves your device. We only receive proof that you approved something.'],
+            ['Identity details', ', if you verify your identity: such as your name, date of birth, a government-issued ID and a photo of your face.'],
+            ['Bank or mobile money details', ' for deposits and withdrawals: the account name, the account number and the bank or operator.'],
+            ['The people you pay', ': their email addresses, and their account details if you withdraw to them.'],
+            ['Messages', ' you send to our support team.'],
+          ]}
+        />
+        <Sub>What we record as you use Sendzz</Sub>
+        <Bullets
+          items={[
+            ['Payments', ': amounts, dates, who was paid, whether it arrived, and your account’s address on the network.'],
+            ['Device and log data', ': your IP address, browser and device type, the screens you use and any errors you run into.'],
+          ]}
+        />
+        <Sub>What we get from others</Sub>
+        <Bullets
+          items={[
+            'The result of your identity check, from the provider that runs it.',
+            'The status of deposits and withdrawals, from our payment partners.',
+            'Transaction records, from the public blockchain.',
+          ]}
+        />
+      </>
+    ),
+  },
+  {
+    id: 'if-someone-sends-you-money',
+    title: 'If someone sends you money',
+    body: (
+      <p>
+        You don’t need a Sendzz account to be paid through Sendzz. When someone sends money to your email address, they give us
+        that address. We use it to tell you about the payment and to make sure only you can claim it.
+      </p>
+    ),
+  },
+  {
+    id: 'how-we-use-it',
+    title: 'How we use it',
+    body: (
+      <>
+        <p>We use your information only where the law gives us a reason to:</p>
+        <Bullets
+          items={[
+            ['To do what we agreed with you', ': run your account, carry out your payments, and send you receipts, claim links and notices about the service.'],
+            ['To meet our legal duties', ': verify who you are, prevent fraud and money laundering, and keep the records the law requires.'],
+            ['For our legitimate interests', ': keep Sendzz secure, fix what breaks, and understand how it is used so we can improve it.'],
+            ['With your consent', ': send you news and offers. You can unsubscribe at any time.'],
+          ]}
+        />
+        <p>We do not sell your personal information.</p>
+      </>
+    ),
+  },
+  {
+    id: 'who-we-share-it-with',
+    title: 'Who we share it with',
+    body: (
+      <>
+        <Bullets
+          items={[
+            ['Identity verification providers', ', to check your documents.'],
+            ['Payment partners', ', and the banks and mobile money operators that complete your deposits and withdrawals.'],
+            ['Service providers', ' that host Sendzz, secure your account, deliver our emails and run our support tools.'],
+            ['Regulators, courts and law enforcement', ', when the law requires it.'],
+            ['A company that takes over Sendzz', ', if we merge or are sold.'],
+          ]}
+        />
+        <p>Each of them gets only what it needs for its job, and may not use it for anything else.</p>
+      </>
+    ),
+  },
+  {
+    id: 'public-on-the-blockchain',
+    title: 'What is public on the blockchain',
+    body: (
+      <>
+        <p>
+          Payments made with Sendzz are recorded on public blockchains. Account addresses, amounts and times are visible to anyone
+          and stay there permanently. We cannot edit or delete them.
+        </p>
+        <p>
+          Those records are tied to account addresses, not to names. But anyone who learns which address is yours can see its
+          history.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: 'cookies',
+    title: 'Cookies and this website',
+    body: (
+      <>
+        <p>
+          This website does not use advertising or analytics cookies. It loads its fonts from Google Fonts and its reference
+          exchange rates from ExchangeRate-API. As with any request on the web, those services receive your IP address.
+        </p>
+        <p>
+          The Sendzz app stores a small amount of data on your device to keep you signed in and remember your settings. The app
+          can’t work without it.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: 'where-it-goes',
+    title: 'Where your information goes',
+    body: (
+      <p>
+        We and the companies we work with operate in more than one country, so your information may be handled outside the
+        country you live in. When we send it abroad, we put in place the safeguards the law requires, such as contracts that hold
+        the recipient to the same standard of protection.
+      </p>
+    ),
+  },
+  {
+    id: 'how-long',
+    title: 'How long we keep it',
+    body: (
+      <>
+        <p>
+          We keep your account information for as long as your account is open. After that, we keep identity and payment records
+          for as long as the laws on money laundering and tax require, and then delete them or make them anonymous.
+        </p>
+        <p>Records on the blockchain are permanent and outside our control.</p>
+      </>
+    ),
+  },
+  {
+    id: 'how-we-protect-it',
+    title: 'How we protect it',
+    body: (
+      <>
+        <p>
+          Your information is encrypted when it travels and when it is stored, and only the people who need it for their work can
+          see it. We never hold your private keys or your biometrics.
+        </p>
+        <p>No system is perfectly secure. If a breach puts you at risk, we will tell you, and the regulator, as the law requires.</p>
+      </>
+    ),
+  },
+  {
+    id: 'your-rights',
+    title: 'Your rights',
+    body: (
+      <>
+        <p>Depending on where you live, you can ask us to:</p>
+        <Bullets
+          items={[
+            'give you a copy of the information we hold about you;',
+            'correct anything that is wrong;',
+            'delete your information, or stop or limit how we use it;',
+            'hand your information to you or to another provider in a usable format;',
+            'stop relying on a consent you gave us.',
+          ]}
+        />
+        <p>
+          To use any of these rights, write to <Blank>contact email</Blank>. We will answer within the time your local law sets. We
+          cannot delete what the law requires us to keep, or anything on the blockchain.
+        </p>
+        <p>
+          You can also complain to the data protection authority where you live: for example the Nigeria Data Protection
+          Commission, the Office of the Data Protection Commissioner in Kenya, or the Data Protection Commission in Ghana.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: 'children',
+    title: 'Children',
+    body: (
+      <p>
+        Sendzz is for adults. We do not knowingly collect information from anyone under 18. If you believe a child has given us
+        theirs, tell us and we will delete it.
+      </p>
+    ),
+  },
+  {
+    id: 'changes',
+    title: 'Changes to this policy',
+    body: (
+      <p>
+        We may update this policy as Sendzz and the law change. The date at the top of this page shows the latest version. If a
+        change is significant, we will tell you by email or in the app before it takes effect.
+      </p>
+    ),
+  },
+  {
+    id: 'contact',
+    title: 'Contact',
+    body: (
+      <p>
+        Email <Blank>contact email</Blank>, or write to <Blank>registered company name</Blank>, <Blank>registered address</Blank>.
+      </p>
+    ),
+  },
+];
 
 export default function PrivacyPage() {
-  const principles = [
-    {
-      title: 'Minimal Data Collection',
-      description:
-        'We only collect what is strictly necessary to process your transactions and comply with regional laws.',
-      icon: Eye,
-    },
-    {
-      title: 'Decentralized Identity',
-      description:
-        'Your personal info is protected by high-entropy encryption and is never sold to third parties.',
-      icon: UserCheck,
-    },
-    {
-      title: 'Zero Monitoring',
-      description:
-        'We do not track your transaction content or memo history for advertising or profiling.',
-      icon: Shield,
-    },
-  ];
-
   return (
-    <div
-      className="min-h-screen selection:bg-accent/30"
-      style={{ background: '#07070a' }}
-    >
-      {/* Background Ambience */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-[0%] right-[0%] w-[50%] h-[50%] rounded-full bg-accent opacity-[0.02] blur-[160px]" />
-      </div>
-
-      <SiteHeader />
-
-      <main className="pt-40 pb-24 px-6 relative z-10">
-        <div className="max-w-4xl mx-auto space-y-20">
-          {/* Header */}
-          <div className="space-y-6">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] font-bold uppercase tracking-widest text-brand-secondary/40">
-              <FileText className="w-3.5 h-3.5" /> Updated: May 2026
-            </div>
-            <h1 className="font-display text-5xl md:text-7xl font-bold tracking-tight text-brand-secondary">
-              Privacy <br />
-              is a <span className="text-accent">Right.</span>
-            </h1>
-            <p className="text-xl text-brand-secondary/50 leading-relaxed max-w-2xl">
-              Our privacy policy is designed to be readable, transparent, and
-              respectful of your financial sovereignty.
-            </p>
-          </div>
-
-          {/* Principles */}
-          <div className="grid md:grid-cols-3 gap-6">
-            {principles.map((p) => (
-              <div key={p.title} className="card-glass p-8 space-y-6">
-                <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center text-accent">
-                  <p.icon className="w-5 h-5" />
-                </div>
-                <div className="space-y-2">
-                  <h3 className="font-bold text-brand-secondary">{p.title}</h3>
-                  <p className="text-sm text-brand-secondary/40 leading-relaxed">
-                    {p.description}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Detailed Content */}
-          <div className="card-glass p-10 lg:p-16 space-y-12">
-            <section className="space-y-4">
-              <h2 className="text-2xl font-bold text-brand-secondary">
-                1. Information We Collect
-              </h2>
-              <p className="text-sm text-brand-secondary/50 leading-relaxed">
-                When you create an account, we collect your email address and
-                basic device information to secure your account using MPC
-                technology. If you use fiat on-ramps, our partners may collect
-                KYC information as required by law. Sendzz does not store your
-                government-issued IDs on our own servers.
-              </p>
-            </section>
-
-            <section className="space-y-4">
-              <h2 className="text-2xl font-bold text-brand-secondary">
-                2. How We Use Data
-              </h2>
-              <p className="text-sm text-brand-secondary/50 leading-relaxed">
-                We use your data solely for:
-                <ul className="list-disc pl-5 mt-4 space-y-2">
-                  <li>Facilitating transactions and verifying settlement.</li>
-                  <li>
-                    Sending critical security alerts and receipt notifications.
-                  </li>
-                  <li>Improving platform performance and squashing bugs.</li>
-                </ul>
-              </p>
-            </section>
-
-            <section className="space-y-4 border-t border-white/5 pt-12">
-              <h2 className="text-2xl font-bold text-brand-secondary">
-                3. Data Retention
-              </h2>
-              <p className="text-sm text-brand-secondary/50 leading-relaxed">
-                Transactional records on the Base blockchain are permanent and
-                immutable. However, we purge internal application logs and
-                non-critical metadata every 90 days.
-              </p>
-            </section>
-          </div>
-
-        </div>
-      </main>
-
-      <SiteFooter />
-    </div>
+    <LegalPage
+      title="Privacy"
+      italic="policy."
+      lead="What we collect about you, why we need it, who sees it, and the choices you have. Sendzz never holds your keys. This page is about the information we do hold."
+      updated="3 October 2026"
+      sections={sections}
+      next={{ title: 'Terms of service', body: 'What you can expect from Sendzz, and what we expect from you.', href: '/terms' }}
+    />
   );
 }

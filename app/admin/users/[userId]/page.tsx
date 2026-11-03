@@ -15,7 +15,9 @@ import { getAdminUserDetail } from '@/lib/supabase/admin';
 import { cn } from '@/lib/utils';
 import type { AdminDateRange, AdminTransaction } from '@/types/admin';
 import { matchesTxSearch, TransactionFilters, TransactionList } from '../../components/TransactionList';
-import { Avatar, ForestStat, Pagination, Panel, PrimaryButton, Shimmer, statusTone, usd, useCopied } from '../../components/ui';
+import { Avatar, ForestStat, Pagination, Panel, PrimaryButton, Shimmer, statusTone, useCopied } from '../../components/ui';
+import { formatUsd } from '@/lib/format-usdc';
+import { FlowLabel } from '@/components/flow/ui';
 
 const ITEMS_PER_PAGE = 20;
 
@@ -128,7 +130,7 @@ function AdminUserDetail() {
   const backLink = (
     <Link
       href={backHref}
-      className="inline-flex h-10 items-center gap-2 rounded-full bg-white px-4 text-[14px] font-semibold shadow-[0_0_0_1px_rgb(17_26_19/0.06)] transition-colors hover:text-[#00a857]"
+      className="lp-card inline-flex h-10 items-center gap-2 rounded-full px-4 text-[14px] font-semibold transition-colors hover:text-[#00a857]"
     >
       <ArrowLeft className="size-4" /> All users
     </Link>
@@ -202,7 +204,7 @@ function AdminUserDetail() {
           <span className="text-[13px] text-[#a9c2b5]">Settled only · ignores the filters below</span>
         </div>
         <p className="lp-display mt-4 break-words text-[clamp(40px,10vw,88px)] leading-[0.9] tracking-[-0.05em] tabular-nums">
-          {isPending ? <Shimmer onDark className="h-[0.85em] w-[4.2em]" /> : usd(totals?.volume ?? 0)}
+          {isPending ? <Shimmer onDark className="h-[0.85em] w-[4.2em]" /> : formatUsd(totals?.volume ?? 0)}
         </p>
         <dl className="mt-6 grid grid-cols-2 gap-2 sm:mt-8 sm:grid-cols-3 xl:grid-cols-5">
           {[
@@ -212,7 +214,7 @@ function AdminUserDetail() {
             { label: 'Withdrawn', value: totals?.withdrawals },
             { label: 'Bridged', value: totals?.bridged },
           ].map((s) => (
-            <ForestStat key={s.label} label={s.label} value={usd(s.value ?? 0)} loading={isPending} />
+            <ForestStat key={s.label} label={s.label} value={formatUsd(s.value ?? 0)} loading={isPending} />
           ))}
         </dl>
       </motion.section>
@@ -220,7 +222,7 @@ function AdminUserDetail() {
       {/* ── Verification and wallets ──────────────────────────────────────── */}
       <div className="grid grid-cols-1 gap-5 md:gap-6 xl:grid-cols-2">
         <Panel className="flex flex-col p-5 sm:p-8">
-          <span className="lp-mono text-[12px] uppercase text-[var(--lp-muted)] sm:text-[13px]">Identity verification</span>
+          <FlowLabel as="span" className="sm:text-[13px]">Identity verification</FlowLabel>
           <div className="mt-5 flex items-center gap-4">
             <span className={cn('grid size-14 shrink-0 place-items-center rounded-full', kycLook.badge)}>
               <kycLook.Icon className="size-6" />
@@ -248,7 +250,7 @@ function AdminUserDetail() {
 
         <Panel className="p-5 sm:p-8">
           <div className="flex items-center justify-between gap-3">
-            <span className="lp-mono text-[12px] uppercase text-[var(--lp-muted)] sm:text-[13px]">Wallets</span>
+            <FlowLabel as="span" className="sm:text-[13px]">Wallets</FlowLabel>
             <span className="text-[13px] text-[var(--lp-muted)]">Tap one to copy</span>
           </div>
           <ul className="mt-2 divide-y divide-[#ece6da]">

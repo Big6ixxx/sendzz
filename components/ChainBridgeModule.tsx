@@ -16,7 +16,6 @@ import { usePlatformFeePercent } from "@/lib/hooks/usePlatformFeePercent";
 import { quoteFee } from "@/lib/actions/fees";
 import { parseAppError } from "@/lib/errors/appErrors";
 import { CLAIM_MAX_ATTEMPTS, MONITOR_MAX_ATTEMPTS, MONITOR_POLL_MS } from "@/lib/web3/bridge-timing";
-import { Skeleton } from "@/components/ui/skeleton";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { CHAIN_NAMES, isBridgeable, type SupportedChain } from "@/lib/circle/gateway";
 import { EVM_CHAINS, isUnsupportedBridgePair } from "@/lib/web3/routing";
@@ -36,7 +35,9 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { Connection } from "@solana/web3.js";
 
-import { ArrowDown, CheckCircle2, ExternalLink, Loader2, X } from "lucide-react";
+import { ArrowUpDown, Check, CheckCircle2, ChevronDown, ExternalLink, Loader2, X } from "lucide-react";
+import { AsideRows, FlowButton, Notice } from "@/components/flow/ui";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useEffect, useRef, useState } from "react";
 import { usePinAuthorization } from "@/components/security/PinAuthorizationProvider";
 import { noteTransactionAuthorization } from "@/lib/actions/transactionAuth";
@@ -45,6 +46,7 @@ import { toast } from "sonner";
 import { solanaRpcUrl } from "@/lib/solana/rpc";
 import { sendAndConfirmSigned } from "@/lib/solana/confirm";
 import { isStellarReady, type StellarWalletInfo } from "@/hooks/useStellarWallet";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const SOLANA_RPC = solanaRpcUrl();
 
@@ -162,7 +164,7 @@ export function ChainBridgeModule({
         // valid forever, so hand it to the Pending Claims panel instead of spinning.
         if (!cancelled) {
           toast.info(
-            "This is taking longer than usual. Your USDC is safe — finish the transfer any time from Pending Claims.",
+            "This is taking longer than usual. Your USDC is safe, and you can finish the transfer any time from Pending Claims.",
           );
           setPhase("form");
           setMonitor(null);
@@ -346,7 +348,7 @@ export function ChainBridgeModule({
                   clearInterval(interval);
                   if (!cancelled) {
                     toast.info(
-                      "Your USDC is safe — finish this transfer any time from Pending Claims.",
+                      "Your USDC is safe. You can finish this transfer any time from Pending Claims.",
                     );
                     setPhase("form");
                     setMonitor(null);
@@ -505,7 +507,7 @@ export function ChainBridgeModule({
         }
         // Ethereum L1 disabled — was: dest === "ethereum" ? embeddedWallet!.address
         const recipient = smartAddress;
-        toast.info("Preparing your transfer — we cover the network fee.");
+        toast.info("Preparing your transfer. We cover the network fee.");
         const { sponsoredTx } = await prepareSolanaBurnTx({
           connection: solConn.current,
           walletAddress: embeddedSolWallet.address,
@@ -603,155 +605,102 @@ export function ChainBridgeModule({
     phase === "complete"
   ) {
     const isDone = phase === "complete";
-
-    // Step indicator dots
     const step1Done = bridgeStep === "mint_sig" || bridgeStep === "complete";
     const step2Active = bridgeStep === "mint_sig";
     const step2Done = bridgeStep === "complete";
+    const from = monitor ? CHAIN_DISPLAY_NAMES[monitor.sourceChain] : source ? CHAIN_DISPLAY_NAMES[source] ?? source : "this network";
+    const to = monitor ? CHAIN_DISPLAY_NAMES[monitor.destChain] : dest ? CHAIN_DISPLAY_NAMES[dest] ?? dest : "the other network";
+    const steps = [
+      { label: `Leaving ${from}`, done: step1Done, active: !step1Done },
+      { label: `Arriving on ${to}`, done: step2Done, active: step2Active },
+    ];
+    const linkPill =
+      "inline-flex h-12 flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-white px-5 text-[15px] font-semibold shadow-[0_0_0_1px_rgb(17_26_19/0.12)] transition-shadow hover:shadow-[0_0_0_1px_rgb(17_26_19/0.4)]";
 
     return (
-      <div className="card-glass p-12 flex flex-col items-center justify-center text-center space-y-6 relative">
+      <section className="lp-card relative mx-auto max-w-[620px] rounded-[32px] p-6 text-center sm:p-10">
         {/* Once it's done the card is just a receipt — let it be closed outright. */}
         {isDone && (
           <button
+            type="button"
             onClick={resetForm}
             aria-label="Dismiss"
-            className="absolute top-4 right-4 w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white hover:bg-white/10 transition-colors"
+            className="absolute right-4 top-4 grid size-10 place-items-center rounded-full text-[var(--lp-muted)] transition-colors hover:bg-[var(--lp-cream)] hover:text-[var(--lp-ink)]"
           >
-            <X className="w-4 h-4" />
+            <X className="size-4" />
           </button>
         )}
-        {/* Icon */}
-        <div
+
+        <span
           className={cn(
-            "w-20 h-20 rounded-3xl flex items-center justify-center border transition-all duration-700",
-            isDone
-              ? "bg-accent/10 border-accent/40"
-              : "bg-white/5 border-white/10",
+            "mx-auto grid size-20 place-items-center rounded-full transition-colors duration-500",
+            isDone ? "bg-[var(--lp-green)] text-[var(--lp-ink)]" : "bg-[var(--lp-cream)] text-[var(--lp-ink)]",
           )}
         >
-          {isDone ? (
-            <CheckCircle2 className="w-10 h-10 text-accent" />
-          ) : (
-            <Loader2 className="w-10 h-10 text-accent animate-spin" />
-          )}
-        </div>
+          {isDone ? <CheckCircle2 className="size-10" /> : <Loader2 className="size-9 animate-spin" />}
+        </span>
 
-        {/* Title + subtitle */}
-        <div className="space-y-2">
-          <h3 className="text-xl font-display font-bold text-white tracking-tight">
-            {isDone
-              ? "All done"
-              : step2Active
-                ? "Step 2 of 2 — Delivering"
-                : "Step 1 of 2 — Sending"}
-          </h3>
-          <p className="text-sm text-white/40 max-w-xs mx-auto">
-            {/* Two of these used to tell the user to approve a pop-up. There is no pop-up any
-                more — Privy's UIs are off and we take the confirmation ourselves before any of
-                this starts — so the instruction was not merely jargon, it was an instruction to
-                do something impossible while they waited. */}
-            {isDone && monitor
-              ? `Your money has arrived on ${CHAIN_DISPLAY_NAMES[monitor.destChain]}.`
-              : bridgeStep === "burn_sig"
-                ? `Moving your money off ${source ? CHAIN_DISPLAY_NAMES[source] ?? source : "this network"}…`
-                : bridgeStep === "attestation"
-                  ? "Both networks are confirming the move. Usually 1–3 minutes."
-                  : `Delivering your money on ${dest ? CHAIN_DISPLAY_NAMES[dest] ?? dest : "the other network"}…`}
-          </p>
-        </div>
+        <h2 className="lp-display mt-6 text-[clamp(32px,7vw,44px)] leading-[0.95] tracking-[-0.045em]">
+          {isDone ? "All" : "Moving"} <span className="lp-serif tracking-[-0.02em]">{isDone ? "done." : "your money."}</span>
+        </h2>
+        <p className="mx-auto mt-3 max-w-[380px] text-[16px] leading-[1.5] text-[var(--lp-body)]">
+          {/* Two of these used to tell the user to approve a pop-up. There is no pop-up any
+              more — Privy's UIs are off and we take the confirmation ourselves before any of
+              this starts — so the instruction was not merely jargon, it was an instruction to
+              do something impossible while they waited. */}
+          {isDone && monitor
+            ? `Your money has arrived on ${CHAIN_DISPLAY_NAMES[monitor.destChain]}.`
+            : bridgeStep === "burn_sig"
+              ? `Moving your money off ${from}…`
+              : bridgeStep === "attestation"
+                ? "Both networks are confirming the move. Usually 1–3 minutes. You can leave this page; it carries on."
+                : `Delivering your money on ${to}…`}
+        </p>
 
-        {/* Minimal step dots */}
-        <div className="flex items-center gap-3">
-          {/* Step 1 */}
-          <div className="flex items-center gap-2">
-            <div
+        {/* Two steps, named for what the person cares about rather than what the protocol does. */}
+        <ol className="mx-auto mt-7 grid max-w-[420px] gap-2 text-left">
+          {steps.map((st, i) => (
+            <li
+              key={st.label}
               className={cn(
-                "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold border transition-all",
-                step1Done
-                  ? "bg-accent border-accent text-[#07070a]"
-                  : "bg-accent/10 border-accent text-accent animate-pulse",
+                "flex items-center gap-3 rounded-[18px] px-4 py-3",
+                st.done ? "bg-[#cdf5de]" : st.active ? "bg-[var(--lp-cream)]" : "bg-transparent shadow-[0_0_0_1px_rgb(17_26_19/0.08)]",
               )}
             >
-              {step1Done ? "✓" : "1"}
-            </div>
-            <span
-              className={cn(
-                "text-[10px] font-bold uppercase tracking-widest",
-                step1Done ? "text-white/40" : "text-white",
-              )}
-            >
-              Burn
-            </span>
-          </div>
-
-          <div className="w-8 h-px bg-white/15" />
-
-          {/* Step 2 */}
-          <div className="flex items-center gap-2">
-            <div
-              className={cn(
-                "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold border transition-all",
-                step2Done
-                  ? "bg-accent border-accent text-[#07070a]"
-                  : step2Active
-                    ? "bg-accent/10 border-accent text-accent animate-pulse"
-                    : "border-white/10 text-white/20",
-              )}
-            >
-              {step2Done ? "✓" : "2"}
-            </div>
-            <span
-              className={cn(
-                "text-[10px] font-bold uppercase tracking-widest",
-                step2Done
-                  ? "text-white/40"
-                  : step2Active
-                    ? "text-white"
-                    : "text-white/20",
-              )}
-            >
-              Mint
-            </span>
-          </div>
-        </div>
-
-        {/* Tx links + actions */}
-        <div className="flex flex-col gap-3 w-full max-w-sm">
-          <div className="flex gap-3 w-full justify-center">
-            {monitor && (
-              <a
-                href={
-                  explorerTxUrl(monitor.sourceChain, monitor.burnTxHash) || "#"
-                }
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex-1 btn-secondary h-11 rounded-xl flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest"
+              <span
+                className={cn(
+                  "grid size-7 shrink-0 place-items-center rounded-full text-[13px] font-semibold",
+                  st.done ? "bg-[#0e7a45] text-white" : st.active ? "bg-[var(--lp-ink)] text-[var(--lp-cream)]" : "bg-[var(--lp-cream)] text-[var(--lp-muted)]",
+                )}
               >
-                <ExternalLink className="w-3.5 h-3.5" /> Burn Tx
+                {st.done ? <Check className="size-4" /> : i + 1}
+              </span>
+              <span className={cn("flex-1 text-[15px] font-semibold", !st.done && !st.active && "text-[var(--lp-muted)]")}>{st.label}</span>
+              {st.active && !st.done && <Loader2 className="size-4 animate-spin text-[var(--lp-muted)]" />}
+            </li>
+          ))}
+        </ol>
+
+        <div className="mx-auto mt-7 flex max-w-[420px] flex-col gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            {monitor && (
+              <a href={explorerTxUrl(monitor.sourceChain, monitor.burnTxHash) || "#"} target="_blank" rel="noopener noreferrer" className={linkPill}>
+                <ExternalLink className="size-4" /> Where it left
               </a>
             )}
             {isDone && mintTxHash && monitor && (
-              <a
-                href={explorerTxUrl(monitor.destChain, mintTxHash) || "#"}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex-1 btn-secondary h-11 rounded-xl flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest"
-              >
-                <ExternalLink className="w-3.5 h-3.5" /> Mint Tx
+              <a href={explorerTxUrl(monitor.destChain, mintTxHash) || "#"} target="_blank" rel="noopener noreferrer" className={linkPill}>
+                <ExternalLink className="size-4" /> Where it arrived
               </a>
             )}
           </div>
           {isDone && (
-            <button
-              onClick={resetForm}
-              className="btn-accent h-11 w-full rounded-xl text-[10px] font-bold uppercase tracking-widest"
-            >
-              Bridge Again
-            </button>
+            <FlowButton tone="accent" onClick={resetForm}>
+              Move more money
+            </FlowButton>
           )}
         </div>
-      </div>
+      </section>
     );
   }
 
@@ -770,188 +719,263 @@ export function ChainBridgeModule({
     (c) => c !== source && !(source && isUnsupportedBridgePair(source, c)),
   );
 
+  const fee =
+    amountNum > 0 && bridgeFeePercent !== null
+      ? formatFeeSummary(amountNum, (amountNum * bridgeFeePercent) / 100, amountNum * (1 + bridgeFeePercent / 100))
+      : null;
+  const overBalance = !!source && bridgeTotal > sourceBalance;
+  // Swapping only makes sense when the destination holds something to move back.
+  const canSwap = !!source && !!dest && balanceOf(dest) > 0 && !isUnsupportedBridgePair(dest, source);
+  const swap = () => {
+    if (!canSwap) return;
+    setSource(dest);
+    setDest(source);
+  };
+  const useMax = () => {
+    // Leave room for the fee: the wallet must cover amount + fee, so Max is the largest amount
+    // whose total still fits. Disabled until the rate is known — filling in the full balance
+    // and correcting later is how Max produced an amount that immediately read "exceeds your
+    // balance".
+    if (bridgeFeePercent === null) return;
+    const max = sourceBalance / (1 + bridgeFeePercent / 100);
+    setAmount((Math.floor(max * 1e6) / 1e6).toString());
+  };
+  const pickSource = (c: NonNullable<typeof source>) => {
+    setSource(c);
+    if (dest === c || (dest && isUnsupportedBridgePair(c, dest))) setDest(null);
+  };
+
+  const totalHeld = fundedSources.reduce((sum, c) => sum + balanceOf(c), 0);
+  const largest = Math.max(0, ...fundedSources.map(balanceOf));
+  const byBalance = [...fundedSources].sort((a, b) => balanceOf(b) - balanceOf(a));
+
   return (
-    <div className="card-glass p-6 sm:p-8 space-y-8">
-      {/* From */}
-      <div className="space-y-3">
-        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/30">
-          From
-        </p>
-        {balancesPending ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {[0, 1, 2].map((i) => (
-              <div
-                key={i}
-                className="flex items-center gap-2.5 px-3 py-3 rounded-xl border border-white/8 bg-white/3"
-              >
-                <Skeleton className="w-[22px] h-[22px] rounded-full bg-white/8 shrink-0" />
-                <div className="min-w-0 space-y-1.5 flex-1">
-                  <Skeleton className="h-2.5 w-16 bg-white/8" />
-                  <Skeleton className="h-2 w-10 bg-white/5" />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : fundedSources.length === 0 ? (
-          <div className="rounded-2xl p-5 text-center text-sm text-white/40 bg-white/3 border border-white/6">
-            No USDC found on any network yet. Deposit first.
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {fundedSources.map((c) => (
-              <button
-                key={c}
-                onClick={() => {
-                  setSource(c);
-                  if (dest === c || (dest && isUnsupportedBridgePair(c, dest))) setDest(null);
-                }}
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,380px)] lg:items-start lg:gap-6">
+      {/* ── The converter ─────────────────────────────────────────────────── */}
+      <section className="rounded-[36px] bg-[var(--lp-forest)] p-3 text-[var(--lp-cream)] sm:p-4">
+        <div className="relative space-y-2">
+          <Slot label="From">
+            <div className="flex items-center justify-between gap-3">
+              <NetworkPicker
+                value={source}
+                placeholder={fundedSources.length ? "Choose network" : "Nothing to move"}
+                options={fundedSources}
+                balanceOf={balanceOf}
+                onPick={pickSource}
+                disabled={!fundedSources.length}
+              />
+              {source && (
+                <button
+                  type="button"
+                  onClick={useMax}
+                  disabled={bridgeFeePercent === null}
+                  className="rounded-full bg-white px-3 py-1.5 text-[13px] font-semibold shadow-[0_0_0_1px_rgb(17_26_19/0.08)] transition-shadow hover:shadow-[0_0_0_1px_rgb(17_26_19/0.3)] disabled:text-[var(--lp-muted)]"
+                >
+                  Use max
+                </button>
+              )}
+            </div>
+            <label className="mt-5 flex items-baseline gap-1.5">
+              <span className="sr-only">Amount to move</span>
+              <span className="lp-display text-[clamp(28px,6vw,40px)] leading-none tracking-[-0.03em] text-[var(--lp-muted)]">$</span>
+              <input
+                type="number"
+                inputMode="decimal"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.00"
+                className="lp-display w-full min-w-0 flex-1 bg-transparent text-[clamp(44px,10vw,64px)] leading-none tracking-[-0.045em] tabular-nums outline-none placeholder:text-[#d9d3c5] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              />
+            </label>
+            <p className={cn("mt-3 text-[14px]", overBalance ? "font-semibold text-[#a1462c]" : "text-[var(--lp-muted)]")}>
+              {!source
+                ? "Pick where the money comes from."
+                : overBalance
+                  ? `More than the $${sourceBalance.toFixed(2)} on ${CHAIN_DISPLAY_NAMES[source]}${bridgeFeePercent ? ", fee included" : ""}.`
+                  : `$${sourceBalance.toFixed(2)} on ${CHAIN_DISPLAY_NAMES[source]}`}
+            </p>
+          </Slot>
+
+          {/* The swap sits on the seam between the two slots, the converter's own gesture. */}
+          <button
+            type="button"
+            onClick={swap}
+            disabled={!canSwap}
+            aria-label="Swap networks"
+            className="absolute left-1/2 top-1/2 z-10 grid size-12 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-4 border-[var(--lp-forest)] bg-[var(--lp-green)] text-[var(--lp-ink)] transition-transform duration-200 hover:rotate-180 disabled:bg-[#d9d3c5] disabled:text-[var(--lp-muted)] disabled:hover:rotate-0"
+          >
+            <ArrowUpDown className="size-5" />
+          </button>
+
+          <Slot label="To">
+            <NetworkPicker
+              value={dest}
+              placeholder="Choose network"
+              options={destinationChains}
+              onPick={(c) => setDest(c)}
+              disabled={!source}
+            />
+            <p className="mt-5 flex items-baseline gap-1.5" aria-live="polite">
+              <span className="lp-display text-[clamp(28px,6vw,40px)] leading-none tracking-[-0.03em] text-[var(--lp-muted)]">$</span>
+              <span
                 className={cn(
-                  "flex items-center gap-2.5 px-3 py-3 rounded-xl border transition-all text-left",
-                  source === c
-                    ? "border-accent/40 bg-accent/10"
-                    : "border-white/8 bg-white/3 hover:bg-white/5",
+                  "lp-display min-w-0 truncate text-[clamp(44px,10vw,64px)] leading-none tracking-[-0.045em] tabular-nums",
+                  !(amountNum > 0) && "text-[#d9d3c5]",
                 )}
               >
-                <ChainLogo chain={c} size={22} />
-                <div className="min-w-0">
-                  <p className="text-xs font-bold text-white truncate">
-                    {CHAIN_DISPLAY_NAMES[c]}
-                  </p>
-                  <p className="text-[10px] text-white/40 font-mono">
-                    ${balanceOf(c).toFixed(2)}
-                  </p>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="flex justify-center">
-        <div className="w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
-          <ArrowDown className="w-4 h-4 text-accent" />
+                {fee ? fee.amount : amountNum > 0 ? amountNum.toFixed(2) : "0.00"}
+              </span>
+            </p>
+            <p className="mt-3 text-[14px] text-[var(--lp-muted)]">
+              {dest ? `Arrives on ${CHAIN_DISPLAY_NAMES[dest]}, usually in a few minutes.` : "Pick where it should arrive."}
+            </p>
+          </Slot>
         </div>
-      </div>
 
-      {/* To */}
-      <div className="space-y-3">
-        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/30">
-          To
-        </p>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          {destinationChains.map((c) => (
-            <button
-              key={c}
-              onClick={() => setDest(c)}
-              className={cn(
-                "flex items-center gap-2.5 px-3 py-3 rounded-xl border transition-all text-left",
-                dest === c
-                  ? "border-accent/40 bg-accent/10"
-                  : "border-white/8 bg-white/3 hover:bg-white/5",
-              )}
-            >
-              <ChainLogo chain={c} size={22} />
-              <p className="text-xs font-bold text-white truncate">
-                {CHAIN_DISPLAY_NAMES[c]}
-              </p>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Amount */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between px-1">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/30">
-            Amount
-          </p>
-          {source && (
-            <button
-              disabled={bridgeFeePercent === null}
-              onClick={() => {
-                // Leave room for the fee: the wallet must cover amount + fee, so Max is the
-                // largest amount whose total still fits. Disabled until the rate is known —
-                // filling in the full balance and correcting later is how Max produced an
-                // amount that immediately read "exceeds your balance".
-                if (bridgeFeePercent === null) return;
-                const max = sourceBalance / (1 + bridgeFeePercent / 100);
-                setAmount((Math.floor(max * 1e6) / 1e6).toString());
-              }}
-              className="text-[10px] font-bold uppercase tracking-widest text-accent/70 hover:text-accent"
-            >
-              Max ${sourceBalance.toFixed(2)}
-            </button>
+        <div className="px-3 pb-3 pt-4 sm:px-4">
+          {fee && (
+            <AsideRows
+              rows={[
+                { label: `Fee (${bridgeFeePercent}%)`, value: `${fee.fee} USDC` },
+                { label: "Taken from your balance", value: `${fee.total} USDC` },
+                { label: "Network fees", value: "On us", tone: "good" as const },
+              ]}
+            />
           )}
-        </div>
-        <div className="relative">
-          <input
-            type="number"
-            inputMode="decimal"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="0.00"
-            className="w-full bg-white/3 border border-white/8 rounded-2xl px-4 py-4 text-2xl font-bold text-white outline-none focus:border-accent/40 transition-colors"
-          />
-          <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-bold text-white/20 uppercase">
-            USDC
-          </span>
-        </div>
-        {/* Amount + fee + total, matching the withdrawal summary. */}
-        {amountNum > 0 && bridgeFeePercent !== null && (() => {
-          const s = formatFeeSummary(
-            amountNum,
-            (amountNum * bridgeFeePercent) / 100,
-            amountNum * (1 + bridgeFeePercent / 100),
-          );
-          return (
-          <div className="rounded-2xl bg-white/3 border border-white/8 px-4 py-3 space-y-2">
-            <div className="flex justify-between text-[11px] text-white/40">
-              <span>Bridging</span>
-              <span className="tabular-nums">{s.amount} USDC</span>
-            </div>
-            <div className="flex justify-between text-[11px] text-white/40">
-              <span>Platform Fee ({bridgeFeePercent}%)</span>
-              <span className="tabular-nums">
-                {s.fee} USDC
-              </span>
-            </div>
-            <div className="flex justify-between text-xs font-bold text-white pt-2 border-t border-white/8">
-              <span>Total Deducted</span>
-              <span className="tabular-nums">
-                {s.total} USDC
-              </span>
-            </div>
+          <div className="mt-4">
+            <FlowButton tone="accent" onClick={handleBridge} disabled={!canBridge}>
+              {source && dest ? `Move to ${CHAIN_DISPLAY_NAMES[dest]}` : "Choose both networks"}
+            </FlowButton>
           </div>
-          );
-        })()}
+        </div>
+      </section>
 
-        {bridgeTotal > sourceBalance && source && (
-          <p className="text-[11px] text-red-400/80 px-1">
-            Exceeds your {CHAIN_DISPLAY_NAMES[source]} balance
-            {bridgeFeePercent ? " once the fee is included" : ""}.
-          </p>
+      {/* ── Where the money is ───────────────────────────────────────────── */}
+      <section className="lp-card rounded-[28px] p-5 sm:p-6">
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="lp-display text-[22px] tracking-[-0.02em]">
+            Where your <span className="lp-serif">money is</span>
+          </h2>
+          {!balancesPending && <span className="text-[15px] font-semibold tabular-nums">${totalHeld.toFixed(2)}</span>}
+        </div>
+        <p className="mt-1 text-[14px] text-[var(--lp-muted)]">Tap a network to move money from it.</p>
+
+        {balancesPending ? (
+          <ul className="mt-4 space-y-3" aria-label="Loading balances">
+            {[0, 1, 2].map((i) => (
+              <li key={i} className="space-y-2">
+                <Skeleton className="h-3.5 w-1/3" />
+                <Skeleton className="h-2.5" />
+              </li>
+            ))}
+          </ul>
+        ) : byBalance.length === 0 ? (
+          <div className="mt-4">
+            <Notice title="Nothing to move yet">Add money first, then come back to move it between networks.</Notice>
+          </div>
+        ) : (
+          <ul className="mt-3 space-y-1">
+            {byBalance.map((c) => {
+              const bal = balanceOf(c);
+              const selected = source === c;
+              return (
+                <li key={c}>
+                  <button
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => pickSource(c)}
+                    className={cn(
+                      "w-full rounded-[18px] px-3 py-3 text-left transition-colors",
+                      selected ? "bg-[var(--lp-cream)]" : "hover:bg-[var(--lp-cream)]",
+                    )}
+                  >
+                    <span className="flex items-center justify-between gap-3">
+                      <span className="flex min-w-0 items-center gap-2.5">
+                        <ChainLogo chain={c} size={22} />
+                        <span className="truncate text-[15px] font-semibold">{CHAIN_DISPLAY_NAMES[c]}</span>
+                        {selected && (
+                          <span className="rounded-full bg-[var(--lp-ink)] px-2 py-px text-[11px] font-semibold text-[var(--lp-cream)]">From</span>
+                        )}
+                      </span>
+                      <span className="text-[15px] font-semibold tabular-nums">${bal.toFixed(2)}</span>
+                    </span>
+                    {/* One series, one hue: the length is the share of what the user holds. */}
+                    <span className="mt-2 block h-2 overflow-hidden rounded-full bg-[#efe9dd]">
+                      <span
+                        className={cn("block h-full rounded-full", selected ? "bg-[#04c96a]" : "bg-[var(--lp-ink)]")}
+                        style={{ width: `${largest ? Math.max(3, (bal / largest) * 100) : 0}%` }}
+                      />
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         )}
-      </div>
-
-      <button
-        onClick={handleBridge}
-        disabled={!canBridge}
-        className={cn(
-          "w-full h-14 rounded-2xl font-bold text-sm uppercase tracking-widest transition-all",
-          canBridge
-            ? "btn-accent"
-            : "bg-white/5 border border-white/8 text-white/25 cursor-not-allowed",
-        )}
-      >
-        {source && dest
-          ? `Bridge to ${CHAIN_DISPLAY_NAMES[dest]}`
-          : "Select networks"}
-      </button>
-
-      {/* <p className="text-[11px] text-white/30 leading-relaxed text-center">
-        Funds move between your own wallets via Circle CCTP. Gasless on both sides; a
-        small Circle network fee is deducted from the bridged amount.
-      </p> */}
+      </section>
     </div>
+  );
+}
+
+/** One half of the converter: a cream panel inside the forest card. */
+function Slot({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-[28px] bg-[var(--lp-cream)] p-5 text-[var(--lp-ink)] sm:p-6">
+      <p className="lp-mono mb-3 text-[12px] uppercase text-[var(--lp-muted)]">{label}</p>
+      {children}
+    </div>
+  );
+}
+
+type BridgeChain = SupportedChain | "stellar" | "solana";
+
+/** The network a slot is set to, as a pill that opens the list of networks it can be. */
+function NetworkPicker({
+  value,
+  placeholder,
+  options,
+  onPick,
+  balanceOf,
+  disabled,
+}: {
+  value: BridgeChain | null;
+  placeholder: string;
+  options: BridgeChain[];
+  onPick: (c: BridgeChain) => void;
+  /** Shown beside each option when given: the source list says what each network holds. */
+  balanceOf?: (c: BridgeChain) => number;
+  disabled?: boolean;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        disabled={disabled}
+        className="inline-flex h-12 min-w-0 items-center gap-2.5 rounded-full bg-white py-1 pl-1.5 pr-4 text-[16px] font-semibold shadow-[0_0_0_1px_rgb(17_26_19/0.08)] outline-none transition-shadow hover:shadow-[0_0_0_1px_rgb(17_26_19/0.3)] focus-visible:ring-2 focus-visible:ring-[var(--lp-ink)] disabled:cursor-not-allowed disabled:text-[var(--lp-muted)] disabled:hover:shadow-[0_0_0_1px_rgb(17_26_19/0.08)]"
+      >
+        {value ? (
+          <ChainLogo chain={value} size={34} />
+        ) : (
+          <span className="size-[34px] rounded-full border-2 border-dashed border-[rgba(17,26,19,0.25)]" />
+        )}
+        <span className="truncate">{value ? CHAIN_DISPLAY_NAMES[value] : placeholder}</span>
+        <ChevronDown className="size-4 shrink-0" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-64 space-y-0.5 rounded-[22px] p-1.5">
+        {options.map((c) => (
+          <DropdownMenuItem
+            key={c}
+            onClick={() => onPick(c)}
+            className={cn(
+              "flex cursor-pointer items-center gap-3 rounded-[16px] px-3 py-2.5 focus:bg-[var(--lp-cream)] focus:text-[var(--lp-ink)]",
+              value === c && "bg-[var(--lp-cream)]",
+            )}
+          >
+            <ChainLogo chain={c} size={24} />
+            <span className="flex-1 text-[15px] font-semibold">{CHAIN_DISPLAY_NAMES[c]}</span>
+            {balanceOf && <span className="text-[13px] tabular-nums text-[var(--lp-muted)]">${balanceOf(c).toFixed(2)}</span>}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

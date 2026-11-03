@@ -34,7 +34,7 @@ export const CHAIN_META: Record<string, ChainMeta> = {
     color: '#0052FF',
     bg: 'rgba(0,82,255,0.08)',
     border: 'rgba(0,82,255,0.2)',
-    description: 'Coinbase L2',
+    description: 'Ethereum L2',
     explorerTx: (h) => explorerTxUrl('base', h) ?? '',
   },
   arbitrum: {
@@ -82,7 +82,7 @@ export const CHAIN_META: Record<string, ChainMeta> = {
     color: '#2775CA',
     bg: 'rgba(39,117,202,0.08)',
     border: 'rgba(39,117,202,0.2)',
-    description: "Circle's L1 · USDC gas",
+    description: "Pays gas in USDC",
     explorerTx: (h) => explorerTxUrl('arc', h) ?? '',
   },
   solana: {

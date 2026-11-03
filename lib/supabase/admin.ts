@@ -467,7 +467,7 @@ export async function markFiatPayoutSent(
     return {
       ok: false,
       reason: /owes nothing/i.test(error.message)
-        ? 'This withdrawal does not owe anything — nothing to pay out.'
+        ? 'This withdrawal does not owe anything, so there is nothing to pay out.'
         : 'Could not record the payout.',
     };
   }

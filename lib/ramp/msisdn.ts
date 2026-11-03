@@ -148,7 +148,7 @@ export function validateMobileMoneyNumber(params: {
     const expected = lengths.join(' or ');
     return {
       ok: false,
-      reason: `That number has ${nsn.length} digits — ${label} numbers have ${expected} (excluding the leading 0).`,
+      reason: `That number has ${nsn.length} digits. ${label} numbers have ${expected} (not counting the leading 0).`,
     };
   }
 
@@ -157,7 +157,7 @@ export function validateMobileMoneyNumber(params: {
     const shown = prefixes.map((p) => `0${p}`).join(' or ');
     return {
       ok: false,
-      reason: `That number doesn't look like a ${label} number — they start with ${shown}.`,
+      reason: `That number doesn't look like a ${label} number. They start with ${shown}.`,
     };
   }
 

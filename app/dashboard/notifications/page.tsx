@@ -1,21 +1,15 @@
 'use client';
 
-import { DashboardPageHeader } from '@/components/layout/DashboardPageHeader';
-import {
-  Bell,
-  Check,
-  Search,
-  Mail,
-  Repeat,
-  ShieldAlert,
-  ArrowDownCircle,
-  ArrowUpCircle,
-  ChevronRight,
-} from 'lucide-react';
+import { PageHeader } from '@/components/dashboard/PageHeader';
+import { FilterPills, SearchField, listPill } from '@/components/dashboard/ListControls';
+import { groupByDay } from '@/components/dashboard/activity-look';
+import { format } from 'date-fns';
+import { ArrowUpRight, CheckCheck } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { usePrivy } from '@privy-io/react-auth';
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { toast } from 'sonner';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface NotificationItem {
   id: string;
@@ -112,49 +106,10 @@ export default function DedicatedNotificationsPage() {
     }
   };
 
-  const getIcon = (type: NotificationItem['type']) => {
-    switch (type) {
-      case 'transfer':
-        return <Mail className="w-5 h-5 text-emerald-400" />;
-      case 'bridge':
-        return <Repeat className="w-5 h-5 text-blue-400" />;
-      case 'deposit':
-        return <ArrowDownCircle className="w-5 h-5 text-green-400" />;
-      case 'withdrawal':
-        return <ArrowUpCircle className="w-5 h-5 text-orange-400" />;
-      case 'security':
-        return <ShieldAlert className="w-5 h-5 text-amber-400" />;
-      default:
-        return <Bell className="w-5 h-5 text-white/50" />;
-    }
-  };
-
-  const formatTime = (dateStr: string) => {
-    const elapsed = Date.now() - new Date(dateStr).getTime();
-    const minutes = Math.floor(elapsed / 60000);
-    if (minutes < 1) return 'Just now';
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    return new Date(dateStr).toLocaleDateString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
   // Filter logic
   const filteredNotifications = useMemo(() => {
     return notifications.filter((item) => {
-      // Category filter
-      if (activeTab === 'withdrawal' && item.type !== 'deposit' && item.type !== 'withdrawal') return false;
-      if (activeTab === 'transfer' && item.type !== 'transfer') return false;
-      if (activeTab === 'bridge' && item.type !== 'bridge') return false;
-      if (activeTab === 'security' && item.type !== 'security') return false;
-
-      // Search filter
+      if (!matchesKind(item, activeTab)) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         return item.title.toLowerCase().includes(q) || item.body.toLowerCase().includes(q);
@@ -165,196 +120,170 @@ export default function DedicatedNotificationsPage() {
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-  const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 10;
-
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   useEffect(() => {
-    setCurrentPage(1);
+    setVisibleCount(PAGE_SIZE);
   }, [activeTab, searchQuery]);
 
-  const totalItems = filteredNotifications.length;
-  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
-
-  const paginatedNotifications = useMemo(() => {
-    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredNotifications.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-  }, [filteredNotifications, currentPage]);
+  const visible = filteredNotifications.slice(0, visibleCount);
+  const groups = groupByDay(visible, (n) => n.created_at);
+  const filtering = activeTab !== 'all' || searchQuery.trim() !== '';
 
   return (
-    <div className="max-w-5xl mx-auto space-y-8">
-      {/* Header */}
-      <div>
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <DashboardPageHeader
-            title="Notifications Center"
-            subtitle="View all activity alerts, transfer receipts, and security updates."
-          />
-          {unreadCount > 0 && (
+    <div className="mx-auto max-w-[880px] space-y-6 pb-24 md:space-y-8">
+      <PageHeader
+        eyebrow="Notifications"
+        // Nothing is claimed until the list has loaded: "All caught up" over a spinner is a guess.
+        title={loading ? 'Your' : unreadCount > 0 ? `${unreadCount} new,` : 'All'}
+        italic={loading ? 'notifications.' : unreadCount > 0 ? 'since you last looked.' : 'caught up.'}
+        actions={
+          unreadCount > 0 && (
             <button
+              type="button"
               onClick={handleMarkAllRead}
-              className="self-start sm:self-auto flex items-center gap-2 text-xs font-bold text-accent bg-accent/10 border border-accent/20 hover:bg-accent/20 px-4 py-2.5 rounded-xl transition-all"
+              className="inline-flex h-12 items-center gap-2 rounded-full bg-white px-5 text-[15px] font-semibold shadow-[0_0_0_1px_rgb(17_26_19/0.12)] transition-shadow hover:shadow-[0_0_0_1px_rgb(17_26_19/0.4)]"
             >
-              <Check className="w-4 h-4" />
-              Mark All Read ({unreadCount})
+              <CheckCheck className="size-4" /> Mark all read
             </button>
-          )}
-        </div>
+          )
+        }
+      />
+
+      <div className="space-y-3">
+        <SearchField value={searchQuery} onChange={setSearchQuery} placeholder="Search notifications" label="Search notifications" />
+        <FilterPills
+          label="Kind"
+          value={activeTab}
+          onChange={setActiveTab}
+          options={KINDS.map((k) => ({
+            ...k,
+            count: notifications.filter((n) => !n.read && matchesKind(n, k.value)).length,
+          }))}
+        />
       </div>
 
-      {/* Control Bar: Search & Category Tabs */}
-      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
-        {/* Category Tabs */}
-        <div className="flex items-center gap-1.5 overflow-x-auto p-1.5 rounded-2xl bg-white/3 border border-white/5 no-scrollbar">
-          {[
-            { id: 'all', label: 'All' },
-            { id: 'withdrawal', label: 'Withdrawal' },
-            { id: 'transfer', label: 'Transfers' },
-            { id: 'bridge', label: 'Bridge' },
-            { id: 'security', label: 'Security' },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as FilterCategory)}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-                activeTab === tab.id
-                  ? 'bg-white/10 text-white shadow-sm border border-white/10'
-                  : 'text-white/40 hover:text-white/70 hover:bg-white/5'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Search Box */}
-        <div className="relative md:w-64 shrink-0">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
-          <input
-            type="text"
-            placeholder="Search notifications..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 rounded-xl bg-white/5 border border-white/10 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-accent/50 transition-colors"
-          />
-        </div>
-      </div>
-
-      {/* Notifications List Card */}
-      <div className="rounded-2xl border border-white/10 bg-[#07070a]/90 backdrop-blur-xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
+      <section className="lp-card rounded-[28px] p-2">
         {loading ? (
-          <div className="py-20 text-center text-white/30 text-xs flex flex-col items-center gap-3">
-            <div className="w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-            Loading your notifications...
-          </div>
-        ) : filteredNotifications.length === 0 ? (
-          <div className="py-20 text-center text-white/30 text-xs flex flex-col items-center gap-3">
-            <Bell className="w-8 h-8 stroke-1 text-white/20" />
-            <p className="font-semibold text-white/50 text-sm">No notifications found</p>
-            <p className="text-xs text-white/30 max-w-xs">
-              {searchQuery
-                ? `No notifications matching "${searchQuery}"`
-                : 'You are all caught up! New alerts and transaction receipts will appear here.'}
+          <ul className="flex flex-col gap-1 p-1" aria-label="Loading notifications">
+            {Array.from({ length: 5 }, (_, i) => (
+              <li key={i} className="space-y-2 rounded-[20px] px-4 py-4">
+                <Skeleton className="h-3.5 w-2/5" />
+                <Skeleton className="h-3 w-3/4" />
+              </li>
+            ))}
+          </ul>
+        ) : visible.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 px-6 pb-10 pt-8 text-center">
+            <p className="lp-display text-[22px] font-semibold tracking-[-0.02em]">
+              {filtering ? (
+                <>
+                  Nothing <span className="lp-serif">matches.</span>
+                </>
+              ) : (
+                <>
+                  Nothing here <span className="lp-serif">yet.</span>
+                </>
+              )}
             </p>
+            <p className="max-w-[320px] text-[14px] leading-[1.5] text-[var(--lp-muted)]">
+              {filtering
+                ? 'Try another search, or look at every kind.'
+                : 'Receipts, arrivals and security alerts will show up here the moment they happen.'}
+            </p>
+            {filtering && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setActiveTab('all');
+                }}
+                className={`${listPill} mt-1 bg-[var(--lp-ink)] text-[var(--lp-cream)]`}
+              >
+                Show everything
+              </button>
+            )}
           </div>
         ) : (
-          <div className="divide-y divide-white/5">
-            {paginatedNotifications.map((notif) => (
-              <div
-                key={notif.id}
-                onClick={() => handleNotificationClick(notif)}
-                className={`p-5 flex items-start justify-between gap-4 cursor-pointer transition-all ${
-                  notif.read
-                    ? 'bg-transparent text-white/60 hover:bg-white/2'
-                    : 'bg-white/4 text-white hover:bg-white/8'
-                }`}
-              >
-                <div className="flex items-start gap-4 min-w-0">
-                  {/* Category Icon */}
-                  <div
-                    className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
-                      notif.read
-                        ? 'bg-white/3 border-white/5'
-                        : 'bg-white/8 border-white/15 shadow-sm'
-                    }`}
-                  >
-                    {getIcon(notif.type)}
-                  </div>
-
-                  {/* Body Content */}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <h4 className="text-sm font-bold text-white truncate leading-tight">
-                        {notif.title}
-                      </h4>
-                      {!notif.read && (
-                        <span className="w-2 h-2 rounded-full bg-accent shrink-0 animate-pulse" />
-                      )}
-                    </div>
-                    <p className="text-xs text-white/50 leading-relaxed mt-1">
-                      {notif.body}
-                    </p>
-                    <span className="text-[10px] text-white/25 mt-2 block font-mono">
-                      {formatTime(notif.created_at)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Arrow indicator */}
-                <div className="shrink-0 pt-2 text-white/20 group-hover:text-white/60 transition-colors">
-                  <ChevronRight className="w-4 h-4" />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Pagination Controls */}
-      {!loading && totalPages > 1 && (
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
-          <p className="text-xs text-white/40">
-            Showing <span className="font-bold text-white/70">{(currentPage - 1) * ITEMS_PER_PAGE + 1}</span> to{" "}
-            <span className="font-bold text-white/70">
-              {Math.min(currentPage * ITEMS_PER_PAGE, totalItems)}
-            </span>{" "}
-            of <span className="font-bold text-white/70">{totalItems}</span> notifications
-          </p>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
-              disabled={currentPage === 1}
-              className="px-3 py-1.5 rounded-xl text-xs font-bold transition-all bg-white/5 border border-white/10 text-white hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5"
-            >
-              Previous
-            </button>
-            <div className="flex items-center gap-1">
-              {Array.from({ length: totalPages }).map((_, i) => {
-                const pageNum = i + 1;
-                return (
-                  <button
-                    key={pageNum}
-                    onClick={() => setCurrentPage(pageNum)}
-                    className={`w-8 h-8 rounded-xl text-xs font-bold transition-all border ${
-                      currentPage === pageNum
-                        ? "bg-white/10 border-white/25 text-white"
-                        : "bg-white/5 border-white/10 text-white/40 hover:text-white/70 hover:bg-white/10"
-                    }`}
-                  >
-                    {pageNum}
-                  </button>
-                );
-              })}
+          groups.map((g) => (
+            <div key={g.label}>
+              <h3 className="lp-mono px-4 pb-1 pt-4 text-[11.5px] uppercase text-[var(--lp-muted)] first:pt-3">{g.label}</h3>
+              <ul className="flex flex-col gap-0.5 p-1">
+                {g.items.map((notif) => (
+                  <li key={notif.id}>
+                    <button
+                      type="button"
+                      onClick={() => handleNotificationClick(notif)}
+                      className={`group flex w-full items-start gap-3 rounded-[20px] px-3 py-3.5 text-left transition-colors hover:bg-[var(--lp-cream)] ${
+                        notif.read ? '' : 'bg-[#f3fbf6]'
+                      }`}
+                    >
+                      {/* Unread is a dot in the gutter, so read and unread rows still line up. */}
+                      <span className="flex w-3 shrink-0 justify-center pt-[7px]" aria-hidden>
+                        {!notif.read && <span className="size-2 rounded-full bg-[#04c96a]" />}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-baseline justify-between gap-3">
+                          <span className={`truncate text-[15px] ${notif.read ? 'font-medium text-[var(--lp-body)]' : 'font-semibold'}`}>
+                            {notif.title}
+                          </span>
+                          <span className="shrink-0 text-[13px] tabular-nums text-[var(--lp-muted)]">
+                            {format(new Date(notif.created_at), 'HH:mm')}
+                          </span>
+                        </span>
+                        <span className="mt-0.5 block text-[14px] leading-[1.5] text-[var(--lp-muted)] [overflow-wrap:anywhere]">
+                          {notif.body}
+                        </span>
+                        <span className="lp-mono mt-2 inline-block text-[11px] uppercase text-[var(--lp-muted)]">
+                          {KIND_LABEL[notif.type] ?? notif.type}
+                          {!notif.read && <span className="sr-only"> · unread</span>}
+                        </span>
+                      </span>
+                      <ArrowUpRight className="mt-1 size-4 shrink-0 text-[var(--lp-muted)] opacity-0 transition-opacity group-hover:opacity-100" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
             </div>
-            <button
-              onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
-              disabled={currentPage === totalPages}
-              className="px-3 py-1.5 rounded-xl text-xs font-bold transition-all bg-white/5 border border-white/10 text-white hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5"
-            >
-              Next
-            </button>
-          </div>
+          ))
+        )}
+      </section>
+
+      {!loading && filteredNotifications.length > visibleCount && (
+        <div className="flex justify-center">
+          <button
+            type="button"
+            onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}
+            className={`${listPill} h-12 bg-white px-7 shadow-[0_0_0_1px_rgb(17_26_19/0.12)] hover:shadow-[0_0_0_1px_rgb(17_26_19/0.4)]`}
+          >
+            Show more
+          </button>
         </div>
       )}
     </div>
   );
+}
+
+const PAGE_SIZE = 15;
+
+const KINDS: { value: FilterCategory; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'transfer', label: 'Transfers' },
+  { value: 'withdrawal', label: 'Bank & deposits' },
+  { value: 'bridge', label: 'Moves' },
+  { value: 'security', label: 'Security' },
+];
+
+const KIND_LABEL: Record<NotificationItem['type'], string> = {
+  transfer: 'Transfer',
+  deposit: 'Deposit',
+  withdrawal: 'To bank',
+  bridge: 'Move between networks',
+  security: 'Security',
+};
+
+/** Deposits and withdrawals share a tab: both are money crossing the bank boundary. */
+function matchesKind(item: NotificationItem, kind: FilterCategory): boolean {
+  if (kind === 'all') return true;
+  if (kind === 'withdrawal') return item.type === 'deposit' || item.type === 'withdrawal';
+  return item.type === kind;
 }

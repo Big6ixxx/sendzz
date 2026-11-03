@@ -14,9 +14,9 @@ import {
 import Image from "next/image";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AnimatedNumber, EASE, Label, MEDIA, Magnetic, Reveal, useMedia, useTilt } from "./motion";
+import { formatUsd } from "@/lib/format-usdc";
 
 const container = "mx-auto w-full max-w-[1360px] px-4 md:px-7";
-const usd = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 
 /* ── Send $100, they get $100 ───────────────────────────────────────────── */
@@ -109,10 +109,10 @@ export function Compare() {
                     </div>
                     <div className="text-right tabular-nums">
                       <p className={`lp-display leading-none tracking-[-0.03em] ${r.ours ? "text-[30px]" : "text-[24px]"}`}>
-                        <AnimatedNumber value={arrives} format={usd} duration={350} />
+                        <AnimatedNumber value={arrives} format={formatUsd} duration={350} />
                       </p>
                       <p className={`mt-0.5 text-[13px] font-semibold leading-normal ${r.ours ? "text-[#0e7a45]" : "text-[#a1462c]"}`}>
-                        {r.ours ? "Nothing lost" : <>−<AnimatedNumber value={amount - arrives} format={usd} duration={350} /></>}
+                        {r.ours ? "Nothing lost" : <>−<AnimatedNumber value={amount - arrives} format={formatUsd} duration={350} /></>}
                       </p>
                     </div>
                   </div>
@@ -231,7 +231,7 @@ export function HowItWorks() {
   // derived and one is chosen at render, so switching layouts never leaves a stale subscription.
   const sent = (v: number) => SEND * (1 - Math.pow(1 - v, 2));
   const typedOf = (v: number) => EMAIL.slice(0, Math.floor(v));
-  const usdOf = (v: number) => usd(sent(v));
+  const usdOf = (v: number) => formatUsd(sent(v));
   const ngnOf = (v: number) => `→ ₦${Math.round(sent(v) * NGN_RATE).toLocaleString("en-US")}`;
 
   const pinnedTyped = useTransform(t, (v) => typedOf(clamp01((v - 0.1) / 0.8) * EMAIL.length));

@@ -1,4 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap");
 @import "tailwindcss";
 
 @theme {
@@ -12,16 +11,18 @@
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
 
-  --color-brand-primary: #0a0a0b;
-  --color-brand-secondary: #f8f8f6;
+  /* The cream brand, app wide. The `.lp-root` scope (components/landing/landing.css) carries the
+     same values plus the brand fonts, for anything portalled out of a page. */
+  --color-brand-primary: #ffffff;
+  --color-brand-secondary: #111a13;
   --color-accent: #00e87a;
-  --color-accent-dim: #00c468;
-  --color-glass-bg: rgba(255, 255, 255, 0.04);
-  --color-glass-border: rgba(255, 255, 255, 0.08);
+  --color-accent-fg: #0e7a45;
+  --color-danger: #b42318;
+  --color-warning: #8a5a00;
+  --color-info: #1d5fb4;
 
-  --font-display: "Syne", system-ui, sans-serif;
-  --font-sans: "DM Sans", system-ui, -apple-system, sans-serif;
-  --font-mono: "JetBrains Mono", monospace;
+  --font-sans: var(--font-geist), system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 
   --radius-xl: 1rem;
   --radius-2xl: 1.5rem;
@@ -29,17 +30,17 @@
 
 @layer base {
   :root {
-    --background: #0a0a0b;
-    --foreground: #f8f8f6;
-    --muted: #141416;
-    --muted-foreground: #8a8a8a;
-    --border: #1e1e21;
-    --input: #0e0e10;
-    --ring: #f8f8f6;
+    --background: #f6f2e9;
+    --foreground: #111a13;
+    --muted: #f6f2e9;
+    --muted-foreground: #5b645d;
+    --border: #e3dcce;
+    --input: #ffffff;
+    --popover: #ffffff;
+    --popover-foreground: #111a13;
+    --ring: #111a13;
     --radius: 0.75rem;
     --accent: #00e87a;
-    --glass-bg: rgba(255, 255, 255, 0.04);
-    --glass-border: rgba(255, 255, 255, 0.08);
   }
 
   * {
@@ -70,7 +71,7 @@
   /* Custom Scrollbar */
   * {
     scrollbar-width: thin;
-    scrollbar-color: var(--accent) transparent;
+    scrollbar-color: #c9c1b0 transparent;
   }
 
   *::-webkit-scrollbar {
@@ -83,183 +84,12 @@
   }
 
   *::-webkit-scrollbar-thumb {
-    background: var(--accent);
+    background: #c9c1b0;
     border-radius: 10px;
   }
 
   *::-webkit-scrollbar-thumb:hover {
-    background: #00ff88;
-  }
-
-  /* ===================== */
-  /* CARDS                 */
-  /* ===================== */
-
-  .card-elegant {
-    background-color: var(--background);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-xl);
-    padding: 1.5rem;
-    box-shadow:
-      0 1px 3px 0 rgb(0 0 0 / 0.05),
-      0 1px 2px -1px rgb(0 0 0 / 0.05);
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  .card-elegant:hover {
-    box-shadow:
-      0 4px 6px -1px rgb(0 0 0 / 0.1),
-      0 2px 4px -2px rgb(0 0 0 / 0.1);
-    border-color: var(--muted-foreground);
-  }
-
-  .card-glass {
-    background: var(--glass-bg);
-    backdrop-filter: blur(24px) saturate(180%);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
-    border: 1px solid var(--glass-border);
-    border-radius: var(--radius-2xl);
-    padding: 1.5rem;
-    box-shadow:
-      0 8px 32px 0 rgb(0 0 0 / 0.12),
-      inset 0 1px 0 rgba(255, 255, 255, 0.08);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  .card-glass:hover {
-    background: rgba(255, 255, 255, 0.07);
-    border-color: rgba(255, 255, 255, 0.14);
-    box-shadow:
-      0 16px 48px 0 rgb(0 0 0 / 0.2),
-      inset 0 1px 0 rgba(255, 255, 255, 0.12);
-    transform: translateY(-2px);
-  }
-
-  /* ===================== */
-  /* BUTTONS               */
-  /* ===================== */
-
-  .btn-primary {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    height: 3.5rem;
-    /* Labels stay on one line: a wrapped label in a fixed-height pill looks broken. The
-       padding gives way on narrow buttons instead. */
-    padding: 0 clamp(1rem, 3vw, 2rem);
-    white-space: nowrap;
-    background-color: var(--foreground);
-    color: var(--background);
-    font-weight: 600;
-    border-radius: 9999px;
-    transition: all 0.2s;
-    cursor: pointer;
-    border: none;
-    font-size: 1rem;
-    font-family: var(--font-sans);
-    letter-spacing: -0.01em;
-  }
-
-  .btn-primary:hover {
-    opacity: 0.9;
-    transform: translateY(-1px);
-  }
-
-  .btn-primary:active {
-    transform: translateY(0);
-  }
-
-  .btn-primary:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-    transform: none;
-  }
-
-  .btn-accent {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    height: 3.5rem;
-    padding: 0 clamp(1rem, 3vw, 2rem);
-    white-space: nowrap;
-    background-color: var(--accent);
-    color: #0a0a0b;
-    font-weight: 700;
-    border-radius: 9999px;
-    transition: all 0.2s;
-    cursor: pointer;
-    border: none;
-    font-size: 1rem;
-    font-family: var(--font-sans);
-    letter-spacing: -0.01em;
-  }
-
-  .btn-accent:hover:not(:disabled) {
-    filter: brightness(1.08);
-    transform: translateY(-2px);
-    box-shadow: 0 12px 32px -4px rgba(0, 232, 122, 0.4);
-  }
-
-  .btn-accent:active:not(:disabled) {
-    transform: translateY(0);
-  }
-
-  .btn-accent:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-    transform: none;
-    box-shadow: none;
-    filter: none;
-  }
-
-  .btn-secondary {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    height: 3.5rem;
-    padding: 0 clamp(1rem, 3vw, 2rem);
-    white-space: nowrap;
-    background-color: var(--muted);
-    color: var(--foreground);
-    font-weight: 600;
-    border-radius: 9999px;
-    transition: all 0.2s;
-    cursor: pointer;
-    border: 1px solid var(--border);
-    font-size: 1rem;
-    font-family: var(--font-sans);
-  }
-
-  .btn-secondary:hover {
-    background-color: var(--border);
-  }
-
-  /* ===================== */
-  /* INPUTS                */
-  /* ===================== */
-
-  .input-elegant {
-    width: 100%;
-    height: 3.5rem;
-    background-color: var(--input);
-    border: 1px solid var(--border);
-    border-radius: 0.75rem;
-    padding: 0 1rem;
-    font-size: 1rem;
-    color: var(--foreground);
-    outline: none;
-    transition: all 0.2s;
-    font-family: var(--font-sans);
-  }
-
-  .input-elegant:focus {
-    background-color: var(--background);
-    border-color: var(--accent);
-    box-shadow: 0 0 0 1px var(--accent);
-  }
-
-  .input-elegant::placeholder {
-    color: var(--muted-foreground);
+    background: #5b645d;
   }
 
   /* Hide number input spin buttons globally */
@@ -274,25 +104,15 @@
     appearance: textfield !important;
   }
 
-  @keyframes beacon {
-    0%,
-    100% {
-      opacity: 1;
-      transform: scale(1);
-    }
-    50% {
-      opacity: 0.5;
-      transform: scale(0.8);
-    }
-  }
 
-  .animate-beacon {
-    animation: beacon 2s ease-in-out infinite;
-  }
+}
 
-  .font-display {
-    font-family: var(--font-display);
-  }
+/* The brand's white card: white on the cream page, set off by a hairline instead of a border.
+   A Tailwind utility (a plain rule in a layer is dropped by the v4 compiler), so a variant on
+   the same element, such as a hover shadow, still applies over it. */
+@utility lp-card {
+  background-color: #ffffff;
+  box-shadow: 0 0 0 1px rgb(17 26 19 / 0.06);
 }
 
 /* ─── iOS focus zoom ──────────────────────────────────────────────────────────

@@ -1,8 +1,11 @@
 'use client';
 
-import { ArrowRight, ChevronLeft, Search, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Search, X } from 'lucide-react';
 import * as React from 'react';
+import { AsideFigure, AsideRows, FlowButton, FlowFrame, FlowSteps } from '@/components/flow/ui';
 import { useBatchSend } from './useBatchSend';
+import { BATCH_STEPS } from './steps';
+import { formatUsd } from '@/lib/format-usdc';
 
 interface ReviewSummaryProps {
   hook: ReturnType<typeof useBatchSend>;
@@ -10,89 +13,70 @@ interface ReviewSummaryProps {
 
 export function ReviewSummary({ hook }: ReviewSummaryProps) {
   const [search, setSearch] = React.useState('');
-
-  const filtered = hook.validRecipients.filter((r) =>
-    r.email.toLowerCase().includes(search.toLowerCase()),
-  );
+  const filtered = hook.validRecipients.filter((r) => r.email.toLowerCase().includes(search.toLowerCase()));
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 flex flex-col h-full max-h-[60vh]">
-      <div className="grid grid-cols-3 gap-3">
-        {[
-          { label: 'Recipients', value: hook.validRecipients.length },
-          { label: 'Each', value: `$${hook.amountUsd.toFixed(2)}` },
-          { label: 'Total', value: `$${hook.totalAmount.toFixed(2)}` },
-        ].map((stat) => (
-          <div
-            key={stat.label}
-            className="p-4 bg-muted/30 border border-border rounded-2xl text-center"
-          >
-            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">
-              {stat.label}
-            </p>
-            <p className="text-xl font-black">{stat.value}</p>
+    <FlowFrame
+      main={
+        <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <FlowSteps steps={BATCH_STEPS} current={2} />
+
+          <label className="flex h-12 items-center gap-3 rounded-full bg-white px-4 shadow-[0_0_0_1px_rgb(17_26_19/0.08)] outline-2 outline-offset-2 outline-transparent transition-[outline-color] duration-150 focus-within:outline-[var(--lp-ink)]">
+            <Search className="size-4 shrink-0 text-[var(--lp-muted)]" />
+            <input
+              type="text"
+              placeholder="Search the list"
+              className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-[rgba(91,100,93,0.8)] md:text-[15px]"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </label>
+
+          <div className="lp-card rounded-[22px]">
+            <div className="lp-mono flex justify-between border-b border-[#e3dcce] px-5 py-3 text-[12px] uppercase text-[var(--lp-muted)]">
+              <span>Person</span>
+              <span className="pr-10">Gets</span>
+            </div>
+            <ul className="divide-y divide-[#ece6da]">
+              {filtered.map((r) => (
+                <li key={r.id} className="flex items-center gap-3 px-5 py-3">
+                  <span className="min-w-0 flex-1 truncate text-[15px]">{r.email}</span>
+                  <span className="shrink-0 text-[15px] font-semibold tabular-nums">{formatUsd(hook.amountUsd)}</span>
+                  <button
+                    onClick={() => hook.removeRecipient(r.id)}
+                    aria-label={`Remove ${r.email}`}
+                    className="grid size-8 shrink-0 place-items-center rounded-full text-[var(--lp-muted)] transition-colors hover:bg-[#a1462c]/10 hover:text-[#a1462c]"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </li>
+              ))}
+              {filtered.length === 0 && <li className="px-5 py-10 text-center text-[15px] text-[var(--lp-muted)]">Nobody on the list matches that.</li>}
+            </ul>
           </div>
-        ))}
-      </div>
-
-      <div className="relative shrink-0">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <input
-          type="text"
-          placeholder="Search recipients..."
-          className="input-elegant pl-9 h-11 text-sm rounded-xl"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-      </div>
-
-      <div className="flex-1 overflow-y-auto border border-border rounded-2xl bg-muted/10">
-        <div className="sticky top-0 bg-muted/80 backdrop-blur-sm border-b border-border p-3 grid grid-cols-[1fr_auto_auto] gap-4 text-[10px] font-bold uppercase tracking-widest text-muted-foreground z-10">
-          <span>Recipient Email</span>
-          <span className="text-right">Amount</span>
-          <span className="w-8"></span>
         </div>
-        <div className="divide-y divide-border/50">
-          {filtered.map((r) => (
-            <div
-              key={r.id}
-              className="p-3 grid grid-cols-[1fr_auto_auto] gap-4 items-center hover:bg-muted/30 transition-colors group"
-            >
-              <span className="text-sm font-medium truncate">{r.email}</span>
-              <span className="text-sm font-bold text-right tabular-nums">
-                ${hook.amountUsd.toFixed(2)}
-              </span>
-              <button
-                onClick={() => hook.removeRecipient(r.id)}
-                className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-all"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          ))}
-          {filtered.length === 0 && (
-            <div className="p-10 text-center text-sm text-muted-foreground uppercase font-bold tracking-tighter opacity-50">
-              No results found
-            </div>
-          )}
+      }
+      aside={
+        <div className="space-y-6">
+          <AsideFigure label="Total" value={formatUsd(hook.totalAmount)} unit="USDC" />
+          <AsideRows
+            rows={[
+              { label: 'People', value: hook.validRecipients.length },
+              { label: 'Each', value: formatUsd(hook.amountUsd) },
+            ]}
+          />
         </div>
-      </div>
-
-      <div className="flex gap-4 pt-4 shrink-0">
-        <button
-          onClick={() => hook.setStep('amount')}
-          className="btn-secondary flex-1 gap-2"
-        >
-          <ChevronLeft className="w-4 h-4" /> Back
-        </button>
-        <button
-          onClick={() => hook.setStep('confirm')}
-          className="btn-primary flex-1 gap-2 group"
-        >
-          Continue{' '}
-          <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-        </button>
-      </div>
-    </div>
+      }
+      action={
+        <div className="flex gap-2">
+          <FlowButton tone="quiet" onClick={() => hook.setStep('amount')} className="w-auto shrink-0 px-5" aria-label="Back">
+            <ArrowLeft className="size-5" />
+          </FlowButton>
+          <FlowButton tone="accent" onClick={() => hook.setStep('confirm')} className="flex-1">
+            Continue <ArrowRight className="size-5" />
+          </FlowButton>
+        </div>
+      }
+    />
   );
 }

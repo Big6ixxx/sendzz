@@ -414,7 +414,7 @@ export async function handleSubmitRequest(req: Request, caller: SessionUser): Pr
       if (known?.code !== 'already_landed') {
         console.warn(`${tag} preflight refused ${signature}: ${raw.slice(0, 400)}`);
         if (known) return json({ error: known.message, code: known.code }, 422);
-        return json({ error: 'This transfer could not be sent. Nothing was sent — please try again.' }, 422);
+        return json({ error: 'This transfer could not be sent. Nothing was sent, so please try again.' }, 422);
       }
     }
 
@@ -436,7 +436,7 @@ export async function handleSubmitRequest(req: Request, caller: SessionUser): Pr
       console.warn(`${tag} ${signature} failed on-chain: ${outcome.raw}`);
       return json(
         {
-          error: known?.message ?? 'This transfer failed on the network. Nothing was sent — please try again.',
+          error: known?.message ?? 'This transfer failed on the network. Nothing was sent, so please try again.',
           code: known?.code ?? 'failed',
           txHash: signature,
         },

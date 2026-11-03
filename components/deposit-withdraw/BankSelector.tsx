@@ -6,6 +6,7 @@ import { CheckCircle2, ChevronDown, Loader2 } from 'lucide-react';
 import * as React from 'react';
 import { toast } from 'sonner';
 import { BankContactRow, deleteBankContact } from '@/lib/supabase/bank-contacts';
+import { FlowInput } from '@/components/flow/ui';
 import { AddBankContactModal } from './AddBankContactModal';
 import { BankSelectorDropdown } from './BankSelectorDropdown';
 import { BankSelectorSuggestions } from './BankSelectorSuggestions';
@@ -75,67 +76,63 @@ export function BankSelector({
 
   return (
     <div className="space-y-4">
-      {/* Account Number — first */}
+      {/* Account number first: a saved account can be picked from what is typed. */}
       <div className="relative">
-        <label className="text-sm font-semibold mb-1.5 block text-muted-foreground">Account Number</label>
-        <div className="relative">
-          <input
-            type="text"
-            maxLength={16}
-            disabled={disabled}
-            placeholder="0123456789"
-            className="input-elegant tracking-widest font-mono"
-            value={accountNumber}
-            onChange={(e) => {
-              onAccountNumberChange(e.target.value.replace(/\D/g, ''));
-              setShowSuggestions(true);
-            }}
-            onFocus={() => setShowSuggestions(true)}
-            onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-          />
-          <div className="absolute right-3 top-1/2 -translate-y-1/2">
-            {isVerifying ? (
-              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+        <FlowInput
+          label="Account number"
+          type="text"
+          inputMode="numeric"
+          maxLength={16}
+          disabled={disabled}
+          placeholder="0123456789"
+          className="tracking-[0.12em] tabular-nums"
+          value={accountNumber}
+          onChange={(e) => {
+            onAccountNumberChange(e.target.value.replace(/\D/g, ''));
+            setShowSuggestions(true);
+          }}
+          onFocus={() => setShowSuggestions(true)}
+          onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+          trailing={
+            isVerifying ? (
+              <Loader2 className="size-5 shrink-0 animate-spin text-[var(--lp-muted)]" />
             ) : accountName ? (
-              <CheckCircle2 className="w-5 h-5 text-green-500" />
-            ) : null}
-          </div>
-          <BankSelectorSuggestions
-            isOpen={showSuggestions}
-            accountNumber={accountNumber}
-            contacts={contacts}
-            onSelectContact={(contact) => {
-              if (onSelectContact) {
-                onSelectContact(contact);
-              } else {
-                onSelect({ code: contact.bankCode, name: contact.bankName });
-                onAccountNumberChange(contact.accountNumber);
-              }
-            }}
-            onDeleteContact={handleDeleteContact}
-            onClose={() => setShowSuggestions(false)}
-            onAddNew={() => {
-              setIsAddingContact(true);
-              setShowSuggestions(false);
-            }}
-          />
-        </div>
+              <CheckCircle2 className="size-5 shrink-0 text-[#0e7a45]" />
+            ) : null
+          }
+        />
+        <BankSelectorSuggestions
+          isOpen={showSuggestions}
+          accountNumber={accountNumber}
+          contacts={contacts}
+          onSelectContact={(contact) => {
+            if (onSelectContact) {
+              onSelectContact(contact);
+            } else {
+              onSelect({ code: contact.bankCode, name: contact.bankName });
+              onAccountNumberChange(contact.accountNumber);
+            }
+          }}
+          onDeleteContact={handleDeleteContact}
+          onClose={() => setShowSuggestions(false)}
+          onAddNew={() => {
+            setIsAddingContact(true);
+            setShowSuggestions(false);
+          }}
+        />
       </div>
 
-      {/* Bank selector — second */}
       <div className="relative">
-        <label className="text-sm font-semibold mb-1.5 block text-muted-foreground">{label}</label>
+        <p className="mb-1.5 text-[14px] font-semibold">{label}</p>
         <button
           type="button"
           disabled={disabled}
           onClick={() => setOpen(!open)}
-          className="input-elegant flex items-center justify-between group"
-          style={{ background: '#141416', border: '1px solid rgba(255,255,255,0.1)' }}
+          aria-expanded={open}
+          className="flex h-14 w-full items-center justify-between gap-3 rounded-[18px] bg-white px-4 text-left text-base shadow-[0_0_0_1px_rgb(17_26_19/0.08)] outline-2 outline-offset-2 outline-transparent transition-[outline-color] duration-150 focus-visible:outline-[var(--lp-ink)] disabled:opacity-60"
         >
-          <span className={cn(selectedBank ? 'text-foreground' : 'text-muted-foreground')}>
-            {selectedBank?.name || 'Select a bank'}
-          </span>
-          <ChevronDown className={cn('w-4 h-4 transition-transform opacity-50', open && 'rotate-180')} />
+          <span className={cn('truncate', !selectedBank && 'text-[rgba(91,100,93,0.7)]')}>{selectedBank?.name || (label === 'Bank' ? 'Choose a bank' : 'Choose a provider')}</span>
+          <ChevronDown className={cn('size-4 shrink-0 opacity-50 transition-transform', open && 'rotate-180')} />
         </button>
         <BankSelectorDropdown
           isOpen={open}
@@ -150,21 +147,53 @@ export function BankSelector({
         />
       </div>
 
-      {/* Memo / Reference Field (Optional for all countries) */}
-      <div className="relative">
-        <label className="text-sm font-semibold mb-1.5 block text-muted-foreground">
-          Payment Reference / Memo <span className="text-xs text-muted-foreground/60">(Optional)</span>
-        </label>
-        <input
-          type="text"
-          maxLength={60}
-          disabled={disabled}
-          placeholder="Payment reference or note"
-          className="input-elegant"
-          value={memo || ''}
-          onChange={(e) => onMemoChange?.(e.target.value)}
-        />
-      </div>
+      {/* No name enquiry exists for this number, so the name comes from the user — labelled as
+          theirs, never shown under a "Verified" badge. */}
+      {recipientNameNeeded && (
+        <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+          <FlowInput
+            label="Recipient's full name"
+            type="text"
+            maxLength={80}
+            disabled={disabled}
+            autoComplete="off"
+            placeholder="As registered on the mobile money account"
+            value={accountName}
+            onChange={(e) => onAccountNameChange?.(e.target.value)}
+            hint="We checked the number's format. The name can't be looked up on this network, so enter it exactly as the recipient's account shows it."
+          />
+        </div>
+      )}
+
+      {/* Text, not an input: this name is the result of a name enquiry against the provider that
+          settles the payout, the one thing on the form the user did not supply. While it was
+          editable, anyone could type over a confirmed beneficiary and the typed value went on to
+          the order, so the badge vouched for a name nobody had checked. */}
+      {accountName && !recipientNameNeeded && (
+        <div className="flex items-center justify-between gap-3 rounded-[18px] bg-[#00e87a]/15 px-4 py-3.5 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="min-w-0">
+            <p className="text-[13px] text-[#0b5e36]">Account holder</p>
+            <p className="break-words text-[16px] font-semibold uppercase tracking-wide">{accountName}</p>
+          </div>
+          <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[12px] font-semibold text-[#0e7a45]">
+            <CheckCircle2 className="size-3.5" /> Verified
+          </span>
+        </div>
+      )}
+
+      <FlowInput
+        label={
+          <>
+            Reference <span className="font-normal text-[var(--lp-muted)]">(optional)</span>
+          </>
+        }
+        type="text"
+        maxLength={60}
+        disabled={disabled}
+        placeholder="A note for the payment"
+        value={memo || ''}
+        onChange={(e) => onMemoChange?.(e.target.value)}
+      />
 
       <AddBankContactModal
         isOpen={isAddingContact}
@@ -175,59 +204,6 @@ export function BankSelector({
         fiatCurrency={fiatCurrency}
         onSuccess={onContactsChanged}
       />
-
-      {/* No name enquiry exists for this number, so the name comes from the user — labelled as
-          theirs, never shown under a "Verified" badge. */}
-      {recipientNameNeeded && (
-        <div className="relative animate-in fade-in slide-in-from-top-2 duration-300">
-          <label className="text-sm font-semibold mb-1.5 block text-muted-foreground">
-            Recipient&apos;s full name
-          </label>
-          <input
-            type="text"
-            maxLength={80}
-            disabled={disabled}
-            autoComplete="off"
-            placeholder="As registered on the mobile money account"
-            className="input-elegant"
-            value={accountName}
-            onChange={(e) => onAccountNameChange?.(e.target.value)}
-          />
-          <p className="mt-1.5 text-[11.5px] text-muted-foreground">
-            We checked the number&apos;s format. The name can&apos;t be looked up on this network, so
-            enter it exactly as the recipient&apos;s account shows it.
-          </p>
-        </div>
-      )}
-
-      {accountName && !recipientNameNeeded && (
-        <div className="p-4 bg-muted/50 rounded-xl border border-border animate-in fade-in slide-in-from-top-2 duration-300 space-y-1">
-          <div className="flex items-center justify-between">
-            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
-              Confirmed Account Holder
-            </p>
-            <span className="text-[10px] font-bold text-green-500 uppercase tracking-wider flex items-center gap-1">
-              <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
-              Verified
-            </span>
-          </div>
-          {/*
-            Text, not an input. This name is the result of a name enquiry against the provider
-            that will settle the payout — it is the one thing on the form the user did not
-            supply, which is the whole point of showing it next to a "Verified" badge. While it
-            was editable, anyone could type over a confirmed beneficiary and the typed value was
-            what went on to the order, so the badge vouched for a name nobody had checked.
-
-            Nothing is lost by fixing it: accountName is only ever set from that enquiry or from
-            a saved contact, and a failed enquiry clears it and hides this block entirely, so
-            the placeholder here was unreachable. AddBankContactModal already shows its verified
-            name this way.
-          */}
-          <p className="w-full font-semibold uppercase text-foreground text-sm tracking-wide break-words">
-            {accountName}
-          </p>
-        </div>
-      )}
     </div>
   );
 }

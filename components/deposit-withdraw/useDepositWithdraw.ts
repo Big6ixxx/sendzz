@@ -1005,7 +1005,7 @@ export function useDepositWithdraw(
           // Say so rather than quietly settling for less than was asked for.
           toast.error(
             `We can't reach ${getCurrencySymbol(fiatCurrency)}${typed.toLocaleString()} ` +
-              `${fiatCurrency} right now — the best available is ` +
+              `${fiatCurrency} right now. The best available is ` +
               `${getCurrencySymbol(fiatCurrency)}${solved.payoutAmount.toLocaleString(undefined, {
                 maximumFractionDigits: 2,
               })}.`,
@@ -1503,7 +1503,7 @@ export function useDepositWithdraw(
         // Brails gives every customer the same Stellar address and tells deposits apart by memo.
         // Without one the money would arrive unattributed — so never send it.
         if (activeOrder.provider === "brails" && !activeOrder.providerAccount?.memo) {
-          throw new Error("This withdrawal is missing its payment reference. Nothing was sent — please start it again.");
+          throw new Error("This withdrawal is missing its payment reference. Nothing was sent, so please start it again.");
         }
         const providerFee = parseFloat(activeOrder.providerFee || "0");
         const payoutDeposit = baseAmount + providerFee;

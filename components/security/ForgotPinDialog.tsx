@@ -16,8 +16,8 @@
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { PinInput } from "@/components/security/PinInput";
+import { PinPanel, PinPanelAction } from "@/components/security/PinPad";
+import { FlowButton, FlowDialog, Notice } from "@/components/flow/ui";
 
 type Step = "confirm" | "code";
 
@@ -39,6 +39,7 @@ export function ForgotPinDialog({
   const [code, setCode] = useState("");
   const [pin, setPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
+  const [phase, setPhase] = useState<"code" | "pin" | "confirm">("code");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -50,6 +51,7 @@ export function ForgotPinDialog({
       setCode("");
       setPin("");
       setConfirmPin("");
+      setPhase("code");
       setError(null);
     }
     onOpenChange(next);
@@ -83,6 +85,8 @@ export function ForgotPinDialog({
     if (pin !== confirmPin) {
       setError("Those two PINs are different. Try again.");
       setConfirmPin("");
+      setPin("");
+      setPhase("pin");
       return;
     }
     setBusy(true);
@@ -95,7 +99,12 @@ export function ForgotPinDialog({
       });
       const data = await res.json();
       if (!res.ok) {
+        // Start the entry again from the code: the server's message says what to fix.
         setError(data.error ?? "Could not set your new PIN.");
+        setCode("");
+        setPin("");
+        setConfirmPin("");
+        setPhase("code");
         return;
       }
       toast.success("Your new PIN is set.");
@@ -109,121 +118,108 @@ export function ForgotPinDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={close}>
-      <DialogContent className="card-glass border-white/10 max-w-md">
-        <DialogHeader>
-          <DialogTitle className="text-xl text-brand-secondary">
-            {step === "confirm" ? "Forgot your PIN?" : "Choose a new PIN"}
-          </DialogTitle>
-        </DialogHeader>
-
+    <FlowDialog
+      open={open}
+      onClose={() => close(false)}
+      eyebrow={step === "confirm" ? "Reset your PIN" : "Check your email"}
+      title={step === "confirm" ? "Forgot" : "Choose a"}
+      italic={step === "confirm" ? "your PIN?" : "new one."}
+    >
         {step === "confirm" ? (
-          <div className="space-y-4 py-1">
-            <p className="text-sm text-brand-secondary/70 leading-relaxed">
-              Your PIN is stored in a way that cannot be reversed, so we genuinely cannot look
-              it up or tell you what it was. What we can do is email you a code that lets you
-              set a new one.
+          <div className="space-y-4">
+            <p className="text-[15px] leading-[1.6] text-[var(--lp-body)]">
+              Your PIN is stored in a way that cannot be reversed, so we genuinely cannot look it up.
+              We can email you a code that lets you set a new one.
             </p>
-            <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
-              <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-brand-secondary/35">
-                Code goes to
-              </p>
-              <p className="text-[13px] font-semibold text-brand-secondary mt-1 break-all">
-                {email || "your account email"}
-              </p>
+            <div className="lp-card rounded-[18px] px-4 py-3.5">
+              <p className="text-[13px] text-[var(--lp-muted)]">The code goes to</p>
+              <p className="mt-0.5 break-all text-[15px] font-semibold">{email || "your account email"}</p>
             </div>
-            <p className="text-[12px] text-brand-secondary/45 leading-relaxed">
+            <p className="text-[13px] leading-[1.5] text-[var(--lp-muted)]">
               Your current PIN keeps working until you finish setting a new one.
             </p>
 
-            {error && <p className="text-[12.5px] text-orange-400">{error}</p>}
+            {error && <Notice tone="danger">{error}</Notice>}
 
-            <div className="flex flex-col-reverse sm:flex-row gap-3 pt-1">
-              <button
-                type="button"
-                onClick={() => close(false)}
-                disabled={busy}
-                className="btn-secondary w-full sm:w-auto"
-              >
+            <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row">
+              <FlowButton tone="quiet" onClick={() => close(false)} disabled={busy} className="sm:w-32">
                 Cancel
-              </button>
-              <button
-                type="button"
-                onClick={sendCode}
-                disabled={busy}
-                className="btn-primary w-full sm:w-auto sm:flex-1"
-              >
-                {busy ? "Sending…" : "Email me a code"}
-              </button>
+              </FlowButton>
+              <FlowButton onClick={sendCode} loading={busy} className="sm:flex-1">
+                Email me a code
+              </FlowButton>
             </div>
           </div>
         ) : (
-          <div className="space-y-5 py-1">
-            <p className="text-sm text-brand-secondary/70 leading-relaxed">
-              Enter the 6-digit code we just emailed you, then pick a new PIN.
-            </p>
-
-            <label className="block">
-              <span className="block mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
-                Code from your email
-              </span>
-              <input
-                value={code}
-                onChange={(e) => {
-                  setError(null);
-                  setCode(e.target.value.replace(/\D/g, "").slice(0, 6));
-                }}
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                autoFocus
-                disabled={busy}
-                className="w-full h-13 rounded-xl border border-white/10 bg-white/[0.03] px-4 text-center text-xl font-bold tracking-[0.4em] text-brand-secondary focus:outline-none focus:border-accent/60"
-              />
-            </label>
-
-            <PinInput
-              value={pin}
-              onChange={(next) => {
+          <div className="space-y-5">
+            {/* One keypad, re-keyed per phase so each entry starts empty. */}
+            <PinPanel
+              key={phase}
+              above={
+                <div className="flex gap-1.5" aria-hidden>
+                  {(["code", "pin", "confirm"] as const).map((p, i) => (
+                    <span
+                      key={p}
+                      className={`h-1.5 flex-1 rounded-full transition-colors duration-300 ${
+                        i <= ["code", "pin", "confirm"].indexOf(phase) ? "bg-[var(--lp-green)]" : "bg-[rgba(246,242,233,0.18)]"
+                      }`}
+                    />
+                  ))}
+                </div>
+              }
+              length={phase === "code" ? 6 : 4}
+              label={phase === "code" ? "Code from your email" : phase === "pin" ? "Your new PIN" : "The new PIN again"}
+              action={
+                phase !== "code" && (
+                  <PinPanelAction
+                    onClick={() => {
+                      setError(null);
+                      if (phase === "confirm") {
+                        setConfirmPin("");
+                        setPin("");
+                        setPhase("pin");
+                      } else {
+                        setPin("");
+                        setPhase("code");
+                      }
+                    }}
+                  >
+                    Back
+                  </PinPanelAction>
+                )
+              }
+              value={phase === "code" ? code : phase === "pin" ? pin : confirmPin}
+              onChange={(digits) => {
                 setError(null);
-                setPin(next);
+                if (phase === "code") setCode(digits);
+                else if (phase === "pin") setPin(digits);
+                else setConfirmPin(digits);
               }}
-              label="New PIN"
+              onComplete={() => {
+                if (phase === "code") setPhase("pin");
+                else if (phase === "pin") setPhase("confirm");
+                else void submit();
+              }}
               disabled={busy}
-            />
-
-            <PinInput
-              value={confirmPin}
-              onChange={(next) => {
-                setError(null);
-                setConfirmPin(next);
-              }}
-              onEnter={submit}
-              label="Confirm new PIN"
               error={error}
-              disabled={busy}
+              footer={
+                <>
+                  {/* After a failed send (a dropped connection) the entry is still good: send it again. */}
+                  {phase === "confirm" && confirmPin.length === 4 && error && !busy && (
+                    <FlowButton tone="accent" onClick={() => void submit()}>
+                      Try again
+                    </FlowButton>
+                  )}
+                  <p className="text-center text-[14px]">
+                    <PinPanelAction onClick={() => close(false)} disabled={busy}>
+                      Cancel
+                    </PinPanelAction>
+                  </p>
+                </>
+              }
             />
-
-            <div className="flex flex-col-reverse sm:flex-row gap-3 pt-1">
-              <button
-                type="button"
-                onClick={() => close(false)}
-                disabled={busy}
-                className="btn-secondary w-full sm:w-auto"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={submit}
-                disabled={busy || code.length < 6 || pin.length < 4 || confirmPin.length < 4}
-                className="btn-primary w-full sm:w-auto sm:flex-1"
-              >
-                {busy ? "Saving…" : "Set new PIN"}
-              </button>
-            </div>
           </div>
         )}
-      </DialogContent>
-    </Dialog>
+    </FlowDialog>
   );
 }

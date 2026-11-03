@@ -85,7 +85,7 @@ function allowanceMessage(used: number, amount: number): string {
   }
   return (
     `This withdrawal of $${amount} would take you past your $${UNVERIFIED_WITHDRAWAL_ALLOWANCE} ` +
-    `allowance — you have $${left} left. Verify your identity to withdraw any amount.`
+    `allowance. You have $${left} left. Verify your identity to withdraw any amount.`
   );
 }
 

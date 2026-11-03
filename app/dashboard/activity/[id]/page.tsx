@@ -2,25 +2,12 @@
 
 import { use, useEffect, useState, useMemo } from 'react';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
-import {
-  ArrowDownLeft,
-  ArrowLeft,
-  ArrowUpRight,
-  Check,
-  ChevronDown,
-  Clock,
-  Copy,
-  ExternalLink,
-  Landmark,
-  Loader2,
-  MessageSquare,
-  Network,
-  RefreshCw,
-  ShieldAlert,
-  Wallet,
-} from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, Copy, ExternalLink, Loader2 } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { EASE } from '@/components/landing/motion';
+import { ACTIVITY_LOOK, activityStatus, detailHasIdentifier, shortenDetail } from '@/components/dashboard/activity-look';
 import { toast } from 'sonner';
 import { useActivities } from '@/hooks/useActivities';
 import { useQueryClient } from '@tanstack/react-query';
@@ -35,87 +22,69 @@ import { privySolanaAddress } from '@/lib/solana/privy-address';
 import type { ActivityType } from '@/components/HistoryModule';
 import { CCTP_DOMAINS, type SupportedChain } from '@/lib/circle/gateway';
 import { publicOrderId } from '@/lib/ramp/public-order-id';
+import { PageSkeleton } from '@/components/dashboard/PageSkeleton';
 
 /** Middle-truncate long values (hashes / ids) for display; the full value is still copied. */
 function shorten(v: string, head = 10, tail = 8): string {
   return v.length > head + tail + 1 ? `${v.slice(0, head)}…${v.slice(-tail)}` : v;
 }
 
-/** A single advanced-details row: label + monospace value with copy (and optional explorer link). */
-function AdvancedRow({
+/** One label/value line: the value can be copied whole and, for a transaction, opened in an explorer. */
+function DetailRow({
   label,
   value,
   display,
   copyable,
   href,
   note,
+  mono,
 }: {
   label: string;
   value: string;
   display?: string;
   copyable?: boolean;
   href?: string;
-  /** Prose rather than an identifier: wraps, and drops the monospace treatment. */
+  /** Prose rather than an identifier: wraps under the label instead of sitting beside it. */
   note?: boolean;
+  /** An id or hash, set in the mono face. */
+  mono?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
     navigator.clipboard.writeText(value);
     setCopied(true);
+    toast.success(`${label} copied`);
     setTimeout(() => setCopied(false), 1500);
   };
+  const icon = 'grid size-8 shrink-0 place-items-center rounded-full text-[var(--lp-muted)] transition-colors hover:bg-[var(--lp-cream)] hover:text-[var(--lp-ink)]';
   return (
-    <div className="flex items-center justify-between gap-3 py-2.5 border-b border-white/5 last:border-0">
-      <span className="text-[10px] font-bold uppercase tracking-widest text-brand-secondary/30 shrink-0">
-        {label}
-      </span>
-      <span className="flex items-center gap-2 min-w-0">
+    <div className={note ? 'space-y-1 py-3.5' : 'flex min-w-0 items-center justify-between gap-4 py-3'}>
+      <span className="shrink-0 text-[14px] text-[var(--lp-muted)]">{label}</span>
+      <span className={note ? 'block text-[14px] leading-[1.5] text-[var(--lp-body)]' : 'flex min-w-0 items-center gap-1'}>
         <span
           className={
             note
-              ? "text-xs font-medium text-brand-secondary/50 text-right"
-              : "text-xs font-medium text-brand-secondary/80 font-mono truncate"
+              ? undefined
+              : `min-w-0 truncate text-right text-[15px] font-semibold ${mono ? 'lp-mono text-[13.5px] font-normal' : ''}`
           }
+          title={note ? undefined : value}
         >
           {display ?? value}
         </span>
         {href && (
-          <a
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-brand-secondary/30 hover:text-accent transition-colors shrink-0"
-          >
-            <ExternalLink className="w-3.5 h-3.5" />
+          <a href={href} target="_blank" rel="noopener noreferrer" className={icon} aria-label={`Open ${label} in explorer`}>
+            <ExternalLink className="size-4" />
           </a>
         )}
         {copyable && (
-          <button
-            onClick={copy}
-            className="text-brand-secondary/30 hover:text-accent transition-colors shrink-0"
-            aria-label={`Copy ${label}`}
-          >
-            {copied ? <Check className="w-3.5 h-3.5 text-accent" /> : <Copy className="w-3.5 h-3.5" />}
+          <button type="button" onClick={copy} className={icon} aria-label={`Copy ${label}`}>
+            {copied ? <Check className="size-4 text-[#0e7a45]" /> : <Copy className="size-4" />}
           </button>
         )}
       </span>
     </div>
   );
 }
-
-const TYPE_META: Record<
-  ActivityType,
-  { label: string; color: string; Icon: React.ElementType }
-> = {
-  sent: { label: 'Transfer Sent', color: '#f87171', Icon: ArrowUpRight },
-  received: { label: 'Funds Received', color: '#00e87a', Icon: ArrowDownLeft },
-  deposit: { label: 'Deposit', color: '#3b82f6', Icon: Wallet },
-  withdrawal: { label: 'Withdrawal', color: '#fb923c', Icon: Landmark },
-  bridge: { label: 'Bridge Transfer', color: '#60a5fa', Icon: RefreshCw },
-  security: { label: 'Security Alert', color: '#f59e0b', Icon: ShieldAlert },
-};
-
-const SUCCESS_STATUSES = ['settled', 'completed', 'confirmed', 'success', 'complete'];
 
 export default function ActivityDetailPage({
   params,
@@ -130,6 +99,7 @@ export default function ActivityDetailPage({
   const { wallets } = useWallets();
   const userEmail = user?.email?.address || '';
   const queryClient = useQueryClient();
+  const router = useRouter();
 
   const { data: activities, isLoading, refetch } = useActivities(userEmail, user?.id || '');
 
@@ -362,7 +332,7 @@ export default function ActivityDetailPage({
         const isPendingConf = data.status === 'pending_confirmations';
         const wait = isPendingConf ? '1–2 minutes' : '2–5 minutes';
         const detail = isPendingConf
-          ? 'Block finality almost reached — nearly there.'
+          ? 'Almost there, the network is nearly done confirming.'
           : 'Waiting for block confirmations on the source chain.';
         toast.error(`${chainDisplay} bridge is still being verified. ${detail} Try again in ${wait}.`, { duration: 8000 });
         setIsClaiming(false);
@@ -403,7 +373,7 @@ export default function ActivityDetailPage({
         }
       } else if ((destChain as string) === 'stellar') {
         if (!mintTxHash) {
-          toast.info('Delivering your money on Stellar — we cover the network fee.');
+          toast.info('Delivering your money on Stellar. We cover the network fee.');
           const claimRes = await fetch('/api/stellar/claim', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -439,7 +409,7 @@ export default function ActivityDetailPage({
         body: JSON.stringify({ burnTxHash: activity.txHash, mintTxHash }),
       }).catch(() => {});
 
-      toast.success('All done — your money has arrived.');
+      toast.success('All done. Your money has arrived.');
       setClaimSuccess(true);
       // Wait briefly then invalidate so the Mint Tx link replaces the pill
       setTimeout(() => {
@@ -492,31 +462,43 @@ export default function ActivityDetailPage({
   };
 
   // ── Loading / not found ──────────────────────────────────────────────────────
+  // Back to wherever the person came from: History, Notifications, the overview, Transfer.
+  // Opened cold (a pasted link, a new tab) there is nothing to go back to, so History stands in.
+  const goBack = () => {
+    if (window.history.length > 1) router.back();
+    else router.push('/dashboard/history');
+  };
+  const backLink = (
+    <button
+      type="button"
+      onClick={goBack}
+      className="inline-flex h-10 items-center gap-2 rounded-full bg-white pl-3 pr-4 text-[14px] font-semibold shadow-[0_0_0_1px_rgb(17_26_19/0.08)] transition-shadow hover:shadow-[0_0_0_1px_rgb(17_26_19/0.3)]"
+    >
+      <ArrowLeft className="size-4" /> Back
+    </button>
+  );
+
   if (isLoading && !activity) {
-    return (
-      <div className="h-[60vh] flex items-center justify-center">
-        <Loader2 className="animate-spin w-8 h-8 text-white/20" />
-      </div>
-    );
+    return <PageSkeleton variant="detail" />;
   }
 
   if (!activity) {
     return (
-      <div className="max-w-2xl mx-auto py-20 text-center space-y-6">
-        <p className="text-sm text-white/40">Transaction not found.</p>
-        <Link
-          href="/dashboard/history"
-          className="inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-accent"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" /> Back to history
-        </Link>
+      <div className="mx-auto flex max-w-[480px] flex-col items-center gap-4 py-20 text-center">
+        <p className="lp-display text-[28px] font-semibold tracking-[-0.02em]">
+          We can&apos;t find <span className="lp-serif">that one.</span>
+        </p>
+        <p className="text-[15px] leading-[1.5] text-[var(--lp-muted)]">
+          It may still be on its way, or the link may be out of date. Everything you&apos;ve sent and received is in your
+          history.
+        </p>
+        {backLink}
       </div>
     );
   }
 
-  const meta = TYPE_META[activity.type as ActivityType] || { label: 'Activity', color: '#00e87a', Icon: RefreshCw };
-  const isSuccess = SUCCESS_STATUSES.includes(activity.status.toLowerCase());
-  const color = isSuccess ? '#00e87a' : meta.color;
+  const look = ACTIVITY_LOOK[activity.type as ActivityType] ?? ACTIVITY_LOOK.security;
+  const status = activityStatus(activity.status) ?? { text: 'Completed', tone: 'bg-[var(--lp-green)] text-[var(--lp-ink)]' };
   const isOutgoing = activity.type === 'sent' || activity.type === 'withdrawal';
 
   // Network(s): accurate for bridges; transfers don't persist their chain yet.
@@ -538,49 +520,28 @@ export default function ActivityDetailPage({
     return base;
   })();
 
-  const detailRows: { label: string; value: string; icon: React.ElementType }[] = [
-    {
-      icon: Clock,
-      label: 'Date',
-      value: format(new Date(activity.timestamp), 'MMMM dd, yyyy @ HH:mm'),
-    },
+  const chainLabel = (chain: string) => CHAIN_META[chain.toLowerCase()]?.name ?? chain;
+  const counterparty = activity.details.replace(/^(To|From):\s*/, '');
+
+  type Row = { label: string; value: string; display?: string; copyable?: boolean; href?: string; note?: boolean; mono?: boolean };
+  const detailRows: Row[] = [
+    { label: 'Date', value: format(new Date(activity.timestamp), 'd MMMM yyyy, HH:mm') },
   ];
-
   if (activity.type === 'security') {
+    detailRows.push({ label: 'Details', value: activity.details, note: true });
+  } else if (activity.type !== 'bridge') {
+    // A move's route row already says where it came from.
     detailRows.push({
-      icon: ShieldAlert,
-      label: 'Details',
-      value: activity.details,
-    });
-  } else {
-    detailRows.push({
-      icon: isOutgoing ? ArrowUpRight : ArrowDownLeft,
       label: isOutgoing ? 'To' : 'From',
-      value: activity.details,
+      value: counterparty,
+      display: shortenDetail(counterparty),
+      copyable: detailHasIdentifier(counterparty),
     });
   }
-  const chainLabel = (chain: string) =>
-    (CHAIN_META[chain.toLowerCase()]?.name ?? chain).toUpperCase();
-
   if (activity.type === 'bridge' && activity.sourceChain) {
-    detailRows.push({
-      icon: Network,
-      label: 'Route',
-      value: `${chainLabel(activity.sourceChain)} → ${chainLabel(activity.destChain ?? 'base')}`,
-    });
+    detailRows.push({ label: 'Route', value: `${chainLabel(activity.sourceChain)} → ${chainLabel(activity.destChain ?? 'base')}` });
   } else if (activity.sourceChain) {
-    detailRows.push({
-      icon: Network,
-      label: 'Network',
-      value: chainLabel(activity.sourceChain),
-    });
-  }
-  if (activity.fiatAmount != null && activity.fiatCurrency) {
-    detailRows.push({
-      icon: Landmark,
-      label: 'Fiat',
-      value: `${activity.fiatAmount.toLocaleString()} ${activity.fiatCurrency}`,
-    });
+    detailRows.push({ label: 'Network', value: chainLabel(activity.sourceChain) });
   }
 
   // ── Advanced details: provider refs, full hashes, rate, timestamps ───────────
@@ -590,8 +551,7 @@ export default function ActivityDetailPage({
     activity.mintTxHash,
   );
 
-  type AdvRow = { label: string; value: string; display?: string; copyable?: boolean; href?: string; note?: boolean };
-  const advancedRows: AdvRow[] = [];
+  const advancedRows: Row[] = [];
 
   // Which payout provider settled it stays ours to know; only an on-chain settlement is named.
   if (activity.provider === 'onchain') {
@@ -599,10 +559,10 @@ export default function ActivityDetailPage({
   }
   if (activity.providerOrderId) {
     const orderId = publicOrderId(activity.providerOrderId);
-    advancedRows.push({ label: 'Order ID', value: orderId, display: shorten(orderId), copyable: true });
+    advancedRows.push({ label: 'Order ID', value: orderId, display: shorten(orderId), copyable: true, mono: true });
   }
   if (activity.providerRef) {
-    advancedRows.push({ label: 'Payout quote', value: activity.providerRef, display: shorten(activity.providerRef), copyable: true });
+    advancedRows.push({ label: 'Payout quote', value: activity.providerRef, display: shorten(activity.providerRef), copyable: true, mono: true });
   }
   if (activity.settlementNetwork) {
     advancedRows.push({ label: 'Settlement network', value: chainLabel(activity.settlementNetwork) });
@@ -614,7 +574,7 @@ export default function ActivityDetailPage({
       value: `1 USDC ≈ ${rate.toLocaleString()} ${activity.fiatCurrency}${activity.exchangeRate == null ? ' (est.)' : ''}`,
     });
   }
-  advancedRows.push({ label: 'Reference', value: activity.id, display: shorten(activity.id, 12, 6), copyable: true });
+  advancedRows.push({ label: 'Reference', value: activity.id, display: shorten(activity.id, 12, 6), copyable: true, mono: true });
   if (activity.txHash) {
     advancedRows.push({
       label: activity.type === 'bridge' ? 'Burn tx' : 'Transaction',
@@ -622,10 +582,11 @@ export default function ActivityDetailPage({
       display: shorten(activity.txHash),
       copyable: true,
       href: burnExplorer ?? undefined,
+      mono: true,
     });
   }
   if (hasValidMint) {
-    advancedRows.push({ label: 'Mint tx', value: activity.mintTxHash!, display: shorten(activity.mintTxHash!), copyable: true, href: mintExplorer ?? undefined });
+    advancedRows.push({ label: 'Mint tx', value: activity.mintTxHash!, display: shorten(activity.mintTxHash!), copyable: true, href: mintExplorer ?? undefined, mono: true });
   } else if (activity.type === 'bridge' && activity.status === 'complete') {
     // Delivery was confirmed by reading the destination chain, not by watching our own claim
     // land, so there is no transaction id to show. Say that plainly rather than inventing a
@@ -638,183 +599,164 @@ export default function ActivityDetailPage({
   }
   advancedRows.push({
     label: 'Created',
-    value: format(new Date(activity.timestamp), 'MMM dd, yyyy @ HH:mm:ss'),
+    value: format(new Date(activity.timestamp), 'd MMM yyyy, HH:mm:ss'),
   });
   if (activity.updatedAt && activity.updatedAt !== activity.timestamp) {
     advancedRows.push({
       label: 'Updated',
-      value: format(new Date(activity.updatedAt), 'MMM dd, yyyy @ HH:mm:ss'),
+      value: format(new Date(activity.updatedAt), 'd MMM yyyy, HH:mm:ss'),
     });
   }
 
+  // The bridge's second leg: a link once it landed, otherwise a way to finish it.
+  const bridgeAction =
+    activity.type !== 'bridge'
+      ? null
+      : hasValidMint
+        ? 'mint'
+        : activity.status === 'complete'
+          ? null
+          : claimSuccess
+            ? 'claimed'
+            : Date.now() - new Date(activity.timestamp).getTime() < 10 * 60 * 1000
+              ? 'recent'
+              : 'claim';
+
+  const card = 'lp-card rounded-[28px] px-5 py-2 sm:px-6';
+  const pill =
+    'inline-flex h-12 w-full items-center sm:flex-1 justify-center gap-2 whitespace-nowrap rounded-full px-5 text-[15px] font-semibold transition-colors disabled:opacity-60';
+  const Icon = look.icon;
+
   return (
-    <div className="max-w-2xl mx-auto space-y-10">
-      {/* Header */}
-      <div className="flex items-center gap-4">
-        <Link
-          href="/dashboard/history"
-          className="w-11 h-11 rounded-2xl flex items-center justify-center border border-white/8 hover:bg-white/5 transition-all text-brand-secondary/60"
+    <div className="mx-auto max-w-[1040px] space-y-6 pb-24">
+      {backLink}
+
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-start">
+        {/* ── Summary ───────────────────────────────────────────────────────── */}
+        <motion.section
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.7, ease: EASE }}
+          className="relative overflow-hidden rounded-[32px] bg-[var(--lp-forest)] p-6 text-[var(--lp-cream)] sm:p-8 lg:sticky lg:top-6"
         >
-          <ArrowLeft className="w-5 h-5" />
-        </Link>
-        <div>
-          <h1 className="font-display text-2xl font-bold tracking-tight text-brand-secondary">
-            {activity.type === 'security' ? 'Security Alert' : 'Transaction'}
-          </h1>
-          <code className="text-[10px] font-bold uppercase tracking-widest text-brand-secondary/25">
-            REF: {activity.id.slice(0, 18)}
-          </code>
-        </div>
-      </div>
-
-      {/* Hero */}
-      <div className="card-glass p-10 text-center space-y-6 relative overflow-hidden">
-        <div
-          className="absolute top-0 right-0 w-40 h-40 blur-3xl rounded-full opacity-[0.08]"
-          style={{ background: color }}
-        />
-        <div className="flex justify-center">
-          <div
-            className="w-20 h-20 rounded-4xl flex items-center justify-center"
-            style={{ background: `${color}1a`, color, border: `1px solid ${color}33` }}
-          >
-            <meta.Icon className="w-10 h-10" />
-          </div>
-        </div>
-        <div className="space-y-2">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
-            {meta.label}
-          </p>
-          {activity.type === 'security' ? (
-            <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-brand-secondary max-w-lg mx-auto">
-              {activity.note || 'Account Security Update'}
-            </h2>
-          ) : (
-            <h2 className="font-display text-5xl font-bold tracking-tighter text-brand-secondary">
-              {isOutgoing ? '−' : '+'}
-              {activity.amount.toLocaleString()}{' '}
-              <span className="text-xl opacity-30 font-bold uppercase">{activity.asset}</span>
-            </h2>
-          )}
-          <div className="flex justify-center pt-1">
-            <span
-              className="px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-widest"
-              style={{ background: `${color}14`, color, border: `1px solid ${color}33` }}
-            >
-              {activity.status}
+          <div className="flex items-center justify-between gap-3">
+            <span className="flex min-w-0 items-center gap-3">
+              <span className="grid size-11 shrink-0 place-items-center rounded-full bg-[rgba(246,242,233,0.1)] text-[var(--lp-green)]">
+                <Icon className="size-5" />
+              </span>
+              <span className="lp-mono truncate text-[12px] uppercase text-[var(--lp-green)]">{look.label}</span>
             </span>
+            <span className={`shrink-0 rounded-full px-3 py-1 text-[12px] font-semibold ${status.tone}`}>{status.text}</span>
           </div>
-        </div>
-      </div>
 
-      {/* Detail rows */}
-      <div className="grid sm:grid-cols-2 gap-3">
-        {detailRows.map((r) => (
-          <div key={r.label} className="p-4 rounded-2xl bg-white/2 border border-white/6">
-            <p className="text-[10px] font-bold uppercase tracking-widest mb-1.5 flex items-center gap-2 text-brand-secondary/25">
-              <r.icon className="w-3 h-3" /> {r.label}
+          {activity.type === 'security' ? (
+            <h1 className="lp-display mt-10 text-balance text-[clamp(28px,4vw,40px)] leading-[1.05] tracking-[-0.03em]">
+              {activity.note || 'Account security update'}
+            </h1>
+          ) : (
+            <h1 className="lp-display mt-10 flex flex-wrap items-baseline gap-x-3 text-[clamp(44px,8vw,80px)] leading-[0.9] tracking-[-0.05em] tabular-nums">
+              {look.sign}
+              {activity.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}
+              <span className="lp-serif text-[clamp(20px,2.4vw,28px)] tracking-[-0.01em] text-[#cfe0d6]">{activity.asset}</span>
+            </h1>
+          )}
+
+          <p className="mt-4 text-[15px] leading-[1.5] text-[#cfe0d6]">
+            {activity.type === 'security'
+              ? format(new Date(activity.timestamp), 'd MMMM yyyy, HH:mm')
+              : activity.type === 'bridge' && activity.sourceChain
+                ? `${chainLabel(activity.sourceChain)} → ${chainLabel(activity.destChain ?? 'base')}`
+                : `${isOutgoing ? 'To' : 'From'} ${shortenDetail(counterparty)}`}
+          </p>
+
+          {activity.fiatAmount != null && activity.fiatCurrency && (
+            <p className="lp-mono mt-6 border-t border-[rgba(246,242,233,0.12)] pt-4 text-[12px] uppercase text-[#a9c2b5]">
+              {isOutgoing ? 'Paid out' : 'Worth'} · {activity.fiatAmount.toLocaleString()} {activity.fiatCurrency}
             </p>
-            <p className="text-sm font-semibold text-brand-secondary break-words">{r.value}</p>
-          </div>
-        ))}
-      </div>
+          )}
+        </motion.section>
 
-      {activity.note && activity.type !== 'security' && (
-        <div className="p-4 rounded-2xl bg-accent/5 border border-accent/10">
-          <p className="text-[10px] font-bold uppercase tracking-widest mb-1 flex items-center gap-2 text-accent">
-            <MessageSquare className="w-3 h-3" /> Memo
-          </p>
-          <p className="text-sm font-medium leading-relaxed text-brand-secondary/80">
-            {activity.note}
-          </p>
-        </div>
-      )}
+        {/* ── Details ───────────────────────────────────────────────────────── */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.7, ease: EASE, delay: 0.06 }}
+          className="min-w-0 space-y-4"
+        >
+          <section className={`${card} divide-y divide-[var(--lp-line)]`} aria-label="Details">
+            {detailRows.map((r) => (
+              <DetailRow key={r.label} {...r} />
+            ))}
+          </section>
 
-      {/* On-chain transactions */}
-      {(burnExplorer || (activity.type === 'bridge' && (hasValidMint || activity.status !== 'complete'))) && (
-        <div className="space-y-2">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/25 px-1">
-            On-chain
-          </p>
-          <div className="flex flex-col sm:flex-row gap-3">
-            {burnExplorer && (
-              <a
-                href={burnExplorer}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest bg-white/6 text-brand-secondary border border-white/10 hover:bg-white/10 transition-all"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                {activity.type === 'bridge' ? 'Burn transaction' : 'View on explorer'}
-              </a>
-            )}
-            {activity.type === 'bridge' &&
-              (hasValidMint ? (
+          {activity.note && activity.type !== 'security' && (
+            <section className="rounded-[24px] bg-[var(--lp-sand)] px-5 py-4 sm:px-6">
+              <p className="lp-mono text-[11.5px] uppercase text-[var(--lp-muted)]">Note</p>
+              <p className="mt-1.5 break-words text-[15px] leading-[1.55] [overflow-wrap:anywhere]">{activity.note}</p>
+            </section>
+          )}
+
+          {(burnExplorer || bridgeAction) && (
+            <div className="flex flex-col gap-2 sm:flex-row">
+              {burnExplorer && (
+                <a
+                  href={burnExplorer}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`${pill} bg-white shadow-[0_0_0_1px_rgb(17_26_19/0.12)] hover:shadow-[0_0_0_1px_rgb(17_26_19/0.4)]`}
+                >
+                  <ExternalLink className="size-4" />
+                  {activity.type === 'bridge' ? 'Where it left' : 'View on explorer'}
+                </a>
+              )}
+              {bridgeAction === 'mint' && (
                 <a
                   href={mintExplorer || '#'}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest bg-white/6 text-brand-secondary border border-white/10 hover:bg-white/10 transition-all"
+                  className={`${pill} bg-white shadow-[0_0_0_1px_rgb(17_26_19/0.12)] hover:shadow-[0_0_0_1px_rgb(17_26_19/0.4)]`}
                 >
-                  <ExternalLink className="w-3.5 h-3.5" /> Mint transaction
+                  <ExternalLink className="size-4" /> Where it arrived
                 </a>
-              ) : activity.status === 'complete' ? null : claimSuccess ? (
-                <div className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  <Check className="w-3.5 h-3.5" /> Claimed Successfully
+              )}
+              {(bridgeAction === 'claimed' || bridgeAction === 'recent') && (
+                <div className={`${pill} bg-[#cdf5de] text-[#0e7a45]`}>
+                  <Check className="size-4" /> {bridgeAction === 'claimed' ? 'Arrived' : 'Completed'}
                 </div>
-              ) : Date.now() - new Date(activity.timestamp).getTime() < 10 * 60 * 1000 ? (
-                <div className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  <Check className="w-3.5 h-3.5" /> Completed
-                </div>
-              ) : (
-                <button
-                  onClick={handleClaim}
-                  disabled={isClaiming}
-                  className="flex-1 h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-[10px] uppercase tracking-widest btn-accent disabled:opacity-50"
-                >
-                  {isClaiming ? 'Claiming…' : 'Claim USDC'}
+              )}
+              {bridgeAction === 'claim' && (
+                <button type="button" onClick={handleClaim} disabled={isClaiming} className={`${pill} bg-[var(--lp-green)] text-[var(--lp-ink)]`}>
+                  {isClaiming && <Loader2 className="size-4 animate-spin" />}
+                  {isClaiming ? 'Finishing…' : 'Finish this move'}
                 </button>
-              ))}
-          </div>
-        </div>
-      )}
-
-      {/* Receipt */}
-      {activity.type !== 'security' && (
-        <div className="space-y-2">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/25 px-1">
-            Receipt
-          </p>
-          <ReceiptActions data={receiptData} />
-        </div>
-      )}
-
-      {/* Advanced details */}
-      {advancedRows.length > 0 && (
-        <div className="space-y-2">
-          <button
-            onClick={() => setShowAdvanced((v) => !v)}
-            className="w-full flex items-center justify-between px-1 group"
-          >
-            <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/25 group-hover:text-brand-secondary/40 transition-colors">
-              Advanced details
-            </span>
-            <ChevronDown
-              className={
-                'w-4 h-4 text-brand-secondary/30 transition-transform ' +
-                (showAdvanced ? 'rotate-180' : '')
-              }
-            />
-          </button>
-          {showAdvanced && (
-            <div className="card-glass px-4 py-1 rounded-2xl animate-in fade-in slide-in-from-top-1 duration-200">
-              {advancedRows.map((r) => (
-                <AdvancedRow key={r.label} {...r} />
-              ))}
+              )}
             </div>
           )}
-        </div>
-      )}
+
+          {activity.type !== 'security' && <ReceiptActions data={receiptData} />}
+
+          {advancedRows.length > 0 && (
+            <section className={card}>
+              <button
+                type="button"
+                onClick={() => setShowAdvanced((v) => !v)}
+                aria-expanded={showAdvanced}
+                className="flex w-full items-center justify-between gap-3 py-3 text-left"
+              >
+                <span className="text-[15px] font-semibold">Technical details</span>
+                <ChevronDown className={`size-4 text-[var(--lp-muted)] transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
+              </button>
+              {showAdvanced && (
+                <div className="divide-y divide-[var(--lp-line)] border-t border-[var(--lp-line)] animate-in fade-in slide-in-from-top-1 duration-200">
+                  {advancedRows.map((r) => (
+                    <DetailRow key={r.label} {...r} />
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+        </motion.div>
+      </div>
     </div>
   );
 }

@@ -4,6 +4,8 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { XIcon } from 'lucide-react';
 import * as React from 'react';
 
+import { brandFontVars } from '@/components/landing/fonts';
+import '@/components/landing/landing.css';
 import { cn } from '@/lib/utils';
 
 function Dialog({
@@ -38,7 +40,7 @@ function DialogOverlay({
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
       className={cn(
-        'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-[#07070a]/80 backdrop-blur-md',
+        'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-[rgba(17,26,19,0.5)] backdrop-blur-sm',
         className
       )}
       {...props}
@@ -54,6 +56,8 @@ function DialogContent({
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean;
 }) {
+  // Portalled to <body>, outside any page's `lp-root`, so the dialog brings that scope with it:
+  // the cream surface, the brand fonts, and the theme tokens in cream (landing.css).
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
@@ -70,8 +74,7 @@ function DialogContent({
           // browser chrome RETRACTED, so a vh-bound dialog is still cut off while the address
           // bar is showing — which is exactly when someone is reading it.
           'max-h-[calc(100dvh-2rem)] overflow-y-auto',
-          'bg-[oklch(0.10_0.020_280/0.95)] backdrop-blur-3xl border border-white/10',
-          '[box-shadow:0_0_0_1px_oklch(0.62_0.28_290/25%),0_24px_64px_oklch(0_0_0/60%)]',
+          `lp-root ${brandFontVars} grid-cols-[minmax(0,1fr)] rounded-[28px] [box-shadow:0_0_0_1px_rgb(17_26_19/0.06),0_32px_80px_-24px_rgb(17_26_19/0.45)] sm:rounded-[32px]`,
           className,
         )}
         {...props}

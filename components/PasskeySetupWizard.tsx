@@ -2,20 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { startRegistration } from "@simplewebauthn/browser";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { FlowButton, FlowDialog, FlowSuccess, Notice } from "@/components/flow/ui";
 import { cn } from "@/lib/utils";
-import { PinInput } from "@/components/security/PinInput";
+import { PinPad, PinPanel, PinPanelAction } from "@/components/security/PinPad";
 import { toast } from "sonner";
-import {
-  ArrowLeft,
-  ChevronRight,
-  Loader2,
-} from "lucide-react";
+import { ChevronRight, Loader2 } from "lucide-react";
 
 interface PasskeySetupWizardProps {
   open: boolean;
@@ -204,193 +195,132 @@ export function PasskeySetupWizard({
 
   const p = platformLabel();
 
+  const titles: Record<Step, [string, string]> = {
+    choose: ["Approve with", "a touch."],
+    registering: ["Waiting for", "your device."],
+    pin: ["Choose", "four digits."],
+    success: chosen === "pin" ? ["Your PIN", "is set."] : ["Passkey", "added."],
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md card-glass border-white/10">
-        <DialogHeader>
-          <div className="flex items-center gap-2">
-            {/* Only when the chooser is behind us. Opened straight from the Transaction PIN
-                row there is nothing to go back TO, and a control that returns somewhere the
-                user never was is worse than no control. */}
-            {step === "pin" && !initialMethod && (
-              <button
-                type="button"
-                onClick={() => setStep("choose")}
-                aria-label="Back"
-                className="-ml-1.5 p-1.5 rounded-lg text-brand-secondary/45 hover:text-brand-secondary hover:bg-white/5 transition-colors"
-              >
-                <ArrowLeft className="w-4 h-4" />
-              </button>
-            )}
-            <DialogTitle className="text-xl text-brand-secondary">
-              {step === "choose" && "Secure your withdrawals"}
-              {step === "registering" && "Waiting for your device"}
-              {step === "pin" && "Choose a PIN"}
-              {step === "success" && (chosen === "pin" ? "PIN set" : "Passkey added")}
-            </DialogTitle>
-          </div>
-        </DialogHeader>
+    <FlowDialog
+      open={open}
+      onClose={() => onOpenChange(false)}
+      size="md"
+      eyebrow={step === "pin" ? "Transaction PIN" : "Passkey"}
+      title={titles[step][0]}
+      italic={titles[step][1]}
+    >
+      {/* ── Choose how to confirm ───────────────────────────────── */}
+      {step === "choose" && (
+        <div className="space-y-4">
+          <p className="text-[15px] leading-[1.55] text-[var(--lp-body)]">
+            Approve large withdrawals with your fingerprint, face or a PIN, instead of waiting for a code.
+          </p>
 
-        {/* ── Choose how to sign in ───────────────────────────────── */}
-        {step === "choose" && (
-          <div className="space-y-4 py-1">
-            <p className="text-sm text-brand-secondary/60 leading-relaxed">
-              Approve large withdrawals with your fingerprint, face or a PIN on this device,
-              instead of waiting for a code. Pick how you want to confirm it is you.
-            </p>
+          {!webauthn && <Notice tone="warning">This browser does not support passkeys. Try Chrome, Safari or Edge.</Notice>}
 
-            {!webauthn && (
-              <div className="rounded-xl p-4 text-sm bg-orange-500/10 border border-orange-500/20 text-brand-secondary/80">
-                This browser does not support passkeys. Try Chrome, Safari or Edge.
-              </div>
-            )}
-
-            <div className="space-y-2.5">
-              {/*
-                Offered whenever the browser supports passkeys at all.
-                
-                It used to be gated on `isUserVerifyingPlatformAuthenticatorAvailable()`, which
-                answers a narrower question than it looks: it reports whether THIS device has an
-                enrolled sensor, and returns false on a Mac without Touch ID set up or a PC
-                without Windows Hello. Those browsers can still register a passkey perfectly
-                well — via a phone, or a security key — so gating on it removed the option from
-                people who could have used it.
-                
-                The probe now only decides what to CALL it, never whether to show it.
-              */}
-              {webauthn && (
-                <MethodCard
-                  title={platform ? p.title : "Passkey"}
-                  hint={
-                    platform
-                      ? p.hint
-                      : "Use your phone, or a security key you plug in"
-                  }
-                  recommended
-                  disabled={loading}
-                  onClick={register}
-                />
-              )}
-
-              <MethodCard
-                title="4-digit PIN"
-                hint="Works on any device, even without a fingerprint sensor"
-                disabled={loading}
-                onClick={() => {
-                  setChosen("pin");
-                  setStep("pin");
-                }}
-              />
-            </div>
-
-            {platform === null && webauthn && (
-              <p className="text-xs text-brand-secondary/40 flex items-center gap-2">
-                <Loader2 className="w-3 h-3 animate-spin" />
-                Checking what this device supports…
-              </p>
-            )}
-
-            {platform === false && webauthn && (
-              <p className="text-xs text-brand-secondary/40">
-                This device has no fingerprint or face unlock set up. You can
-                still use a passkey from your phone, or choose a PIN.
-              </p>
-            )}
-
-            {/* What a passkey IS.
-                
-                The word means nothing to most people, and the thing they assume — that it is
-                a password stored somewhere they can read — is wrong in a way that matters:
-                there is nothing to write down, so "where do I save it?" has a different
-                answer to every other credential in the product. */}
+          <div className="space-y-2">
+            {/* Offered whenever the browser supports passkeys at all. The sensor probe only decides
+                what to call it: a Mac without Touch ID can still use a phone or a security key. */}
             {webauthn && (
-              <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-4 space-y-2.5">
-                <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-brand-secondary/30">
-                  About passkeys
-                </p>
-                <p className="text-[12.5px] text-brand-secondary/55 leading-relaxed">
-                  A passkey is not a password. Nothing is written down and there is no code to
-                  save — the key stays on your device (or in your password manager, if you use
-                  one that syncs them), and unlocking it with your face, fingerprint or device
-                  PIN is what proves it is you.
-                </p>
-                <p className="text-[12.5px] text-brand-secondary/55 leading-relaxed">
-                  It also cannot be phished. A passkey only works on the real Sendzz site, so a
-                  convincing copy of this page gets nothing even if you try to use it there.
-                </p>
-                <p className="text-[12.5px] text-orange-400/80 leading-relaxed">
-                  <span className="font-semibold">If you lose the device:</span> a passkey
-                  that lives only on it goes with it. You will still get in — email codes keep
-                  working — but add a second method too, so one lost phone is an inconvenience
-                  rather than a scramble.
-                </p>
-              </div>
+              <MethodCard
+                title={platform ? p.title : "Passkey"}
+                hint={platform ? p.hint : "Use your phone, or a security key you plug in"}
+                recommended
+                disabled={loading}
+                onClick={register}
+              />
             )}
+            <MethodCard
+              title="4-digit PIN"
+              hint="Works on any device, even without a fingerprint sensor"
+              disabled={loading}
+              onClick={() => {
+                setChosen("pin");
+                setStep("pin");
+              }}
+            />
           </div>
-        )}
 
-        {/* ── Device prompt in progress ───────────────────────────── */}
-        {step === "registering" && (
-          <div className="py-10 text-center space-y-5">
-            <Loader2 className="w-7 h-7 mx-auto animate-spin text-brand-secondary/35" />
-            <div className="space-y-1.5">
-              <p className="font-semibold text-brand-secondary">
-                {chosen === "biometric"
-                  ? `Confirm with ${p.title}`
-                  : "Follow the prompts from your browser"}
+          {platform === null && webauthn && (
+            <p className="flex items-center gap-2 text-[13px] text-[var(--lp-muted)]">
+              <Loader2 className="size-3.5 animate-spin" /> Checking what this device supports…
+            </p>
+          )}
+          {platform === false && webauthn && (
+            <p className="text-[13px] text-[var(--lp-muted)]">
+              This device has no fingerprint or face unlock set up. You can still use a passkey from your phone, or choose a PIN.
+            </p>
+          )}
+
+          {/* What a passkey IS: people assume a password stored somewhere they can read, which is
+              wrong in a way that matters, since there is nothing to write down. */}
+          {webauthn && (
+            <div className="space-y-2 rounded-[22px] bg-[var(--lp-sand)] p-4 text-[14px] leading-[1.55] text-[var(--lp-body)]">
+              <p className="font-semibold text-[var(--lp-ink)]">About passkeys</p>
+              <p>
+                A passkey is not a password. There is nothing to write down: the key stays on your device, or in a password
+                manager that syncs them, and your face, fingerprint or device PIN is what proves it is you.
               </p>
-              <p className="text-sm text-brand-secondary/50">
-                Nothing is saved until you approve it.
+              <p>It cannot be phished either. It only works on the real Sendzz site.</p>
+              <p>
+                <span className="font-semibold text-[var(--lp-ink)]">If you lose the device,</span> a passkey that lives
+                only on it goes with it. Email codes still get you in, but add a second method too.
               </p>
             </div>
-          </div>
-        )}
+          )}
+        </div>
+      )}
 
-        {/* ── Choose a PIN ────────────────────────────────────────── */}
-        {step === "pin" && (
-          <PinSetup
-            onDone={() => {
-              setStep("success");
-              onComplete();
-            }}
+      {/* ── Device prompt in progress ───────────────────────────── */}
+      {step === "registering" && (
+        <div className="space-y-4 py-6 text-center">
+          <span className="lp-card mx-auto grid size-16 place-items-center rounded-full">
+            <Loader2 className="size-7 animate-spin" />
+          </span>
+          <p className="text-[16px] font-semibold">{chosen === "biometric" ? `Confirm with ${p.title}` : "Follow the prompts from your browser"}</p>
+          <p className="text-[14px] text-[var(--lp-muted)]">Nothing is saved until you approve it.</p>
+        </div>
+      )}
+
+      {/* ── Choose a PIN ────────────────────────────────────────── */}
+      {step === "pin" && (
+        <PinSetup
+          onDone={() => {
+            setStep("success");
+            onComplete();
+          }}
+          // Only when the chooser is behind us: opened straight from the PIN row there is nothing to go back to.
+          footer={
+            !initialMethod && (
+              <p className="text-center text-[14px]">
+                <PinPanelAction onClick={() => setStep("choose")}>Back to the options</PinPanelAction>
+              </p>
+            )
+          }
+        />
+      )}
+
+      {/* ── Done ────────────────────────────────────────────────── */}
+      {step === "success" && (
+        <div className="space-y-5">
+          <FlowSuccess
+            title={titles.success[0]}
+            italic={titles.success[1]}
+            body={
+              chosen === "pin"
+                ? "You will be asked for it on every payment. Only you know it; we store it scrambled and cannot read it back."
+                : "Approve large withdrawals with a touch instead of a code. If you lose this device, an email code still gets you in."
+            }
           />
-        )}
-
-        {/* ── Done ────────────────────────────────────────────────── */}
-        {step === "success" && (
-          <div className="py-8 text-center space-y-4">
-            <div className="space-y-1.5">
-              <p className="font-semibold text-brand-secondary">
-                {chosen === "pin"
-                  ? "Your PIN is set"
-                  : "You can now approve with your passkey"}
-              </p>
-              <p className="text-sm text-brand-secondary/50 leading-relaxed">
-                {chosen === "pin"
-                  ? "You will be asked for it on every payment. Only you know it — we store it scrambled and cannot read it back."
-                  : "Approve large withdrawals with a touch instead of a code. It works on this device; if you lose it, an email code still gets you in."}
-              </p>
-            </div>
-
-            {/*
-              Both can be set, and having both is worth offering: a passkey is tied to one
-              device, so a PIN alongside it is what gets you in from a borrowed laptop or a
-              replaced phone. Offered rather than assumed, and the dialog closes on its own if
-              they would rather not.
-            */}
-            {!initialMethod && (
-            <div className="pt-2 space-y-2.5 text-left">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-brand-secondary/35 text-center">
-                Add the other as well?
-              </p>
+          {/* Both can be set: a passkey is tied to one device, so a PIN alongside it is what works from a
+              borrowed laptop or a new phone. Offered, never assumed. */}
+          {!initialMethod && (
+            <div className="space-y-2">
+              <p className="text-center text-[14px] font-semibold">Add the other as well?</p>
               {chosen === "pin"
-                ? webauthn && (
-                    <MethodCard
-                      title={platform ? p.title : "Passkey"}
-                      hint="A second way in, in case you forget your PIN"
-                      onClick={register}
-                    />
-                  )
+                ? webauthn && <MethodCard title={platform ? p.title : "Passkey"} hint="A second way in, in case you forget your PIN" onClick={register} />
                 : (
                     <MethodCard
                       title="4-digit PIN"
@@ -401,28 +331,18 @@ export function PasskeySetupWizard({
                       }}
                     />
                   )}
-              <button
-                type="button"
-                onClick={() => onOpenChange(false)}
-                className="w-full text-[12.5px] text-brand-secondary/45 hover:text-brand-secondary/80 transition-colors py-1"
-              >
+              <FlowButton tone="quiet" onClick={() => onOpenChange(false)}>
                 Not now
-              </button>
+              </FlowButton>
             </div>
-            )}
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
+          )}
+        </div>
+      )}
+    </FlowDialog>
   );
 }
 
-/**
- * One choice in the list.
- *
- * No icon: the settings rows this sits alongside identify a method by its name, and an
- * accent-tinted glyph beside every option added colour without adding meaning.
- */
+/** One choice in the list: what it is and where it works. No icon; the name carries it. */
 function MethodCard({
   title,
   hint,
@@ -441,30 +361,16 @@ function MethodCard({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={cn(
-        "w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-left",
-        "border border-white/10 bg-white/[0.03]",
-        "transition-colors hover:bg-white/[0.06] hover:border-white/20",
-        "disabled:opacity-40 disabled:pointer-events-none",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
-      )}
+      className="flex w-full items-center gap-3 rounded-[20px] bg-white px-4 py-4 text-left shadow-[0_0_0_1px_rgb(17_26_19/0.08)] outline-none transition-shadow hover:shadow-[0_0_0_1px_rgb(17_26_19/0.3)] focus-visible:ring-2 focus-visible:ring-[#04c96a] disabled:pointer-events-none disabled:opacity-50"
     >
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2">
-          <span className="text-[14px] font-semibold text-brand-secondary">
-            {title}
-          </span>
-          {recommended && (
-            <span className="text-[9px] font-bold uppercase tracking-[0.15em] text-accent">
-              Fastest
-            </span>
-          )}
+          <span className="text-[16px] font-semibold">{title}</span>
+          {recommended && <span className="rounded-full bg-[#cdf5de] px-2 py-px text-[11px] font-semibold text-[#0e7a45]">Fastest</span>}
         </span>
-        <span className="block text-[12px] text-brand-secondary/45 mt-0.5">
-          {hint}
-        </span>
+        <span className="mt-0.5 block text-[14px] text-[var(--lp-muted)]">{hint}</span>
       </span>
-      <ChevronRight className="w-4 h-4 shrink-0 text-brand-secondary/25" />
+      <ChevronRight className="size-4 shrink-0 text-[var(--lp-muted)]" />
     </button>
   );
 }
@@ -477,7 +383,16 @@ function MethodCard({
  * component, is the authority on whether a PIN is acceptable — the check here is only to give
  * an answer instantly, and the same rules run again before anything is stored.
  */
-export function PinSetup({ onDone }: { onDone: () => void }) {
+export function PinSetup({
+  onDone,
+  tone = "cream",
+  footer,
+}: {
+  onDone: () => void;
+  tone?: "cream" | "forest";
+  /** Extra actions on the panel under the keypad (cream screens only). */
+  footer?: React.ReactNode;
+}) {
   const [phase, setPhase] = useState<"enter" | "confirm">("enter");
   const [first, setFirst] = useState("");
   const [second, setSecond] = useState("");
@@ -487,7 +402,7 @@ export function PinSetup({ onDone }: { onDone: () => void }) {
   const value = phase === "enter" ? first : second;
   const setValue = phase === "enter" ? setFirst : setSecond;
 
-  // PinInput hands back digits only, already capped at four.
+  // PinPad hands back digits only, already capped at four.
   const onChange = (digits: string) => {
     setError(null);
     setValue(digits);
@@ -533,41 +448,71 @@ export function PinSetup({ onDone }: { onDone: () => void }) {
     }
   };
 
-  return (
-    <div className="space-y-5 py-1">
-      <p className="text-sm text-brand-secondary/60">
-        {phase === "enter"
-          ? "Pick 4 digits you will remember. Avoid birthdays and anything on your cards."
-          : "Enter it once more to confirm."}
-      </p>
-
-      <div className="space-y-3">
-        <PinInput
-          value={value}
-          onChange={onChange}
-          error={error}
-          label={phase === "enter" ? "Choose your PIN" : "Confirm your PIN"}
-          srOnlyLabel
-          autoComplete="one-time-code"
-          disabled={saving}
-          autoFocus
+  const forest = tone === "forest";
+  const label = phase === "enter" ? "Type your new PIN" : "Type it again to confirm";
+  // Where they are in the two entries, as the same bars the money flows use; green on the forest.
+  const bars = (
+    <div className="flex gap-1.5" aria-hidden>
+      {["enter", "confirm"].map((p) => (
+        <span
+          key={p}
+          className={cn(
+            "h-1.5 flex-1 rounded-full transition-colors duration-300",
+            phase === "confirm" || p === "enter" ? "bg-[var(--lp-green)]" : "bg-[rgba(246,242,233,0.18)]",
+          )}
         />
+      ))}
+    </div>
+  );
+  const saved = saving && (
+    <p className={cn("flex items-center justify-center gap-2 text-center text-[14px]", forest ? "text-[#cfe0d6]" : "text-[var(--lp-muted)]")}>
+      <Loader2 className="size-3.5 animate-spin" />
+      Saving securely…
+    </p>
+  );
 
-        {saving && (
-          <p className="text-[12.5px] text-brand-secondary/40 text-center flex items-center justify-center gap-2">
-            <Loader2 className="w-3 h-3 animate-spin" />
-            Saving securely…
-          </p>
-        )}
+  // Already on a forest panel (the payment approval): no second panel around it.
+  if (forest) {
+    return (
+      <div className="space-y-5">
+        <div className="mx-auto max-w-[300px]">{bars}</div>
+        <p className="text-center text-[15px] font-semibold text-[var(--lp-cream)]">{label}</p>
+        {/* Keyed by phase so the pad starts empty and fresh for the confirming entry. */}
+        <PinPad key={phase} value={value} onChange={onChange} error={error} disabled={saving} label={label} />
+        {saved}
       </div>
+    );
+  }
 
-      <div className="rounded-xl p-3.5 bg-white/[0.03] border border-white/10">
-        <p className="text-[12px] text-brand-secondary/55 leading-relaxed">
-          Your PIN is scrambled before it is stored, and it cannot be turned back into digits.
-          Nobody at Sendzz can see it or look it up, so keep it somewhere safe: if you forget
-          it, it has to be replaced rather than recovered.
-        </p>
-      </div>
+  // The panel ends the dialog, so the note sits above it.
+  return (
+    <div className="space-y-5">
+      <p className="text-[14px] leading-[1.55] text-[var(--lp-muted)]">
+        Avoid birthdays and anything on your cards. Your PIN is scrambled before it is stored and cannot be turned back into
+        digits, so if you forget it, it is replaced rather than recovered.
+      </p>
+      <PinPanel
+        key={phase}
+        above={bars}
+        label={label}
+        value={value}
+        onChange={onChange}
+        error={error}
+        disabled={saving}
+        footer={
+          (saving || footer) && (
+            <>
+              {saving && (
+                <p className="flex items-center justify-center gap-2 text-center text-[14px] text-[#cfe0d6]">
+                  <Loader2 className="size-3.5 animate-spin" />
+                  Saving securely…
+                </p>
+              )}
+              {footer}
+            </>
+          )
+        }
+      />
     </div>
   );
 }

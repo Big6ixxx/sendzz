@@ -6,6 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { getDisplayOffRampRate } from "@/lib/actions/ramp";
 import { useCorridorFee } from "@/lib/hooks/useCorridorFee";
 import { AnimatedNumber, EASE, EASE_IN_OUT, Label, MEDIA, Magnetic, useMedia } from "./motion";
+import { formatMoney } from "@/lib/format-usdc";
 
 /* ── Calculator ─────────────────────────────────────────────────────────── */
 
@@ -20,9 +21,6 @@ const CURRENCIES = [
 ] as const;
 
 type Code = (typeof CURRENCIES)[number]["code"];
-
-const money = (n: number) =>
-  n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const COIN =
   "inline-grid flex-none place-items-center rounded-full bg-[radial-gradient(circle_at_34%_28%,#ffe98f,#f6c53d_55%,#e3a51b)] shadow-[inset_0_0_0_2px_#c98a12,inset_0_-3px_0_2px_rgb(122_78_6/0.22)] leading-none font-bold text-[#5c3b06]";
@@ -154,13 +152,13 @@ function Calculator({ onSend }: { onSend: () => void }) {
       <dl className="flex flex-col gap-2 px-1.5 py-1 text-[14px] leading-5 text-[var(--lp-muted)]">
         <div className="flex justify-between gap-4">
           <dt>Fees</dt>
-          <dd className="font-semibold text-[var(--lp-ink)]">{fee == null ? "…" : `$${money(fee)}`}</dd>
+          <dd className="font-semibold text-[var(--lp-ink)]">{fee == null ? "…" : `$${formatMoney(fee)}`}</dd>
         </div>
         <div className="flex justify-between gap-4">
           <dt>{isLive ? "Live mid-market rate" : "Indicative rate"}</dt>
           <dd className="lp-mono whitespace-nowrap text-[var(--lp-ink)]">
             1 USDC = {currency.symbol}
-            {money(rate)}
+            {formatMoney(rate)}
           </dd>
         </div>
         <div className="flex justify-between gap-4">
@@ -175,7 +173,7 @@ function Calculator({ onSend }: { onSend: () => void }) {
         </p>
         <p className="lp-display mb-3 truncate text-[clamp(30px,8vw,40px)] leading-[60px] tracking-[-0.04em] tabular-nums">
           {currency.symbol}
-          <AnimatedNumber value={received} format={money} />
+          <AnimatedNumber value={received} format={formatMoney} />
         </p>
         <div className="flex flex-wrap gap-1.5">
           {CURRENCIES.map((c) => (

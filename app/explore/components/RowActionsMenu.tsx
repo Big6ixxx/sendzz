@@ -44,7 +44,7 @@ export function RowActionsMenu({ row, anchorEl, onOpenChange, onView }: RowActio
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
-        className="min-w-44"
+        className="min-w-44 rounded-[18px] p-1.5"
         onCloseAutoFocus={(e) => {
           // Return focus to the kebab that opened the menu (keyboard accessibility).
           e.preventDefault();
@@ -53,9 +53,9 @@ export function RowActionsMenu({ row, anchorEl, onOpenChange, onView }: RowActio
       >
         <DropdownMenuItem
           onSelect={() => row && onView(row)}
-          className="gap-2.5 rounded-lg px-3 py-2.5 text-xs font-bold uppercase tracking-widest text-white/80 focus:bg-white/5 focus:text-accent cursor-pointer"
+          className="cursor-pointer gap-2.5 rounded-[12px] px-3 py-2.5 text-[14px] font-medium focus:bg-[var(--lp-cream)] focus:text-[var(--lp-ink)]"
         >
-          <Eye className="w-4 h-4" /> View details
+          <Eye className="size-4" /> View details
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

@@ -1,4 +1,5 @@
-/* Landing page only. Scoped under .lp-root so nothing here reaches the app. */
+/* The cream brand. Scoped under .lp-root, which every page and every portalled dialog or menu
+   carries, so the brand fonts and tokens travel with them. */
 
 .lp-root {
   --lp-ink: #111a13;
@@ -9,6 +10,34 @@
   --lp-line: #d9d3c5;
   --lp-green: #00e87a;
   --lp-forest: #0b3b29;
+
+  /* The app's theme tokens (app/globals.css), restated so a component built on them, such as
+     text-muted-foreground, reads the same inside a portal as on the page. */
+  --color-brand-primary: #ffffff;
+  --color-brand-secondary: var(--lp-ink);
+  --color-accent-fg: #0e7a45;
+  --color-danger: #b42318;
+  --color-warning: #8a5a00;
+  --color-info: #1d5fb4;
+  /* The aliases Tailwind reads (`--color-*`) too, not only what they alias: an alias takes its
+     value once, at the root, so overriding the base variable here would not reach it. */
+  --color-background: var(--lp-cream);
+  --color-foreground: var(--lp-ink);
+  --color-muted: var(--lp-cream);
+  --color-muted-foreground: var(--lp-muted);
+  --color-border: #e3dcce;
+  --color-input: #ffffff;
+  --color-popover: #ffffff;
+  --color-popover-foreground: var(--lp-ink);
+  --background: var(--lp-cream);
+  --foreground: var(--lp-ink);
+  --muted: var(--lp-cream);
+  --muted-foreground: var(--lp-muted);
+  --border: #e3dcce;
+  --input: #ffffff;
+  --ring: var(--lp-ink);
+  --font-sans: var(--font-geist), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 
   font-family: var(--font-geist), system-ui, sans-serif;
   color: var(--lp-ink);
@@ -147,4 +176,30 @@
   0% {
     opacity: 0;
   }
+}
+
+/* A rejected PIN: the dots shake once, the way a phone refuses an unlock code. */
+@keyframes lp-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-8px); }
+  40% { transform: translateX(7px); }
+  60% { transform: translateX(-5px); }
+  80% { transform: translateX(3px); }
+}
+.lp-shake {
+  animation: lp-shake 0.4s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+@media (prefers-reduced-motion: reduce) {
+  .lp-shake { animation: none; }
+}
+
+/* A text caret, for a field being typed into elsewhere (the sign-in slip). */
+@keyframes lp-blink {
+  50% { opacity: 0; }
+}
+.lp-caret {
+  animation: lp-blink 1.05s steps(1) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lp-caret { animation: none; }
 }

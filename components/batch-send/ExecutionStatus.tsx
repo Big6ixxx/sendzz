@@ -1,7 +1,7 @@
 'use client';
 
-import { cn } from '@/lib/utils';
-import { RotateCcw, Sparkles, UserPlus, Loader2, CheckCircle2 } from 'lucide-react';
+import { RotateCcw, UserPlus } from 'lucide-react';
+import { AsideFigure, AsideRows, FlowButton, FlowFrame, FlowSuccess, Notice, FlowLabel } from '@/components/flow/ui';
 import { toast } from 'sonner';
 import { useBatchSend } from './useBatchSend';
 import { addContact, getUserContacts } from '@/lib/supabase/contacts';
@@ -33,198 +33,149 @@ export function ExecutionStatus({ hook, onClose }: ExecutionStatusProps) {
     .filter(email => !contacts.some(c => c.email.toLowerCase() === email.toLowerCase()));
   const failures = hook.batchResults.filter((r) => r.status === 'failed');
 
+  const saveAll = async () => {
+    setSavePending(true);
+    try {
+      await Promise.all(newRecipients.map((email) => addContact({ contactEmail: email, contactName: email.split('@')[0] })));
+      queryClient.invalidateQueries({ queryKey: ['contacts', hook.senderEmail] });
+      toast.success(`Saved ${newRecipients.length} contacts!`);
+      setSavedBatch(true);
+    } catch (err) {
+      console.error('Failed to save batch contacts', err);
+    } finally {
+      setSavePending(false);
+    }
+  };
+
   if (hook.step === 'processing') {
-    const percent =
-      hook.progress.total > 0
-        ? Math.round((hook.progress.done / hook.progress.total) * 100)
-        : 0;
+    const percent = hook.progress.total > 0 ? Math.round((hook.progress.done / hook.progress.total) * 100) : 0;
+    const C = 2 * Math.PI * 88;
 
     return (
-      <div className="py-12 flex flex-col items-center justify-center space-y-8 animate-in fade-in zoom-in duration-500">
-        <div className="relative">
-          <svg className="w-48 h-48 transform -rotate-90">
-            <circle
-              cx="96"
-              cy="96"
-              r="88"
-              stroke="currentColor"
-              strokeWidth="8"
-              fill="transparent"
-              className="text-muted/30"
-            />
-            <circle
-              cx="96"
-              cy="96"
-              r="88"
-              stroke="currentColor"
-              strokeWidth="8"
-              fill="transparent"
-              strokeDasharray={552.92}
-              strokeDashoffset={552.92 - (552.92 * percent) / 100}
-              strokeLinecap="round"
-              className="text-foreground transition-all duration-500 ease-out"
-            />
-          </svg>
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-4xl font-black">{percent}%</span>
-            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-              Sending
-            </span>
+      <FlowFrame
+        main={
+          <div className="flex flex-col items-center justify-center gap-6 py-8 text-center animate-in fade-in zoom-in-95 duration-500">
+            <div className="relative">
+              <svg className="size-48 -rotate-90" viewBox="0 0 192 192" aria-hidden>
+                <circle cx="96" cy="96" r="88" stroke="#e3dcce" strokeWidth="10" fill="none" />
+                <circle
+                  cx="96"
+                  cy="96"
+                  r="88"
+                  stroke="#111a13"
+                  strokeWidth="10"
+                  fill="none"
+                  strokeDasharray={C}
+                  strokeDashoffset={C - (C * percent) / 100}
+                  strokeLinecap="round"
+                  className="transition-[stroke-dashoffset] duration-500 ease-out"
+                />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="lp-display text-[44px] leading-none tracking-[-0.04em] tabular-nums">{percent}%</span>
+              </div>
+            </div>
+            <div>
+              <h3 className="lp-display text-[clamp(28px,7vw,36px)] leading-[1] tracking-[-0.04em]">
+                Sending <span className="lp-serif">to everyone.</span>
+              </h3>
+              <p className="mt-2 text-[15px] text-[var(--lp-body)]">
+                {hook.progress.done} of {hook.progress.total} sent. Keep this open.
+              </p>
+            </div>
           </div>
-        </div>
-
-        <div className="text-center space-y-2">
-          <h3 className="text-2xl font-black uppercase tracking-tighter">
-            Processing Batch
-          </h3>
-          <p className="text-sm font-medium text-muted-foreground">
-            {hook.progress.done} of {hook.progress.total} transfers completed
-          </p>
-        </div>
-      </div>
+        }
+      />
     );
   }
 
   if (hook.step === 'results') {
-    return (
-      <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        <div className="grid grid-cols-2 gap-4">
-          <div className="p-6 bg-muted/30 border border-border rounded-2xl text-center space-y-1">
-            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-              Successful
-            </p>
-            <p className="text-5xl font-black text-green-600">
-              {successes.length}
-            </p>
-          </div>
-          <div
-            className={cn(
-              'p-6 border rounded-2xl text-center space-y-1',
-              failures.length > 0
-                ? 'bg-red-50 border-red-100'
-                : 'bg-muted/30 border-border',
-            )}
-          >
-            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-              Failed
-            </p>
-            <p
-              className={cn(
-                'text-5xl font-black',
-                failures.length > 0 ? 'text-red-600' : 'text-foreground',
-              )}
-            >
-              {failures.length}
+    const saveOffer =
+      !savedBatch && newRecipients.length > 0 ? (
+        <div className="lp-card flex items-center gap-3 rounded-[22px] p-4 text-left animate-in fade-in slide-in-from-top-2 duration-500">
+          <span className="grid size-10 shrink-0 place-items-center rounded-full bg-[var(--lp-cream)]">
+            <UserPlus className="size-[18px]" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[15px] font-semibold">Save them as contacts?</p>
+            <p className="text-[13px] text-[var(--lp-muted)]">
+              {newRecipients.length} new {newRecipients.length > 1 ? 'people' : 'person'} on this list
             </p>
           </div>
+          <FlowButton onClick={saveAll} loading={savePending} className="h-10 w-auto shrink-0 px-4 text-[14px]">
+            Save all
+          </FlowButton>
         </div>
+      ) : savedBatch ? (
+        <Notice tone="success" title="Saved to your contacts" />
+      ) : null;
 
-        {failures.length > 0 ? (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between px-1">
-              <h4 className="text-sm font-bold uppercase tracking-tighter text-red-600">
-                Errors to Review
-              </h4>
-              <button
-                onClick={() => hook.handleConfirm(failures.map((f) => f.email))}
-                className="text-[10px] font-bold uppercase bg-foreground text-background px-3 py-1.5 rounded-full hover:opacity-90 transition-opacity flex items-center gap-2"
-              >
-                <RotateCcw className="w-3 h-3" /> Retry All Failed
-              </button>
+    return (
+      <FlowFrame
+        main={
+          failures.length === 0 ? (
+            <div className="py-4">
+              <FlowSuccess title="Everyone" italic="paid." body={`${successes.length} ${successes.length === 1 ? 'payment' : 'payments'} sent. New people get a link to claim theirs.`}>
+                {saveOffer}
+              </FlowSuccess>
             </div>
-
-            <div className="max-h-[300px] overflow-y-auto border border-border rounded-2xl bg-muted/10 divide-y divide-border/50">
-              {failures.map((f) => (
-                <div
-                  key={f.email}
-                  className="p-4 flex items-center justify-between group hover:bg-muted/30 transition-colors"
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold truncate">{f.email}</p>
-                    <p className="text-[10px] text-red-500 font-medium uppercase tracking-tight truncate">
-                      {f.error || 'Network Error'}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => hook.handleConfirm([f.email])}
-                    className="p-2 hover:bg-background rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                  >
-                    <RotateCcw className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div className="py-12 bg-muted/30 border border-border rounded-3xl flex flex-col items-center justify-center space-y-6 text-center">
-            <div className="w-20 h-20 bg-green-500 text-background rounded-full flex items-center justify-center shadow-lg shadow-green-100">
-              <Sparkles className="w-10 h-10" />
-            </div>
-            <div className="space-y-2 px-6">
-              <h3 className="text-3xl font-black uppercase tracking-tighter">
-                Batch Complete!
-              </h3>
-              <p className="text-muted-foreground text-sm">
-                All funds have been successfully dispatched to your recipients.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* New Contacts Prompt for Batch */}
-        {!savedBatch && newRecipients.length > 0 && hook.step === 'results' && (
-          <div className="p-6 bg-accent/5 border border-accent/20 rounded-3xl space-y-4 animate-in fade-in slide-in-from-top-2 duration-500">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-accent/10 rounded-xl">
-                <UserPlus className="w-5 h-5 text-accent" />
-              </div>
-              <div className="flex-1">
-                <h4 className="text-sm font-bold text-white uppercase tracking-tight">Save New Contacts?</h4>
-                <p className="text-[10px] text-white/40 font-medium uppercase tracking-widest">
-                  Found {newRecipients.length} new recipient{newRecipients.length > 1 ? 's' : ''}
+          ) : (
+            <div className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div>
+                <p className="lp-display text-[clamp(26px,6.4vw,34px)] font-semibold leading-tight tracking-[-0.03em]">
+                  Some didn&apos;t <span className="lp-serif font-normal">go through.</span>
+                </p>
+                <p className="mt-2 text-[15px] text-[var(--lp-body)]">
+                  {successes.length} sent, {failures.length} failed. Nothing was taken for the ones that failed.
                 </p>
               </div>
-              <button
-                onClick={async () => {
-                  setSavePending(true);
-                  try {
-                    await Promise.all(
-                      newRecipients.map(email => 
-                        addContact({
-                          contactEmail: email,
-                          contactName: email.split('@')[0]
-                        })
-                      )
-                    );
-                    queryClient.invalidateQueries({ queryKey: ['contacts', hook.senderEmail] });
-                    toast.success(`Saved ${newRecipients.length} contacts!`);
-                    setSavedBatch(true);
-                  } catch (err) {
-                    console.error('Failed to save batch contacts', err);
-                  } finally {
-                    setSavePending(false);
-                  }
-                }}
-                disabled={savePending}
-                className="btn-accent h-10 px-4 text-[10px] gap-2 shrink-0"
-              >
-                {savePending ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Save All'}
-              </button>
+              <div className="lp-card rounded-[22px]">
+                <div className="flex items-center justify-between gap-3 border-b border-[#e3dcce] px-5 py-3">
+                  <FlowLabel as="span">To retry</FlowLabel>
+                  <button
+                    onClick={() => hook.handleConfirm(failures.map((f) => f.email))}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-[var(--lp-ink)] px-3 py-1.5 text-[13px] font-semibold text-[var(--lp-cream)] transition-[scale] duration-150 active:scale-[0.97]"
+                  >
+                    <RotateCcw className="size-3.5" /> Retry all
+                  </button>
+                </div>
+                <ul className="max-h-[300px] divide-y divide-[#ece6da] overflow-y-auto">
+                  {failures.map((f) => (
+                    <li key={f.email} className="flex items-center gap-3 px-5 py-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[15px] font-semibold">{f.email}</p>
+                        <p className="truncate text-[13px] text-[#a1462c]">{f.error || 'Network error'}</p>
+                      </div>
+                      <button
+                        onClick={() => hook.handleConfirm([f.email])}
+                        aria-label={`Retry ${f.email}`}
+                        className="grid size-9 shrink-0 place-items-center rounded-full transition-colors hover:bg-[var(--lp-cream)]"
+                      >
+                        <RotateCcw className="size-4" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              {saveOffer}
             </div>
-          </div>
-        )}
-
-        {savedBatch && (
-          <div className="p-4 bg-accent/10 border border-accent/20 rounded-2xl flex items-center gap-3 animate-in fade-in zoom-in duration-300">
-            <CheckCircle2 className="w-5 h-5 text-accent" />
-            <p className="text-xs font-bold text-accent uppercase tracking-widest">Address book updated!</p>
-          </div>
-        )}
-
-        <button onClick={onClose} className="btn-primary w-full h-14 text-lg">
-          Back to Dashboard
-        </button>
-      </div>
+          )
+        }
+        aside={
+          failures.length > 0 ? (
+            <div className="space-y-6">
+              <AsideFigure label="Sent" value={successes.length} unit={`of ${hook.batchResults.length}`} />
+              <AsideRows
+                rows={[
+                  { label: 'Paid', value: successes.length, tone: 'good' },
+                  { label: 'Failed', value: failures.length },
+                ]}
+              />
+            </div>
+          ) : undefined
+        }
+        action={<FlowButton onClick={onClose}>Back to dashboard</FlowButton>}
+      />
     );
   }
 

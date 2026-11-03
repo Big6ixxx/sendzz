@@ -11,14 +11,12 @@ import { useState } from 'react';
 import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, ChevronLeft, ChevronRight, Link2, RefreshCw, Search } from 'lucide-react';
 import { EASE } from '@/components/landing/motion';
 import { cn } from '@/lib/utils';
-
-export const usd = (n: number, digits = 2) =>
-  `$${(Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+import { Skeleton } from '@/components/ui/skeleton';
 
 /** A white panel on the cream page. */
 export function Panel({ className, children }: { className?: string; children: React.ReactNode }) {
   return (
-    <section className={cn('rounded-[28px] bg-white shadow-[0_0_0_1px_rgb(17_26_19/0.06)] sm:rounded-[32px]', className)}>
+    <section className={cn('lp-card rounded-[28px] sm:rounded-[32px]', className)}>
       {children}
     </section>
   );
@@ -26,12 +24,7 @@ export function Panel({ className, children }: { className?: string; children: R
 
 /** A placeholder in the shape of what is coming. `onDark` for forest panels. */
 export function Shimmer({ className, onDark }: { className: string; onDark?: boolean }) {
-  return (
-    <span
-      aria-hidden
-      className={cn('block animate-pulse rounded-full', onDark ? 'bg-[rgba(246,242,233,0.1)]' : 'bg-[rgba(17,26,19,0.07)]', className)}
-    />
-  );
+  return <Skeleton tone={onDark ? 'forest' : 'card'} className={className} />;
 }
 
 /** The page's title: a mono label, then a bold line and an italic one, with actions beside. */
@@ -102,7 +95,7 @@ export function RefreshButton({ onClick, spinning, disabled }: { onClick: () => 
       onClick={onClick}
       disabled={disabled}
       aria-label="Refresh"
-      className="grid size-12 shrink-0 place-items-center rounded-full bg-white shadow-[0_0_0_1px_rgb(17_26_19/0.06)] transition-[scale] duration-150 active:scale-[0.95] disabled:opacity-60"
+      className="lp-card grid size-12 shrink-0 place-items-center rounded-full transition-[scale] duration-150 active:scale-[0.95] disabled:opacity-60"
     >
       <RefreshCw className={cn('size-4', spinning && 'animate-spin')} />
     </button>
@@ -125,7 +118,7 @@ export function Pills<T extends string | null>({
 }) {
   return (
     <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-      <div className="inline-flex gap-1 rounded-full bg-white p-1 shadow-[0_0_0_1px_rgb(17_26_19/0.06)]" role="group" aria-label={label}>
+      <div className="lp-card inline-flex gap-1 rounded-full p-1" role="group" aria-label={label}>
         {options.map((o) => {
           const active = o.value === value;
           return (
@@ -165,7 +158,7 @@ export function SearchField({
   return (
     <label
       className={cn(
-        'flex h-12 items-center gap-3 rounded-full bg-white px-4 shadow-[0_0_0_1px_rgb(17_26_19/0.06)] outline-2 outline-offset-2 outline-transparent transition-[outline-color] duration-150 focus-within:outline-[var(--lp-ink)]',
+        'lp-card flex h-12 items-center gap-3 rounded-full px-4 outline-2 outline-offset-2 outline-transparent transition-[outline-color] duration-150 focus-within:outline-[var(--lp-ink)]',
         className,
       )}
     >
@@ -199,7 +192,7 @@ export function StatTile({
   className?: string;
 }) {
   return (
-    <div className={cn('min-w-0 rounded-[22px] bg-white p-4 shadow-[0_0_0_1px_rgb(17_26_19/0.06)] sm:rounded-[24px] sm:p-5', className)}>
+    <div className={cn('lp-card min-w-0 rounded-[22px] p-4 sm:rounded-[24px] sm:p-5', className)}>
       <p className="lp-mono truncate text-[11px] uppercase text-[var(--lp-muted)] sm:text-[12px]">{label}</p>
       <p className={cn('lp-display mt-2 truncate text-[clamp(22px,5.6vw,32px)] leading-none tracking-[-0.03em] tabular-nums', tone)}>
         {loading ? <Shimmer className="h-[0.8em] w-[4em]" /> : value}

@@ -78,7 +78,7 @@ export function classifyClaimFailure(raw: string): ClaimFailure {
   }
   return {
     kind: 'program_error',
-    error: "We couldn't complete the claim right now. Your funds are safe — please try again shortly.",
+    error: "We couldn't complete the claim right now. Your funds are safe, so please try again shortly.",
     code: 'program_error',
     detail: programErrorCode(raw),
   };

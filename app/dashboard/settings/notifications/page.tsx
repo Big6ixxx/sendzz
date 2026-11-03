@@ -1,8 +1,7 @@
 'use client';
 
-import { DashboardPageHeader } from '@/components/layout/DashboardPageHeader';
-import { ArrowLeft, ArrowDownLeft, Mail, Smartphone, Wallet, Repeat, ShieldAlert, Send } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { DocBody, DocHeader, DocReadNext, DocSection } from '@/components/dashboard/DocLayout';
+import { DocRows, SettingsBack, Switch } from '@/components/dashboard/SettingsKit';
 import { usePrivy } from '@privy-io/react-auth';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -33,92 +32,23 @@ export const DEFAULT_PREFS: EmailNotifPrefs = {
   push_notif_security: true,
 };
 
-interface ToggleProps {
-  checked: boolean;
-  onChange: () => void;
-  disabled?: boolean;
-}
-
-function MatrixToggle({ checked, onChange, disabled }: ToggleProps) {
-  return (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        if (!disabled) onChange();
-      }}
-      disabled={disabled}
-      className={`relative inline-flex h-[24px] w-[44px] shrink-0 cursor-pointer rounded-full border transition-all duration-300 ease-in-out focus:outline-none ${
-        checked
-          ? 'bg-accent border-accent shadow-[0_0_14px_rgba(0,232,122,0.4)]'
-          : 'bg-white/10 border-white/10 hover:border-white/20'
-      } ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
-    >
-      <span
-        className={`pointer-events-none absolute top-[2px] left-[2px] block h-4 w-4 rounded-full transition-all duration-300 ease-in-out ${
-          checked
-            ? 'bg-[#07070a] translate-x-[20px] shadow-md'
-            : 'bg-white/40 translate-x-0'
-        }`}
-      />
-    </button>
-  );
-}
-
 interface CategoryConfig {
   id: string;
   name: string;
   desc: string;
-  icon: React.ReactNode;
   pushKey: keyof EmailNotifPrefs;
   emailKey: keyof EmailNotifPrefs;
 }
 
 const CATEGORIES: CategoryConfig[] = [
-  {
-    id: 'deposits',
-    name: 'Deposits',
-    desc: 'Money arriving in your wallet',
-    icon: <ArrowDownLeft className="w-5 h-5 text-blue-400" />,
-    pushKey: 'push_notif_deposit',
-    emailKey: 'email_notif_deposit',
-  },
-  {
-    id: 'withdrawals',
-    name: 'Withdrawals',
-    desc: 'Payouts to your bank or mobile money',
-    icon: <Wallet className="w-5 h-5 text-cyan-400" />,
-    pushKey: 'push_notif_withdrawal',
-    emailKey: 'email_notif_withdrawal',
-  },
-  {
-    id: 'transfers',
-    name: 'Transfers & Received Funds',
-    desc: 'Money sent to you by another Sendzz user',
-    icon: <Send className="w-5 h-5 text-emerald-400" />,
-    pushKey: 'push_notif_transfer',
-    emailKey: 'email_notif_transfer',
-  },
-  {
-    id: 'bridge',
-    name: 'Cross-Chain Bridge',
-    desc: 'Bridge status, execution, and completions',
-    icon: <Repeat className="w-5 h-5 text-purple-400" />,
-    pushKey: 'push_notif_bridge',
-    emailKey: 'email_notif_bridge',
-  },
-  {
-    id: 'security',
-    name: 'Security Alerts',
-    desc: 'Changes to 2FA and passkeys. Never your transaction codes.',
-    icon: <ShieldAlert className="w-5 h-5 text-amber-400" />,
-    pushKey: 'push_notif_security',
-    emailKey: 'email_notif_security',
-  },
+  { id: 'deposits', name: 'Money in', desc: 'A deposit arrives in your balance.', pushKey: 'push_notif_deposit', emailKey: 'email_notif_deposit' },
+  { id: 'withdrawals', name: 'Cash outs', desc: 'A payout reaches your bank or mobile money.', pushKey: 'push_notif_withdrawal', emailKey: 'email_notif_withdrawal' },
+  { id: 'transfers', name: 'Transfers', desc: 'Someone on Sendzz sends you money.', pushKey: 'push_notif_transfer', emailKey: 'email_notif_transfer' },
+  { id: 'bridge', name: 'Moves between networks', desc: 'A move starts, lands, or needs you.', pushKey: 'push_notif_bridge', emailKey: 'email_notif_bridge' },
+  { id: 'security', name: 'Security', desc: 'Changes to your PIN, 2FA and passkeys. Never your codes.', pushKey: 'push_notif_security', emailKey: 'email_notif_security' },
 ];
 
 export default function NotificationsSettingsPage() {
-  const router = useRouter();
   const { user } = usePrivy();
   const userEmail = user?.email?.address || '';
 
@@ -180,94 +110,65 @@ export default function NotificationsSettingsPage() {
     }
   };
 
-  if (!mounted) {
-    return (
-      <div className="max-w-5xl mx-auto py-12 text-center text-white/30 text-xs">
-        Loading preferences...
-      </div>
-    );
-  }
+  const groups: { id: string; title: string; description: string; ids: string[] }[] = [
+    { id: 'money', title: 'Money in and out', description: 'When money arrives, leaves, or reaches a bank.', ids: ['deposits', 'withdrawals', 'transfers'] },
+    { id: 'moves', title: 'Moves between networks', description: 'Progress on money you move from one network to another.', ids: ['bridge'] },
+    { id: 'security', title: 'Security', description: 'Changes to how your account is protected.', ids: ['security'] },
+  ];
+  const nav = [...groups.map((g) => ({ id: g.id, label: g.title })), { id: 'good-to-know', label: 'Good to know' }];
+
+  const channel = (cat: CategoryConfig, label: 'Phone' | 'Email', key: keyof EmailNotifPrefs) => (
+    <label className="flex items-center gap-2.5">
+      <span className="text-[14px] font-medium text-[var(--lp-muted)]">{label}</span>
+      <Switch
+        label={`${cat.name} by ${label.toLowerCase()}`}
+        checked={Boolean(prefs?.[key] ?? DEFAULT_PREFS[key])}
+        onChange={() => handleToggle(key)}
+        disabled={isSaving || !mounted}
+      />
+    </label>
+  );
 
   return (
-    <div className="max-w-5xl mx-auto space-y-8">
-      {/* Header with back button */}
-      <div>
-        <button
-          type="button"
-          onClick={() => router.back()}
-          className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors mb-6"
-        >
-          <ArrowLeft className="w-3 h-3" />
-          Back to Settings
-        </button>
-        <DashboardPageHeader
-          title="Notification Preferences"
-          subtitle="Manage your notification channels per category."
-        />
-      </div>
+    <div className="mx-auto max-w-[1100px] space-y-8 pb-24">
+      <SettingsBack />
+      <DocHeader
+        eyebrow="Notifications"
+        title="What reaches"
+        italic="you."
+        lead="For each kind of activity, choose whether it pings your phone, lands in your inbox, or both. Changes save as you flip them."
+      />
 
-      {/* Preferences Matrix Card */}
-      <div className="relative rounded-2xl border border-white/10 bg-[#07070a]/90 backdrop-blur-xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
-        {/* Table Header */}
-        <div className="grid grid-cols-12 items-center px-6 py-4 border-b border-white/10 bg-white/2 text-[11px] font-bold uppercase tracking-widest text-white/50">
-          <div className="col-span-6 sm:col-span-8">Category</div>
-          <div className="col-span-3 sm:col-span-2 flex items-center justify-center gap-1.5 text-center">
-            <Smartphone className="w-3.5 h-3.5" />
-            <span>Push / In-App</span>
-          </div>
-          <div className="col-span-3 sm:col-span-2 flex items-center justify-center gap-1.5 text-center">
-            <Mail className="w-3.5 h-3.5" />
-            <span>Email</span>
-          </div>
-        </div>
-
-        {/* Matrix Category Rows */}
-        <div className="divide-y divide-white/5">
-          {CATEGORIES.map((cat) => {
-            const pushVal = Boolean(prefs?.[cat.pushKey] ?? DEFAULT_PREFS[cat.pushKey]);
-            const emailVal = Boolean(prefs?.[cat.emailKey] ?? DEFAULT_PREFS[cat.emailKey]);
-
-            return (
-              <div
-                key={cat.id}
-                className="grid grid-cols-12 items-center px-6 py-5 hover:bg-white/2 transition-colors gap-4"
-              >
-                {/* Category Info */}
-                <div className="col-span-6 sm:col-span-8 flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center shrink-0">
-                    {cat.icon}
+      <div className="pt-4 lg:pt-12">
+        <DocBody items={nav}>
+          {groups.map((g, i) => (
+            <DocSection key={g.id} id={g.id} number={i + 1} title={g.title} description={g.description}>
+              <DocRows>
+                {CATEGORIES.filter((c) => g.ids.includes(c.id)).map((cat) => (
+                  <div key={cat.id} className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+                    <span className="min-w-0">
+                      <span className="block text-[17px] font-semibold leading-snug">{cat.name}</span>
+                      <span className="mt-1 block text-[15px] leading-[1.55] text-[var(--lp-body)]">{cat.desc}</span>
+                    </span>
+                    <span className="flex shrink-0 gap-6">
+                      {channel(cat, 'Phone', cat.pushKey)}
+                      {channel(cat, 'Email', cat.emailKey)}
+                    </span>
                   </div>
-                  <div>
-                    <h4 className="text-sm font-bold text-white leading-tight">
-                      {cat.name}
-                    </h4>
-                    <p className="text-xs text-white/40 mt-0.5">
-                      {cat.desc}
-                    </p>
-                  </div>
-                </div>
+                ))}
+              </DocRows>
+            </DocSection>
+          ))}
 
-                {/* Push Toggle */}
-                <div className="col-span-3 sm:col-span-2 flex items-center justify-center">
-                  <MatrixToggle
-                    checked={pushVal}
-                    onChange={() => handleToggle(cat.pushKey)}
-                    disabled={isSaving}
-                  />
-                </div>
+          <DocSection id="good-to-know" number={groups.length + 1} title="Good to know">
+            <div className="space-y-4 text-[17px] leading-[1.65] text-[var(--lp-body)]">
+              <p>Phone notifications need Sendzz installed, or notifications allowed for it in your browser.</p>
+              <p>Codes for signing in and approving payments are always sent, whatever you choose here.</p>
+            </div>
+          </DocSection>
 
-                {/* Email Toggle */}
-                <div className="col-span-3 sm:col-span-2 flex items-center justify-center">
-                  <MatrixToggle
-                    checked={emailVal}
-                    onChange={() => handleToggle(cat.emailKey)}
-                    disabled={isSaving}
-                  />
-                </div>
-              </div>
-            );
-          })}
-        </div>
+          <DocReadNext title="Devices" body="See everywhere you are signed in, and sign out a phone you no longer have." href="/dashboard/settings/devices" />
+        </DocBody>
       </div>
     </div>
   );
