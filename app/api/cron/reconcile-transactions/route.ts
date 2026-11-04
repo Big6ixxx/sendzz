@@ -226,11 +226,28 @@ export async function GET(req: Request) {
     console.log(`[Reconcile Bitnob] checked=${stuck.length}`, JSON.stringify(results));
   }
 
-  // ── Brails deposits whose webhook found no withdrawal ──────────────────────
-  const { reconcileBrailsDeposits } = await import('@/lib/ramp/brails-payout');
-  const brails = await reconcileBrailsDeposits().catch((e) => {
+  // ── Brails: deposits with no withdrawal, payouts with no answer, orders never funded ──
+  //
+  // Brails quotes live 90 seconds and are taken at payout time, so unlike Bitnob there is no
+  // quote expiry to drive a stuck withdrawal to a refund. These are that clock.
+  const { reconcileBrailsDeposits, reconcileBrailsPayouts, listUnfundedBrailsWithdrawals } = await import(
+    '@/lib/ramp/brails-payout'
+  );
+  // One budget for both, so together they leave room for the steps after them inside
+  // maxDuration: each Brails call can take up to 30s while Brails is struggling. A row cut off
+  // mid-payout is picked up again as a stale claim.
+  const brailsStopAt = Date.now() + 60_000;
+  const brails = await reconcileBrailsDeposits(brailsStopAt).catch((e) => {
     console.error('[Reconcile Brails] failed:', e instanceof Error ? e.message : e);
     return { checked: 0, started: 0 };
+  });
+  const brailsPayouts = await reconcileBrailsPayouts(brailsStopAt).catch((e) => {
+    console.error('[Reconcile Brails] payouts failed:', e instanceof Error ? e.message : e);
+    return { retried: 0, settled: 0, review: [] as string[] };
+  });
+  const brailsUnfunded = await listUnfundedBrailsWithdrawals().catch((e) => {
+    console.error('[Reconcile Brails] unfunded check failed:', e instanceof Error ? e.message : e);
+    return [] as string[];
   });
 
   // ── Sends that were broadcast but never confirmed back to us ───────────────
@@ -296,6 +313,8 @@ export async function GET(req: Request) {
     checked: stuck?.length ?? 0,
     results,
     brails,
+    brailsPayouts,
+    brailsUnfunded,
     deposits,
     stellar,
     solana,

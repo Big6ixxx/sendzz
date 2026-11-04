@@ -85,12 +85,19 @@ async function updateBrailsMeta(rowId: string, change: (brails: BrailsMeta) => B
   return false;
 }
 
+function brailsOf(row: { provider_metadata: unknown }): BrailsMeta {
+  return (((row.provider_metadata ?? {}) as { brails?: BrailsMeta }).brails ?? {}) as BrailsMeta;
+}
+
+function omit(brails: BrailsMeta, ...keys: string[]): BrailsMeta {
+  const rest = { ...brails };
+  for (const k of keys) delete rest[k];
+  return rest;
+}
+
 /** Drop a claim this handler took, so the event can run again. */
 function without(brails: BrailsMeta, key: 'payoutId' | 'settledAs', value: string): BrailsMeta | null {
-  if (brails[key] !== value) return null;
-  const rest = { ...brails };
-  delete rest[key];
-  return rest;
+  return brails[key] === value ? omit(brails, key) : null;
 }
 
 /**
@@ -173,8 +180,8 @@ export async function onBrailsDeposit(data: BrailsEventData): Promise<Outcome> {
   if (!w.provider_order_id) return { ok: false, note: `withdrawal ${w.id} has no order reference`, retry: false };
   const orderId = w.provider_order_id;
 
-  const meta = (w.provider_metadata ?? {}) as { brails?: { payoutId?: string } };
-  if (meta.brails?.payoutId) return { ok: true, note: `payout ${meta.brails.payoutId} already started` };
+  const { payoutId } = brailsOf(w);
+  if (payoutId) return { ok: true, note: `payout ${payoutId} already started` };
   if (w.status !== 'processing') return { ok: true, note: `withdrawal is ${w.status}` };
 
   const depositFacts = { depositId: data.id, depositHash: hash, receivedUsd: received };
@@ -191,8 +198,56 @@ export async function onBrailsDeposit(data: BrailsEventData): Promise<Outcome> {
     if (!claimed) return { ok: true, note: 'payout already being started' };
     return failUnpaid(w.id, orderId, `Brails deposit not payable: ${unpayable}`);
   }
+  return attemptPayout(w, orderId, received, null, depositFacts);
+}
+
+/** The withdrawal columns a payout attempt reads. */
+interface PayoutRow {
+  id: string;
+  user_id: string;
+  amount_usdc: number | string | null;
+  fiat_currency: string;
+  institution_code: string | null;
+  pending_beneficiary: string | null;
+  provider_metadata: unknown;
+}
+
+/**
+ * When to try again after a payout call with no clear answer, in minutes: Brails' own advice.
+ * They confirmed (2026-11-04) that a 5xx or a timeout on the payout call sends nothing, and that
+ * a payout reference is unique, so a second call with the same reference continues the first
+ * instead of paying twice. That is what makes retrying safe at all.
+ */
+const PAYOUT_RETRY_MINUTES = [1, 5, 15];
+
+/** A claim with no answer after this long belongs to a process that stopped mid-call. */
+const STALE_START_MS = 10 * 60_000;
+
+/**
+ * Make the payout for a funded withdrawal: claim it, save the beneficiary, quote and send.
+ *
+ * `claimFrom` is the `payoutId` the row must hold for this attempt to take it: none for the
+ * first attempt, `retrying` for one the reconcile job is trying again.
+ */
+async function attemptPayout(
+  w: PayoutRow,
+  orderId: string,
+  received: number,
+  claimFrom: 'retrying' | null,
+  facts: Record<string, unknown> = {},
+): Promise<Outcome> {
+  const inst = parseBrailsInstitution(w.institution_code ?? '');
+  const bank = openBeneficiary(w.pending_beneficiary);
+  if (!inst || !bank) {
+    // onBrailsDeposit checks this before a first attempt, so here it is a retry that can no
+    // longer read where the money goes (a rotated key). The money is at Brails: refund it.
+    console.error(`[Brails] NEEDS REVIEW ${orderId} cannot be retried: missing corridor or beneficiary.`);
+    const claimed = await updateBrailsMeta(w.id, (b) => ((b.payoutId ?? null) === claimFrom ? { ...b, payoutId: 'starting' } : null));
+    if (!claimed) return { ok: true, note: 'payout already being started' };
+    return failUnpaid(w.id, orderId, 'Brails payout not payable: missing corridor or beneficiary');
+  }
   // Never pay out more than this withdrawal was for.
-  const payUsd = Math.min(received, expected);
+  const payUsd = Math.min(received, Number(w.amount_usdc));
 
   const { data: user } = await supabaseAdmin.from('users').select('email').eq('id', w.user_id).maybeSingle();
   const customerEmail = user?.email ?? '';
@@ -207,47 +262,62 @@ export async function onBrailsDeposit(data: BrailsEventData): Promise<Outcome> {
 
   // Claim the payout before making it, so two deliveries of the same event cannot both pass —
   // a read-then-write check here is how a payout gets made twice.
-  const claimed = await updateBrailsMeta(w.id, (b) => (b.payoutId ? null : { ...b, ...depositFacts, payoutId: 'starting' }));
+  const claimed = await updateBrailsMeta(w.id, (b) =>
+    (b.payoutId ?? null) === claimFrom
+      ? { ...b, ...facts, payoutId: 'starting', payoutStartedAt: new Date().toISOString() }
+      : null,
+  );
   if (!claimed) return { ok: true, note: 'payout already being started' };
   const release = () => updateBrailsMeta(w.id, (b) => without(b, 'payoutId', 'starting'));
 
   let payout: BrailsTransaction;
   let quote: BrailsQuote;
   // Until sendPayout is called nothing can have been paid, so any failure before it is safe to
-  // retry. After it, only a clear refusal is; anything else may have paid.
+  // retry. After it, only a clear refusal is a final answer.
   let sending = false;
   try {
     // Saved first: the payout API takes a beneficiary by id. Our order reference ties the
-    // beneficiary and the payout to this withdrawal on Brails' side.
-    const beneficiary = await getBrailsClient().createBeneficiary({
-      reference: orderId,
-      customerEmail,
-      country: inst.country,
-      currency: w.fiat_currency.toUpperCase(),
-      destination:
-        inst.rail === 'bank'
-          ? {
-              type: 'BANK',
-              bankCode: inst.network,
-              bankName: bank.bankName,
-              accountNumber: bank.accountNumber.replace(/\D/g, ''),
-              accountName: bank.accountName,
-            }
-          : {
-              type: 'MOBILEMONEY',
-              network: inst.network,
-              accountNumber: brailsPhone(bank.accountNumber, inst.country),
-              accountName: bank.accountName,
-              ...(brailsNeedsPhoneField(inst.country) ? { phoneNumber: brailsPhone(bank.accountNumber, inst.country) } : {}),
-              ...(sender ? { sender } : {}),
-            },
-    });
+    // beneficiary and the payout to this withdrawal on Brails' side. A retry reuses the one
+    // already saved rather than making a second.
+    let beneficiaryId = brailsOf(w).beneficiaryId as string | undefined;
+    if (!beneficiaryId) {
+      // A call that timed out may still have saved one, and a second under the same reference
+      // could be refused as a duplicate, failing a withdrawal that can be paid. So each try
+      // after the first gets its own reference; an orphaned beneficiary costs nothing.
+      const tries = Number(brailsOf(w).beneficiaryTries ?? 0);
+      await updateBrailsMeta(w.id, (b) => (b.payoutId === 'starting' ? { ...b, beneficiaryTries: tries + 1 } : null));
+      const beneficiary = await getBrailsClient().createBeneficiary({
+        reference: tries ? `${orderId}-${tries}` : orderId,
+        customerEmail,
+        country: inst.country,
+        currency: w.fiat_currency.toUpperCase(),
+        destination:
+          inst.rail === 'bank'
+            ? {
+                type: 'BANK',
+                bankCode: inst.network,
+                bankName: bank.bankName,
+                accountNumber: bank.accountNumber.replace(/\D/g, ''),
+                accountName: bank.accountName,
+              }
+            : {
+                type: 'MOBILEMONEY',
+                network: inst.network,
+                accountNumber: brailsPhone(bank.accountNumber, inst.country),
+                accountName: bank.accountName,
+                ...(brailsNeedsPhoneField(inst.country) ? { phoneNumber: brailsPhone(bank.accountNumber, inst.country) } : {}),
+                ...(sender ? { sender } : {}),
+              },
+      });
+      beneficiaryId = beneficiary.id;
+      await updateBrailsMeta(w.id, (b) => (b.payoutId === 'starting' ? { ...b, beneficiaryId } : null));
+    }
     quote = await quoteToFit(payUsd, received, w.fiat_currency, inst.country);
     sending = true;
     payout = await getBrailsClient().sendPayout({
       reference: orderId,
       targetMinor: quote.targetAmount,
-      beneficiaryId: beneficiary.id,
+      beneficiaryId,
       customerEmail,
       description: `Sendzz withdrawal ${orderId}`,
       quoteId: quote.quoteId,
@@ -255,11 +325,23 @@ export async function onBrailsDeposit(data: BrailsEventData): Promise<Outcome> {
   } catch (err) {
     const httpStatus = (err as { status?: number }).status ?? 0;
     const message = (err as Error).message;
-    const refused = httpStatus >= 400 && httpStatus < 500 && ![401, 403, 429].includes(httpStatus);
+    const ours = [401, 403, 429].includes(httpStatus);
+    const refused = httpStatus >= 400 && httpStatus < 500 && !ours;
+    // Only Brails answering 5xx, or not answering in time, says the corridor is down; any other
+    // error with no status is ours.
+    const corridorDown = httpStatus >= 500 || (err as Error).name === 'TimeoutError';
+
+    if (ours && claimFrom === 'retrying') return holdRetry(w.id, orderId, message, httpStatus);
 
     if (!refused && !sending) {
       // Nothing was sent: our side (bad key, IP not whitelisted, rate limit) or Brails had no
-      // answer before the payout call. Release the claim and let the event run again.
+      // answer before the payout call. Release the claim and let the event run again; past
+      // Brails' own retries, reconcileBrailsDeposits picks it up.
+      // A reconcile retry stays on the backoff instead: released, it would leave this job and
+      // depend on the deposit backstop, which only looks a week back.
+      if (claimFrom === 'retrying') {
+        return scheduleRetry(w.id, orderId, payUsd, `not started: ${message}`, httpStatus, corridorDown);
+      }
       console.error(`[Brails] Payout for ${orderId} not started (${httpStatus || 'no response'}): ${message}. Will retry.`);
       await release();
       return { ok: false, note: `not started (${httpStatus || 'no response'}) — will retry`, retry: true };
@@ -269,12 +351,9 @@ export async function onBrailsDeposit(data: BrailsEventData): Promise<Outcome> {
       // call (a duplicate reference) can mean the payout already exists, and failing the
       // withdrawal then would refund money the beneficiary was also paid. So ask first.
       const existing = await getBrailsClient().findPayoutByReference(orderId).catch(() => undefined);
-      if (existing === undefined) {
-        console.error(`[Brails] NEEDS REVIEW ${orderId}: payout refused (${message}) and Brails could not be asked whether it exists.`);
-        return { ok: false, note: 'payout refusal unconfirmed', retry: false };
-      }
+      if (existing === undefined) return scheduleRetry(w.id, orderId, payUsd, `refused (${message}) and could not be checked`, httpStatus, false);
       if (existing) {
-        await updateBrailsMeta(w.id, (b) => ({ ...b, payoutId: existing.id, payoutReference: existing.reference, payoutStatus: existing.status }));
+        await recordExisting(w.id, existing);
         console.log(`[Brails] ${orderId}: payout ${existing.id} already exists — recorded instead of failing.`);
         return { ok: true, note: `payout ${existing.id} already exists` };
       }
@@ -284,17 +363,14 @@ export async function onBrailsDeposit(data: BrailsEventData): Promise<Outcome> {
       // network…): nothing was paid, so the withdrawal fails and the amount is owed back.
       return failUnpaid(w.id, orderId, `Brails rejected the payout: ${message}`);
     }
-    // The payout call had no clear answer: Brails may or may not have sent it. Retrying could
-    // pay twice, so the claim stays and the row is left for a person to check.
-    console.error(
-      `[Brails] NEEDS REVIEW ${orderId}: payout of ${payUsd} USD had no clear answer ` +
-        `(${message}). Check Brails before retrying.`,
-    );
-    return { ok: false, note: 'payout unconfirmed', retry: false };
+    // The payout call had no clear answer — on KES in November 2026, a 503 while the corridor
+    // was down. Nothing was sent, and the same reference cannot pay twice, so try again later.
+    return scheduleRetry(w.id, orderId, payUsd, message, httpStatus, corridorDown);
   }
 
   await updateBrailsMeta(w.id, (b) => ({
-    ...b,
+    ...omit(b, 'retryAt', 'corridorDownAt', 'lastPayoutError', 'checkOnly', 'needsReview'),
+    payoutSentAt: new Date().toISOString(),
     payoutId: payout.id,
     payoutReference: payout.reference,
     payoutStatus: payout.status,
@@ -312,6 +388,255 @@ export async function onBrailsDeposit(data: BrailsEventData): Promise<Outcome> {
 }
 
 /**
+ * Record a payout Brails already has under our reference, so it is followed to the end. One
+ * it is actually making also says the corridor is up; one only `initiated` says nothing yet.
+ */
+function recordExisting(rowId: string, existing: BrailsTransaction) {
+  const moving = existing.status?.toLowerCase() !== 'initiated';
+  return updateBrailsMeta(rowId, (b) => ({
+    ...omit(b, 'retryAt', 'checkOnly', 'needsReview', ...(moving ? ['corridorDownAt'] : [])),
+    ...(moving ? { payoutSentAt: new Date().toISOString() } : {}),
+    payoutId: existing.id,
+    payoutReference: existing.reference,
+    payoutStatus: existing.status,
+  }));
+}
+
+/**
+ * A payout call with no clear answer, with the claim still held: schedule the next attempt, or,
+ * out of attempts, settle it on what Brails says it has.
+ *
+ * A 5xx or a timeout also marks the corridor down (`corridorDownAt`), which routes new
+ * withdrawals in that currency to another provider for a while (lib/ramp/brails-corridor.ts).
+ */
+async function scheduleRetry(
+  rowId: string,
+  orderId: string,
+  payUsd: number,
+  reason: string,
+  httpStatus: number,
+  corridorDown: boolean,
+): Promise<Outcome> {
+  const now = Date.now();
+  let attempt = 0;
+  let outOfAttempts = false;
+  const scheduled = await updateBrailsMeta(rowId, (b) => {
+    if (b.payoutId !== 'starting') return null;
+    attempt = Number(b.payoutAttempts ?? 0) + 1;
+    outOfAttempts = attempt > PAYOUT_RETRY_MINUTES.length;
+    if (outOfAttempts) return null;
+    return {
+      ...b,
+      payoutId: 'retrying',
+      payoutAttempts: attempt,
+      retryAt: new Date(now + PAYOUT_RETRY_MINUTES[attempt - 1] * 60_000).toISOString(),
+      lastPayoutError: `${httpStatus || 'no response'}: ${reason}`,
+      ...(corridorDown ? { corridorDownAt: new Date(now).toISOString() } : {}),
+    };
+  });
+  if (scheduled) {
+    console.error(
+      `[Brails] Payout of ${payUsd} USD for ${orderId} had no clear answer (${httpStatus || 'no response'}: ${reason}). ` +
+        `Retry ${attempt} of ${PAYOUT_RETRY_MINUTES.length} in ${PAYOUT_RETRY_MINUTES[attempt - 1]} min.`,
+    );
+    return { ok: false, note: `payout unconfirmed — retry ${attempt} scheduled`, retry: false };
+  }
+  if (!outOfAttempts) return { ok: true, note: 'payout claim moved on' };
+  return settleOnLookup(rowId, orderId, reason);
+}
+
+/**
+ * Our own side failed during a retry (bad key, IP not whitelisted, rate limited): nothing about
+ * the corridor or the payout, so it uses up no attempt — counting it would end in refunding a
+ * withdrawal that could be paid. Tried again in five minutes; a key or IP problem is flagged,
+ * since it will not clear on its own.
+ */
+async function holdRetry(rowId: string, orderId: string, reason: string, httpStatus: number): Promise<Outcome> {
+  await updateBrailsMeta(rowId, (b) =>
+    b.payoutId === 'starting'
+      ? {
+          ...b,
+          payoutId: 'retrying',
+          retryAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+          lastPayoutError: `${httpStatus}: ${reason}`,
+          ...(httpStatus === 429 ? {} : { needsReview: true }),
+        }
+      : null,
+  );
+  console.error(`[Brails] Payout for ${orderId} held by our own side (${httpStatus}: ${reason}). Trying again in 5 min.`);
+  return { ok: false, note: `held (${httpStatus}) — will retry`, retry: false };
+}
+
+/**
+ * Out of attempts, with the claim held: settle on what Brails has. Any payout under our
+ * reference, even one only `initiated`, is followed to the end, since Brails can still move it
+ * on and refunding it then would pay twice. Only none at all is refunded.
+ *
+ * If Brails cannot be asked, the row is left to be asked again in 15 minutes (`checkOnly`), with
+ * no further payout attempt, and flagged for review.
+ */
+async function settleOnLookup(rowId: string, orderId: string, reason: string): Promise<Outcome> {
+  const existing = await getBrailsClient().findPayoutByReference(orderId).catch(() => undefined);
+  if (existing === undefined) {
+    await updateBrailsMeta(rowId, (b) =>
+      b.payoutId === 'starting'
+        ? { ...b, payoutId: 'retrying', retryAt: new Date(Date.now() + 15 * 60_000).toISOString(), checkOnly: true, needsReview: true }
+        : null,
+    );
+    console.error(`[Brails] ${orderId}: out of payout attempts and Brails could not be asked about it. Asking again in 15 min.`);
+    return { ok: false, note: 'out of attempts, payout unknown', retry: false };
+  }
+  if (existing) {
+    await recordExisting(rowId, existing);
+    console.log(`[Brails] ${orderId}: payout ${existing.id} found after retries (${existing.status}) — following it.`);
+    return { ok: true, note: `payout ${existing.id} found` };
+  }
+  console.error(`[Brails] ${orderId}: payout never went through after ${PAYOUT_RETRY_MINUTES.length + 1} attempts — refund owed.`);
+  return failUnpaid(rowId, orderId, `Brails could not make the payout: ${reason}`);
+}
+
+/**
+ * The backstop for payouts with no final answer, run by the reconcile cron.
+ *
+ * - `retrying`, and due: try the payout again, or only ask Brails about it once attempts are
+ *   used up (`checkOnly`).
+ * - `starting` for over 10 minutes: the process stopped mid-call, so try again. Only a claim
+ *   with a start time, which this code writes; one without predates retries, and may have been
+ *   paid by hand since, so it is listed for review instead of paid.
+ * - a payout Brails has, with no final webhook after 15 minutes: ask Brails for its status and
+ *   settle it. Still in flight after a day is listed for review.
+ *
+ * `stopAt` is checked between rows. One row can still run past it, by as many Brails calls as a
+ * payout takes; a row cut off mid-call comes back as a stale claim.
+ */
+export async function reconcileBrailsPayouts(
+  stopAt = Date.now() + 60_000,
+): Promise<{ retried: number; settled: number; review: string[] }> {
+  const now = Date.now();
+  const base = () =>
+    supabaseAdmin
+      .from('withdrawals')
+      .select('id, user_id, status, provider_order_id, amount_usdc, fiat_currency, institution_code, pending_beneficiary, provider_metadata, created_at')
+      .eq('provider', 'brails')
+      .eq('status', 'processing');
+  // Each kind in a query of its own, only rows that have work due, oldest first and with no age
+  // limit: a payout still owed an answer must never age out of the only job that gives one, or
+  // be crowded out by rows that have nothing to do yet.
+  const [{ data: due }, { data: stale }, { data: legacy }, { data: inFlight }] = await Promise.all([
+    base()
+      .eq('provider_metadata->brails->>payoutId', 'retrying')
+      .lte('provider_metadata->brails->>retryAt', new Date(now).toISOString())
+      .order('created_at')
+      .limit(50),
+    base()
+      .eq('provider_metadata->brails->>payoutId', 'starting')
+      .lt('provider_metadata->brails->>payoutStartedAt', new Date(now - STALE_START_MS).toISOString())
+      .order('created_at')
+      .limit(50),
+    // Claims from before retries existed: listed for review, never paid.
+    base().eq('provider_metadata->brails->>payoutId', 'starting').is('provider_metadata->brails->>payoutStartedAt', null).limit(50),
+    base()
+      .not('provider_metadata->brails->>payoutId', 'is', null)
+      .not('provider_metadata->brails->>payoutId', 'in', '(retrying,starting,rejected,manual)')
+      .is('provider_metadata->brails->>settledAs', null)
+      .lt('created_at', new Date(now - 15 * 60_000).toISOString())
+      .order('created_at')
+      .limit(50),
+  ]);
+  const seen = new Set<string>();
+  const rows = [...(due ?? []), ...(stale ?? []), ...(legacy ?? []), ...(inFlight ?? [])].filter(
+    (r) => !seen.has(r.id) && seen.add(r.id),
+  );
+
+  let retried = 0;
+  let settled = 0;
+  const review: string[] = [];
+  for (const w of rows) {
+    const orderId = w.provider_order_id;
+    if (!orderId) continue;
+    const b = brailsOf(w);
+    // Listed whether or not there is time to work on them, so the review list is complete.
+    if (b.payoutId === 'starting' && !b.payoutStartedAt) {
+      review.push(orderId);
+      continue;
+    }
+    if (b.needsReview) review.push(orderId);
+    if (Date.now() > stopAt) continue;
+    const received = Number(b.receivedUsd);
+    try {
+      if (b.payoutId === 'retrying' || b.payoutId === 'starting') {
+        // A stale claim is reopened as a retry due now, so that if this attempt goes nowhere
+        // the row is still due next run rather than lost between the queries.
+        if (b.payoutId === 'starting') {
+          const reopened = await updateBrailsMeta(w.id, (cur) =>
+            cur.payoutId === 'starting' && cur.payoutStartedAt === b.payoutStartedAt
+              ? { ...cur, payoutId: 'retrying', retryAt: new Date(now).toISOString() }
+              : null,
+          );
+          if (!reopened) continue;
+        }
+        let outcome: Outcome;
+        if (b.checkOnly) {
+          const claimed = await updateBrailsMeta(w.id, (cur) => (cur.payoutId === 'retrying' ? { ...cur, payoutId: 'starting' } : null));
+          if (!claimed) continue;
+          outcome = await settleOnLookup(w.id, orderId, String(b.lastPayoutError ?? 'no answer'));
+        } else {
+          outcome = await attemptPayout(w, orderId, received, 'retrying');
+        }
+        retried++;
+        console.log(`[Reconcile Brails] ${orderId}: ${outcome.note}`);
+      } else if (b.payoutId) {
+        const tx = await getBrailsClient().getTransaction(b.payoutId);
+        const status = tx.status?.toLowerCase() ?? '';
+        if (!status || ['initiated', 'pending', 'processing'].includes(status)) {
+          if (now - Date.parse(w.created_at) > 24 * 60 * 60_000) review.push(orderId);
+          continue;
+        }
+        const outcome = await onBrailsPayout({ id: b.payoutId, reference: orderId }, status === 'success');
+        if (outcome.ok) settled++;
+        console.log(`[Reconcile Brails] ${orderId}: ${outcome.note}`);
+      }
+    } catch (e) {
+      console.error(`[Reconcile Brails] ${orderId}:`, e instanceof Error ? e.message : e);
+    }
+  }
+  if (Date.now() > stopAt) console.warn(`[Reconcile Brails] Out of time with payouts left to check; the next run picks them up.`);
+  if (review.length) {
+    console.error(`[Reconcile Brails] ⚠ ${review.length} PAYOUT(S) NEED REVIEW — no answer from Brails: ${review.join(', ')}`);
+  }
+  return { retried, settled, review };
+}
+
+/**
+ * Withdrawals with no transaction hash a day and more after the order: listed, not failed.
+ *
+ * No hash is not proof the user sent nothing. Saving it can fail after the transfer went
+ * through, and then the deposit reaches Brails with nothing to match it to. Failing the
+ * withdrawal would record nothing owed and hide money we hold; left processing, it stays where
+ * an admin can see it, check the deposit address, and close it by hand.
+ */
+export async function listUnfundedBrailsWithdrawals(): Promise<string[]> {
+  const { data: rows } = await supabaseAdmin
+    .from('withdrawals')
+    .select('provider_order_id')
+    .eq('provider', 'brails')
+    .eq('status', 'processing')
+    .is('tx_hash', null)
+    .is('provider_metadata->brails->>payoutId', null)
+    // A day and two hours: an EVM UserOperation can be held for up to a day (pendingSends.ts).
+    .lt('created_at', new Date(Date.now() - 26 * 60 * 60_000).toISOString())
+    .limit(50);
+  const orders = (rows ?? []).map((r) => r.provider_order_id).filter((o): o is string => !!o);
+  if (orders.length) {
+    console.warn(
+      `[Reconcile Brails] ${orders.length} withdrawal(s) with no transaction a day on — check their deposit ` +
+        `addresses at Brails before closing: ${orders.join(', ')}`,
+    );
+  }
+  return orders;
+}
+
+/**
  * The backstop for a deposit whose webhook found no withdrawal.
  *
  * The browser saves the transaction hash after the transfer confirms, so the deposit webhook can
@@ -319,7 +644,7 @@ export async function onBrailsDeposit(data: BrailsEventData): Promise<Outcome> {
  * waiting with a hash but no payout is looked up on Brails by that hash and, if the deposit is
  * there, run through `onBrailsDeposit` exactly as the webhook would have.
  */
-export async function reconcileBrailsDeposits(): Promise<{ checked: number; started: number }> {
+export async function reconcileBrailsDeposits(stopAt = Date.now() + 60_000): Promise<{ checked: number; started: number }> {
   const now = Date.now();
   const { data: waiting } = await supabaseAdmin
     .from('withdrawals')
@@ -329,11 +654,16 @@ export async function reconcileBrailsDeposits(): Promise<{ checked: number; star
     .not('tx_hash', 'is', null)
     .is('provider_metadata->brails->>payoutId', null)
     .lt('created_at', new Date(now - 5 * 60_000).toISOString())
-    .gt('created_at', new Date(now - 24 * 60 * 60_000).toISOString())
+    // A week, not a day: a deposit matched late is still a payout, where unmatched it sits at
+    // Brails with nothing to tell anyone it is there. Newest first, so hashes that will never
+    // match (sent to the wrong place) cannot hold back a fresh deposit whose webhook was missed.
+    .gt('created_at', new Date(now - 7 * 24 * 60 * 60_000).toISOString())
+    .order('created_at', { ascending: false })
     .limit(20);
 
   let started = 0;
   for (const w of waiting ?? []) {
+    if (Date.now() > stopAt) break;
     try {
       const deposit = await getBrailsClient().findDepositByHash(w.tx_hash!);
       if (!deposit) continue;

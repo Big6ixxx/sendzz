@@ -139,6 +139,9 @@ class BrailsClient {
         ...(options.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
       },
       ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
+      // A call that never answers must not hold a payout claim forever. A timeout throws with no
+      // status, which callers already treat as "no answer" — safe to retry with the same reference.
+      signal: AbortSignal.timeout(30_000),
     });
 
     const text = await res.text();
@@ -301,15 +304,30 @@ class BrailsClient {
    * because a refusal of a repeated call (a duplicate reference) can mean it already exists.
    */
   async findPayoutByReference(reference: string): Promise<BrailsTransaction | null> {
-    const res = await this.request<{ transactions?: BrailsTransaction[] }>(
-      'v2',
-      `/transactions?limit=10&q=${encodeURIComponent(reference)}`,
-    );
-    return (
-      res.transactions?.find(
-        (t) => t.reference === reference && !/deposit/i.test(t.action ?? '') && t.status?.toLowerCase() !== 'failed',
-      ) ?? null
-    );
+    // `reference=` is the filter Brails pointed us to (2026-11-04); the `q=` search is what this
+    // used before. Both are asked before saying there is none, because "none" is what lets a
+    // withdrawal be refunded — and a filter Brails ignored would return its latest ten
+    // transactions, none of them this one, even when the payout exists.
+    // Each asked even if the other fails; it is a "could not ask" only when neither answered.
+    let answered = false;
+    let lastError: unknown;
+    for (const filter of ['reference', 'q']) {
+      try {
+        const res = await this.request<{ transactions?: BrailsTransaction[] }>(
+          'v2',
+          `/transactions?limit=10&${filter}=${encodeURIComponent(reference)}`,
+        );
+        answered = true;
+        const found = res.transactions?.find(
+          (t) => t.reference === reference && !/deposit/i.test(t.action ?? '') && t.status?.toLowerCase() !== 'failed',
+        );
+        if (found) return found;
+      } catch (e) {
+        lastError = e;
+      }
+    }
+    if (!answered) throw lastError;
+    return null;
   }
 
   /** The authority on any send or receive — used to confirm a webhook before acting on it. */

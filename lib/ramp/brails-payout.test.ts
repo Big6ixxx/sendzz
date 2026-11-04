@@ -8,7 +8,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a loose stand-in for database rows
 type Row = Record<string, any>;
-const db = vi.hoisted(() => ({ rows: [] as Row[], rpcError: null as null | { message: string }, rpcCalls: [] as string[] }));
+const db = vi.hoisted(() => ({
+  rows: [] as Row[],
+  rpcError: null as null | { message: string },
+  updateError: null as null | { message: string },
+  rpcCalls: [] as string[],
+}));
 
 const valueAt = (row: Row, path: string) => {
   const m = path.match(/^provider_metadata->brails->>(\w+)$/);
@@ -29,7 +34,15 @@ vi.mock('@/lib/supabase/adminClient', () => {
       eq: (k: string, v: unknown) => (filters.push((r) => valueAt(r, k) === v), q),
       ilike: (k: string, v: string) => (filters.push((r) => String(valueAt(r, k) ?? '').toLowerCase() === v.toLowerCase()), q),
       is: (k: string, v: null) => (filters.push((r) => valueAt(r, k) === v), q),
-      not: () => q,
+      not: (k: string, op: string, v: unknown) => (
+        filters.push((r) =>
+          op === 'in' ? !String(v).slice(1, -1).split(',').includes(String(valueAt(r, k))) : valueAt(r, k) !== v,
+        ),
+        q
+      ),
+      in: (k: string, vs: unknown[]) => (filters.push((r) => vs.includes(valueAt(r, k))), q),
+      order: () => q,
+      lte: (k: string, v: string) => (filters.push((r) => String(valueAt(r, k) ?? '') <= v), q),
       lt: () => q,
       gt: () => q,
       limit: () => q,
@@ -37,6 +50,7 @@ vi.mock('@/lib/supabase/adminClient', () => {
       then: (resolve: (v: unknown) => void) => {
         const hit = rows();
         if (!patch) return resolve({ data: structuredClone(hit) });
+        if (db.updateError) return resolve({ data: null, error: db.updateError });
         hit.forEach((r) => Object.assign(r, structuredClone(patch)));
         resolve({ data: hit.map((r) => ({ id: r.id })) });
       },
@@ -61,10 +75,12 @@ const brails = vi.hoisted(() => ({
   createPayoutQuote: vi.fn(),
   sendPayout: vi.fn(),
   findPayoutByReference: vi.fn(),
+  findDepositByHash: vi.fn(),
 }));
 vi.mock('@/lib/brails/client', () => ({ getBrailsClient: () => brails }));
+const vault = vi.hoisted(() => ({ readable: true }));
 vi.mock('@/lib/ramp/beneficiary-vault', () => ({
-  openBeneficiary: () => ({ accountNumber: '0123456789', accountName: 'Ada Obi', bankName: 'Kuda' }),
+  openBeneficiary: () => (vault.readable ? { accountNumber: '0123456789', accountName: 'Ada Obi', bankName: 'Kuda' } : null),
 }));
 const sender = vi.hoisted(() => ({ value: null as null | { accountName: string; country: string } }));
 vi.mock('@/lib/ramp/brails-sender', () => ({ brailsSenderFor: async () => sender.value }));
@@ -73,7 +89,9 @@ vi.mock('@/lib/supabase/transactions', () => ({ triggerWithdrawalNotifications: 
 vi.mock('@/lib/referrals/accrue', () => ({ accrueReferralEarning: async () => {}, voidReferralEarning: async () => {} }));
 vi.mock('@/lib/referrals/benefits', () => ({ releaseBenefitsForOrder: async () => {} }));
 
-const { onBrailsDeposit, onBrailsPayout } = await import('./brails-payout');
+const { onBrailsDeposit, onBrailsPayout, reconcileBrailsPayouts, listUnfundedBrailsWithdrawals } = await import(
+  './brails-payout'
+);
 
 const HASH = '0xabc';
 const DEPOSIT_ADDRESS = '0xBrailsDepositForThisUser';
@@ -89,7 +107,9 @@ const meta = () => db.rows[0].provider_metadata.brails;
 beforeEach(() => {
   vi.clearAllMocks();
   sender.value = null;
+  vault.readable = true;
   db.rpcError = null;
+  db.updateError = null;
   db.rpcCalls = [];
   vi.spyOn(console, 'error').mockImplementation(() => {});
   vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -132,11 +152,23 @@ describe('onBrailsDeposit', () => {
     expect(brails.sendPayout).not.toHaveBeenCalled();
   });
 
-  it('keeps the claim when the payout call itself had no answer', async () => {
+  it('schedules a retry when the payout call itself had no answer', async () => {
     seed();
-    brails.sendPayout.mockRejectedValue(Object.assign(new Error('socket hang up'), { status: 0 }));
+    brails.sendPayout.mockRejectedValue(Object.assign(new Error('Unable to process request at the moment'), { status: 503 }));
+    const before = Date.now();
     await expect(onBrailsDeposit({ id: 'd1' })).resolves.toMatchObject({ ok: false, retry: false });
-    expect(meta().payoutId).toBe('starting');
+    expect(meta()).toMatchObject({ payoutId: 'retrying', payoutAttempts: 1, beneficiaryId: 'b1' });
+    expect(Date.parse(meta().retryAt) - before).toBeGreaterThanOrEqual(60_000);
+    expect(meta().corridorDownAt).toBeTruthy();
+    expect(db.rpcCalls).toEqual([]);
+  });
+
+  it('does not mark the corridor down for an error of our own', async () => {
+    seed();
+    brails.sendPayout.mockRejectedValue(new TypeError('cannot read properties of undefined'));
+    await onBrailsDeposit({ id: 'd1' });
+    expect(meta().payoutId).toBe('retrying');
+    expect(meta().corridorDownAt).toBeUndefined();
   });
 
   it('fails the withdrawal on a clear refusal', async () => {
@@ -225,5 +257,170 @@ describe('onBrailsPayout', () => {
     db.rpcError = null;
     await expect(onBrailsPayout({ id: 'p1' }, true)).resolves.toMatchObject({ ok: true });
     expect(meta().settledAs).toBe('success');
+  });
+});
+
+describe('reconcileBrailsPayouts', () => {
+  const due = (extra: Row = {}) => ({
+    payoutId: 'retrying', payoutAttempts: 1, retryAt: new Date(Date.now() - 1000).toISOString(),
+    receivedUsd: 1, beneficiaryId: 'b-saved', corridorDownAt: new Date().toISOString(), ...extra,
+  });
+
+  it('retries a due payout with the saved beneficiary and clears the corridor flag', async () => {
+    seed(due());
+    await expect(reconcileBrailsPayouts()).resolves.toMatchObject({ retried: 1 });
+    expect(brails.createBeneficiary).not.toHaveBeenCalled();
+    expect(brails.sendPayout.mock.calls[0][0]).toMatchObject({ reference: 'brails_1', beneficiaryId: 'b-saved' });
+    expect(meta()).toMatchObject({ payoutId: 'p1' });
+    expect(meta().corridorDownAt).toBeUndefined();
+  });
+
+  it('leaves a retry that is not due yet alone', async () => {
+    seed(due({ retryAt: new Date(Date.now() + 60_000).toISOString() }));
+    await expect(reconcileBrailsPayouts()).resolves.toMatchObject({ retried: 0 });
+    expect(brails.sendPayout).not.toHaveBeenCalled();
+  });
+
+  it('refunds once every attempt has failed and Brails has no payout', async () => {
+    seed(due({ payoutAttempts: 3 }));
+    brails.sendPayout.mockRejectedValue(Object.assign(new Error('Unable to process request'), { status: 503 }));
+    brails.findPayoutByReference.mockResolvedValue(null);
+    await reconcileBrailsPayouts();
+    expect(db.rpcCalls).toEqual(['finalize_withdrawal_failed']);
+    expect(meta().payoutId).toBe('rejected');
+  });
+
+  it('follows a payout Brails holds only as initiated rather than refund it', async () => {
+    seed(due({ payoutAttempts: 3 }));
+    brails.sendPayout.mockRejectedValue(Object.assign(new Error('Unable to process request'), { status: 503 }));
+    brails.findPayoutByReference.mockResolvedValue({ id: 'p-init', reference: 'brails_1', status: 'initiated' });
+    await reconcileBrailsPayouts();
+    expect(db.rpcCalls).toEqual([]);
+    expect(meta().payoutId).toBe('p-init');
+  });
+
+  it('refunds a retry that can no longer read where the money goes', async () => {
+    seed(due());
+    vault.readable = false;
+    await reconcileBrailsPayouts();
+    expect(brails.sendPayout).not.toHaveBeenCalled();
+    expect(db.rpcCalls).toEqual(['finalize_withdrawal_failed']);
+    expect(meta().payoutId).toBe('rejected');
+  });
+
+  it('gives a second beneficiary attempt its own reference', async () => {
+    seed(due({ beneficiaryId: undefined, beneficiaryTries: 1 }));
+    await reconcileBrailsPayouts();
+    expect(brails.createBeneficiary.mock.calls[0][0].reference).toBe('brails_1-1');
+    expect(meta()).toMatchObject({ payoutId: 'p1', beneficiaryId: 'b1', beneficiaryTries: 2 });
+  });
+
+  it('follows a payout Brails turns out to be making instead of refunding it', async () => {
+    seed(due({ payoutAttempts: 3 }));
+    brails.sendPayout.mockRejectedValue(Object.assign(new Error('timeout'), { status: 0 }));
+    brails.findPayoutByReference.mockResolvedValue({ id: 'p-real', reference: 'brails_1', status: 'pending' });
+    await reconcileBrailsPayouts();
+    expect(db.rpcCalls).toEqual([]);
+    expect(meta().payoutId).toBe('p-real');
+  });
+
+  it('checks again later, without refunding, when Brails cannot be asked', async () => {
+    seed(due({ payoutAttempts: 3 }));
+    brails.sendPayout.mockRejectedValue(Object.assign(new Error('timeout'), { status: 0 }));
+    brails.findPayoutByReference.mockRejectedValue(new Error('down'));
+    await reconcileBrailsPayouts();
+    expect(db.rpcCalls).toEqual([]);
+    expect(meta()).toMatchObject({ payoutId: 'retrying', payoutAttempts: 3, needsReview: true, checkOnly: true });
+  });
+
+  it('only asks Brails, without paying again, once attempts are used up', async () => {
+    seed(due({ payoutAttempts: 3, checkOnly: true, needsReview: true }));
+    brails.findPayoutByReference.mockResolvedValue(null);
+    await reconcileBrailsPayouts();
+    expect(brails.sendPayout).not.toHaveBeenCalled();
+    expect(db.rpcCalls).toEqual(['finalize_withdrawal_failed']);
+  });
+
+  it('uses up no attempt when our own side is rate limited', async () => {
+    seed(due());
+    brails.getPayoutRate.mockRejectedValue(Object.assign(new Error('too many requests'), { status: 429 }));
+    await reconcileBrailsPayouts();
+    expect(meta()).toMatchObject({ payoutId: 'retrying', payoutAttempts: 1 });
+    expect(meta().needsReview).toBeUndefined();
+    expect(Date.parse(meta().retryAt)).toBeGreaterThan(Date.now());
+  });
+
+  it('keeps a reopened stale claim due when the attempt goes nowhere', async () => {
+    seed({ payoutId: 'starting', payoutStartedAt: new Date(Date.now() - 11 * 60_000).toISOString(), receivedUsd: 1 });
+    sender.value = null;
+    Object.assign(db.rows[0], { fiat_currency: 'ETB', institution_code: 'ET:ETHIO' });
+    await reconcileBrailsPayouts();
+    expect(meta().payoutId).toBe('retrying');
+    expect(Date.parse(meta().retryAt)).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('lists a row Brails keeps refusing to answer about for review', async () => {
+    seed(due({ payoutAttempts: 3, needsReview: true, checkOnly: true }));
+    brails.sendPayout.mockRejectedValue(Object.assign(new Error('timeout'), { status: 0 }));
+    brails.findPayoutByReference.mockRejectedValue(new Error('down'));
+    await expect(reconcileBrailsPayouts()).resolves.toMatchObject({ review: ['brails_1'] });
+  });
+
+  it('keeps a retry on the backoff when it fails before the payout call', async () => {
+    seed(due());
+    brails.createPayoutQuote.mockRejectedValue(Object.assign(new Error('Unable to process request'), { status: 503 }));
+    await reconcileBrailsPayouts();
+    expect(brails.sendPayout).not.toHaveBeenCalled();
+    expect(meta()).toMatchObject({ payoutId: 'retrying', payoutAttempts: 2 });
+  });
+
+  it('lifts the corridor flag when the payout turns out to exist and be moving', async () => {
+    seed(due({ payoutAttempts: 3 }));
+    brails.sendPayout.mockRejectedValue(Object.assign(new Error('timeout'), { status: 0 }));
+    brails.findPayoutByReference.mockResolvedValue({ id: 'p-real', reference: 'brails_1', status: 'pending' });
+    await reconcileBrailsPayouts();
+    expect(meta().corridorDownAt).toBeUndefined();
+    expect(meta().payoutSentAt).toBeTruthy();
+  });
+
+  it('never pays a claim older than the retry code — it may have been paid by hand', async () => {
+    seed({ payoutId: 'starting', receivedUsd: 1 });
+    await expect(reconcileBrailsPayouts()).resolves.toMatchObject({ review: ['brails_1'] });
+    expect(brails.sendPayout).not.toHaveBeenCalled();
+  });
+
+  it('retries a claim whose process stopped mid-call', async () => {
+    seed({ payoutId: 'starting', payoutStartedAt: new Date(Date.now() - 11 * 60_000).toISOString(), receivedUsd: 1, beneficiaryId: 'b-saved' });
+    await expect(reconcileBrailsPayouts()).resolves.toMatchObject({ retried: 1 });
+    expect(meta().payoutId).toBe('p1');
+  });
+
+  it('settles a payout whose final webhook never came', async () => {
+    seed({ payoutId: 'p1', payoutStartedAt: new Date(Date.now() - 20 * 60_000).toISOString() });
+    brails.getTransaction.mockResolvedValue({ id: 'p1', status: 'SUCCESS' });
+    await expect(reconcileBrailsPayouts()).resolves.toMatchObject({ settled: 1 });
+    expect(db.rpcCalls).toEqual(['finalize_withdrawal_success']);
+  });
+
+  it('keeps waiting on a payout still in flight', async () => {
+    seed({ payoutId: 'p1', payoutStartedAt: new Date(Date.now() - 20 * 60_000).toISOString() });
+    brails.getTransaction.mockResolvedValue({ id: 'p1', status: 'PENDING' });
+    await reconcileBrailsPayouts();
+    expect(db.rpcCalls).toEqual([]);
+  });
+});
+
+describe('listUnfundedBrailsWithdrawals', () => {
+  it('lists a withdrawal with no transaction, and never fails it', async () => {
+    seed();
+    db.rows[0].tx_hash = null;
+    await expect(listUnfundedBrailsWithdrawals()).resolves.toEqual(['brails_1']);
+    expect(db.rpcCalls).toEqual([]);
+    expect(db.rows[0].status).toBe('processing');
+  });
+
+  it('leaves a funded one off the list', async () => {
+    seed();
+    await expect(listUnfundedBrailsWithdrawals()).resolves.toEqual([]);
   });
 });

@@ -394,6 +394,16 @@ export const Ramp = {
       }
       out.push(p.name);
     }
+
+    // A provider being up is not the corridor being up: Brails' KES payouts returned 503 for a
+    // stretch in November 2026 while NGN paid fine. While a corridor is down, new withdrawals go
+    // to the next provider, before the user sends anything. Only when there is one to go to.
+    if (out.length > 1 && out.includes("brails")) {
+      const { brailsCorridorDown } = await import("./brails-corridor");
+      if (await brailsCorridorDown(currency).catch(() => false)) {
+        return out.filter((name) => name !== "brails");
+      }
+    }
     return out;
   },
 
