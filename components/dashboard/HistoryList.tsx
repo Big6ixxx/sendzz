@@ -59,7 +59,7 @@ export function HistoryList({
       {!list.isLoading && (list.all?.length ?? 0) > 0 && (
         <section
           aria-label="Last 30 days"
-          className="grid grid-cols-2 overflow-hidden rounded-[28px] bg-[var(--lp-forest)] text-[var(--lp-cream)]"
+          className="lp-fixed grid grid-cols-2 overflow-hidden rounded-[28px] bg-[var(--lp-forest)] text-[var(--lp-cream)]"
         >
           {[
             { label: "In · last 30 days", value: `+$${formatMoney(month.moneyIn)}`, accent: true },
@@ -89,7 +89,7 @@ export function HistoryList({
             placeholder="Search by email, amount or note"
             label="Search activity"
           />
-          <div role="radiogroup" aria-label="Order" className="flex shrink-0 self-start rounded-full bg-white p-1 sm:self-auto shadow-[0_0_0_1px_rgb(17_26_19/0.08)]">
+          <div role="radiogroup" aria-label="Order" className="flex shrink-0 self-start rounded-full bg-[var(--lp-surface)] p-1 sm:self-auto shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)]">
             {(
               [
                 { value: "date", label: "Latest" },
@@ -191,7 +191,7 @@ export function HistoryList({
           <button
             type="button"
             onClick={list.showMore}
-            className={cn(listPill, "h-12 bg-white px-7 shadow-[0_0_0_1px_rgb(17_26_19/0.12)] hover:shadow-[0_0_0_1px_rgb(17_26_19/0.4)]")}
+            className={cn(listPill, "h-12 bg-[var(--lp-surface)] px-7 shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.12)] hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.4)]")}
           >
             Show more
           </button>
@@ -240,7 +240,7 @@ function HistoryRow({
         when={when}
         mask={amount}
         onOpen={onOpen}
-        status={canReclaim ? { text: "Unclaimed", tone: "bg-[#fbedcc] text-[#8a5a00]" } : undefined}
+        status={canReclaim ? { text: "Unclaimed", tone: "bg-[var(--lp-warn-soft)] text-[var(--lp-warn)]" } : undefined}
       />
 
       {prompt && (
@@ -255,7 +255,7 @@ function HistoryRow({
               disabled={reclaiming || accepting}
               className={cn(
                 "inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-[13px] font-semibold transition-opacity disabled:opacity-60",
-                canAccept ? "bg-[var(--lp-green)] text-[var(--lp-ink)]" : "bg-[var(--lp-ink)] text-[var(--lp-cream)]",
+                canAccept ? "lp-fixed bg-[var(--lp-green)] text-[var(--lp-ink)]" : "bg-[var(--lp-ink)] text-[var(--lp-cream)]",
               )}
             >
               {reclaiming || accepting ? (

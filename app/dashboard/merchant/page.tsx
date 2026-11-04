@@ -41,6 +41,7 @@ import {
 import { referralsEnabled } from '@/lib/features';
 import { ComingSoon } from '@/components/ComingSoon';
 import { Skeleton } from '@/components/ui/skeleton';
+import { CHART_TOOLTIP } from '@/components/dashboard/chart-tooltip';
 
 /**
  * The single series colour: the brand green, on the forest card. Against #0b3b29 it is well
@@ -49,18 +50,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 const SERIES = '#00e87a';
 const MONO = 'var(--font-geist-mono), ui-monospace, monospace';
 
-/** The chart tooltip: a white card in the page's own type, as on the admin overview. */
-const TOOLTIP = {
-  contentStyle: {
-    backgroundColor: '#fff',
-    border: 'none',
-    borderRadius: 16,
-    boxShadow: '0 0 0 1px rgb(17 26 19 / 0.06), 0 12px 32px -12px rgb(17 26 19 / 0.25)',
-    padding: '10px 14px',
-  },
-  itemStyle: { color: '#111a13', fontSize: 13, fontWeight: 600 },
-  labelStyle: { color: '#5b645d', fontSize: 12, marginBottom: 2 },
-};
 
 interface MonthlyPoint {
   month: string;
@@ -96,9 +85,9 @@ const ACTIVITY_LABELS = {
 
 const ACTIVITY_TONE = {
   none: 'bg-[var(--lp-cream)] text-[var(--lp-muted)]',
-  starting: 'bg-[#fbedcc] text-[#8a5a00]',
-  active: 'bg-[#cdf5de] text-[#0e7a45]',
-  high: 'bg-[var(--lp-green)] text-[var(--lp-ink)]',
+  starting: 'bg-[var(--lp-warn-soft)] text-[var(--lp-warn)]',
+  active: 'bg-[var(--lp-good-soft)] text-[var(--lp-good)]',
+  high: 'lp-fixed bg-[var(--lp-green)] text-[var(--lp-ink)]',
 } as const;
 
 function monthLabel(key: string): string {
@@ -204,7 +193,7 @@ function MerchantDashboard() {
       />
 
       {/* ── Earnings by month ─────────────────────────────────────────────── */}
-      <section className="rounded-[32px] bg-[var(--lp-forest)] p-6 text-[var(--lp-cream)] sm:p-8">
+      <section className="lp-fixed rounded-[32px] bg-[var(--lp-forest)] p-6 text-[var(--lp-cream)] sm:p-8">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="lp-mono text-[12px] uppercase text-[var(--lp-green)]">Earned all time</p>
@@ -232,9 +221,9 @@ function MerchantDashboard() {
                 />
                 <Tooltip
                   cursor={{ fill: 'rgba(246,242,233,0.06)' }}
-                  contentStyle={TOOLTIP.contentStyle}
-                  itemStyle={TOOLTIP.itemStyle}
-                  labelStyle={TOOLTIP.labelStyle}
+                  contentStyle={CHART_TOOLTIP.contentStyle}
+                  itemStyle={CHART_TOOLTIP.itemStyle}
+                  labelStyle={CHART_TOOLTIP.labelStyle}
                   formatter={(value) => [`$${Number(value ?? 0).toFixed(2)}`, 'Earned']}
                 />
                 {/* Rounded data-ends, anchored to the baseline. One series, so no legend —

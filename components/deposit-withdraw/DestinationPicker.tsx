@@ -55,13 +55,13 @@ export function DestinationPicker({
   return (
     <div className="w-full space-y-3">
       {options.length > SEARCH_THRESHOLD && (
-        <label className="flex h-12 items-center gap-3 rounded-full bg-white px-4 shadow-[0_0_0_1px_rgb(17_26_19/0.08)] outline-2 outline-offset-2 outline-transparent transition-[outline-color] duration-150 focus-within:outline-[var(--lp-ink)]">
+        <label className="flex h-12 items-center gap-3 rounded-full bg-[var(--lp-surface)] px-4 shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)] outline-2 outline-offset-2 outline-transparent transition-[outline-color] duration-150 focus-within:outline-[var(--lp-ink)]">
           <Search className="size-4 shrink-0 text-[var(--lp-muted)]" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search country or currency"
-            className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-[rgba(91,100,93,0.8)] md:text-[15px]"
+            className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-[var(--lp-placeholder)] md:text-[15px]"
             aria-label="Search destinations"
           />
         </label>

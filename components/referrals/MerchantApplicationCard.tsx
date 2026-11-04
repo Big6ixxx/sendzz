@@ -182,7 +182,7 @@ const PERKS: { title: string; body: string; visual: React.ReactNode }[] = [
     body: "Payouts land by themselves once you pass the minimum.",
     visual: (
       <span className="lp-card inline-flex items-center gap-2 rounded-full py-1.5 pl-1.5 pr-3">
-        <span className="grid size-6 place-items-center rounded-full bg-[#cdf5de] text-[11px] font-bold text-[#0e7a45]">+</span>
+        <span className="grid size-6 place-items-center rounded-full bg-[var(--lp-good-soft)] text-[11px] font-bold text-[var(--lp-good)]">+</span>
         <span className="text-[13px] font-semibold">Payout sent</span>
       </span>
     ),
@@ -191,7 +191,7 @@ const PERKS: { title: string; body: string; visual: React.ReactNode }[] = [
 
 function Perks() {
   return (
-    <ul className="divide-y divide-[rgba(17,26,19,0.12)] border-y border-[rgba(17,26,19,0.12)]">
+    <ul className="divide-y divide-[rgb(var(--lp-hair)/0.12)] border-y border-[rgb(var(--lp-hair)/0.12)]">
       {PERKS.map((p) => (
         <li key={p.title} className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 py-4">
           <span className="min-w-[180px] flex-1">
@@ -341,7 +341,7 @@ function TextArea({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         rows={3}
-        className="w-full resize-y rounded-[18px] bg-white px-4 py-3 text-base shadow-[0_0_0_1px_rgb(17_26_19/0.08)] outline-2 outline-offset-2 outline-transparent transition-[outline-color] duration-150 placeholder:text-[rgba(91,100,93,0.7)] focus:outline-[var(--lp-ink)] md:text-[15px]"
+        className="w-full resize-y rounded-[18px] bg-[var(--lp-surface)] px-4 py-3 text-base shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)] outline-2 outline-offset-2 outline-transparent transition-[outline-color] duration-150 placeholder:text-[var(--lp-placeholder)] focus:outline-[var(--lp-ink)] md:text-[15px]"
       />
     </label>
   );

@@ -140,7 +140,7 @@ function SignInDialog({ open, onClose, prefill }: { open: boolean; onClose: () =
           {/* Over the forest band on a phone, over cream from md up: the colour follows. */}
           <DialogClose
             aria-label="Close"
-            className="absolute right-4 top-4 z-10 grid size-9 place-items-center rounded-full text-[rgba(246,242,233,0.75)] transition-colors hover:bg-[rgba(246,242,233,0.12)] hover:text-[var(--lp-cream)] md:text-[var(--lp-muted)] md:hover:bg-[rgba(17,26,19,0.06)] md:hover:text-[var(--lp-ink)]"
+            className="absolute right-4 top-4 z-10 grid size-9 place-items-center rounded-full text-[rgba(246,242,233,0.75)] transition-colors hover:bg-[rgba(246,242,233,0.12)] hover:text-[var(--lp-cream)] md:text-[var(--lp-muted)] md:hover:bg-[rgb(var(--lp-hair)/0.06)] md:hover:text-[var(--lp-ink)]"
           >
             <X className="size-4" />
           </DialogClose>
@@ -184,7 +184,7 @@ function SignInDialog({ open, onClose, prefill }: { open: boolean; onClose: () =
                       aria-invalid={!!error}
                     />
                     {error && (
-                      <p role="alert" className="text-[14px] text-[#a1462c]">
+                      <p role="alert" className="text-[14px] text-[var(--lp-danger)]">
                         {error}
                       </p>
                     )}
@@ -287,9 +287,10 @@ function SignInDialog({ open, onClose, prefill }: { open: boolean; onClose: () =
 function SlipPanel({ address, typing, sent }: { address: string; typing: boolean; sent: boolean }) {
   const to = address || "you@example.com";
   return (
-    <div className="relative overflow-hidden bg-[var(--lp-forest)] px-6 pb-6 pt-14 text-[var(--lp-cream)] sm:px-8 md:flex md:flex-col md:justify-between md:p-10">
+    <div className="lp-fixed relative overflow-hidden bg-[var(--lp-forest)] px-6 pb-6 pt-14 text-[var(--lp-cream)] sm:px-8 md:flex md:flex-col md:justify-between md:p-10">
       <div className="hidden md:block">
-        <Image src="/landing/mark.svg" alt="" width={28} height={28} />
+        {/* The full wordmark, lettered in cream: this panel is forest in light and dark mode alike. */}
+        <Image src="/landing/logo-dark.svg" alt="Sendzz" width={101.4} height={30} />
         <p className="lp-display mt-10 text-[40px] leading-[0.95] tracking-[-0.045em]">
           Your email is <span className="lp-serif tracking-[-0.02em]">your account.</span>
         </p>
@@ -318,14 +319,14 @@ function SlipPanel({ address, typing, sent }: { address: string; typing: boolean
             <span className="truncate">{to}</span>
             {typing && <span className="lp-caret ml-0.5 inline-block h-[1.1em] w-[2px] shrink-0 bg-[var(--lp-ink)]" />}
           </p>
-          <dl className="mt-4 hidden grid-cols-3 gap-3 border-t border-dashed border-[#d9d3c5] pt-4 text-[13px] sm:grid">
+          <dl className="mt-4 hidden grid-cols-3 gap-3 border-t border-dashed border-[var(--lp-line)] pt-4 text-[13px] sm:grid">
             <div>
               <dt className="text-[var(--lp-muted)]">Amount</dt>
               <dd className="lp-mono mt-0.5 text-[14px]">$50.00</dd>
             </div>
             <div>
               <dt className="text-[var(--lp-muted)]">Fee</dt>
-              <dd className="lp-mono mt-0.5 text-[14px] text-[#0e7a45]">Free</dd>
+              <dd className="lp-mono mt-0.5 text-[14px] text-[var(--lp-good)]">Free</dd>
             </div>
             <div>
               <dt className="text-[var(--lp-muted)]">Arrives</dt>
@@ -346,7 +347,7 @@ function SlipPanel({ address, typing, sent }: { address: string; typing: boolean
               animate={{ opacity: 1, scale: 1, rotate: 8 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.35, ease: EASE }}
-              className="lp-mono absolute right-3 top-9 rounded-[8px] border-2 border-[#0e7a45] px-2.5 py-1 text-[12px] font-semibold uppercase tracking-[0.06em] text-[#0e7a45]"
+              className="lp-mono absolute right-3 top-9 rounded-[8px] border-2 border-[var(--lp-good)] px-2.5 py-1 text-[12px] font-semibold uppercase tracking-[0.06em] text-[var(--lp-good)]"
             >
               Code sent
             </motion.span>

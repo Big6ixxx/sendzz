@@ -80,7 +80,7 @@ export function SecondaryButton({ className, children, ...props }: React.ButtonH
     <button
       {...props}
       className={cn(
-        'inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-full border border-[rgba(17,26,19,0.15)] bg-white px-5 text-[15px] font-semibold transition-[scale,border-color,opacity] duration-150 hover:border-[var(--lp-ink)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40',
+        'inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-full border border-[rgb(var(--lp-hair)/0.15)] bg-[var(--lp-surface)] px-5 text-[15px] font-semibold transition-[scale,border-color,opacity] duration-150 hover:border-[var(--lp-ink)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40',
         className,
       )}
     >
@@ -130,9 +130,9 @@ export function Pills<T extends string | null>({
                 'whitespace-nowrap rounded-full px-4 py-2 text-[14px] font-medium transition-colors duration-150',
                 active
                   ? tone === 'green'
-                    ? 'bg-[var(--lp-green)] text-[var(--lp-ink)]'
+                    ? 'lp-fixed bg-[var(--lp-green)] text-[var(--lp-ink)]'
                     : 'bg-[var(--lp-ink)] text-[var(--lp-cream)]'
-                  : 'text-[var(--lp-body)] hover:text-[#00a857]',
+                  : 'text-[var(--lp-body)] hover:text-[var(--lp-link)]',
               )}
             >
               {o.label}
@@ -169,7 +169,7 @@ export function SearchField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-[rgba(91,100,93,0.8)] sm:text-[15px]"
+        className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-[var(--lp-placeholder)] sm:text-[15px]"
       />
     </label>
   );
@@ -212,20 +212,20 @@ export function statusTone(status: string): string {
     case 'approved':
     case 'settled':
     case 'processed':
-      return 'bg-[#00e87a]/15 text-[#0e7a45]';
+      return 'bg-[#00e87a]/15 text-[var(--lp-good)]';
     case 'pending':
     case 'pending_claim':
     case 'awaiting_verification':
     case 'processing':
     case 'in_review':
-      return 'bg-[#f5c451]/30 text-[#8a5a00]';
+      return 'bg-[#f5c451]/30 text-[var(--lp-warn)]';
     case 'failed':
     case 'cancelled':
     case 'declined':
     case 'refunded':
     case 'expired':
     case 'refunding':
-      return 'bg-[#a1462c]/10 text-[#a1462c]';
+      return 'bg-[#a1462c]/10 text-[var(--lp-danger)]';
     case 'reversed':
     case 'validated':
       return 'bg-[#2a78d6]/10 text-[#1d5fb4]';
@@ -246,8 +246,8 @@ export function StatusBadge({ status, label }: { status: string; label?: string 
 }
 
 const TX_TYPES: Record<string, { Icon: typeof ArrowDownLeft; badge: string; label: string }> = {
-  deposit: { Icon: ArrowDownLeft, badge: 'bg-[#00e87a]/15 text-[#0e7a45]', label: 'Deposit' },
-  withdrawal: { Icon: ArrowUpRight, badge: 'bg-[#a1462c]/10 text-[#a1462c]', label: 'Withdrawal' },
+  deposit: { Icon: ArrowDownLeft, badge: 'bg-[#00e87a]/15 text-[var(--lp-good)]', label: 'Deposit' },
+  withdrawal: { Icon: ArrowUpRight, badge: 'bg-[#a1462c]/10 text-[var(--lp-danger)]', label: 'Withdrawal' },
   transfer: { Icon: ArrowLeftRight, badge: 'bg-[#2a78d6]/10 text-[#1d5fb4]', label: 'Transfer' },
   bridge: { Icon: Link2, badge: 'bg-[#6250d6]/10 text-[#4b3bb3]', label: 'Bridge' },
 };
@@ -277,14 +277,14 @@ export function Pagination({
   summary: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-between gap-3 border-t border-[#e3dcce] px-5 py-4 sm:flex-row sm:px-6">
+    <div className="flex flex-col items-center justify-between gap-3 border-t border-[var(--lp-rule)] px-5 py-4 sm:flex-row sm:px-6">
       <p className="text-[14px] text-[var(--lp-muted)]">{summary}</p>
       <div className="flex items-center gap-2">
         <button
           onClick={() => onChange(page - 1)}
           disabled={page <= 1}
           aria-label="Previous page"
-          className="grid size-10 place-items-center rounded-full border border-[rgba(17,26,19,0.15)] transition-colors hover:border-[var(--lp-ink)] disabled:opacity-30"
+          className="grid size-10 place-items-center rounded-full border border-[rgb(var(--lp-hair)/0.15)] transition-colors hover:border-[var(--lp-ink)] disabled:opacity-30"
         >
           <ChevronLeft className="size-4" />
         </button>
@@ -295,7 +295,7 @@ export function Pagination({
           onClick={() => onChange(page + 1)}
           disabled={page >= totalPages}
           aria-label="Next page"
-          className="grid size-10 place-items-center rounded-full border border-[rgba(17,26,19,0.15)] transition-colors hover:border-[var(--lp-ink)] disabled:opacity-30"
+          className="grid size-10 place-items-center rounded-full border border-[rgb(var(--lp-hair)/0.15)] transition-colors hover:border-[var(--lp-ink)] disabled:opacity-30"
         >
           <ChevronRight className="size-4" />
         </button>
@@ -372,7 +372,7 @@ export function useCopied(): [boolean, (text: string) => void] {
 /** Rows of placeholder for a list that is loading. */
 export function RowsShimmer({ rows = 6 }: { rows?: number }) {
   return (
-    <ul className="divide-y divide-[#ece6da]" aria-label="Loading">
+    <ul className="divide-y divide-[var(--lp-soft-2)]" aria-label="Loading">
       {Array.from({ length: rows }, (_, i) => (
         <li key={i} className="flex items-center gap-3 px-5 py-4 sm:px-6">
           <Shimmer className="size-10 shrink-0" />

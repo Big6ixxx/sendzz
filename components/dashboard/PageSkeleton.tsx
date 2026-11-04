@@ -43,7 +43,7 @@ function Rows({ count }: { count: number }) {
 function OverviewBody() {
   return (
     <>
-      <div className="space-y-5 rounded-[32px] bg-[var(--lp-forest)] p-6 sm:p-8">
+      <div className="lp-fixed space-y-5 rounded-[32px] bg-[var(--lp-forest)] p-6 sm:p-8">
         <Skeleton tone="forest" className="h-3 w-28" />
         <Skeleton tone="forest" className="h-14 w-56 rounded-[18px]" />
         <div className="flex gap-3 pt-2">
@@ -66,7 +66,7 @@ function FormBody() {
         <Skeleton className="h-3 w-24" />
         <Skeleton className="h-14 w-full rounded-[20px]" />
       </div>
-      <div className="space-y-4 rounded-[32px] bg-[var(--lp-forest)] p-6 sm:p-7">
+      <div className="lp-fixed space-y-4 rounded-[32px] bg-[var(--lp-forest)] p-6 sm:p-7">
         <Skeleton tone="forest" className="h-3 w-24" />
         <Skeleton tone="forest" className="h-12 w-40 rounded-[16px]" />
         <Skeleton tone="forest" className="h-3 w-full" />

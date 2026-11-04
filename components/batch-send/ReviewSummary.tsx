@@ -21,23 +21,23 @@ export function ReviewSummary({ hook }: ReviewSummaryProps) {
         <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
           <FlowSteps steps={BATCH_STEPS} current={2} />
 
-          <label className="flex h-12 items-center gap-3 rounded-full bg-white px-4 shadow-[0_0_0_1px_rgb(17_26_19/0.08)] outline-2 outline-offset-2 outline-transparent transition-[outline-color] duration-150 focus-within:outline-[var(--lp-ink)]">
+          <label className="flex h-12 items-center gap-3 rounded-full bg-[var(--lp-surface)] px-4 shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)] outline-2 outline-offset-2 outline-transparent transition-[outline-color] duration-150 focus-within:outline-[var(--lp-ink)]">
             <Search className="size-4 shrink-0 text-[var(--lp-muted)]" />
             <input
               type="text"
               placeholder="Search the list"
-              className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-[rgba(91,100,93,0.8)] md:text-[15px]"
+              className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-[var(--lp-placeholder)] md:text-[15px]"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
           </label>
 
           <div className="lp-card rounded-[22px]">
-            <div className="lp-mono flex justify-between border-b border-[#e3dcce] px-5 py-3 text-[12px] uppercase text-[var(--lp-muted)]">
+            <div className="lp-mono flex justify-between border-b border-[var(--lp-rule)] px-5 py-3 text-[12px] uppercase text-[var(--lp-muted)]">
               <span>Person</span>
               <span className="pr-10">Gets</span>
             </div>
-            <ul className="divide-y divide-[#ece6da]">
+            <ul className="divide-y divide-[var(--lp-soft-2)]">
               {filtered.map((r) => (
                 <li key={r.id} className="flex items-center gap-3 px-5 py-3">
                   <span className="min-w-0 flex-1 truncate text-[15px]">{r.email}</span>
@@ -45,7 +45,7 @@ export function ReviewSummary({ hook }: ReviewSummaryProps) {
                   <button
                     onClick={() => hook.removeRecipient(r.id)}
                     aria-label={`Remove ${r.email}`}
-                    className="grid size-8 shrink-0 place-items-center rounded-full text-[var(--lp-muted)] transition-colors hover:bg-[#a1462c]/10 hover:text-[#a1462c]"
+                    className="grid size-8 shrink-0 place-items-center rounded-full text-[var(--lp-muted)] transition-colors hover:bg-[#a1462c]/10 hover:text-[var(--lp-danger)]"
                   >
                     <X className="size-4" />
                   </button>

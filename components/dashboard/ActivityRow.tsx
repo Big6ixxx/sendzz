@@ -49,7 +49,7 @@ export function ActivityRow({
         <span
           className={cn(
             "lp-display text-[17px] font-semibold tabular-nums tracking-[-0.02em]",
-            uncounted ? "text-[var(--lp-muted)] line-through decoration-1" : look.sign === "+" && "text-[#0e7a45]",
+            uncounted ? "text-[var(--lp-muted)] line-through decoration-1" : look.sign === "+" && "text-[var(--lp-good)]",
           )}
         >
           {mask(`${look.sign}$${formatMoney(a.amount)}`)}

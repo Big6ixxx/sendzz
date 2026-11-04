@@ -97,7 +97,7 @@ export function BankSelector({
             isVerifying ? (
               <Loader2 className="size-5 shrink-0 animate-spin text-[var(--lp-muted)]" />
             ) : accountName ? (
-              <CheckCircle2 className="size-5 shrink-0 text-[#0e7a45]" />
+              <CheckCircle2 className="size-5 shrink-0 text-[var(--lp-good)]" />
             ) : null
           }
         />
@@ -129,9 +129,9 @@ export function BankSelector({
           disabled={disabled}
           onClick={() => setOpen(!open)}
           aria-expanded={open}
-          className="flex h-14 w-full items-center justify-between gap-3 rounded-[18px] bg-white px-4 text-left text-base shadow-[0_0_0_1px_rgb(17_26_19/0.08)] outline-2 outline-offset-2 outline-transparent transition-[outline-color] duration-150 focus-visible:outline-[var(--lp-ink)] disabled:opacity-60"
+          className="flex h-14 w-full items-center justify-between gap-3 rounded-[18px] bg-[var(--lp-surface)] px-4 text-left text-base shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)] outline-2 outline-offset-2 outline-transparent transition-[outline-color] duration-150 focus-visible:outline-[var(--lp-ink)] disabled:opacity-60"
         >
-          <span className={cn('truncate', !selectedBank && 'text-[rgba(91,100,93,0.7)]')}>{selectedBank?.name || (label === 'Bank' ? 'Choose a bank' : 'Choose a provider')}</span>
+          <span className={cn('truncate', !selectedBank && 'text-[var(--lp-placeholder)]')}>{selectedBank?.name || (label === 'Bank' ? 'Choose a bank' : 'Choose a provider')}</span>
           <ChevronDown className={cn('size-4 shrink-0 opacity-50 transition-transform', open && 'rotate-180')} />
         </button>
         <BankSelectorDropdown
@@ -172,10 +172,10 @@ export function BankSelector({
       {accountName && !recipientNameNeeded && (
         <div className="flex items-center justify-between gap-3 rounded-[18px] bg-[#00e87a]/15 px-4 py-3.5 animate-in fade-in slide-in-from-top-2 duration-300">
           <div className="min-w-0">
-            <p className="text-[13px] text-[#0b5e36]">Account holder</p>
+            <p className="text-[13px] text-[var(--lp-good)]">Account holder</p>
             <p className="break-words text-[16px] font-semibold uppercase tracking-wide">{accountName}</p>
           </div>
-          <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[12px] font-semibold text-[#0e7a45]">
+          <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-[var(--lp-surface)] px-2.5 py-1 text-[12px] font-semibold text-[var(--lp-good)]">
             <CheckCircle2 className="size-3.5" /> Verified
           </span>
         </div>

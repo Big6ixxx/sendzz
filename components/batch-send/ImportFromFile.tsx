@@ -21,7 +21,7 @@ export function ImportFromFile({ onFileSelected }: ImportFromFileProps) {
       <button
         type="button"
         onClick={() => fileRef.current?.click()}
-        className="lp-card flex w-full items-center gap-3 rounded-[22px] p-4 text-left transition-shadow hover:shadow-[0_0_0_1px_rgb(17_26_19/0.2)]"
+        className="lp-card flex w-full items-center gap-3 rounded-[22px] p-4 text-left transition-shadow hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.2)]"
       >
         <span className="grid size-10 shrink-0 place-items-center rounded-full bg-[var(--lp-cream)]">
           <Upload className="size-[18px]" />

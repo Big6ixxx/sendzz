@@ -13,15 +13,15 @@ export function activityRoute(a: Activity): string | null {
 /** How each kind of activity is named and marked, wherever an activity is shown in the cream style. */
 export const ACTIVITY_LOOK: Record<ActivityType, { label: string; icon: typeof ArrowUpRight; badge: string; sign: string }> = {
   sent: { label: "Sent", icon: ArrowUpRight, badge: "bg-[var(--lp-ink)] text-[var(--lp-cream)]", sign: "−" },
-  received: { label: "Received", icon: ArrowDownLeft, badge: "bg-[var(--lp-green)] text-[var(--lp-ink)]", sign: "+" },
-  deposit: { label: "Deposit", icon: Wallet, badge: "bg-[#cdf5de] text-[#0e7a45]", sign: "+" },
-  withdrawal: { label: "To bank", icon: Landmark, badge: "bg-[var(--lp-forest)] text-[var(--lp-green)]", sign: "−" },
+  received: { label: "Received", icon: ArrowDownLeft, badge: "lp-fixed bg-[var(--lp-green)] text-[var(--lp-ink)]", sign: "+" },
+  deposit: { label: "Deposit", icon: Wallet, badge: "bg-[var(--lp-good-soft)] text-[var(--lp-good)]", sign: "+" },
+  withdrawal: { label: "To bank", icon: Landmark, badge: "lp-fixed bg-[var(--lp-forest)] text-[var(--lp-green)]", sign: "−" },
   bridge: { label: "Moved between networks", icon: Repeat, badge: "bg-[var(--lp-sand)] text-[var(--lp-ink)]", sign: "" },
-  security: { label: "Security", icon: Shield, badge: "bg-[#fbedcc] text-[#8a5a00]", sign: "" },
+  security: { label: "Security", icon: Shield, badge: "bg-[var(--lp-warn-soft)] text-[var(--lp-warn)]", sign: "" },
 };
 
-const WAITING = "bg-[#fbedcc] text-[#8a5a00]";
-const PROBLEM = "bg-[#fbe7df] text-[#a1462c]";
+const WAITING = "bg-[var(--lp-warn-soft)] text-[var(--lp-warn)]";
+const PROBLEM = "bg-[var(--lp-danger-soft)] text-[var(--lp-danger)]";
 const QUIET = "bg-[var(--lp-cream)] text-[var(--lp-muted)]";
 
 /** Statuses worth calling out, by what they mean for the money. Settled ones show no badge. */
@@ -45,7 +45,7 @@ export const ACTIVITY_STATUS: Record<string, { text: string; tone: string }> = {
 };
 
 /** The tone for a settled payment, where a list chooses to mark it (the public explorer). */
-export const SETTLED_TONE = "bg-[#cdf5de] text-[#0e7a45]";
+export const SETTLED_TONE = "bg-[var(--lp-good-soft)] text-[var(--lp-good)]";
 
 /** Statuses that mean the money arrived. Only these may read as done. */
 const SETTLED = new Set(["completed", "complete", "confirmed", "settled", "success", "claimed", "paid"]);

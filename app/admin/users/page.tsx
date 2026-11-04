@@ -26,7 +26,7 @@ function viewParams(searchTerm: string, page: number): string {
 /** Spend tiers, by lifetime volume. */
 function tierOf(volume: number): { label: string; className: string } | null {
   if (volume >= 10000) return { label: 'Whale', className: 'bg-[var(--lp-ink)] text-[var(--lp-green)]' };
-  if (volume >= 1000) return { label: 'Power', className: 'bg-[#00e87a]/15 text-[#0e7a45]' };
+  if (volume >= 1000) return { label: 'Power', className: 'bg-[#00e87a]/15 text-[var(--lp-good)]' };
   return null;
 }
 
@@ -133,7 +133,7 @@ function UserDirectory() {
         <StatTile label="Users" value={filteredUsers.length.toLocaleString('en-US')} loading={isPending} hint={searchTerm ? 'Matching your search' : 'All accounts'} />
         <StatTile label="Combined volume" value={formatUsd(summary.volume, 0)} loading={isPending} hint="Lifetime, settled" />
         <StatTile label="Whales" value={summary.whales.toLocaleString('en-US')} loading={isPending} hint="$10,000+ moved" />
-        <StatTile label="Power users" value={summary.power.toLocaleString('en-US')} loading={isPending} tone="text-[#0e7a45]" hint="$1,000+ moved" />
+        <StatTile label="Power users" value={summary.power.toLocaleString('en-US')} loading={isPending} tone="text-[var(--lp-good)]" hint="$1,000+ moved" />
       </div>
 
       <SearchField
@@ -153,7 +153,7 @@ function UserDirectory() {
         ) : (
           <>
             {/* Phones and tablets: one card per person. */}
-            <ul className="divide-y divide-[#ece6da] lg:hidden">
+            <ul className="divide-y divide-[var(--lp-soft-2)] lg:hidden">
               {currentUsers.map((user) => (
                 <UserCard key={user.id} user={user} {...rowProps(user.id)} />
               ))}
@@ -163,7 +163,7 @@ function UserDirectory() {
             <div className="hidden overflow-x-auto lg:block">
               <table className="w-full min-w-[1040px] border-collapse text-left">
                 <thead>
-                  <tr className="lp-mono border-b border-[#e3dcce] text-[12px] uppercase text-[var(--lp-muted)]">
+                  <tr className="lp-mono border-b border-[var(--lp-rule)] text-[12px] uppercase text-[var(--lp-muted)]">
                     <th className="px-6 py-4 font-normal">Person</th>
                     <th className="px-3 py-4 text-right font-normal">Deposits</th>
                     <th className="px-3 py-4 text-right font-normal">Sent</th>
@@ -174,20 +174,20 @@ function UserDirectory() {
                     <th className="px-6 py-4 text-right font-normal">Joined</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#ece6da]">
+                <tbody className="divide-y divide-[var(--lp-soft-2)]">
                   {currentUsers.map((user) => {
                     const tier = tierOf(user.total_volume || 0);
                     return (
                       <tr
                         key={user.id}
                         {...rowProps(user.id)}
-                        className="group cursor-pointer transition-colors hover:bg-[#fbf9f4] focus:bg-[#fbf9f4] focus:outline-none"
+                        className="group cursor-pointer transition-colors hover:bg-[var(--lp-raised)] focus:bg-[var(--lp-raised)] focus:outline-none"
                       >
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
                             <Avatar email={user.email} />
                             <div className="min-w-0">
-                              <p className="max-w-[260px] truncate text-[15px] font-semibold group-hover:text-[#00a857]">{user.email}</p>
+                              <p className="max-w-[260px] truncate text-[15px] font-semibold group-hover:text-[var(--lp-link)]">{user.email}</p>
                               <p className="lp-mono text-[12px] text-[var(--lp-muted)]">
                                 {user.id.slice(0, 8)} · {shortAddress(user.smart_account_address)}
                               </p>
@@ -241,7 +241,7 @@ function UserCard({ user, ...props }: { user: AdminUserRow } & React.HTMLAttribu
     { label: 'Withdrawn', value: user.total_withdrawals },
   ];
   return (
-    <li {...props} className="cursor-pointer space-y-3 px-5 py-4 transition-colors hover:bg-[#fbf9f4] focus:bg-[#fbf9f4] focus:outline-none">
+    <li {...props} className="cursor-pointer space-y-3 px-5 py-4 transition-colors hover:bg-[var(--lp-raised)] focus:bg-[var(--lp-raised)] focus:outline-none">
       <div className="flex items-center gap-3">
         <Avatar email={user.email} />
         <div className="min-w-0 flex-1">

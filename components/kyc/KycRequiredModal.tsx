@@ -79,13 +79,13 @@ export function KycRequiredModal({
           <div className="space-y-3">
             {/* The one number that matters, set as the headline rather than a caption. */}
             <p className="flex items-baseline gap-2">
-              <span className={`lp-display text-[48px] leading-none tracking-[-0.045em] tabular-nums ${isSpent ? "text-[#a1462c]" : ""}`}>
+              <span className={`lp-display text-[48px] leading-none tracking-[-0.045em] tabular-nums ${isSpent ? "text-[var(--lp-danger)]" : ""}`}>
                 ${formatMoney(remaining)}
               </span>
               <span className="text-[15px] text-[var(--lp-muted)]">of ${total} left</span>
             </p>
             <div
-              className="h-2 w-full overflow-hidden rounded-full bg-[#efe9dd]"
+              className="h-2 w-full overflow-hidden rounded-full bg-[var(--lp-soft)]"
               role="progressbar"
               aria-valuenow={Math.round(pct)}
               aria-valuemin={0}

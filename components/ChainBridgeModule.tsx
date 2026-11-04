@@ -615,7 +615,7 @@ export function ChainBridgeModule({
       { label: `Arriving on ${to}`, done: step2Done, active: step2Active },
     ];
     const linkPill =
-      "inline-flex h-12 flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-white px-5 text-[15px] font-semibold shadow-[0_0_0_1px_rgb(17_26_19/0.12)] transition-shadow hover:shadow-[0_0_0_1px_rgb(17_26_19/0.4)]";
+      "inline-flex h-12 flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-[var(--lp-surface)] px-5 text-[15px] font-semibold shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.12)] transition-shadow hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.4)]";
 
     return (
       <section className="lp-card relative mx-auto max-w-[620px] rounded-[32px] p-6 text-center sm:p-10">
@@ -634,7 +634,7 @@ export function ChainBridgeModule({
         <span
           className={cn(
             "mx-auto grid size-20 place-items-center rounded-full transition-colors duration-500",
-            isDone ? "bg-[var(--lp-green)] text-[var(--lp-ink)]" : "bg-[var(--lp-cream)] text-[var(--lp-ink)]",
+            isDone ? "lp-fixed bg-[var(--lp-green)] text-[var(--lp-ink)]" : "bg-[var(--lp-cream)] text-[var(--lp-ink)]",
           )}
         >
           {isDone ? <CheckCircle2 className="size-10" /> : <Loader2 className="size-9 animate-spin" />}
@@ -664,13 +664,13 @@ export function ChainBridgeModule({
               key={st.label}
               className={cn(
                 "flex items-center gap-3 rounded-[18px] px-4 py-3",
-                st.done ? "bg-[#cdf5de]" : st.active ? "bg-[var(--lp-cream)]" : "bg-transparent shadow-[0_0_0_1px_rgb(17_26_19/0.08)]",
+                st.done ? "bg-[var(--lp-good-soft)]" : st.active ? "bg-[var(--lp-cream)]" : "bg-transparent shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)]",
               )}
             >
               <span
                 className={cn(
                   "grid size-7 shrink-0 place-items-center rounded-full text-[13px] font-semibold",
-                  st.done ? "bg-[#0e7a45] text-white" : st.active ? "bg-[var(--lp-ink)] text-[var(--lp-cream)]" : "bg-[var(--lp-cream)] text-[var(--lp-muted)]",
+                  st.done ? "bg-[var(--lp-good)] text-white" : st.active ? "bg-[var(--lp-ink)] text-[var(--lp-cream)]" : "bg-[var(--lp-cream)] text-[var(--lp-muted)]",
                 )}
               >
                 {st.done ? <Check className="size-4" /> : i + 1}
@@ -752,7 +752,7 @@ export function ChainBridgeModule({
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,380px)] lg:items-start lg:gap-6">
       {/* ── The converter ─────────────────────────────────────────────────── */}
-      <section className="rounded-[36px] bg-[var(--lp-forest)] p-3 text-[var(--lp-cream)] sm:p-4">
+      <section className="lp-fixed rounded-[36px] bg-[var(--lp-forest)] p-3 text-[var(--lp-cream)] sm:p-4">
         <div className="relative space-y-2">
           <Slot label="From">
             <div className="flex items-center justify-between gap-3">
@@ -769,7 +769,7 @@ export function ChainBridgeModule({
                   type="button"
                   onClick={useMax}
                   disabled={bridgeFeePercent === null}
-                  className="rounded-full bg-white px-3 py-1.5 text-[13px] font-semibold shadow-[0_0_0_1px_rgb(17_26_19/0.08)] transition-shadow hover:shadow-[0_0_0_1px_rgb(17_26_19/0.3)] disabled:text-[var(--lp-muted)]"
+                  className="rounded-full bg-[var(--lp-surface)] px-3 py-1.5 text-[13px] font-semibold shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)] transition-shadow hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.3)] disabled:text-[var(--lp-muted)]"
                 >
                   Use max
                 </button>
@@ -784,10 +784,10 @@ export function ChainBridgeModule({
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="0.00"
-                className="lp-display w-full min-w-0 flex-1 bg-transparent text-[clamp(44px,10vw,64px)] leading-none tracking-[-0.045em] tabular-nums outline-none placeholder:text-[#d9d3c5] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                className="lp-display w-full min-w-0 flex-1 bg-transparent text-[clamp(44px,10vw,64px)] leading-none tracking-[-0.045em] tabular-nums outline-none placeholder:text-[var(--lp-line)] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
               />
             </label>
-            <p className={cn("mt-3 text-[14px]", overBalance ? "font-semibold text-[#a1462c]" : "text-[var(--lp-muted)]")}>
+            <p className={cn("mt-3 text-[14px]", overBalance ? "font-semibold text-[var(--lp-danger)]" : "text-[var(--lp-muted)]")}>
               {!source
                 ? "Pick where the money comes from."
                 : overBalance
@@ -802,7 +802,7 @@ export function ChainBridgeModule({
             onClick={swap}
             disabled={!canSwap}
             aria-label="Swap networks"
-            className="absolute left-1/2 top-1/2 z-10 grid size-12 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-4 border-[var(--lp-forest)] bg-[var(--lp-green)] text-[var(--lp-ink)] transition-transform duration-200 hover:rotate-180 disabled:bg-[#d9d3c5] disabled:text-[var(--lp-muted)] disabled:hover:rotate-0"
+            className="lp-fixed absolute left-1/2 top-1/2 z-10 grid size-12 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-4 border-[var(--lp-forest)] bg-[var(--lp-green)] text-[var(--lp-ink)] transition-transform duration-200 hover:rotate-180 disabled:bg-[var(--lp-line)] disabled:text-[var(--lp-muted)] disabled:hover:rotate-0"
           >
             <ArrowUpDown className="size-5" />
           </button>
@@ -820,7 +820,7 @@ export function ChainBridgeModule({
               <span
                 className={cn(
                   "lp-display min-w-0 truncate text-[clamp(44px,10vw,64px)] leading-none tracking-[-0.045em] tabular-nums",
-                  !(amountNum > 0) && "text-[#d9d3c5]",
+                  !(amountNum > 0) && "text-[var(--lp-line)]",
                 )}
               >
                 {fee ? fee.amount : amountNum > 0 ? amountNum.toFixed(2) : "0.00"}
@@ -900,7 +900,7 @@ export function ChainBridgeModule({
                       <span className="text-[15px] font-semibold tabular-nums">${bal.toFixed(2)}</span>
                     </span>
                     {/* One series, one hue: the length is the share of what the user holds. */}
-                    <span className="mt-2 block h-2 overflow-hidden rounded-full bg-[#efe9dd]">
+                    <span className="mt-2 block h-2 overflow-hidden rounded-full bg-[var(--lp-soft)]">
                       <span
                         className={cn("block h-full rounded-full", selected ? "bg-[#04c96a]" : "bg-[var(--lp-ink)]")}
                         style={{ width: `${largest ? Math.max(3, (bal / largest) * 100) : 0}%` }}
@@ -950,12 +950,12 @@ function NetworkPicker({
     <DropdownMenu>
       <DropdownMenuTrigger
         disabled={disabled}
-        className="inline-flex h-12 min-w-0 items-center gap-2.5 rounded-full bg-white py-1 pl-1.5 pr-4 text-[16px] font-semibold shadow-[0_0_0_1px_rgb(17_26_19/0.08)] outline-none transition-shadow hover:shadow-[0_0_0_1px_rgb(17_26_19/0.3)] focus-visible:ring-2 focus-visible:ring-[var(--lp-ink)] disabled:cursor-not-allowed disabled:text-[var(--lp-muted)] disabled:hover:shadow-[0_0_0_1px_rgb(17_26_19/0.08)]"
+        className="inline-flex h-12 min-w-0 items-center gap-2.5 rounded-full bg-[var(--lp-surface)] py-1 pl-1.5 pr-4 text-[16px] font-semibold shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)] outline-none transition-shadow hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.3)] focus-visible:ring-2 focus-visible:ring-[var(--lp-ink)] disabled:cursor-not-allowed disabled:text-[var(--lp-muted)] disabled:hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)]"
       >
         {value ? (
           <ChainLogo chain={value} size={34} />
         ) : (
-          <span className="size-[34px] rounded-full border-2 border-dashed border-[rgba(17,26,19,0.25)]" />
+          <span className="size-[34px] rounded-full border-2 border-dashed border-[rgb(var(--lp-hair)/0.25)]" />
         )}
         <span className="truncate">{value ? CHAIN_DISPLAY_NAMES[value] : placeholder}</span>
         <ChevronDown className="size-4 shrink-0" />

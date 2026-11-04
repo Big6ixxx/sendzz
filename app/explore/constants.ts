@@ -26,19 +26,19 @@ export const STATUS_META: Record<
   operational: {
     label: 'All systems operational',
     dot: 'bg-[#04c96a]',
-    text: 'text-[#0b5e36]',
-    ring: 'bg-[#cdf5de]',
+    text: 'text-[var(--lp-good)]',
+    ring: 'bg-[var(--lp-good-soft)]',
   },
   degraded: {
     label: 'Degraded performance',
     dot: 'bg-[#e0a526]',
-    text: 'text-[#6b4600]',
-    ring: 'bg-[#fbedcc]',
+    text: 'text-[var(--lp-warn)]',
+    ring: 'bg-[var(--lp-warn-soft)]',
   },
   down: {
     label: 'Service disruption',
     dot: 'bg-[#a1462c]',
-    text: 'text-[#8a3a24]',
-    ring: 'bg-[#fbe7df]',
+    text: 'text-[var(--lp-danger)]',
+    ring: 'bg-[var(--lp-danger-soft)]',
   },
 };

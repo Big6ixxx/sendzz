@@ -140,10 +140,10 @@ export function Providers({ children }: { children: ReactNode }) {
             position="top-right"
             toastOptions={{
               style: {
-                background: '#ffffff',
+                background: 'var(--lp-surface)',
                 border: 'none',
-                boxShadow: '0 0 0 1px rgb(17 26 19 / 0.08), 0 20px 48px -16px rgb(17 26 19 / 0.35)',
-                color: '#111a13',
+                boxShadow: '0 0 0 1px rgb(var(--lp-hair) / 0.08), 0 20px 48px -16px rgb(17 26 19 / 0.35)',
+                color: 'var(--lp-ink)',
                 borderRadius: '20px',
                 fontFamily: 'var(--font-geist), system-ui, sans-serif',
                 fontSize: '14px',

@@ -197,7 +197,7 @@ export function TwoFactorModal({
           role="dialog"
           aria-modal="true"
           aria-labelledby="two-factor-title"
-          className="pointer-events-auto relative max-h-[calc(100dvh-1rem)] w-full max-w-[460px] overflow-y-auto rounded-t-[28px] bg-[var(--lp-cream)] p-6 shadow-[0_0_0_1px_rgb(17_26_19/0.06),0_32px_80px_-24px_rgb(17_26_19/0.45)] animate-in fade-in slide-in-from-bottom-4 duration-200 sm:rounded-[32px] sm:p-8 sm:zoom-in-95"
+          className="pointer-events-auto relative max-h-[calc(100dvh-1rem)] w-full max-w-[460px] overflow-y-auto rounded-t-[28px] bg-[var(--lp-cream)] p-6 shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.06),0_32px_80px_-24px_rgb(17_26_19/0.45)] animate-in fade-in slide-in-from-bottom-4 duration-200 sm:rounded-[32px] sm:p-8 sm:zoom-in-95"
           onClick={(e) => e.stopPropagation()}
         >
           <button

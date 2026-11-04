@@ -460,7 +460,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
                     <button
                       type="button"
                       onClick={handleMax}
-                      className="rounded-full bg-[var(--lp-cream)] px-3 py-1.5 text-[13px] font-semibold transition-colors hover:bg-[#ece6da]"
+                      className="rounded-full bg-[var(--lp-cream)] px-3 py-1.5 text-[13px] font-semibold transition-colors hover:bg-[var(--lp-soft-2)]"
                     >
                       Use max
                     </button>
@@ -571,7 +571,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
               onClick={hook.goBack}
               // Not while the withdrawal is being sent: going back then would let it be sent twice.
               disabled={hook.loading}
-              className="lp-card inline-flex h-10 items-center gap-2 rounded-full px-4 text-[14px] font-semibold transition-colors hover:text-[#00a857] disabled:pointer-events-none disabled:opacity-50"
+              className="lp-card inline-flex h-10 items-center gap-2 rounded-full px-4 text-[14px] font-semibold transition-colors hover:text-[var(--lp-link)] disabled:pointer-events-none disabled:opacity-50"
             >
               <ArrowLeft className="size-4" /> Edit details
             </button>
@@ -586,7 +586,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
             {/* Read back, not re-asked: this is the last look before money moves. */}
             <dl className="lp-card rounded-[22px] px-5">
               {recipientRows.map((r) => (
-                <div key={r.label} className="flex items-baseline justify-between gap-4 border-b border-[#ece6da] py-3.5 last:border-b-0">
+                <div key={r.label} className="flex items-baseline justify-between gap-4 border-b border-[var(--lp-soft-2)] py-3.5 last:border-b-0">
                   <dt className="shrink-0 text-[14px] text-[var(--lp-muted)]">{r.label}</dt>
                   <dd className="min-w-0 break-words text-right text-[15px] font-semibold">{r.value}</dd>
                 </div>
@@ -667,7 +667,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
             <span
               className={cn(
                 "mx-auto grid size-20 place-items-center rounded-full",
-                hook.transferError ? "bg-[#a1462c]/10 text-[#a1462c]" : "lp-card",
+                hook.transferError ? "bg-[#a1462c]/10 text-[var(--lp-danger)]" : "lp-card",
               )}
             >
               {hook.transferError ? <AlertCircle className="size-9" /> : <Loader2 className="size-9 animate-spin" />}
@@ -800,7 +800,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
         <FlowFrame
           main={
             <div className="space-y-6 py-4 text-center animate-in fade-in duration-300">
-              <span className="mx-auto grid size-20 place-items-center rounded-full bg-[#a1462c]/10 text-[#a1462c]">
+              <span className="mx-auto grid size-20 place-items-center rounded-full bg-[#a1462c]/10 text-[var(--lp-danger)]">
                 <AlertCircle className="size-9" />
               </span>
               <div>

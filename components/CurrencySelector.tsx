@@ -79,7 +79,7 @@ export function CurrencySelector({
           type="button"
           title={`Select currency (currently ${selected})`}
           className={cn(
-            'flex items-center gap-2 rounded-full bg-[var(--lp-cream)] font-semibold text-[var(--lp-ink)] outline-none transition-[scale,background-color] duration-150 hover:bg-[#ece6da] active:scale-95',
+            'flex items-center gap-2 rounded-full bg-[var(--lp-cream)] font-semibold text-[var(--lp-ink)] outline-none transition-[scale,background-color] duration-150 hover:bg-[var(--lp-soft-2)] active:scale-95',
             isSmall ? 'h-8 px-3 text-[13px]' : 'h-10 px-4 text-[15px]',
           )}
         >
@@ -126,7 +126,7 @@ export function CurrencySelector({
                     <span className="block truncate text-[12px] text-[var(--lp-muted)]">{opt.name}</span>
                   </span>
                 </span>
-                {selected === opt.code && <span className="size-2 shrink-0 rounded-full bg-[#00a857]" />}
+                {selected === opt.code && <span className="size-2 shrink-0 rounded-full bg-[var(--lp-link)]" />}
               </DropdownMenuItem>
             ))
           )}

@@ -368,7 +368,7 @@ export function ActivityDetailModal({
 
   const look = ACTIVITY_LOOK[activity.type] ?? ACTIVITY_LOOK.sent;
   // Settled reads as done; anything else names its real state.
-  const status = activityStatus(activity.status) ?? { text: "Completed", tone: "bg-[#00e87a]/15 text-[#0e7a45]" };
+  const status = activityStatus(activity.status) ?? { text: "Completed", tone: "bg-[#00e87a]/15 text-[var(--lp-good)]" };
   const receiptData = (() => {
     const base = activityToReceiptData(activity);
     if (activity.type === "withdrawal" && base.fiatPayoutAmount == null && estimatedFiatRate) {
@@ -377,7 +377,7 @@ export function ActivityDetailModal({
     return base;
   })();
   const pill =
-    "inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-full border border-[rgba(17,26,19,0.15)] bg-white px-4 text-[14px] font-semibold transition-colors hover:border-[var(--lp-ink)]";
+    "inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-full border border-[rgb(var(--lp-hair)/0.15)] bg-[var(--lp-surface)] px-4 text-[14px] font-semibold transition-colors hover:border-[var(--lp-ink)]";
   const rows = [
     { label: "When", value: format(new Date(activity.timestamp), "d MMM yyyy, HH:mm") },
     // Cut to one row: a full address, hash or long email would push the dialog past the screen.
@@ -431,7 +431,7 @@ export function ActivityDetailModal({
 
           <dl className="lp-card mt-6 rounded-[22px] px-5">
             {rows.map((r) => (
-              <div key={r.label} className="flex items-center justify-between gap-4 border-b border-[#ece6da] py-3.5 last:border-b-0">
+              <div key={r.label} className="flex items-center justify-between gap-4 border-b border-[var(--lp-soft-2)] py-3.5 last:border-b-0">
                 <dt className="shrink-0 text-[14px] text-[var(--lp-muted)]">{r.label}</dt>
                 <dd className="flex min-w-0 items-center justify-end gap-1.5 text-[15px] font-semibold">
                   {"copyable" in r && r.copyable ? (
@@ -459,7 +459,7 @@ export function ActivityDetailModal({
 
           {activity.note && (
             <div className="mt-3 rounded-[22px] bg-[#00e87a]/12 px-5 py-4">
-              <p className="text-[13px] text-[#0b5e36]">Memo</p>
+              <p className="text-[13px] text-[var(--lp-good)]">Memo</p>
               <p className="mt-0.5 break-words text-[15px] leading-[1.5] [overflow-wrap:anywhere]">{activity.note}</p>
             </div>
           )}
@@ -490,7 +490,7 @@ export function ActivityDetailModal({
                   // than left blank, which reads as a transfer that never finished.
                   if (activity.status === "complete") {
                     return (
-                      <p className="flex flex-1 items-center justify-center rounded-full bg-[#00e87a]/12 px-4 py-2 text-center text-[13px] text-[#0b5e36]">
+                      <p className="flex flex-1 items-center justify-center rounded-full bg-[#00e87a]/12 px-4 py-2 text-center text-[13px] text-[var(--lp-good)]">
                         Delivered on {chainLabel(activity.destChain ?? "base")}
                       </p>
                     );
@@ -499,7 +499,7 @@ export function ActivityDetailModal({
                     <button
                       onClick={handleClaim}
                       disabled={isClaiming}
-                      className="inline-flex h-11 flex-1 items-center justify-center rounded-full bg-[var(--lp-green)] px-4 text-[14px] font-semibold text-[var(--lp-ink)] transition-[scale,opacity] duration-150 active:scale-[0.97] disabled:opacity-50"
+                      className="lp-fixed inline-flex h-11 flex-1 items-center justify-center rounded-full bg-[var(--lp-green)] px-4 text-[14px] font-semibold text-[var(--lp-ink)] transition-[scale,opacity] duration-150 active:scale-[0.97] disabled:opacity-50"
                     >
                       {isClaiming ? "Claiming…" : "Claim USDC"}
                     </button>

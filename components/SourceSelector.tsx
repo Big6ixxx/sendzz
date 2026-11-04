@@ -101,7 +101,7 @@ export function SourceSelector({
   };
 
   return (
-    <div className="overflow-hidden rounded-[22px] bg-white shadow-[0_0_0_1px_rgb(17_26_19/0.08)]">
+    <div className="overflow-hidden rounded-[22px] bg-[var(--lp-surface)] shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)]">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -125,7 +125,7 @@ export function SourceSelector({
           <OptionRow
             selected={value.mode === 'auto'}
             onClick={() => onChange({ mode: 'auto' })}
-            icon={<Sparkles className="size-4 text-[#0e7a45]" />}
+            icon={<Sparkles className="size-4 text-[var(--lp-good)]" />}
             title="Automatic"
             subtitle="Let Sendzz choose the best route"
           />
@@ -155,7 +155,7 @@ export function SourceSelector({
             <div
               className={cn(
                 'rounded-[16px] transition-colors',
-                value.mode === 'consolidate' ? 'bg-[#cdf5de]' : 'hover:bg-[var(--lp-cream)]',
+                value.mode === 'consolidate' ? 'bg-[var(--lp-good-soft)]' : 'hover:bg-[var(--lp-cream)]',
               )}
             >
               <OptionRow
@@ -178,14 +178,14 @@ export function SourceSelector({
                         type="button"
                         key={c}
                         onClick={() => toggleConsolidateChain(c)}
-                        className="flex w-full items-center gap-2.5 rounded-[12px] px-2 py-2 transition-colors hover:bg-white/60"
+                        className="flex w-full items-center gap-2.5 rounded-[12px] px-2 py-2 transition-colors hover:bg-[var(--lp-surface)]/60"
                       >
                         <span
                           className={cn(
                             'flex size-[18px] shrink-0 items-center justify-center rounded-[6px] border-2',
                             checked
                               ? 'border-[var(--lp-ink)] bg-[var(--lp-ink)]'
-                              : 'border-[rgba(17,26,19,0.35)] bg-white',
+                              : 'border-[rgb(var(--lp-hair)/0.35)] bg-[var(--lp-surface)]',
                           )}
                         >
                           {checked && <Check className="size-3 text-[var(--lp-cream)]" />}
@@ -203,7 +203,7 @@ export function SourceSelector({
                   <p
                     className={cn(
                       'px-2 pt-1 text-[13px] font-semibold',
-                      selectedSum + 1e-9 >= requiredAmount ? 'text-[#0b5e36]' : 'text-[#8a5a00]',
+                      selectedSum + 1e-9 >= requiredAmount ? 'text-[var(--lp-good)]' : 'text-[var(--lp-warn)]',
                     )}
                   >
                     Selected: ${selectedSum.toFixed(2)}
@@ -244,19 +244,19 @@ function OptionRow({
       disabled={disabled}
       className={cn(
         'flex w-full items-center gap-3 rounded-[16px] px-3 py-3 text-left transition-colors',
-        !flush && (selected ? 'bg-[#cdf5de]' : 'hover:bg-[var(--lp-cream)]'),
+        !flush && (selected ? 'bg-[var(--lp-good-soft)]' : 'hover:bg-[var(--lp-cream)]'),
         disabled && 'cursor-not-allowed hover:bg-transparent',
       )}
     >
       <span className="shrink-0">{icon}</span>
       <div className="flex-1 min-w-0">
         <p className={cn('truncate text-[15px] font-semibold', disabled ? 'text-[var(--lp-muted)]' : 'text-[var(--lp-ink)]')}>{title}</p>
-        <p className={cn('truncate text-[13px]', disabled ? 'text-[#8a5a00]' : 'text-[var(--lp-body)]')}>{subtitle}</p>
+        <p className={cn('truncate text-[13px]', disabled ? 'text-[var(--lp-warn)]' : 'text-[var(--lp-body)]')}>{subtitle}</p>
       </div>
       <span
         className={cn(
           'flex size-5 shrink-0 items-center justify-center rounded-full border-2',
-          selected ? 'border-[var(--lp-ink)]' : disabled ? 'border-[rgba(17,26,19,0.15)]' : 'border-[rgba(17,26,19,0.35)]',
+          selected ? 'border-[var(--lp-ink)]' : disabled ? 'border-[rgb(var(--lp-hair)/0.15)]' : 'border-[rgb(var(--lp-hair)/0.35)]',
         )}
       >
         {selected && <span className="size-2.5 rounded-full bg-[var(--lp-ink)]" />}

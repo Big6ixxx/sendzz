@@ -361,12 +361,12 @@ function MethodCard({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="flex w-full items-center gap-3 rounded-[20px] bg-white px-4 py-4 text-left shadow-[0_0_0_1px_rgb(17_26_19/0.08)] outline-none transition-shadow hover:shadow-[0_0_0_1px_rgb(17_26_19/0.3)] focus-visible:ring-2 focus-visible:ring-[#04c96a] disabled:pointer-events-none disabled:opacity-50"
+      className="flex w-full items-center gap-3 rounded-[20px] bg-[var(--lp-surface)] px-4 py-4 text-left shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)] outline-none transition-shadow hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.3)] focus-visible:ring-2 focus-visible:ring-[#04c96a] disabled:pointer-events-none disabled:opacity-50"
     >
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2">
           <span className="text-[16px] font-semibold">{title}</span>
-          {recommended && <span className="rounded-full bg-[#cdf5de] px-2 py-px text-[11px] font-semibold text-[#0e7a45]">Fastest</span>}
+          {recommended && <span className="rounded-full bg-[var(--lp-good-soft)] px-2 py-px text-[11px] font-semibold text-[var(--lp-good)]">Fastest</span>}
         </span>
         <span className="mt-0.5 block text-[14px] text-[var(--lp-muted)]">{hint}</span>
       </span>
@@ -458,7 +458,7 @@ export function PinSetup({
           key={p}
           className={cn(
             "h-1.5 flex-1 rounded-full transition-colors duration-300",
-            phase === "confirm" || p === "enter" ? "bg-[var(--lp-green)]" : "bg-[rgba(246,242,233,0.18)]",
+            phase === "confirm" || p === "enter" ? "lp-fixed bg-[var(--lp-green)]" : "bg-[rgba(246,242,233,0.18)]",
           )}
         />
       ))}

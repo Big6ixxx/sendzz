@@ -138,7 +138,7 @@ export default function HelpCenterPage() {
         <DocBody items={nav}>
           {groups.map((g, i) => (
             <DocSection key={g.title} id={slug(g.title)} number={i + 1} title={g.title}>
-              <ul className="divide-y divide-[#e3dcce] border-t border-[#e3dcce]">
+              <ul className="divide-y divide-[var(--lp-rule)] border-t border-[var(--lp-rule)]">
                 {g.rows.map((r) => (
                   <li key={r.what} className="flex items-start justify-between gap-6 py-5">
                     <span className="min-w-0">
@@ -149,7 +149,7 @@ export default function HelpCenterPage() {
                       <span
                         className={cn(
                           'lp-display block text-[clamp(24px,4vw,32px)] leading-none tracking-[-0.03em] tabular-nums',
-                          r.good && 'text-[#0e7a45]',
+                          r.good && 'text-[var(--lp-good)]',
                         )}
                       >
                         {r.price}
@@ -163,7 +163,7 @@ export default function HelpCenterPage() {
           ))}
 
           <DocSection id="questions" number={groups.length + 1} title="Common questions">
-            <ul className="divide-y divide-[#e3dcce] border-t border-[#e3dcce]">
+            <ul className="divide-y divide-[var(--lp-rule)] border-t border-[var(--lp-rule)]">
               {HELP_FAQS.map((faq, i) => {
                 const open = openFaq === i;
                 return (

@@ -57,18 +57,17 @@ export function ExecutionStatus({ hook, onClose }: ExecutionStatusProps) {
           <div className="flex flex-col items-center justify-center gap-6 py-8 text-center animate-in fade-in zoom-in-95 duration-500">
             <div className="relative">
               <svg className="size-48 -rotate-90" viewBox="0 0 192 192" aria-hidden>
-                <circle cx="96" cy="96" r="88" stroke="#e3dcce" strokeWidth="10" fill="none" />
+                <circle cx="96" cy="96" r="88" className="stroke-[var(--lp-rule)]" strokeWidth="10" fill="none" />
                 <circle
                   cx="96"
                   cy="96"
                   r="88"
-                  stroke="#111a13"
                   strokeWidth="10"
                   fill="none"
                   strokeDasharray={C}
                   strokeDashoffset={C - (C * percent) / 100}
                   strokeLinecap="round"
-                  className="transition-[stroke-dashoffset] duration-500 ease-out"
+                  className="stroke-[var(--lp-ink)] transition-[stroke-dashoffset] duration-500 ease-out"
                 />
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
@@ -130,7 +129,7 @@ export function ExecutionStatus({ hook, onClose }: ExecutionStatusProps) {
                 </p>
               </div>
               <div className="lp-card rounded-[22px]">
-                <div className="flex items-center justify-between gap-3 border-b border-[#e3dcce] px-5 py-3">
+                <div className="flex items-center justify-between gap-3 border-b border-[var(--lp-rule)] px-5 py-3">
                   <FlowLabel as="span">To retry</FlowLabel>
                   <button
                     onClick={() => hook.handleConfirm(failures.map((f) => f.email))}
@@ -139,12 +138,12 @@ export function ExecutionStatus({ hook, onClose }: ExecutionStatusProps) {
                     <RotateCcw className="size-3.5" /> Retry all
                   </button>
                 </div>
-                <ul className="max-h-[300px] divide-y divide-[#ece6da] overflow-y-auto">
+                <ul className="max-h-[300px] divide-y divide-[var(--lp-soft-2)] overflow-y-auto">
                   {failures.map((f) => (
                     <li key={f.email} className="flex items-center gap-3 px-5 py-3">
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-[15px] font-semibold">{f.email}</p>
-                        <p className="truncate text-[13px] text-[#a1462c]">{f.error || 'Network error'}</p>
+                        <p className="truncate text-[13px] text-[var(--lp-danger)]">{f.error || 'Network error'}</p>
                       </div>
                       <button
                         onClick={() => hook.handleConfirm([f.email])}

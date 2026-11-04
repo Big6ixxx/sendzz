@@ -22,7 +22,7 @@ function ProgressBar({ percentage, isVerified }: { percentage: number; isVerifie
   const fill = isVerified || percentage < 70 ? "bg-[#04c96a]" : percentage >= 100 ? "bg-[#a1462c]" : "bg-[#e0a526]";
   return (
     <div
-      className="h-2 w-full overflow-hidden rounded-full bg-[#efe9dd]"
+      className="h-2 w-full overflow-hidden rounded-full bg-[var(--lp-soft)]"
       role="progressbar"
       aria-valuenow={Math.round(percentage)}
       aria-valuemin={0}
@@ -45,7 +45,7 @@ function ProgressBar({ percentage, isVerified }: { percentage: number; isVerifie
 export function LimitsMeter({ allowance, isVerified = false, compact = false }: LimitsMeterProps) {
   if (isVerified) {
     return (
-      <p className="rounded-[18px] bg-[#cdf5de] px-4 py-3.5 text-[14px] leading-[1.5] text-[#0b5e36]">
+      <p className="rounded-[18px] bg-[var(--lp-good-soft)] px-4 py-3.5 text-[14px] leading-[1.5] text-[var(--lp-good)]">
         <span className="font-semibold">No withdrawal limit.</span> Your identity is verified, so you can cash out any amount.
       </p>
     );
@@ -79,7 +79,7 @@ export function LimitsMeter({ allowance, isVerified = false, compact = false }: 
         </span>
       </div>
       <ProgressBar percentage={allowance.percentage} isVerified={isVerified} />
-      <p className={cn("text-[13px] leading-[1.5]", spent ? "font-medium text-[#a1462c]" : "text-[var(--lp-muted)]")}>
+      <p className={cn("text-[13px] leading-[1.5]", spent ? "font-medium text-[var(--lp-danger)]" : "text-[var(--lp-muted)]")}>
         {spent
           ? "Verify your identity to withdraw again."
           : "A one-off allowance, in one withdrawal or several. It does not reset."}

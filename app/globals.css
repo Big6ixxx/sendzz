@@ -1,5 +1,72 @@
 @import "tailwindcss";
 
+/* Dark mode follows the data-theme attribute set on <html> (see app/layout.tsx), not the system
+   setting directly, so a person's own choice wins. `dark:` utilities use it. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* The palette, by meaning. Set on the document so everything, portals and toasts included,
+   reads it, and redefined for dark mode below. Components use these tokens, never the hex. */
+:root,
+.lp-fixed {
+  --lp-ink: #111a13;          /* text, and the dark button */
+  --lp-cream: #f6f2e9;        /* the page */
+  --lp-sand: #e7dfcf;         /* a quieter panel */
+  --lp-body: #3d463f;         /* running text */
+  --lp-muted: #5b645d;        /* secondary text */
+  --lp-line: #d9d3c5;         /* strong rules */
+  --lp-rule: #e3dcce;         /* rules between rows */
+  --lp-surface: #ffffff;      /* cards and fields */
+  --lp-raised: #fbf9f4;       /* a surface inside a card */
+  --lp-soft: #efe9dd;         /* placeholders, quiet fills */
+  --lp-soft-2: #ece6da;       /* their hover */
+  --lp-hair: 17 26 19;        /* hairline rings, as an rgb triplet for alpha */
+  --lp-placeholder: rgba(91, 100, 93, 0.8);
+  --lp-link: #00a857;
+  --lp-good: #0e7a45;
+  --lp-good-soft: #cdf5de;
+  --lp-warn: #8a5a00;
+  --lp-warn-soft: #fbedcc;
+  --lp-danger: #a1462c;
+  --lp-danger-soft: #fbe7df;
+  --lp-mark: #f3d3b8;
+  /* The same in both modes. */
+  --lp-green: #00e87a;
+  --lp-forest: #0b3b29;
+}
+
+/* Dark: a deep green-black page, cards a step lighter, the same green and forest. */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --lp-ink: #eceee6;
+  --lp-cream: #0c120e;
+  --lp-sand: #1d2721;
+  --lp-body: #c3cac2;
+  --lp-muted: #919a92;
+  --lp-line: #2f3a32;
+  --lp-rule: #253028;
+  --lp-surface: #141b16;
+  --lp-raised: #18201b;
+  --lp-soft: #1d2620;
+  --lp-soft-2: #243027;
+  --lp-hair: 236 238 230;
+  --lp-placeholder: rgba(145, 154, 146, 0.8);
+  --lp-link: #3ddc8a;
+  --lp-good: #4fd28f;
+  --lp-good-soft: rgb(0 232 122 / 0.14);
+  --lp-warn: #f0c15a;
+  --lp-warn-soft: rgb(245 196 81 / 0.14);
+  --lp-danger: #f19a82;
+  --lp-danger-soft: rgb(224 122 95 / 0.16);
+  --lp-mark: rgb(243 211 184 / 0.28);
+}
+
+/* Surfaces that look the same in both modes (the forest panels, the bright green buttons) keep
+   the light values for everything inside them, so dark text on green stays dark. */
+.lp-fixed {
+  color-scheme: light;
+}
+
+
 @theme {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -13,12 +80,12 @@
 
   /* The cream brand, app wide. The `.lp-root` scope (components/landing/landing.css) carries the
      same values plus the brand fonts, for anything portalled out of a page. */
-  --color-brand-primary: #ffffff;
-  --color-brand-secondary: #111a13;
+  --color-brand-primary: var(--lp-surface);
+  --color-brand-secondary: var(--lp-ink);
   --color-accent: #00e87a;
-  --color-accent-fg: #0e7a45;
-  --color-danger: #b42318;
-  --color-warning: #8a5a00;
+  --color-accent-fg: var(--lp-good);
+  --color-danger: var(--lp-danger);
+  --color-warning: var(--lp-warn);
   --color-info: #1d5fb4;
 
   --font-sans: var(--font-geist), system-ui, -apple-system, sans-serif;
@@ -30,15 +97,15 @@
 
 @layer base {
   :root {
-    --background: #f6f2e9;
-    --foreground: #111a13;
-    --muted: #f6f2e9;
-    --muted-foreground: #5b645d;
-    --border: #e3dcce;
-    --input: #ffffff;
-    --popover: #ffffff;
-    --popover-foreground: #111a13;
-    --ring: #111a13;
+    --background: var(--lp-cream);
+    --foreground: var(--lp-ink);
+    --muted: var(--lp-cream);
+    --muted-foreground: var(--lp-muted);
+    --border: var(--lp-rule);
+    --input: var(--lp-surface);
+    --popover: var(--lp-surface);
+    --popover-foreground: var(--lp-ink);
+    --ring: var(--lp-ink);
     --radius: 0.75rem;
     --accent: #00e87a;
   }
@@ -71,7 +138,7 @@
   /* Custom Scrollbar */
   * {
     scrollbar-width: thin;
-    scrollbar-color: #c9c1b0 transparent;
+    scrollbar-color: var(--lp-line) transparent;
   }
 
   *::-webkit-scrollbar {
@@ -84,12 +151,12 @@
   }
 
   *::-webkit-scrollbar-thumb {
-    background: #c9c1b0;
+    background: var(--lp-line);
     border-radius: 10px;
   }
 
   *::-webkit-scrollbar-thumb:hover {
-    background: #5b645d;
+    background: var(--lp-muted);
   }
 
   /* Hide number input spin buttons globally */
@@ -111,8 +178,16 @@
    A Tailwind utility (a plain rule in a layer is dropped by the v4 compiler), so a variant on
    the same element, such as a hover shadow, still applies over it. */
 @utility lp-card {
-  background-color: #ffffff;
-  box-shadow: 0 0 0 1px rgb(17 26 19 / 0.06);
+  background-color: var(--lp-surface);
+  box-shadow: 0 0 0 1px rgb(var(--lp-hair) / 0.06);
+}
+
+/* While the mode switches, nothing animates its colour: every surface changes in the same frame
+   instead of each fading on its own transition. */
+[data-theme-switching] *,
+[data-theme-switching] *::before,
+[data-theme-switching] *::after {
+  transition: none !important;
 }
 
 /* ─── iOS focus zoom ──────────────────────────────────────────────────────────

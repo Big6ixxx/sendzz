@@ -20,13 +20,13 @@ export function BankSelectorDropdown({
   if (!isOpen) return null;
 
   return (
-    <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-[20px] bg-white shadow-[0_0_0_1px_rgb(17_26_19/0.08),0_20px_48px_-16px_rgb(17_26_19/0.35)] animate-in fade-in zoom-in-95 duration-200">
+    <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-[20px] bg-[var(--lp-surface)] shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08),0_20px_48px_-16px_rgb(17_26_19/0.35)] animate-in fade-in zoom-in-95 duration-200">
       <label className="m-2 flex h-11 items-center gap-2 rounded-full bg-[var(--lp-cream)] px-3">
         <Search className="size-4 shrink-0 text-[var(--lp-muted)]" />
         <input
           type="text"
           placeholder="Search banks"
-          className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-[rgba(91,100,93,0.8)] md:text-[15px]"
+          className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-[var(--lp-placeholder)] md:text-[15px]"
           autoFocus
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}

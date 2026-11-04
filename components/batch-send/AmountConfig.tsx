@@ -50,7 +50,7 @@ export function AmountConfig({ hook, maxAmount }: AmountConfigProps) {
                       key={v}
                       type="button"
                       onClick={() => hook.setAmount(val.toString())}
-                      className="rounded-full bg-[var(--lp-cream)] px-3.5 py-1.5 text-[14px] font-semibold transition-colors hover:bg-[#ece6da]"
+                      className="rounded-full bg-[var(--lp-cream)] px-3.5 py-1.5 text-[14px] font-semibold transition-colors hover:bg-[var(--lp-soft-2)]"
                     >
                       {isFiat ? `${symbol}${v}k` : `$${v}`}
                     </button>

@@ -106,11 +106,7 @@ export function KycBanner({ userEmail }: KycBannerProps) {
     />
   );
 
-  const accent = isAtLimit
-    ? "#a1462c"
-    : isPending || isInReview
-      ? "#0e7a45"
-      : "#8a5a00";
+  const accent = isAtLimit ? "var(--lp-danger)" : isPending || isInReview ? "var(--lp-good)" : "var(--lp-warn)";
   return (
     <>
       <motion.div

@@ -90,7 +90,7 @@ export function OrderAdvancedDetails({
       </button>
 
       {open && (
-        <div className="space-y-2 border-t border-[#e3dcce] px-4 pb-3 pt-3">
+        <div className="space-y-2 border-t border-[var(--lp-rule)] px-4 pb-3 pt-3">
           {rows.map((r) => (
             <div key={r.label} className="flex items-center justify-between gap-3 text-[14px]">
               <span className="shrink-0 text-[var(--lp-muted)]">

@@ -7,7 +7,7 @@
  * and anything extra beside the logo or above the content. The logo always goes to the home page.
  */
 
-import { ChevronLeft, ChevronRight, LogOut, Menu, User, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, LogOut, Menu, Moon, Sun, User, X } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useState, useSyncExternalStore } from "react";
@@ -15,6 +15,9 @@ import { cn } from "@/lib/utils";
 import { brandFontVars } from "@/components/landing/fonts";
 import "@/components/landing/landing.css";
 import { MEDIA, useMedia } from "@/components/landing/motion";
+import { SwitchKnob } from "@/components/brand/ThemeToggle";
+import { useTheme } from "@/lib/theme";
+import { Wordmark } from "@/components/brand/Wordmark";
 
 export type AppNavItem = {
   name: string;
@@ -45,7 +48,7 @@ function Logo({ collapsed, badge }: { collapsed?: boolean; badge?: string }) {
   if (collapsed) return <Image src="/landing/mark.svg" alt="Sendzz" width={24} height={30} priority />;
   return (
     <span className="flex items-center gap-2.5">
-      <Image src="/landing/logo.svg" alt="Sendzz" width={100} height={30} priority />
+      <Wordmark width={100} height={30} priority />
       {badge && (
         <span className="lp-mono rounded-full bg-[var(--lp-ink)] px-2 py-0.5 text-[10px] uppercase text-[var(--lp-green)]">{badge}</span>
       )}
@@ -97,6 +100,7 @@ function AppSidebar({
     }
   };
 
+  const [theme, setTheme] = useTheme();
   const row = cn("relative flex items-center gap-3 rounded-full px-3 py-2.5 text-sm font-medium transition-colors", collapsed && "lg:justify-center lg:px-0");
   const label = cn(collapsed ? "lg:hidden" : "inline");
 
@@ -106,7 +110,7 @@ function AppSidebar({
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 border-r border-[#e3dcce] bg-[#fbf9f4] transition-all duration-300 ease-in-out lg:relative lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-50 border-r border-[var(--lp-rule)] bg-[var(--lp-raised)] transition-all duration-300 ease-in-out lg:relative lg:translate-x-0",
           isOpen ? "translate-x-0" : "-translate-x-full",
           collapsed ? "w-64 lg:w-20" : "w-64",
         )}
@@ -158,7 +162,7 @@ function AppSidebar({
                   >
                     <item.icon className="size-4.5 shrink-0" />
                     <span className={label}>{item.name}</span>
-                    <span className={cn("absolute right-2 top-1 rounded-full bg-[var(--lp-green)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-[var(--lp-ink)]", collapsed && "lg:hidden")}>
+                    <span className={cn("lp-fixed absolute right-2 top-1 rounded-full bg-[var(--lp-green)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-[var(--lp-ink)]", collapsed && "lg:hidden")}>
                       Soon
                     </span>
                   </div>
@@ -172,7 +176,7 @@ function AppSidebar({
                   onClick={onClose}
                   title={collapsed ? item.name : undefined}
                   aria-current={active ? "page" : undefined}
-                  className={cn(row, active ? "bg-[var(--lp-ink)] text-[var(--lp-cream)]" : "text-[var(--lp-body)] hover:bg-[#f0ebe0] hover:text-[var(--lp-ink)]")}
+                  className={cn(row, active ? "bg-[var(--lp-ink)] text-[var(--lp-cream)]" : "text-[var(--lp-body)] hover:bg-[var(--lp-soft-2)] hover:text-[var(--lp-ink)]")}
                 >
                   <item.icon className={cn("size-4.5 shrink-0", active && "text-[var(--lp-green)]")} />
                   <span className={label}>{item.name}</span>
@@ -181,11 +185,11 @@ function AppSidebar({
             })}
           </nav>
 
-          <div className="mt-auto space-y-2 border-t border-[#e3dcce] pt-5">
+          <div className="mt-auto space-y-2 border-t border-[var(--lp-rule)] pt-5">
             <div className={cn("px-3 py-3 transition-all", collapsed ? "lg:px-0 lg:py-1" : "rounded-[18px] bg-[var(--lp-cream)]")}>
               <div className={cn("flex items-center gap-2.5", collapsed && "lg:justify-center")}>
                 <span
-                  className="grid size-7 shrink-0 place-items-center rounded-full bg-[var(--lp-green)] text-[var(--lp-ink)]"
+                  className="lp-fixed grid size-7 shrink-0 place-items-center rounded-full bg-[var(--lp-green)] text-[var(--lp-ink)]"
                   title={collapsed ? userEmail : undefined}
                 >
                   <User className="size-3.5" />
@@ -199,9 +203,24 @@ function AppSidebar({
 
             <button
               type="button"
+              role="switch"
+              aria-checked={theme === "dark"}
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              title={collapsed ? (theme === "dark" ? "Light mode" : "Dark mode") : undefined}
+              className={cn(row, "w-full text-[var(--lp-body)] hover:bg-[var(--lp-soft-2)] hover:text-[var(--lp-ink)]")}
+            >
+              {theme === "dark" ? <Sun className="size-4 shrink-0" /> : <Moon className="size-4 shrink-0" />}
+              <span className={cn(label, "flex-1 text-left")}>Dark mode</span>
+              <span className={cn(collapsed && "lg:hidden")}>
+                <SwitchKnob on={theme === "dark"} />
+              </span>
+            </button>
+
+            <button
+              type="button"
               onClick={onLogout}
               title={collapsed ? "Sign out" : undefined}
-              className={cn(row, "w-full text-[var(--lp-muted)] hover:bg-[#a1462c]/[0.08] hover:text-[#a1462c]")}
+              className={cn(row, "w-full text-[var(--lp-muted)] hover:bg-[#a1462c]/[0.08] hover:text-[var(--lp-danger)]")}
             >
               <LogOut className="size-4 shrink-0" />
               <span className={label}>Sign out</span>
@@ -279,7 +298,7 @@ export function AppShell({
 
       <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* Phone and tablet header; the sidebar takes its place on a wide screen. */}
-        <header className="sticky top-0 z-30 flex shrink-0 items-center justify-between border-b border-[#e3dcce] bg-[rgba(246,242,233,0.9)] px-4 py-3 backdrop-blur-[6px] md:px-6 lg:hidden">
+        <header className="sticky top-0 z-30 flex shrink-0 items-center justify-between border-b border-[var(--lp-rule)] bg-[var(--lp-cream)]/90 px-4 py-3 backdrop-blur-[6px] md:px-6 lg:hidden">
           <Link href="/" aria-label="Sendzz home" className="flex items-center">
             <Logo badge={badge} />
           </Link>

@@ -132,23 +132,23 @@ export function AddBankContactModal({
               type="button"
               onClick={() => setNewBankDropdownOpen(!newBankDropdownOpen)}
               aria-expanded={newBankDropdownOpen}
-              className="flex h-14 w-full items-center justify-between gap-3 rounded-[18px] bg-white px-4 text-left text-base shadow-[0_0_0_1px_rgb(17_26_19/0.08)] outline-2 outline-offset-2 outline-transparent transition-[outline-color] duration-150 focus-visible:outline-[var(--lp-ink)]"
+              className="flex h-14 w-full items-center justify-between gap-3 rounded-[18px] bg-[var(--lp-surface)] px-4 text-left text-base shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)] outline-2 outline-offset-2 outline-transparent transition-[outline-color] duration-150 focus-visible:outline-[var(--lp-ink)]"
             >
-              <span className={cn('truncate', newBank ? 'font-semibold' : 'text-[rgba(91,100,93,0.8)]')}>
+              <span className={cn('truncate', newBank ? 'font-semibold' : 'text-[var(--lp-placeholder)]')}>
                 {newBank?.name || 'Choose a bank'}
               </span>
               <ChevronDown className={cn('size-4 shrink-0 transition-transform', newBankDropdownOpen && 'rotate-180')} />
             </button>
 
             {newBankDropdownOpen && (
-              <div className="absolute inset-x-0 top-full z-50 mt-2 overflow-hidden rounded-[22px] bg-white shadow-[0_0_0_1px_rgb(17_26_19/0.08),0_24px_48px_-20px_rgb(17_26_19/0.35)] animate-in fade-in zoom-in-95 duration-150">
+              <div className="absolute inset-x-0 top-full z-50 mt-2 overflow-hidden rounded-[22px] bg-[var(--lp-surface)] shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08),0_24px_48px_-20px_rgb(17_26_19/0.35)] animate-in fade-in zoom-in-95 duration-150">
                 <label className="flex items-center gap-2 border-b border-[var(--lp-line)] px-4 py-3">
                   <Search className="size-4 shrink-0 text-[var(--lp-muted)]" />
                   <input
                     type="text"
                     placeholder="Search banks"
                     aria-label="Search banks"
-                    className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-[rgba(91,100,93,0.8)]"
+                    className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-[var(--lp-placeholder)]"
                     autoFocus
                     value={newBankSearch}
                     onChange={(e) => setNewBankSearch(e.target.value)}
@@ -188,8 +188,8 @@ export function AddBankContactModal({
         />
 
         {newAccountName && (
-          <div className="rounded-[18px] bg-[#cdf5de] px-4 py-3.5 animate-in fade-in duration-200">
-            <p className="text-[13px] text-[#0b5e36]">Account holder</p>
+          <div className="rounded-[18px] bg-[var(--lp-good-soft)] px-4 py-3.5 animate-in fade-in duration-200">
+            <p className="text-[13px] text-[var(--lp-good)]">Account holder</p>
             <p className="mt-0.5 truncate text-[16px] font-semibold uppercase text-[var(--lp-ink)]">{newAccountName}</p>
           </div>
         )}

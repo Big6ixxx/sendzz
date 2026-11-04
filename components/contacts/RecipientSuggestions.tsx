@@ -33,7 +33,7 @@ export function RecipientSuggestions({
     'inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold transition-colors';
 
   return (
-    <div className="absolute left-0 right-0 top-full z-100 mt-2 max-h-72 overflow-y-auto rounded-[22px] bg-white p-1.5 shadow-[0_0_0_1px_rgb(17_26_19/0.08),0_24px_48px_-20px_rgb(17_26_19/0.35)]">
+    <div className="absolute left-0 right-0 top-full z-100 mt-2 max-h-72 overflow-y-auto rounded-[22px] bg-[var(--lp-surface)] p-1.5 shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08),0_24px_48px_-20px_rgb(17_26_19/0.35)]">
       {contacts.length === 0 ? (
         <div className="px-4 py-5 text-center">
           <p className="text-[14px] text-[var(--lp-muted)]">No saved contacts yet.</p>

@@ -21,7 +21,7 @@ const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      'flex h-12 w-full items-center justify-between gap-2 rounded-full bg-white px-4 text-[15px] font-medium text-[var(--lp-ink)] shadow-[0_0_0_1px_rgb(17_26_19/0.08)] outline-2 outline-offset-2 outline-transparent transition-[outline-color,box-shadow] duration-150 hover:shadow-[0_0_0_1px_rgb(17_26_19/0.3)] focus-visible:outline-[var(--lp-ink)] disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1',
+      'flex h-12 w-full items-center justify-between gap-2 rounded-full bg-[var(--lp-surface)] px-4 text-[15px] font-medium text-[var(--lp-ink)] shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)] outline-2 outline-offset-2 outline-transparent transition-[outline-color,box-shadow] duration-150 hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.3)] focus-visible:outline-[var(--lp-ink)] disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1',
       className,
     )}
     {...props}
@@ -78,8 +78,8 @@ const SelectContent = React.forwardRef<
       ref={ref}
       className={cn(
         `lp-root ${brandFontVars}`,
-        // Portalled to <body>, outside any cream page, so it brings the scope with it; !bg-white beats lp-root's own background.
-        'relative z-50 max-h-96 min-w-32 overflow-hidden rounded-[22px] !bg-white text-[var(--lp-ink)] shadow-[0_0_0_1px_rgb(17_26_19/0.08),0_24px_48px_-20px_rgb(17_26_19/0.35)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',
+        // Portalled to <body>, outside any cream page, so it brings the scope with it; !bg-[var(--lp-surface)] beats lp-root's own background.
+        'relative z-50 max-h-96 min-w-32 overflow-hidden rounded-[22px] !bg-[var(--lp-surface)] text-[var(--lp-ink)] shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08),0_24px_48px_-20px_rgb(17_26_19/0.35)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',
         position === 'popper' &&
           'data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1',
         className,
@@ -132,7 +132,7 @@ const SelectItem = React.forwardRef<
   >
     <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
       <SelectPrimitive.ItemIndicator>
-        <Check className="size-4 text-[#0e7a45]" />
+        <Check className="size-4 text-[var(--lp-good)]" />
       </SelectPrimitive.ItemIndicator>
     </span>
 

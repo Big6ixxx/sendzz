@@ -1,23 +1,15 @@
 /* The cream brand. Scoped under .lp-root, which every page and every portalled dialog or menu
    carries, so the brand fonts and tokens travel with them. */
 
-.lp-root {
-  --lp-ink: #111a13;
-  --lp-cream: #f6f2e9;
-  --lp-sand: #e7dfcf;
-  --lp-body: #3d463f;
-  --lp-muted: #5b645d;
-  --lp-line: #d9d3c5;
-  --lp-green: #00e87a;
-  --lp-forest: #0b3b29;
-
+.lp-root,
+.lp-fixed {
   /* The app's theme tokens (app/globals.css), restated so a component built on them, such as
      text-muted-foreground, reads the same inside a portal as on the page. */
-  --color-brand-primary: #ffffff;
+  --color-brand-primary: var(--lp-surface);
   --color-brand-secondary: var(--lp-ink);
-  --color-accent-fg: #0e7a45;
-  --color-danger: #b42318;
-  --color-warning: #8a5a00;
+  --color-accent-fg: var(--lp-good);
+  --color-danger: var(--lp-danger);
+  --color-warning: var(--lp-warn);
   --color-info: #1d5fb4;
   /* The aliases Tailwind reads (`--color-*`) too, not only what they alias: an alias takes its
      value once, at the root, so overriding the base variable here would not reach it. */
@@ -25,20 +17,22 @@
   --color-foreground: var(--lp-ink);
   --color-muted: var(--lp-cream);
   --color-muted-foreground: var(--lp-muted);
-  --color-border: #e3dcce;
-  --color-input: #ffffff;
-  --color-popover: #ffffff;
+  --color-border: var(--lp-rule);
+  --color-input: var(--lp-surface);
+  --color-popover: var(--lp-surface);
   --color-popover-foreground: var(--lp-ink);
   --background: var(--lp-cream);
   --foreground: var(--lp-ink);
   --muted: var(--lp-cream);
   --muted-foreground: var(--lp-muted);
-  --border: #e3dcce;
-  --input: #ffffff;
+  --border: var(--lp-rule);
+  --input: var(--lp-surface);
   --ring: var(--lp-ink);
   --font-sans: var(--font-geist), system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
 
+.lp-root {
   font-family: var(--font-geist), system-ui, sans-serif;
   color: var(--lp-ink);
   background: var(--lp-cream);
@@ -136,7 +130,7 @@
   width: 100%;
   height: 8px;
   border-radius: 9999px;
-  box-shadow: inset 0 0 0 1px rgba(17, 26, 19, 0.2);
+  box-shadow: inset 0 0 0 1px rgb(var(--lp-hair) / 0.2);
   cursor: pointer;
   background: linear-gradient(to right, var(--lp-ink) var(--fill), #fff var(--fill));
 }

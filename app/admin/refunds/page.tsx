@@ -98,8 +98,8 @@ export default function AdminRefunds() {
         transition={{ duration: 0.9, ease: EASE, delay: 0.06 }}
         className={
           !isPending && refunds.length === 0
-            ? 'rounded-[28px] bg-[var(--lp-green)] p-5 sm:p-8 md:rounded-[36px] md:p-10'
-            : 'rounded-[28px] bg-[var(--lp-forest)] p-5 text-[var(--lp-cream)] sm:p-8 md:rounded-[36px] md:p-10'
+            ? 'lp-fixed rounded-[28px] bg-[var(--lp-green)] p-5 sm:p-8 md:rounded-[36px] md:p-10'
+            : 'lp-fixed rounded-[28px] bg-[var(--lp-forest)] p-5 text-[var(--lp-cream)] sm:p-8 md:rounded-[36px] md:p-10'
         }
       >
         {isPending ? (
@@ -173,7 +173,7 @@ function CopyChip({ text, label, onCopy }: { text: string; label: string; onCopy
     <button
       type="button"
       onClick={() => onCopy(text, label)}
-      className="lp-mono inline-flex max-w-full items-center gap-2 rounded-[14px] bg-white px-3 py-2 text-left text-[12px] text-[var(--lp-ink)] shadow-[0_0_0_1px_rgb(17_26_19/0.08)] transition-colors hover:bg-[#fbf9f4]"
+      className="lp-mono inline-flex max-w-full items-center gap-2 rounded-[14px] bg-[var(--lp-surface)] px-3 py-2 text-left text-[12px] text-[var(--lp-ink)] shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)] transition-colors hover:bg-[var(--lp-raised)]"
       aria-label={`Copy ${label.toLowerCase()}`}
     >
       <span className="break-all">{text}</span>
@@ -230,7 +230,7 @@ function RefundCard({
           </p>
         </div>
         <div className="shrink-0 sm:text-right">
-          <p className="lp-display text-[clamp(24px,6vw,32px)] leading-none tracking-[-0.03em] text-[#a1462c] tabular-nums">
+          <p className="lp-display text-[clamp(24px,6vw,32px)] leading-none tracking-[-0.03em] text-[var(--lp-danger)] tabular-nums">
             {r.owedUsdc.toFixed(6)} <span className="text-[0.55em]">USDC</span>
           </p>
           <p className="mt-1 text-[13px] text-[var(--lp-muted)] tabular-nums">
@@ -254,7 +254,7 @@ function RefundCard({
 
       {/* Two ways to settle. They are different outcomes, and neither can be undone. */}
       <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <div className="flex flex-col rounded-[22px] border border-[#e3dcce] p-4 sm:p-5">
+        <div className="flex flex-col rounded-[22px] border border-[var(--lp-rule)] p-4 sm:p-5">
           <p className="flex items-center gap-2 text-[15px] font-semibold">
             <Undo2 className="size-4" /> Reverse in USDC
           </p>
@@ -264,7 +264,7 @@ function RefundCard({
               {r.refundAddress ? (
                 <CopyChip text={r.refundAddress} label="Address" onCopy={onCopy} />
               ) : (
-                <p className="text-[#8a5a00]">No {r.chain ?? ''} wallet on file. Ask the user where to send it.</p>
+                <p className="text-[var(--lp-warn)]">No {r.chain ?? ''} wallet on file. Ask the user where to send it.</p>
               )}
             </div>
             {r.txHash && (
@@ -316,7 +316,7 @@ function RefundCard({
           )}
         </div>
 
-        <div className="flex flex-col rounded-[22px] border border-[#e3dcce] p-4 sm:p-5">
+        <div className="flex flex-col rounded-[22px] border border-[var(--lp-rule)] p-4 sm:p-5">
           <p className="flex items-center gap-2 text-[15px] font-semibold">
             <Landmark className="size-4" /> Pay their bank instead
           </p>
@@ -328,10 +328,10 @@ function RefundCard({
                   {r.payout.accountName ? ` · ${r.payout.accountName}` : ''}
                 </p>
                 <CopyChip text={r.payout.accountNumber!} label="Account number" onCopy={onCopy} />
-                {r.payout.source === 'contact' && <p className="text-[#8a5a00]">From a saved contact. Check it matches.</p>}
+                {r.payout.source === 'contact' && <p className="text-[var(--lp-warn)]">From a saved contact. Check it matches.</p>}
               </>
             ) : (
-              <p className="text-[#8a5a00]">
+              <p className="text-[var(--lp-warn)]">
                 Not recoverable{r.payout.masked ? ` (only ${r.payout.masked} on file)` : ''}. Reverse the USDC instead.
               </p>
             )}

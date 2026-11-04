@@ -35,7 +35,7 @@ const ROUTES = [
 function Bar({ share, ours, index, seen }: { share: number; ours: boolean; index: number; seen: boolean }) {
   const [settled, setSettled] = useState(false);
   return (
-    <div className="mt-3 h-[14px] overflow-hidden rounded-full bg-[#efe9dd]">
+    <div className="mt-3 h-[14px] overflow-hidden rounded-full bg-[var(--lp-soft)]">
       <motion.div
         className={`h-full rounded-full ${ours ? "bg-[#04c96a]" : "bg-[#b1afa4]"}`}
         initial={{ x: "-100%" }}
@@ -55,7 +55,7 @@ export function Compare() {
 
   return (
     <section className={`${container} pb-[clamp(64px,9vw,120px)]`}>
-      <Reveal className="grid grid-cols-1 items-start gap-x-[72px] gap-y-12 rounded-[28px] bg-white p-[clamp(24px,5vw,64px)] md:rounded-[36px] lg:grid-cols-2">
+      <Reveal className="grid grid-cols-1 items-start gap-x-[72px] gap-y-12 rounded-[28px] bg-[var(--lp-surface)] p-[clamp(24px,5vw,64px)] md:rounded-[36px] lg:grid-cols-2">
         <div>
           <h2 className="lp-h2 lp-display">
             <span className="block">Send $100.</span>
@@ -93,7 +93,7 @@ export function Compare() {
         </div>
 
         <div>
-          <div className="lp-mono flex justify-between gap-4 border-b border-[#e3dcce] pb-3 text-[12px] uppercase text-[var(--lp-muted)]">
+          <div className="lp-mono flex justify-between gap-4 border-b border-[var(--lp-rule)] pb-3 text-[12px] uppercase text-[var(--lp-muted)]">
             <span>How it arrives</span>
             <span>They receive</span>
           </div>
@@ -101,7 +101,7 @@ export function Compare() {
             {ROUTES.map((r, i) => {
               const arrives = Math.max(0, amount - r.flat - amount * r.margin);
               return (
-                <li key={r.name} className="border-b border-[#e3dcce] pb-[22px] pt-6 last:pb-10">
+                <li key={r.name} className="border-b border-[var(--lp-rule)] pb-[22px] pt-6 last:pb-10">
                   <div className="flex items-end justify-between gap-4">
                     <div>
                       <p className="text-[18px] font-semibold leading-6">{r.name}</p>
@@ -111,7 +111,7 @@ export function Compare() {
                       <p className={`lp-display leading-none tracking-[-0.03em] ${r.ours ? "text-[30px]" : "text-[24px]"}`}>
                         <AnimatedNumber value={arrives} format={formatUsd} duration={350} />
                       </p>
-                      <p className={`mt-0.5 text-[13px] font-semibold leading-normal ${r.ours ? "text-[#0e7a45]" : "text-[#a1462c]"}`}>
+                      <p className={`mt-0.5 text-[13px] font-semibold leading-normal ${r.ours ? "text-[var(--lp-good)]" : "text-[var(--lp-danger)]"}`}>
                         {r.ours ? "Nothing lost" : <>−<AnimatedNumber value={amount - arrives} format={formatUsd} duration={350} /></>}
                       </p>
                     </div>
@@ -291,7 +291,7 @@ export function HowItWorks() {
         <div
           ref={card}
           style={pinned ? { position: "sticky", top: box.stickyTop } : undefined}
-          className="rounded-[32px] bg-[var(--lp-green)] px-[clamp(20px,4vw,64px)] py-[clamp(40px,5.6vw,78px)] md:rounded-[44px]"
+          className="lp-fixed rounded-[32px] bg-[var(--lp-green)] px-[clamp(20px,4vw,64px)] py-[clamp(40px,5.6vw,78px)] md:rounded-[44px]"
         >
           <div className="mx-auto max-w-[1280px]">
             <Reveal>
@@ -306,7 +306,7 @@ export function HowItWorks() {
             {pinned && (
               <div aria-hidden className="mb-5 grid grid-cols-3 gap-4">
                 {bars.map((b, i) => (
-                  <span key={i} className="h-1.5 overflow-hidden rounded-full bg-[rgba(17,26,19,0.15)]">
+                  <span key={i} className="h-1.5 overflow-hidden rounded-full bg-[rgb(var(--lp-hair)/0.15)]">
                     <motion.span className="block h-full origin-left rounded-full bg-[var(--lp-ink)]" style={{ scaleX: b }} />
                   </span>
                 ))}
@@ -315,14 +315,14 @@ export function HowItWorks() {
 
             <ol className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <Step stepRef={stepRefs[0]} pinned={pinned} n={1} title="Type their email" body="No account numbers, no wallet addresses, no SWIFT codes. Just the email they already use.">
-                <div className="flex min-h-[50.5px] gap-2.5 rounded-2xl bg-white px-4 py-3.5 text-[15px]">
+                <div className="flex min-h-[50.5px] gap-2.5 rounded-2xl bg-[var(--lp-surface)] px-4 py-3.5 text-[15px]">
                   <span className="text-[var(--lp-muted)]">To</span>
                   <motion.span className="lp-mono">{typedText}</motion.span>
                   <span className="lp-caret w-0.5 bg-[var(--lp-ink)]" />
                 </div>
               </Step>
               <Step stepRef={stepRefs[1]} pinned={pinned} delay={0.08} opacity={step2} n={2} title="Pick an amount" body="See exactly what they'll get before you send. The fee line always reads zero.">
-                <div className="flex min-h-[50.5px] flex-wrap justify-between gap-x-2.5 rounded-2xl bg-white px-4 py-3.5 text-[15px] tabular-nums">
+                <div className="flex min-h-[50.5px] flex-wrap justify-between gap-x-2.5 rounded-2xl bg-[var(--lp-surface)] px-4 py-3.5 text-[15px] tabular-nums">
                   <motion.span className="font-semibold">{usdText}</motion.span>
                   <motion.span className="lp-mono text-[var(--lp-muted)]">{ngnText}</motion.span>
                 </div>
@@ -343,7 +343,7 @@ export function HowItWorks() {
                 body="New to Sendzz? They get a claim link. One sign-in and the money is theirs."
               >
                 <div className="min-h-[50.5px]">
-                  <motion.div style={{ opacity: note, y: noteY, scale: noteScale }} className="rounded-2xl bg-white px-4 py-3.5 text-[15px]">
+                  <motion.div style={{ opacity: note, y: noteY, scale: noteScale }} className="rounded-2xl bg-[var(--lp-surface)] px-4 py-3.5 text-[15px]">
                     <p className="font-semibold">You&apos;ve got $200 from Chidi</p>
                     <p className="text-[14px] text-[var(--lp-muted)]">Tap to claim. It&apos;s already yours.</p>
                   </motion.div>
@@ -384,7 +384,7 @@ function SafetyCard({
         <motion.article
           ref={tiltRef}
           style={tiltStyle}
-          className="flex h-full min-h-[280px] flex-col gap-4 rounded-[30px] bg-[var(--lp-forest)] p-8 text-[var(--lp-cream)] md:min-h-[348px]"
+          className="lp-fixed flex h-full min-h-[280px] flex-col gap-4 rounded-[30px] bg-[var(--lp-forest)] p-8 text-[var(--lp-cream)] md:min-h-[348px]"
         >
           <h3 className="lp-display text-[32px] leading-none tracking-[-0.04em] md:text-[36px]">{title}</h3>
           <p className="text-[16px] leading-[1.55] text-[#cfe0d6]">{body}</p>
@@ -480,7 +480,7 @@ function HoldCard() {
         className={`${pill} relative touch-none select-none overflow-hidden [-webkit-touch-callout:none]`}
       >
         {label}
-        <span aria-hidden className={`absolute inset-0 grid place-items-center bg-[var(--lp-green)] text-[var(--lp-ink)] ${CLIP[state]}`}>
+        <span aria-hidden className={`lp-fixed absolute inset-0 grid place-items-center bg-[var(--lp-green)] text-[var(--lp-ink)] ${CLIP[state]}`}>
           {label}
         </span>
       </button>
@@ -526,7 +526,7 @@ function SplitCard() {
             initial={false}
             animate={split ? { opacity: 0, scale: 0.95 } : { opacity: 1, scale: 1 }}
             transition={{ duration: split ? 0.15 : 0.3, delay: split ? 0 : d * 0.6, ease: EASE }}
-            className="absolute left-0 top-0 flex h-10 origin-left items-center gap-1.5 whitespace-nowrap rounded-full bg-[var(--lp-green)] px-3.5 text-[13px] font-semibold text-[var(--lp-ink)]"
+            className="lp-fixed absolute left-0 top-0 flex h-10 origin-left items-center gap-1.5 whitespace-nowrap rounded-full bg-[var(--lp-green)] px-3.5 text-[13px] font-semibold text-[var(--lp-ink)]"
           >
             <KeyIcon />
             Your key
@@ -628,7 +628,7 @@ export function Cta({ signedIn, onSend }: { signedIn: boolean; onSend: (email: s
             e.preventDefault();
             onSend(valid ? email.trim() : null);
           }}
-          className="flex w-full flex-col gap-2 rounded-[32px] bg-white p-2 outline-2 outline-offset-2 outline-transparent transition-[outline-color] duration-150 focus-within:outline-[var(--lp-ink)] sm:flex-row sm:rounded-full"
+          className="flex w-full flex-col gap-2 rounded-[32px] bg-[var(--lp-surface)] p-2 outline-2 outline-offset-2 outline-transparent transition-[outline-color] duration-150 focus-within:outline-[var(--lp-ink)] sm:flex-row sm:rounded-full"
         >
           <label htmlFor="lp-cta-email" className="sr-only">
             Their email
@@ -641,7 +641,7 @@ export function Cta({ signedIn, onSend }: { signedIn: boolean; onSend: (email: s
             aria-describedby="lp-cta-hint"
             onChange={(e) => setEmail(e.target.value)}
             placeholder="mum@gmail.com"
-            className="min-w-0 flex-1 bg-transparent px-5 py-3.5 text-center text-[17px] outline-none placeholder:text-[rgba(91,100,93,0.7)] sm:text-left"
+            className="min-w-0 flex-1 bg-transparent px-5 py-3.5 text-center text-[17px] outline-none placeholder:text-[var(--lp-placeholder)] sm:text-left"
           />
           <Magnetic className="flex">
             <button
@@ -685,7 +685,7 @@ export function Faq({ items }: { items: { q: string; a: string }[] }) {
         {items.map((item, i) => {
           const isOpen = open === i;
           return (
-            <Reveal key={item.q} y={24} delay={i * 0.05} className="rounded-[22px] bg-white">
+            <Reveal key={item.q} y={24} delay={i * 0.05} className="rounded-[22px] bg-[var(--lp-surface)]">
               <h3>
                 <button
                   type="button"

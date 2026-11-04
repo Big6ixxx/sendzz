@@ -17,7 +17,7 @@ export function StatsHero({ stats, loading }: StatsHeroProps) {
     { label: 'Transactions', value: (stats?.tx_count_total ?? 0).toLocaleString(), note: 'Every one on record', accent: false },
   ];
   return (
-    <section aria-labelledby="stats-heading" className="grid grid-cols-1 overflow-hidden rounded-[32px] bg-[var(--lp-forest)] text-[var(--lp-cream)] sm:grid-cols-2">
+    <section aria-labelledby="stats-heading" className="lp-fixed grid grid-cols-1 overflow-hidden rounded-[32px] bg-[var(--lp-forest)] text-[var(--lp-cream)] sm:grid-cols-2">
       <h2 id="stats-heading" className="sr-only">
         Platform statistics
       </h2>

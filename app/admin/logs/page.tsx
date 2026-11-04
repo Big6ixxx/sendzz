@@ -62,7 +62,7 @@ export default function AdminLogs() {
   const health: { label: string; word: string; dot: string } = !lastEventTime
     ? { label: 'No activity', word: 'Offline', dot: 'bg-[#a9c2b5]' }
     : (now.getTime() - lastEventTime.getTime()) / 3_600_000 < 24
-      ? { label: 'Active and healthy', word: 'Online', dot: 'bg-[var(--lp-green)] lp-pulse' }
+      ? { label: 'Active and healthy', word: 'Online', dot: 'lp-fixed bg-[var(--lp-green)] lp-pulse' }
       : { label: 'Idle for over 24h', word: 'Warning', dot: 'bg-[#f5c451]' };
 
   return (
@@ -93,7 +93,7 @@ export default function AdminLogs() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, ease: EASE }}
-          className="grid grid-cols-1 gap-2 rounded-[28px] bg-[var(--lp-forest)] p-3 text-[var(--lp-cream)] sm:grid-cols-3 sm:p-4 md:rounded-[32px]"
+          className="lp-fixed grid grid-cols-1 gap-2 rounded-[28px] bg-[var(--lp-forest)] p-3 text-[var(--lp-cream)] sm:grid-cols-3 sm:p-4 md:rounded-[32px]"
         >
           {[
             {
@@ -130,7 +130,7 @@ export default function AdminLogs() {
         ) : filteredLogs.length === 0 ? (
           <EmptyState title="No entries" italic={search ? 'match that.' : 'yet.'} body={search ? 'Try a shorter or different search.' : undefined} />
         ) : (
-          <ul className="divide-y divide-[#ece6da]">
+          <ul className="divide-y divide-[var(--lp-soft-2)]">
             {filteredLogs.map((log: AdminLog) => {
               const isWebhook = logType === 'webhooks';
               const outcome = isWebhook ? webhookOutcome(log as WebhookLog) : null;
@@ -143,7 +143,7 @@ export default function AdminLogs() {
                   <button
                     type="button"
                     onClick={() => setSelected(log)}
-                    className="flex w-full items-start gap-3 px-5 py-4 text-left transition-colors hover:bg-[#fbf9f4] focus:bg-[#fbf9f4] focus:outline-none sm:items-center sm:gap-4 sm:px-6"
+                    className="flex w-full items-start gap-3 px-5 py-4 text-left transition-colors hover:bg-[var(--lp-raised)] focus:bg-[var(--lp-raised)] focus:outline-none sm:items-center sm:gap-4 sm:px-6"
                   >
                     <span className={cn('grid size-10 shrink-0 place-items-center rounded-full', outcome ? outcome.tone : 'bg-[#2a78d6]/10 text-[#1d5fb4]')}>
                       {isWebhook ? <Webhook className="size-[18px]" /> : <Terminal className="size-[18px]" />}
@@ -157,11 +157,11 @@ export default function AdminLogs() {
                         {isWebhook && (log as WebhookLog).event_type ? `${(log as WebhookLog).event_type} · ` : ''}
                         {format(new Date(log.created_at), 'd MMM, HH:mm:ss')}
                       </span>
-                      {cause && <span className="mt-1.5 block text-[13px] text-[#8a5a00] lg:hidden">{cause}</span>}
+                      {cause && <span className="mt-1.5 block text-[13px] text-[var(--lp-warn)] lg:hidden">{cause}</span>}
                     </span>
                     <span className="hidden max-w-[320px] min-w-0 text-right lg:block">
                       <span className="lp-mono block text-[11px] uppercase text-[var(--lp-muted)]">{cause ? 'Reported cause' : 'Payload'}</span>
-                      <span className={cn('block truncate text-[13px]', cause ? 'font-medium text-[#8a5a00]' : 'text-[var(--lp-muted)]')}>
+                      <span className={cn('block truncate text-[13px]', cause ? 'font-medium text-[var(--lp-warn)]' : 'text-[var(--lp-muted)]')}>
                         {cause ?? `${JSON.stringify(payload).slice(0, 80)}…`}
                       </span>
                     </span>

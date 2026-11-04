@@ -36,7 +36,7 @@ export function FlowTabs<T extends string>({
           onClick={() => onChange(o.value)}
           className={cn(
             'flex-1 whitespace-nowrap rounded-full px-3 py-2.5 text-[14px] font-semibold outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-[#04c96a]',
-            o.value === value ? 'bg-[var(--lp-ink)] text-[var(--lp-cream)]' : 'text-[var(--lp-body)] hover:text-[#00a857]',
+            o.value === value ? 'bg-[var(--lp-ink)] text-[var(--lp-cream)]' : 'text-[var(--lp-body)] hover:text-[var(--lp-link)]',
           )}
         >
           {o.label}
@@ -58,7 +58,7 @@ export function FlowSteps({ steps, current }: { steps: string[]; current: number
       </div>
       <div className="mt-2.5 flex gap-1.5">
         {steps.map((s, i) => (
-          <span key={s} className={cn('h-1.5 flex-1 rounded-full transition-colors duration-300', i <= current ? 'bg-[var(--lp-ink)]' : 'bg-[#e3dcce]')} />
+          <span key={s} className={cn('h-1.5 flex-1 rounded-full transition-colors duration-300', i <= current ? 'bg-[var(--lp-ink)]' : 'bg-[var(--lp-rule)]')} />
         ))}
       </div>
     </div>
@@ -106,12 +106,12 @@ export function AmountField({
             onChange={(e) => onChange(e.target.value)}
             placeholder={placeholder}
             autoFocus={autoFocus}
-            className="lp-display min-w-0 flex-1 bg-transparent text-[clamp(36px,10vw,48px)] leading-none tracking-[-0.04em] tabular-nums outline-none placeholder:text-[#d9d3c5] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            className="lp-display min-w-0 flex-1 bg-transparent text-[clamp(36px,10vw,48px)] leading-none tracking-[-0.04em] tabular-nums outline-none placeholder:text-[var(--lp-line)] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           />
         </div>
         <div className="shrink-0">{currency}</div>
       </div>
-      {footer && <div className="mt-3 border-t border-[#ece6da] pt-3">{footer}</div>}
+      {footer && <div className="mt-3 border-t border-[var(--lp-soft-2)] pt-3">{footer}</div>}
     </div>
   );
 }
@@ -123,9 +123,9 @@ export function CurrencyPill({ children }: { children: React.ReactNode }) {
 
 const NOTICE = {
   info: { Icon: Info, box: 'lp-card', icon: 'bg-[var(--lp-cream)] text-[var(--lp-ink)]', title: '' },
-  warning: { Icon: ShieldAlert, box: 'bg-[#f5c451]/20', icon: 'bg-[#f5c451]/40 text-[#8a5a00]', title: 'text-[#6b4600]' },
-  danger: { Icon: AlertCircle, box: 'bg-[#a1462c]/10', icon: 'bg-[#a1462c]/15 text-[#a1462c]', title: 'text-[#8a3a24]' },
-  success: { Icon: CheckCircle2, box: 'bg-[#00e87a]/15', icon: 'bg-[#00e87a]/30 text-[#0e7a45]', title: 'text-[#0b5e36]' },
+  warning: { Icon: ShieldAlert, box: 'bg-[#f5c451]/20', icon: 'bg-[#f5c451]/40 text-[var(--lp-warn)]', title: 'text-[var(--lp-warn)]' },
+  danger: { Icon: AlertCircle, box: 'bg-[#a1462c]/10', icon: 'bg-[#a1462c]/15 text-[var(--lp-danger)]', title: 'text-[var(--lp-danger)]' },
+  success: { Icon: CheckCircle2, box: 'bg-[#00e87a]/15', icon: 'bg-[#00e87a]/30 text-[var(--lp-good)]', title: 'text-[var(--lp-good)]' },
 } as const;
 
 /** One way to say something needs reading: a tinted card, an icon, a title, a line. */
@@ -175,14 +175,14 @@ export function FlowButton({
         // Unavailable (not merely busy) keeps full-strength text on a flat sand fill: readable on
         // cream and on forest, where a faded green turned into a muddy block with the label gone.
         unavailable && tone !== 'quiet'
-          ? 'bg-[#d9d3c5] text-[#3d463f]'
+          ? 'bg-[var(--lp-line)] text-[var(--lp-body)]'
           : [
               tone === 'ink' && 'bg-[var(--lp-ink)] text-[var(--lp-cream)]',
-              tone === 'accent' && 'bg-[var(--lp-green)] text-[var(--lp-ink)]',
+              tone === 'accent' && 'lp-fixed bg-[var(--lp-green)] text-[var(--lp-ink)]',
               tone === 'danger' && 'bg-[#a1462c] text-white',
             ],
         // Ink set explicitly: on the forest panel the inherited text is cream, which vanishes on white.
-        tone === 'quiet' && 'border border-[rgba(17,26,19,0.15)] bg-white text-[var(--lp-ink)] hover:border-[var(--lp-ink)]',
+        tone === 'quiet' && 'border border-[rgb(var(--lp-hair)/0.15)] bg-[var(--lp-surface)] text-[var(--lp-ink)] hover:border-[var(--lp-ink)]',
         tone === 'quiet' && unavailable && 'opacity-60',
         className,
       )}
@@ -204,8 +204,8 @@ export const FlowInput = React.forwardRef<
       <label htmlFor={inputId} className="mb-1.5 block text-[14px] font-semibold">
         {label}
       </label>
-      <div className="flex h-14 items-center gap-3 rounded-[18px] bg-white px-4 shadow-[0_0_0_1px_rgb(17_26_19/0.08)] outline-2 outline-offset-2 outline-transparent transition-[outline-color] duration-150 focus-within:outline-[var(--lp-ink)]">
-        <input ref={ref} id={inputId} {...props} className={cn('min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-[rgba(91,100,93,0.7)] disabled:opacity-60', className)} />
+      <div className="flex h-14 items-center gap-3 rounded-[18px] bg-[var(--lp-surface)] px-4 shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)] outline-2 outline-offset-2 outline-transparent transition-[outline-color] duration-150 focus-within:outline-[var(--lp-ink)]">
+        <input ref={ref} id={inputId} {...props} className={cn('min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-[var(--lp-placeholder)] disabled:opacity-60', className)} />
         {trailing}
       </div>
       {hint && <p className="mt-1.5 text-[13px] leading-normal text-[var(--lp-muted)]">{hint}</p>}
@@ -217,7 +217,7 @@ export const FlowInput = React.forwardRef<
 export function FlowSuccess({ title, italic, body, children }: { title: string; italic: string; body?: React.ReactNode; children?: React.ReactNode }) {
   return (
     <div className="flex flex-col items-center text-center animate-in fade-in zoom-in-95 duration-500">
-      <span className="grid size-20 place-items-center rounded-full bg-[var(--lp-green)] text-[var(--lp-ink)]">
+      <span className="lp-fixed grid size-20 place-items-center rounded-full bg-[var(--lp-green)] text-[var(--lp-ink)]">
         <CheckCircle2 className="size-10" />
       </span>
       <h3 className="lp-display mt-6 text-[clamp(32px,8.4vw,44px)] leading-[0.95] tracking-[-0.045em]">
@@ -302,14 +302,14 @@ export function FlowFrame({ main, aside, action }: { main: React.ReactNode; asid
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6 pt-5 sm:px-8 sm:pb-8">
           {main}
-          {aside && !split && <div className="mt-5 rounded-[28px] bg-[var(--lp-forest)] p-5 text-[var(--lp-cream)]">{aside}</div>}
+          {aside && !split && <div className="lp-fixed mt-5 rounded-[28px] bg-[var(--lp-forest)] p-5 text-[var(--lp-cream)]">{aside}</div>}
         </div>
 
-        {action && !split && <div className="shrink-0 border-t border-[#e3dcce] bg-[var(--lp-cream)] px-5 py-4 sm:px-8">{action}</div>}
+        {action && !split && <div className="shrink-0 border-t border-[var(--lp-rule)] bg-[var(--lp-cream)] px-5 py-4 sm:px-8">{action}</div>}
       </div>
 
       {split && (
-        <aside className="flex min-h-0 flex-col bg-[var(--lp-forest)] text-[var(--lp-cream)]">
+        <aside className="lp-fixed flex min-h-0 flex-col bg-[var(--lp-forest)] text-[var(--lp-cream)]">
           <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-6 pt-20">{aside}</div>
           {action && <div className="shrink-0 px-8 pb-8">{action}</div>}
         </aside>
@@ -363,7 +363,7 @@ export function DetailRows({
   className?: string;
 }) {
   return (
-    <dl className={cn('divide-y divide-[#e3dcce] border-y border-[#e3dcce] text-[15px]', className)}>
+    <dl className={cn('divide-y divide-[var(--lp-rule)] border-y border-[var(--lp-rule)] text-[15px]', className)}>
       {rows.filter((r) => !!r).map((r, i) => (
         <div key={i} className="flex items-baseline justify-between gap-4 py-3">
           <dt className="shrink-0 text-[var(--lp-muted)]">{r.label}</dt>
@@ -444,7 +444,7 @@ export function FlowPage({
         {main}
       </section>
       <div className="min-w-0 space-y-4 lg:sticky lg:top-6">
-        <section className="rounded-[32px] bg-[var(--lp-forest)] p-6 text-[var(--lp-cream)] sm:p-7">
+        <section className="lp-fixed rounded-[32px] bg-[var(--lp-forest)] p-6 text-[var(--lp-cream)] sm:p-7">
           {summary}
           <div className="mt-6 space-y-3">{action}</div>
         </section>

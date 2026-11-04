@@ -46,7 +46,7 @@ export function TransactionsFeed({
   const th = 'px-5 py-3 lp-mono text-[11.5px] font-normal uppercase text-[var(--lp-muted)]';
   const empty = <p className="py-16 text-center text-[15px] text-[var(--lp-muted)]">No transactions match these filters.</p>;
   const pageButton =
-    'inline-flex h-10 items-center gap-1 rounded-full bg-white px-4 text-[14px] font-semibold shadow-[0_0_0_1px_rgb(17_26_19/0.12)] transition-shadow hover:shadow-[0_0_0_1px_rgb(17_26_19/0.4)] disabled:cursor-not-allowed disabled:opacity-40';
+    'inline-flex h-10 items-center gap-1 rounded-full bg-[var(--lp-surface)] px-4 text-[14px] font-semibold shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.12)] transition-shadow hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.4)] disabled:cursor-not-allowed disabled:opacity-40';
 
   return (
     <section aria-labelledby="feed-heading" className="space-y-4">

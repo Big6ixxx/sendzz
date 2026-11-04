@@ -148,7 +148,8 @@ export function TOTPSetupWizard({
 
         {step === "qr" && (
           <>
-            <div className="lp-card mx-auto w-fit rounded-[24px] p-5">
+            {/* Pinned light in both modes: a scanner needs dark modules on a light ground. */}
+            <div className="lp-fixed lp-card mx-auto w-fit rounded-[24px] p-5">
               {qrUri && <QRCodeSVG value={qrUri} size={208} level="H" includeMargin={false} bgColor="#ffffff" fgColor="#111a13" />}
             </div>
             <p className="text-center text-[14px] text-[var(--lp-muted)]">Open your authenticator app and scan this code.</p>
@@ -164,7 +165,7 @@ export function TOTPSetupWizard({
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <code className="lp-mono min-w-0 flex-1 break-all rounded-[14px] bg-white px-3 py-2.5 text-[13px]">{secret}</code>
+                  <code className="lp-mono min-w-0 flex-1 break-all rounded-[14px] bg-[var(--lp-surface)] px-3 py-2.5 text-[13px]">{secret}</code>
                   <button
                     type="button"
                     onClick={async () => {
@@ -176,10 +177,10 @@ export function TOTPSetupWizard({
                         toast.error("Could not copy. Select the key and copy it manually.");
                       }
                     }}
-                    className="grid size-10 shrink-0 place-items-center rounded-full bg-white transition-colors hover:bg-[var(--lp-cream)]"
+                    className="grid size-10 shrink-0 place-items-center rounded-full bg-[var(--lp-surface)] transition-colors hover:bg-[var(--lp-cream)]"
                     aria-label="Copy setup key"
                   >
-                    {copied ? <Check className="size-4 text-[#0e7a45]" /> : <Copy className="size-4" />}
+                    {copied ? <Check className="size-4 text-[var(--lp-good)]" /> : <Copy className="size-4" />}
                   </button>
                 </div>
                 {/* Named specifically: "store it securely" means nothing, these are the habits people have. */}

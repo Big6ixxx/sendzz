@@ -141,7 +141,7 @@ export default function DedicatedNotificationsPage() {
             <button
               type="button"
               onClick={handleMarkAllRead}
-              className="inline-flex h-12 items-center gap-2 rounded-full bg-white px-5 text-[15px] font-semibold shadow-[0_0_0_1px_rgb(17_26_19/0.12)] transition-shadow hover:shadow-[0_0_0_1px_rgb(17_26_19/0.4)]"
+              className="inline-flex h-12 items-center gap-2 rounded-full bg-[var(--lp-surface)] px-5 text-[15px] font-semibold shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.12)] transition-shadow hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.4)]"
             >
               <CheckCheck className="size-4" /> Mark all read
             </button>
@@ -214,7 +214,7 @@ export default function DedicatedNotificationsPage() {
                       type="button"
                       onClick={() => handleNotificationClick(notif)}
                       className={`group flex w-full items-start gap-3 rounded-[20px] px-3 py-3.5 text-left transition-colors hover:bg-[var(--lp-cream)] ${
-                        notif.read ? '' : 'bg-[#f3fbf6]'
+                        notif.read ? '' : 'bg-[var(--lp-good-soft)]'
                       }`}
                     >
                       {/* Unread is a dot in the gutter, so read and unread rows still line up. */}
@@ -253,7 +253,7 @@ export default function DedicatedNotificationsPage() {
           <button
             type="button"
             onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}
-            className={`${listPill} h-12 bg-white px-7 shadow-[0_0_0_1px_rgb(17_26_19/0.12)] hover:shadow-[0_0_0_1px_rgb(17_26_19/0.4)]`}
+            className={`${listPill} h-12 bg-[var(--lp-surface)] px-7 shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.12)] hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.4)]`}
           >
             Show more
           </button>

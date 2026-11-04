@@ -24,7 +24,7 @@ interface RowProps {
 
 function ConsolidatedBadge({ className }: { className?: string }) {
   return (
-    <span className={cn('inline-block rounded-full bg-[#fbedcc] px-2 py-px text-[11px] font-semibold text-[#8a5a00]', className)}>
+    <span className={cn('inline-block rounded-full bg-[var(--lp-warn-soft)] px-2 py-px text-[11px] font-semibold text-[var(--lp-warn)]', className)}>
       Combined
     </span>
   );
@@ -116,7 +116,7 @@ export function TxCardSkeleton() {
 export function TxTableRow({ row, timeZone, timeMode, onOpenActions }: RowProps) {
   const showMint = row.tx_type === 'bridge' && !!row.secondary_tx_hash;
   return (
-    <tr className="transition-colors hover:bg-[#fbf9f4]">
+    <tr className="transition-colors hover:bg-[var(--lp-raised)]">
       <td className="px-5 py-4">
         <TypeBadge type={row.tx_type} />
       </td>

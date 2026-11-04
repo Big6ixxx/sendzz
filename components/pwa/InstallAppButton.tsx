@@ -24,7 +24,7 @@ export function InstallAppButton({ compact = false }: { compact?: boolean }) {
 
   if (isInstalled) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-[#cdf5de] px-3 py-1.5 text-[13px] font-semibold text-[#0e7a45]">
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--lp-good-soft)] px-3 py-1.5 text-[13px] font-semibold text-[var(--lp-good)]">
         <Check className="size-3.5" />
         Installed
       </span>

@@ -4,12 +4,12 @@
  * the same form as a payment slip, so even a dead end reads like the rest of Sendzz.
  */
 
-import Image from "next/image";
 import Link from "next/link";
 import { brandFontVars } from "@/components/landing/fonts";
 import { cn } from "@/lib/utils";
 import "@/components/landing/landing.css";
 import { FlowLabel } from "@/components/flow/ui";
+import { Wordmark } from "@/components/brand/Wordmark";
 
 const pill =
   "inline-flex h-[50px] items-center justify-center gap-2 rounded-full px-6 text-[15px] font-semibold outline-none transition-[scale,border-color] duration-150 focus-visible:ring-2 focus-visible:ring-[#04c96a] focus-visible:ring-offset-2 active:scale-[0.97]";
@@ -17,7 +17,7 @@ const pill =
 /** The two buttons a status screen offers: ink for the way out, white for the alternative. */
 export const statusAction = {
   primary: cn(pill, "bg-[var(--lp-ink)] text-[var(--lp-cream)]"),
-  secondary: cn(pill, "border border-[rgba(17,26,19,0.15)] bg-white text-[var(--lp-ink)] hover:border-[var(--lp-ink)]"),
+  secondary: cn(pill, "border border-[rgb(var(--lp-hair)/0.15)] bg-[var(--lp-surface)] text-[var(--lp-ink)] hover:border-[var(--lp-ink)]"),
 };
 
 export type SlipRow = { label: string; value: React.ReactNode };
@@ -50,7 +50,7 @@ export function StatusScreen({
 
       <aside
         aria-label={slip.heading}
-        className="relative w-full max-w-[380px] justify-self-center rounded-[28px] bg-[var(--lp-forest)] p-7 text-[var(--lp-cream)] md:justify-self-end"
+        className="lp-fixed relative w-full max-w-[380px] justify-self-center rounded-[28px] bg-[var(--lp-forest)] p-7 text-[var(--lp-cream)] md:justify-self-end"
       >
         <p className="lp-mono text-[12px] uppercase text-[var(--lp-green)]">{slip.heading}</p>
         <p className="lp-display mt-6 text-[clamp(64px,10vw,96px)] leading-none tracking-[-0.06em]">{slip.code}</p>
@@ -76,7 +76,7 @@ export function BareBrandPage({ children }: { children: React.ReactNode }) {
     <div className={`lp-root ${brandFontVars} min-h-dvh`}>
       <header className="mx-auto flex h-[72px] w-full max-w-[1360px] items-center px-4 md:h-[82.5px] md:px-7">
         <Link href="/" aria-label="Sendzz home">
-          <Image src="/landing/logo.svg" alt="Sendzz" width={101.4} height={30} priority />
+          <Wordmark width={101.4} height={30} priority />
         </Link>
       </header>
       <main className="mx-auto w-full max-w-[1360px] px-4 pb-24 pt-6 md:px-7 md:pt-10">{children}</main>
@@ -94,7 +94,7 @@ export function BrandLoading({ label, background }: { label: string; background?
     >
       {background}
       <div className="relative z-10 flex flex-col items-center gap-6">
-        <Image src="/landing/logo.svg" alt="Sendzz" width={132} height={40} priority className="animate-pulse" />
+        <Wordmark width={132} height={40} priority className="animate-pulse" />
         <FlowLabel>{label}</FlowLabel>
       </div>
     </div>

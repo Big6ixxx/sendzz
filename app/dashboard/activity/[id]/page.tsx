@@ -78,7 +78,7 @@ function DetailRow({
         )}
         {copyable && (
           <button type="button" onClick={copy} className={icon} aria-label={`Copy ${label}`}>
-            {copied ? <Check className="size-4 text-[#0e7a45]" /> : <Copy className="size-4" />}
+            {copied ? <Check className="size-4 text-[var(--lp-good)]" /> : <Copy className="size-4" />}
           </button>
         )}
       </span>
@@ -472,7 +472,7 @@ export default function ActivityDetailPage({
     <button
       type="button"
       onClick={goBack}
-      className="inline-flex h-10 items-center gap-2 rounded-full bg-white pl-3 pr-4 text-[14px] font-semibold shadow-[0_0_0_1px_rgb(17_26_19/0.08)] transition-shadow hover:shadow-[0_0_0_1px_rgb(17_26_19/0.3)]"
+      className="inline-flex h-10 items-center gap-2 rounded-full bg-[var(--lp-surface)] pl-3 pr-4 text-[14px] font-semibold shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)] transition-shadow hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.3)]"
     >
       <ArrowLeft className="size-4" /> Back
     </button>
@@ -498,7 +498,7 @@ export default function ActivityDetailPage({
   }
 
   const look = ACTIVITY_LOOK[activity.type as ActivityType] ?? ACTIVITY_LOOK.security;
-  const status = activityStatus(activity.status) ?? { text: 'Completed', tone: 'bg-[var(--lp-green)] text-[var(--lp-ink)]' };
+  const status = activityStatus(activity.status) ?? { text: 'Completed', tone: 'lp-fixed bg-[var(--lp-green)] text-[var(--lp-ink)]' };
   const isOutgoing = activity.type === 'sent' || activity.type === 'withdrawal';
 
   // Network(s): accurate for bridges; transfers don't persist their chain yet.
@@ -637,7 +637,7 @@ export default function ActivityDetailPage({
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, ease: EASE }}
-          className="relative overflow-hidden rounded-[32px] bg-[var(--lp-forest)] p-6 text-[var(--lp-cream)] sm:p-8 lg:sticky lg:top-6"
+          className="lp-fixed relative overflow-hidden rounded-[32px] bg-[var(--lp-forest)] p-6 text-[var(--lp-cream)] sm:p-8 lg:sticky lg:top-6"
         >
           <div className="flex items-center justify-between gap-3">
             <span className="flex min-w-0 items-center gap-3">
@@ -703,7 +703,7 @@ export default function ActivityDetailPage({
                   href={burnExplorer}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`${pill} bg-white shadow-[0_0_0_1px_rgb(17_26_19/0.12)] hover:shadow-[0_0_0_1px_rgb(17_26_19/0.4)]`}
+                  className={`${pill} bg-[var(--lp-surface)] shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.12)] hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.4)]`}
                 >
                   <ExternalLink className="size-4" />
                   {activity.type === 'bridge' ? 'Where it left' : 'View on explorer'}
@@ -714,18 +714,18 @@ export default function ActivityDetailPage({
                   href={mintExplorer || '#'}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`${pill} bg-white shadow-[0_0_0_1px_rgb(17_26_19/0.12)] hover:shadow-[0_0_0_1px_rgb(17_26_19/0.4)]`}
+                  className={`${pill} bg-[var(--lp-surface)] shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.12)] hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.4)]`}
                 >
                   <ExternalLink className="size-4" /> Where it arrived
                 </a>
               )}
               {(bridgeAction === 'claimed' || bridgeAction === 'recent') && (
-                <div className={`${pill} bg-[#cdf5de] text-[#0e7a45]`}>
+                <div className={`${pill} bg-[var(--lp-good-soft)] text-[var(--lp-good)]`}>
                   <Check className="size-4" /> {bridgeAction === 'claimed' ? 'Arrived' : 'Completed'}
                 </div>
               )}
               {bridgeAction === 'claim' && (
-                <button type="button" onClick={handleClaim} disabled={isClaiming} className={`${pill} bg-[var(--lp-green)] text-[var(--lp-ink)]`}>
+                <button type="button" onClick={handleClaim} disabled={isClaiming} className={`lp-fixed ${pill} bg-[var(--lp-green)] text-[var(--lp-ink)]`}>
                   {isClaiming && <Loader2 className="size-4 animate-spin" />}
                   {isClaiming ? 'Finishing…' : 'Finish this move'}
                 </button>

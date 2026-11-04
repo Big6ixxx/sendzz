@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
  * on the dark green panels.
  */
 const TONE = {
-  card: "bg-[#efe9dd]",
+  card: "bg-[var(--lp-soft)]",
   page: "bg-[var(--lp-sand)]",
   forest: "bg-[rgba(246,242,233,0.12)]",
 } as const;

@@ -17,7 +17,7 @@ export function ReceiptActions({ data, className }: ReceiptActionsProps) {
   const [loadingImg, setLoadingImg] = useState(false);
 
   const cls =
-    'flex-1 h-11 rounded-full flex items-center justify-center gap-2 bg-white text-[14px] font-semibold text-[var(--lp-ink)] shadow-[0_0_0_1px_rgb(17_26_19/0.12)] transition-shadow hover:shadow-[0_0_0_1px_rgb(17_26_19/0.4)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--lp-ink)] disabled:opacity-50';
+    'flex-1 h-11 rounded-full flex items-center justify-center gap-2 bg-[var(--lp-surface)] text-[14px] font-semibold text-[var(--lp-ink)] shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.12)] transition-shadow hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.4)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--lp-ink)] disabled:opacity-50';
 
   const handlePDF = async () => {
     setLoadingPdf(true);

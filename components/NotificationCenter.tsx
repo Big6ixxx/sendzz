@@ -215,7 +215,7 @@ export function NotificationCenter({
 
   const getIcon = (type: NotificationItem['type']) => {
     const Icon = { transfer: Mail, bridge: Repeat, deposit: ArrowDownCircle, withdrawal: ArrowUpCircle, security: ShieldAlert }[type] ?? Bell;
-    return <Icon className={`size-4 ${type === 'security' ? 'text-[#a1462c]' : 'text-[#5b645d]'}`} aria-hidden />;
+    return <Icon className={`size-4 ${type === 'security' ? 'text-[var(--lp-danger)]' : 'text-[var(--lp-muted)]'}`} aria-hidden />;
   };
   const popupNotifications = notifications.slice(0, 5);
 
@@ -274,11 +274,11 @@ export function NotificationCenter({
         ref={triggerRef}
         onClick={() => setIsOpen(!isOpen)}
         aria-label="Notifications"
-        className="relative grid size-10 place-items-center rounded-full bg-white text-[#111a13] shadow-[0_0_0_1px_rgb(17_26_19/0.08)] transition-[scale] duration-150 hover:bg-[#f6f2e9] active:scale-[0.94]"
+        className="relative grid size-10 place-items-center rounded-full bg-[var(--lp-surface)] text-[var(--lp-ink)] shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)] transition-[scale] duration-150 hover:bg-[var(--lp-cream)] active:scale-[0.94]"
       >
         <Bell className="w-5 h-5" />
         {unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 grid h-5 min-w-5 place-items-center rounded-full border-2 border-[#f6f2e9] bg-[#00e87a] px-1 text-[10px] font-bold text-[#111a13]">
+          <span className="lp-fixed absolute -top-1 -right-1 grid h-5 min-w-5 place-items-center rounded-full border-2 border-[var(--lp-cream)] bg-[#00e87a] px-1 text-[10px] font-bold text-[var(--lp-ink)]">
             {unreadCount}
           </span>
         )}
@@ -295,14 +295,14 @@ export function NotificationCenter({
             width: panelPos.width,
             maxHeight: Math.min(384, panelPos.maxHeight), // 384px = the old max-h-96
           }}
-          className={`lp-root ${brandFontVars} z-50 flex flex-col space-y-3 rounded-[24px] !bg-white p-4 text-[#111a13] shadow-[0_24px_48px_-20px_rgb(17_26_19/0.35),0_0_0_1px_rgb(17_26_19/0.06)]`}
+          className={`lp-root ${brandFontVars} z-50 flex flex-col space-y-3 rounded-[24px] !bg-[var(--lp-surface)] p-4 text-[var(--lp-ink)] shadow-[0_24px_48px_-20px_rgb(17_26_19/0.35),0_0_0_1px_rgb(var(--lp-hair)/0.06)]`}
         >
-          <div className="flex shrink-0 items-center justify-between border-b border-[#e3dcce] pb-2">
+          <div className="flex shrink-0 items-center justify-between border-b border-[var(--lp-rule)] pb-2">
             <span className="text-[15px] font-semibold">Notifications</span>
             {unreadCount > 0 && (
               <button
                 onClick={handleMarkAllRead}
-                className="flex items-center gap-1 text-[12px] font-semibold text-[#00a857] transition-colors hover:text-[#0e7a45]"
+                className="flex items-center gap-1 text-[12px] font-semibold text-[var(--lp-link)] transition-colors hover:text-[var(--lp-good)]"
               >
                 <Check className="w-3 h-3" /> Mark all read
               </button>
@@ -312,7 +312,7 @@ export function NotificationCenter({
           {/* Notifications List (Max 5 items) */}
           <div className="flex-1 space-y-1 overflow-y-auto max-h-64 pr-1">
             {popupNotifications.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 py-8 text-center text-[13px] text-[#5b645d]">
+              <div className="flex flex-col items-center gap-2 py-8 text-center text-[13px] text-[var(--lp-muted)]">
                 <Bell className="w-6 h-6 stroke-1" />
                 No notifications yet
               </div>
@@ -322,18 +322,18 @@ export function NotificationCenter({
                   key={notif.id}
                   onClick={() => handleNotificationClick(notif)}
                   className={`flex cursor-pointer gap-3 rounded-[16px] p-3 text-left transition-colors ${
-                    notif.read ? 'text-[#5b645d] hover:bg-[#f6f2e9]' : 'bg-[#f6f2e9] text-[#111a13] hover:bg-[#efe9dd]'
+                    notif.read ? 'text-[var(--lp-muted)] hover:bg-[var(--lp-cream)]' : 'bg-[var(--lp-cream)] text-[var(--lp-ink)] hover:bg-[var(--lp-soft)]'
                   }`}
                 >
                   <div className="mt-0.5 shrink-0">{getIcon(notif.type)}</div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[13px] font-semibold leading-tight">{notif.title}</p>
-                    <p className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-[#3d463f]">{notif.body}</p>
-                    <span className="mt-1 block text-[11px] text-[#5b645d]">
+                    <p className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-[var(--lp-body)]">{notif.body}</p>
+                    <span className="mt-1 block text-[11px] text-[var(--lp-muted)]">
                       {formatNotificationTime(notif.created_at, nowTimestamp)}
                     </span>
                   </div>
-                  {!notif.read && <div className="mt-2 size-1.5 shrink-0 rounded-full bg-[#00a857]" aria-label="Unread" />}
+                  {!notif.read && <div className="mt-2 size-1.5 shrink-0 rounded-full bg-[var(--lp-link)]" aria-label="Unread" />}
                 </div>
               ))
             )}
@@ -341,13 +341,13 @@ export function NotificationCenter({
 
           {/* Footer View All Notifications Link (Only shown when notifications exist) */}
           {popupNotifications.length > 0 && (
-            <div className="shrink-0 border-t border-[#e3dcce] pt-2 text-center">
+            <div className="shrink-0 border-t border-[var(--lp-rule)] pt-2 text-center">
               <button
                 onClick={() => {
                   setIsOpen(false);
                   router.push('/dashboard/notifications');
                 }}
-                className="flex w-full items-center justify-center gap-1.5 rounded-full py-2 text-[13px] font-semibold text-[#00a857] transition-colors hover:bg-[#f6f2e9]"
+                className="flex w-full items-center justify-center gap-1.5 rounded-full py-2 text-[13px] font-semibold text-[var(--lp-link)] transition-colors hover:bg-[var(--lp-cream)]"
               >
                 View all notifications <ChevronRight className="w-3.5 h-3.5" />
               </button>

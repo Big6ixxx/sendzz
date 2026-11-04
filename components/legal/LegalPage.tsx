@@ -74,6 +74,6 @@ export function Lead({ children }: { children: React.ReactNode }) {
 /** A detail still to be filled in, highlighted so it cannot be missed before launch. */
 export function Blank({ children }: { children: React.ReactNode }) {
   return (
-    <mark className="rounded-[6px] bg-[#f3d3b8] px-1.5 py-0.5 text-[var(--lp-ink)] [box-decoration-break:clone]">[{children}]</mark>
+    <mark className="rounded-[6px] bg-[var(--lp-mark)] px-1.5 py-0.5 text-[var(--lp-ink)] [box-decoration-break:clone]">[{children}]</mark>
   );
 }

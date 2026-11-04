@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
  */
 /** A ruled list of rows, straight on the page as in the long-document layout. */
 export function DocRows({ children }: { children: React.ReactNode }) {
-  return <div className="divide-y divide-[#e3dcce] border-t border-[#e3dcce]">{children}</div>;
+  return <div className="divide-y divide-[var(--lp-rule)] border-t border-[var(--lp-rule)]">{children}</div>;
 }
 
 /** One setting. Give it `href` to make the whole row a link, or `control` for what sits at its end. */
@@ -86,13 +86,13 @@ export function Switch({
       }}
       className={cn(
         "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-[#04c96a] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
-        checked ? "bg-[var(--lp-ink)]" : "bg-[#e3dcce]",
+        checked ? "bg-[var(--lp-ink)]" : "bg-[var(--lp-rule)]",
       )}
     >
       <span
         className={cn(
           "size-5 rounded-full shadow-[0_1px_3px_rgb(17_26_19/0.25)] transition-transform duration-200",
-          checked ? "translate-x-6 bg-[var(--lp-green)]" : "translate-x-1 bg-white",
+          checked ? "lp-fixed translate-x-6 bg-[var(--lp-green)]" : "translate-x-1 bg-[var(--lp-surface)]",
         )}
       />
     </button>
@@ -117,7 +117,7 @@ export function RowAction({
         "inline-flex h-9 items-center rounded-full px-4 text-[14px] font-semibold transition-colors",
         tone === "primary" && "bg-[var(--lp-ink)] text-[var(--lp-cream)]",
         tone === "default" && "bg-[var(--lp-cream)] hover:bg-[var(--lp-sand)]",
-        tone === "danger" && "text-[#a1462c] hover:bg-[#fbe7df]",
+        tone === "danger" && "text-[var(--lp-danger)] hover:bg-[var(--lp-danger-soft)]",
       )}
     >
       {children}
@@ -130,7 +130,7 @@ export function SettingsBack() {
   return (
     <Link
       href="/dashboard/settings"
-      className="inline-flex h-10 items-center gap-2 rounded-full bg-white pl-3 pr-4 text-[14px] font-semibold shadow-[0_0_0_1px_rgb(17_26_19/0.08)] transition-shadow hover:shadow-[0_0_0_1px_rgb(17_26_19/0.3)]"
+      className="inline-flex h-10 items-center gap-2 rounded-full bg-[var(--lp-surface)] pl-3 pr-4 text-[14px] font-semibold shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)] transition-shadow hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.3)]"
     >
       <ArrowLeft className="size-4" /> Settings
     </Link>

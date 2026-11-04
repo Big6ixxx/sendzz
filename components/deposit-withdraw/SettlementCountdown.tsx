@@ -69,7 +69,7 @@ export function SettlementCountdown() {
             fill="none"
             stroke="currentColor"
             strokeWidth="2"
-            className="text-[#e3dcce]"
+            className="text-[var(--lp-rule)]"
           />
           <circle
             cx="52"

@@ -121,7 +121,7 @@ export function CryptoTransferForm({
                     'flex items-center gap-2 whitespace-nowrap rounded-full py-1.5 pl-1.5 pr-3.5 text-[14px] font-semibold transition-colors duration-150',
                     selectedChain === chain
                       ? 'bg-[var(--lp-ink)] text-[var(--lp-cream)]'
-                      : 'bg-white shadow-[0_0_0_1px_rgb(17_26_19/0.08)] hover:shadow-[0_0_0_1px_rgb(17_26_19/0.3)]',
+                      : 'bg-[var(--lp-surface)] shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)] hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.3)]',
                   )}
                 >
                   <ChainLogo chain={chain} size={22} />

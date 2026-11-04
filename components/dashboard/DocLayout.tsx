@@ -104,7 +104,7 @@ export function DocToc({ items }: { items: DocItem[] }) {
                   <motion.span
                     layoutId="doc-toc-marker"
                     transition={still ? { duration: 0 } : { type: "spring", stiffness: 420, damping: 36 }}
-                    className="absolute -left-px inset-y-0 w-0.5 bg-[#00a857]"
+                    className="absolute -left-px inset-y-0 w-0.5 bg-[var(--lp-link)]"
                     aria-hidden
                   />
                 )}
@@ -130,7 +130,7 @@ export function DocToc({ items }: { items: DocItem[] }) {
 
       <nav
         aria-label="On this page"
-        className="sticky top-0 z-20 -mx-4 overflow-x-auto bg-[rgba(246,242,233,0.92)] px-4 py-3 backdrop-blur-sm [scrollbar-width:none] lg:hidden"
+        className="sticky top-0 z-20 -mx-4 overflow-x-auto bg-[var(--lp-cream)]/90 px-4 py-3 backdrop-blur-sm [scrollbar-width:none] lg:hidden"
       >
         <ol className="flex gap-2">
           {items.map((item) => {
@@ -145,7 +145,7 @@ export function DocToc({ items }: { items: DocItem[] }) {
                   }}
                   className={cn(
                     "block whitespace-nowrap rounded-full px-3.5 py-1.5 text-[14px] font-medium transition-colors duration-200",
-                    on ? "bg-[var(--lp-ink)] text-[var(--lp-cream)]" : "bg-white text-[var(--lp-muted)] shadow-[0_0_0_1px_rgb(17_26_19/0.08)]",
+                    on ? "bg-[var(--lp-ink)] text-[var(--lp-cream)]" : "bg-[var(--lp-surface)] text-[var(--lp-muted)] shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)]",
                   )}
                 >
                   {item.label}
@@ -195,7 +195,7 @@ export function DocSection({
       whileInView={{ y: 0 }}
       viewport={{ once: true, margin: "0px 0px -12% 0px" }}
       transition={{ duration: 0.7, ease: EASE }}
-      className="scroll-mt-24 border-t border-[#e3dcce] pb-10 pt-10 first:border-t-0 first:pt-0 lg:scroll-mt-10"
+      className="scroll-mt-24 border-t border-[var(--lp-rule)] pb-10 pt-10 first:border-t-0 first:pt-0 lg:scroll-mt-10"
     >
       <div className="flex items-end justify-between gap-4">
         <div className="min-w-0">
@@ -213,7 +213,7 @@ export function DocSection({
 /** The forest card that ends a document and points to the next one. */
 export function DocReadNext({ title, body, href, cta = "Read it" }: { title: string; body: string; href: string; cta?: string }) {
   return (
-    <aside className="mt-6 flex flex-col gap-5 rounded-[30px] bg-[var(--lp-forest)] p-8 text-[var(--lp-cream)] sm:flex-row sm:items-end sm:justify-between">
+    <aside className="lp-fixed mt-6 flex flex-col gap-5 rounded-[30px] bg-[var(--lp-forest)] p-8 text-[var(--lp-cream)] sm:flex-row sm:items-end sm:justify-between">
       <div className="min-w-0">
         <p className="lp-mono text-[13px] uppercase text-[var(--lp-green)]">Read next</p>
         <p className="lp-display mt-4 text-[36px] leading-none tracking-[-0.04em]">{title}</p>
@@ -221,7 +221,7 @@ export function DocReadNext({ title, body, href, cta = "Read it" }: { title: str
       </div>
       <Link
         href={href}
-        className="inline-flex h-[46px] shrink-0 items-center gap-2 self-start rounded-full bg-[var(--lp-green)] px-[22px] text-[15px] font-semibold text-[var(--lp-ink)] transition-transform duration-150 hover:-translate-y-px sm:self-auto"
+        className="lp-fixed inline-flex h-[46px] shrink-0 items-center gap-2 self-start rounded-full bg-[var(--lp-green)] px-[22px] text-[15px] font-semibold text-[var(--lp-ink)] transition-transform duration-150 hover:-translate-y-px sm:self-auto"
       >
         {cta} <ArrowRight className="size-4" />
       </Link>

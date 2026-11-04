@@ -125,7 +125,7 @@ export function ReceiveCryptoFlow({
                     'flex min-w-0 items-center gap-1.5 whitespace-nowrap rounded-full py-1 pl-1 pr-3 text-[13px] font-semibold transition-colors duration-150 sm:gap-2 sm:py-1.5 sm:pl-1.5 sm:pr-4 sm:text-[14px]',
                     rail === r.value
                       ? 'bg-[var(--lp-ink)] text-[var(--lp-cream)]'
-                      : 'bg-white shadow-[0_0_0_1px_rgb(17_26_19/0.08)] hover:shadow-[0_0_0_1px_rgb(17_26_19/0.3)]',
+                      : 'bg-[var(--lp-surface)] shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)] hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.3)]',
                   )}
                 >
                   {r.value === 'evm' ? (
@@ -181,7 +181,7 @@ export function ReceiveCryptoFlow({
                   {activationFailed ? 'Try again' : 'Activate my Stellar address'}
                 </FlowButton>
                 {activationFailed && (
-                  <p className="text-[13px] leading-[1.5] text-[#a1462c]">
+                  <p className="text-[13px] leading-[1.5] text-[var(--lp-danger)]">
                     Activation didn&apos;t finish. Please try again, or contact support if it keeps happening. Don&apos;t send anything to
                     Stellar until your address shows here.
                   </p>
@@ -227,8 +227,9 @@ export function ReceiveCryptoFlow({
             <p className="lp-display mt-2 text-[clamp(26px,6vw,32px)] leading-[1] tracking-[-0.03em]">
               Send USDC <span className="lp-serif tracking-[-0.01em] text-[#cfe0d6]">on {networkName}</span>
             </p>
-            <div className="mx-auto mt-6 w-fit rounded-[24px] bg-[var(--lp-cream)] p-4">
-              <div className="rounded-[16px] bg-white p-3">
+            {/* Pinned light in both modes: a scanner needs dark modules on a light ground. */}
+            <div className="lp-fixed mx-auto mt-6 w-fit rounded-[24px] bg-[var(--lp-cream)] p-4">
+              <div className="rounded-[16px] bg-[var(--lp-surface)] p-3">
                 <QRCodeSVG value={address} size={176} level="M" fgColor="#111a13" bgColor="#ffffff" />
               </div>
             </div>

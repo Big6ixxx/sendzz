@@ -20,14 +20,14 @@ export function SearchField({
   label: string;
 }) {
   return (
-    <label className="flex h-12 w-full min-w-0 items-center gap-3 rounded-full bg-white px-4 shadow-[0_0_0_1px_rgb(17_26_19/0.08)] outline-2 outline-offset-2 outline-transparent transition-[outline-color] duration-150 focus-within:outline-[var(--lp-ink)] sm:flex-1">
+    <label className="flex h-12 w-full min-w-0 items-center gap-3 rounded-full bg-[var(--lp-surface)] px-4 shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)] outline-2 outline-offset-2 outline-transparent transition-[outline-color] duration-150 focus-within:outline-[var(--lp-ink)] sm:flex-1">
       <Search className="size-4 shrink-0 text-[var(--lp-muted)]" />
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         aria-label={label}
-        className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-[rgba(91,100,93,0.8)] md:text-[15px]"
+        className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-[var(--lp-placeholder)] md:text-[15px]"
       />
       {value && (
         <button
@@ -69,7 +69,7 @@ export function FilterPills<T extends string>({
             "inline-flex items-center gap-2",
             value === o.value
               ? "bg-[var(--lp-ink)] text-[var(--lp-cream)]"
-              : "bg-white shadow-[0_0_0_1px_rgb(17_26_19/0.08)] hover:shadow-[0_0_0_1px_rgb(17_26_19/0.3)]",
+              : "bg-[var(--lp-surface)] shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)] hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.3)]",
           )}
         >
           {o.label}

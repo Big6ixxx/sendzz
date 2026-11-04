@@ -323,7 +323,7 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
                     {request.details.map((detail) => (
                       <div key={detail.label} className="flex items-baseline gap-2 text-[14px]">
                         <dt className="shrink-0 text-[var(--lp-muted)]">{detail.label}</dt>
-                        <span aria-hidden className="min-w-4 flex-1 translate-y-[-3px] border-b border-dotted border-[rgba(17,26,19,0.25)]" />
+                        <span aria-hidden className="min-w-4 flex-1 translate-y-[-3px] border-b border-dotted border-[rgb(var(--lp-hair)/0.25)]" />
                         <dd className="max-w-[60%] break-all text-right font-semibold tabular-nums">{detail.value}</dd>
                       </div>
                     ))}
@@ -331,8 +331,8 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
                 )}
 
                 {request?.warning && (
-                  <p className="mt-5 flex items-start gap-2 text-[13px] leading-[1.5] text-[#6b4600]">
-                    <AlertTriangle className="mt-[2px] size-4 shrink-0 text-[#8a5a00]" />
+                  <p className="mt-5 flex items-start gap-2 text-[13px] leading-[1.5] text-[var(--lp-warn)]">
+                    <AlertTriangle className="mt-[2px] size-4 shrink-0 text-[var(--lp-warn)]" />
                     <span>{request.warning}</span>
                   </p>
                 )}
@@ -345,7 +345,7 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
                     <ol className="mt-2.5 space-y-2.5">
                       {request.plan.steps.map((step, index) => (
                         <li key={`${step.kind}-${index}`} className="flex gap-2.5 text-[13px] leading-[1.5]">
-                          <span className="grid size-5 shrink-0 place-items-center rounded-full bg-white text-[11px] font-semibold">
+                          <span className="grid size-5 shrink-0 place-items-center rounded-full bg-[var(--lp-surface)] text-[11px] font-semibold">
                             {index + 1}
                           </span>
                           <span className="min-w-0">
@@ -370,7 +370,7 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
           </div>
 
           {/* ── The keypad: what we are asking for ───────────────────────────── */}
-          <div className="flex flex-col bg-[var(--lp-forest)] px-6 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 text-[var(--lp-cream)] md:justify-center md:py-8">
+          <div className="lp-fixed flex flex-col bg-[var(--lp-forest)] px-6 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 text-[var(--lp-cream)] md:justify-center md:py-8">
             {needsSetup ? (
               /* No PIN exists, and we only found out at the moment of paying. Rather than
                  reject and drop them back to the form, the pending authorisation is held open

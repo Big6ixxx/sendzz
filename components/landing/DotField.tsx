@@ -3,7 +3,8 @@
 import { useEffect, useRef } from "react";
 import { MEDIA, useMedia } from "./motion";
 
-const INK = "#111a13";
+/** Stands for the theme's ink, read from --lp-ink when drawn, so the dots show in dark mode too. */
+const INK = "ink";
 const GREEN = "#00a857";
 const GOLD = "#e3a51b";
 const TAU = Math.PI * 2;
@@ -52,6 +53,8 @@ export function DotField() {
     let scrollVelocity = 0;
     let dirty = false;
     const pointer = { x: 0, y: 0, present: false };
+    const readInk = () => getComputedStyle(document.documentElement).getPropertyValue("--lp-ink").trim() || "#111a13";
+    let ink = readInk();
     const light = { x: 0, y: 0, strength: 0 };
 
     const drawGrid = () => {
@@ -60,7 +63,7 @@ export function DotField() {
       const y0 = (((-shift % GRID) + GRID) % GRID) - GRID / 2;
       grid.clearRect(0, 0, w, h);
       grid.globalAlpha = GRID_ALPHA;
-      grid.fillStyle = INK;
+      grid.fillStyle = ink;
       grid.beginPath();
       for (let y = y0; y < h + GRID; y += GRID)
         for (let x = x0; x < w; x += GRID) {
@@ -135,7 +138,7 @@ export function DotField() {
       specksCtx.clearRect(0, 0, w, h);
       for (const s of specks) {
         specksCtx.globalAlpha = s.alpha;
-        specksCtx.fillStyle = s.color;
+        specksCtx.fillStyle = s.color === INK ? ink : s.color;
         specksCtx.beginPath();
         specksCtx.arc(s.x, s.y, 0.8 + s.depth * 2.4, 0, TAU);
         specksCtx.fill();
@@ -199,6 +202,12 @@ export function DotField() {
     const leave = () => {
       pointer.present = false;
     };
+    // The mode changed: pick up the new ink and repaint the grid (the specks follow next frame).
+    const onTheme = () => {
+      ink = readInk();
+      dirty = true;
+    };
+    window.addEventListener("sendzz-theme", onTheme);
     if (fine) {
       window.addEventListener("pointermove", move, { passive: true });
       document.documentElement.addEventListener("pointerleave", leave);
@@ -207,6 +216,7 @@ export function DotField() {
     return () => {
       cancelAnimationFrame(frame);
       resize.disconnect();
+      window.removeEventListener("sendzz-theme", onTheme);
       window.removeEventListener("pointermove", move);
       document.documentElement.removeEventListener("pointerleave", leave);
     };

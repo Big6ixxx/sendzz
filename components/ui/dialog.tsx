@@ -74,7 +74,7 @@ function DialogContent({
           // browser chrome RETRACTED, so a vh-bound dialog is still cut off while the address
           // bar is showing — which is exactly when someone is reading it.
           'max-h-[calc(100dvh-2rem)] overflow-y-auto',
-          `lp-root ${brandFontVars} grid-cols-[minmax(0,1fr)] rounded-[28px] [box-shadow:0_0_0_1px_rgb(17_26_19/0.06),0_32px_80px_-24px_rgb(17_26_19/0.45)] sm:rounded-[32px]`,
+          `lp-root ${brandFontVars} grid-cols-[minmax(0,1fr)] rounded-[28px] [box-shadow:0_0_0_1px_rgb(var(--lp-hair)/0.06),0_32px_80px_-24px_rgb(17_26_19/0.45)] sm:rounded-[32px]`,
           className,
         )}
         {...props}

@@ -1,6 +1,7 @@
 import { Providers } from '@/components/providers';
 import type { Metadata } from 'next';
 import { brandFontVars } from '@/components/landing/fonts';
+import { THEME_SCRIPT } from '@/lib/theme-script';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -52,13 +53,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={brandFontVars}>
+    <html lang="en" className={brandFontVars} suppressHydrationWarning>
       <head>
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#f6f2e9" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <link rel="apple-touch-icon" href="/Sendz-192.png" />
+        {/* Sets light or dark before the first paint, so a saved choice never flashes the other. */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
       <body className="antialiased min-h-screen bg-background text-foreground flex flex-col">
         <Providers>{children}</Providers>

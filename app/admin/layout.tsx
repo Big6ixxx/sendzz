@@ -60,7 +60,7 @@ export default function AdminLayout({
     return (
       <div className={`lp-root ${brandFontVars} min-h-screen flex flex-col items-center justify-center p-8 text-center`}>
         <div className="mb-8 grid size-20 place-items-center rounded-[24px] bg-[#a1462c]/10">
-          <Lock className="size-9 text-[#a1462c]" />
+          <Lock className="size-9 text-[var(--lp-danger)]" />
         </div>
         <FlowLabel>Admin</FlowLabel>
         <h1 className="lp-display mt-2 mb-4 text-[clamp(36px,5vw,56px)] leading-[0.95] tracking-[-0.045em]">

@@ -67,10 +67,10 @@ export function SigningProgress({
                 className={cn(
                   "mt-0.5 w-5 h-5 shrink-0 rounded-full border flex items-center justify-center",
                   done
-                    ? "border-transparent bg-[var(--lp-green)] text-[var(--lp-ink)]"
+                    ? "lp-fixed border-transparent bg-[var(--lp-green)] text-[var(--lp-ink)]"
                     : active
                       ? "border-[var(--lp-ink)] text-[var(--lp-ink)]"
-                      : "border-[#d9d3c5] text-[var(--lp-muted)]",
+                      : "border-[var(--lp-line)] text-[var(--lp-muted)]",
                 )}
               >
                 {done ? (
@@ -87,7 +87,7 @@ export function SigningProgress({
                   className={cn(
                     "block text-[15px] font-semibold",
                     done
-                      ? "text-[var(--lp-muted)] line-through decoration-[#d9d3c5]"
+                      ? "text-[var(--lp-muted)] line-through decoration-[var(--lp-line)]"
                       : active
                         ? "text-[var(--lp-ink)]"
                         : "text-[var(--lp-muted)]",

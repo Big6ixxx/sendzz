@@ -84,7 +84,7 @@ export function ExploreFilters({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <FilterPills label="Time range" value={range} onChange={setRange} options={RANGE_FILTERS} />
         {/* Sort: the active column is filled, and its arrow says which way and flips on a second tap. */}
-        <div role="group" aria-label="Sort" className="flex rounded-full bg-white p-1 shadow-[0_0_0_1px_rgb(17_26_19/0.08)]">
+        <div role="group" aria-label="Sort" className="flex rounded-full bg-[var(--lp-surface)] p-1 shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)]">
           {SORTS.map((s) => {
             const on = sortCol === s.col;
             return (

@@ -19,6 +19,7 @@ import { AnimatedNumber, EASE, Reveal } from '@/components/landing/motion';
 import { cn } from '@/lib/utils';
 import { ForestStat, Panel, Shimmer } from './ui';
 import { formatUsd } from '@/lib/format-usdc';
+import { CHART_TOOLTIP } from '@/components/dashboard/chart-tooltip';
 
 export interface OverviewMetrics {
   totalUsers: number;
@@ -39,18 +40,6 @@ const count = (n: number) => Math.round(n).toLocaleString('en-US');
 const shortDate = (v: string | number | Date) =>
   new Date(v).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 
-/** The chart tooltip: a white card in the page's own type. */
-const TOOLTIP = {
-  contentStyle: {
-    backgroundColor: '#fff',
-    border: 'none',
-    borderRadius: 16,
-    boxShadow: '0 0 0 1px rgb(17 26 19 / 0.06), 0 12px 32px -12px rgb(17 26 19 / 0.25)',
-    padding: '10px 14px',
-  },
-  itemStyle: { color: '#111a13', fontSize: 13, fontWeight: 600 },
-  labelStyle: { color: '#5b645d', fontSize: 12, marginBottom: 2 },
-};
 const MONO = 'var(--font-geist-mono), ui-monospace, monospace';
 
 /** Columns of varying height where a chart will be. */
@@ -60,7 +49,7 @@ function ChartShimmer({ onDark, bars = 14 }: { onDark?: boolean; bars?: number }
       {Array.from({ length: bars }, (_, i) => (
         <span
           key={i}
-          className={cn('flex-1 animate-pulse rounded-t-[6px]', onDark ? 'bg-[rgba(246,242,233,0.08)]' : 'bg-[rgba(17,26,19,0.1)]')}
+          className={cn('flex-1 animate-pulse rounded-t-[6px]', onDark ? 'bg-[rgba(246,242,233,0.08)]' : 'bg-[rgb(var(--lp-hair)/0.1)]')}
           style={{ height: `${30 + ((i * 37) % 60)}%`, animationDelay: `${i * 60}ms` }}
         />
       ))}
@@ -102,7 +91,7 @@ export function VolumeHero({
       initial={{ opacity: 0, y: 28 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.9, ease: EASE, delay: 0.06 }}
-      className="overflow-hidden rounded-[28px] bg-[var(--lp-forest)] text-[var(--lp-cream)] md:rounded-[36px]"
+      className="lp-fixed overflow-hidden rounded-[28px] bg-[var(--lp-forest)] text-[var(--lp-cream)] md:rounded-[36px]"
     >
       <div className="grid grid-cols-1 gap-6 p-5 sm:gap-8 sm:p-8 md:p-10 xl:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] xl:gap-10">
         <div className="flex min-w-0 flex-col">
@@ -209,7 +198,7 @@ export function VolumeHero({
                   />
                   <ReferenceLine y={average} stroke="rgba(246,242,233,0.55)" strokeDasharray="4 4" strokeWidth={1.5} />
                   <Tooltip
-                    {...TOOLTIP}
+                    {...CHART_TOOLTIP}
                     cursor={{ stroke: 'rgba(246,242,233,0.35)', strokeWidth: 1 }}
                     labelFormatter={(v) => shortDate(v as string)}
                     formatter={(v) => [formatUsd(Number(v)), 'Volume']}
@@ -252,7 +241,7 @@ export function NewUsersCard({
 
   return (
     <Reveal className="h-full">
-      <section className={cn('flex h-full flex-col rounded-[28px] bg-[var(--lp-green)] p-5 transition-opacity duration-300 sm:rounded-[32px] sm:p-8', stale && 'opacity-70')}>
+      <section className={cn('lp-fixed flex h-full flex-col rounded-[28px] bg-[var(--lp-green)] p-5 transition-opacity duration-300 sm:rounded-[32px] sm:p-8', stale && 'opacity-70')}>
         <div className="flex items-center justify-between gap-3">
           <Eyebrow>New users</Eyebrow>
           <span className="lp-mono text-[11px] uppercase sm:text-[12px]">{periodLabel}</span>
@@ -284,19 +273,19 @@ export function NewUsersCard({
                 <XAxis
                   dataKey="date"
                   tickFormatter={shortDate}
-                  tick={{ fill: '#111a13', fontSize: 11, fontFamily: MONO }}
+                  tick={{ fill: 'currentColor', fontSize: 11, fontFamily: MONO }}
                   tickLine={false}
                   axisLine={false}
                   minTickGap={28}
                   padding={{ left: 8, right: 8 }}
                 />
                 <Tooltip
-                  {...TOOLTIP}
-                  cursor={{ fill: 'rgba(17,26,19,0.08)' }}
+                  {...CHART_TOOLTIP}
+                  cursor={{ fill: 'currentColor', fillOpacity: 0.08 }}
                   labelFormatter={(v) => shortDate(v as string)}
                   formatter={(v) => [count(Number(v)), 'New users']}
                 />
-                <Bar dataKey="users" fill="#111a13" radius={[4, 4, 0, 0]} maxBarSize={28} minPointSize={2} />
+                <Bar dataKey="users" fill="currentColor" radius={[4, 4, 0, 0]} maxBarSize={28} minPointSize={2} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -322,7 +311,7 @@ export function AttentionCard({ pending, loading }: { pending: number; loading: 
             <span
               className={cn(
                 'shrink-0 rounded-full px-3 py-1 text-[12px] font-semibold sm:text-[13px]',
-                clear ? 'bg-[#00e87a]/15 text-[#0e7a45]' : 'bg-[#f5c451]/30 text-[#8a5a00]',
+                clear ? 'bg-[#00e87a]/15 text-[var(--lp-good)]' : 'bg-[#f5c451]/30 text-[var(--lp-warn)]',
               )}
             >
               {clear ? 'All clear' : 'Action needed'}
@@ -363,7 +352,7 @@ export function AttentionCard({ pending, loading }: { pending: number; loading: 
           </Link>
           <Link
             href="/admin/refunds"
-            className="inline-flex h-12 items-center justify-center rounded-full border border-[rgba(17,26,19,0.15)] px-5 text-[15px] font-semibold transition-colors duration-150 hover:border-[var(--lp-ink)]"
+            className="inline-flex h-12 items-center justify-center rounded-full border border-[rgb(var(--lp-hair)/0.15)] px-5 text-[15px] font-semibold transition-colors duration-150 hover:border-[var(--lp-ink)]"
           >
             Refunds owed
           </Link>
@@ -412,7 +401,7 @@ export function MoneyFlow({ metrics, loading }: { metrics: OverviewMetrics; load
               <dd
                 className={cn(
                   'lp-display mt-1 truncate text-[clamp(22px,6vw,40px)] leading-none tracking-[-0.04em] tabular-nums',
-                  !loading && (net >= 0 ? 'text-[#0e7a45]' : 'text-[#a1462c]'),
+                  !loading && (net >= 0 ? 'text-[var(--lp-good)]' : 'text-[var(--lp-danger)]'),
                 )}
               >
                 {loading ? (
@@ -426,7 +415,7 @@ export function MoneyFlow({ metrics, loading }: { metrics: OverviewMetrics; load
         </div>
 
         <div className="min-w-0">
-          <div className="lp-mono flex justify-between gap-4 border-b border-[#e3dcce] pb-3 text-[11px] uppercase text-[var(--lp-muted)] sm:text-[12px]">
+          <div className="lp-mono flex justify-between gap-4 border-b border-[var(--lp-rule)] pb-3 text-[11px] uppercase text-[var(--lp-muted)] sm:text-[12px]">
             <span>Activity</span>
             <span>Volume</span>
           </div>
@@ -434,7 +423,7 @@ export function MoneyFlow({ metrics, loading }: { metrics: OverviewMetrics; load
             {rows.map((r, i) => {
               const share = total > 0 ? r.value / total : 0;
               return (
-                <li key={r.name} className="border-b border-[#e3dcce] pb-5 pt-5 last:border-b-0 last:pb-0 sm:pb-[22px] sm:pt-6">
+                <li key={r.name} className="border-b border-[var(--lp-rule)] pb-5 pt-5 last:border-b-0 last:pb-0 sm:pb-[22px] sm:pt-6">
                   <div className="flex items-end justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-[16px] font-semibold leading-6 sm:text-[18px]">{r.name}</p>
@@ -455,7 +444,7 @@ export function MoneyFlow({ metrics, loading }: { metrics: OverviewMetrics; load
                     </div>
                   </div>
                   <div
-                    className="mt-3 h-[10px] overflow-hidden rounded-full bg-[#efe9dd] sm:h-[14px]"
+                    className="mt-3 h-[10px] overflow-hidden rounded-full bg-[var(--lp-soft)] sm:h-[14px]"
                     role="img"
                     aria-label={loading ? `${r.name}: loading` : `${r.name}: ${(share * 100).toFixed(1)}% of volume`}
                   >

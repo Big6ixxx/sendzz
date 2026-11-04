@@ -59,7 +59,7 @@ export function RecipientList({ hook, senderEmail }: RecipientListProps) {
                     key={r.id}
                     className={cn(
                       'inline-flex max-w-full items-center gap-1.5 rounded-full py-1 pl-3 pr-1.5 text-[14px] font-medium',
-                      r.valid ? 'bg-[var(--lp-ink)] text-[var(--lp-cream)]' : 'bg-[#a1462c]/10 text-[#a1462c] line-through decoration-1',
+                      r.valid ? 'bg-[var(--lp-ink)] text-[var(--lp-cream)]' : 'bg-[#a1462c]/10 text-[var(--lp-danger)] line-through decoration-1',
                     )}
                   >
                     <span className="truncate">{r.email}</span>
@@ -83,7 +83,7 @@ export function RecipientList({ hook, senderEmail }: RecipientListProps) {
               <input
                 id="batch-input"
                 type="text"
-                className="min-w-0 flex-1 bg-transparent text-[17px] outline-none placeholder:text-[rgba(91,100,93,0.7)]"
+                className="min-w-0 flex-1 bg-transparent text-[17px] outline-none placeholder:text-[var(--lp-placeholder)]"
                 placeholder={hook.recipients.length === 0 ? 'Type or paste email addresses' : 'Add more'}
                 value={inputVal}
                 onChange={(e) => {
@@ -124,7 +124,7 @@ export function RecipientList({ hook, senderEmail }: RecipientListProps) {
             <div className="flex items-center justify-between px-1 text-[14px]">
               <span className="flex gap-3">
                 {ready.length > 0 && <span className="font-semibold">{ready.length} ready</span>}
-                {invalid.length > 0 && <span className="text-[#a1462c]">{invalid.length} not valid</span>}
+                {invalid.length > 0 && <span className="text-[var(--lp-danger)]">{invalid.length} not valid</span>}
               </span>
               <button onClick={() => hook.setRecipients([])} className="font-semibold text-[var(--lp-muted)] transition-colors hover:text-[var(--lp-ink)]">
                 Clear all

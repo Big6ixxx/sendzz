@@ -116,7 +116,7 @@ function Calculator({ onSend }: { onSend: () => void }) {
   };
 
   return (
-    <div className="flex h-full w-full min-w-0 flex-col gap-3 rounded-[36px] bg-white p-5 sm:p-7 lg:pb-[60px]">
+    <div className="flex h-full w-full min-w-0 flex-col gap-3 rounded-[36px] bg-[var(--lp-surface)] p-5 sm:p-7 lg:pb-[60px]">
       <h2 className="lp-display mb-1 text-[22px] font-semibold leading-[33px] tracking-[-0.02em]">
         How much are you sending?
       </h2>
@@ -193,7 +193,7 @@ function Calculator({ onSend }: { onSend: () => void }) {
         <button
           type="button"
           onClick={send}
-          className="relative h-[63.5px] w-full overflow-hidden rounded-full bg-[var(--lp-green)] text-[17px] font-semibold leading-[25.5px] transition-[scale] duration-150 active:scale-[0.97]"
+          className="lp-fixed relative h-[63.5px] w-full overflow-hidden rounded-full bg-[var(--lp-green)] text-[17px] font-semibold leading-[25.5px] transition-[scale] duration-150 active:scale-[0.97]"
         >
           <motion.span
             aria-hidden
@@ -222,9 +222,9 @@ function Calculator({ onSend }: { onSend: () => void }) {
 const WORDS = ["Money", "that", "goes", "where"];
 const NOUNS = ["people", "family", "clients", "friends"];
 const NOTES = [
-  { initial: "C", badge: "bg-[var(--lp-green)]", title: "Chidi sent you $200.00", detail: "Ready to withdraw to Access Bank" },
-  { initial: "A", badge: "bg-[#f3d3b8]", title: "Invoice paid · $1,800.00", detail: "From client@austin.co" },
-  { initial: "M", badge: "bg-[#cdf5de]", title: "Mum got GH₵3,120.00", detail: "Sent to MTN MoMo in 1.4s" },
+  { initial: "C", badge: "lp-fixed bg-[var(--lp-green)]", title: "Chidi sent you $200.00", detail: "Ready to withdraw to Access Bank" },
+  { initial: "A", badge: "bg-[var(--lp-mark)]", title: "Invoice paid · $1,800.00", detail: "From client@austin.co" },
+  { initial: "M", badge: "bg-[var(--lp-good-soft)]", title: "Mum got GH₵3,120.00", detail: "Sent to MTN MoMo in 1.4s" },
 ];
 
 /** Advances an index every `ms` while the section is on screen. */
@@ -394,7 +394,7 @@ export function Hero({ onAction }: { onAction: () => void }) {
                 initial={{ opacity: 0, y: reduce ? 0 : 14, scale: reduce ? 1 : 0.95 }}
                 animate={{ opacity: 1, y: 0, scale: 1, transition: { duration: 0.5, ease: EASE, delay: 0.15 } }}
                 exit={{ opacity: 0, y: reduce ? 0 : -10, scale: reduce ? 1 : 0.97, transition: { duration: 0.2 } }}
-                className="absolute left-0 top-0 flex max-w-full origin-top-left items-center gap-[14px] rounded-[22px] bg-white py-[14px] pl-[14px] pr-5 shadow-[0px_24px_48px_-20px_rgba(17,26,19,0.35)]"
+                className="absolute left-0 top-0 flex max-w-full origin-top-left items-center gap-[14px] rounded-[22px] bg-[var(--lp-surface)] py-[14px] pl-[14px] pr-5 shadow-[0px_24px_48px_-20px_rgba(17,26,19,0.35)]"
               >
                 <span className={`grid size-11 shrink-0 place-items-center rounded-full text-[18px] font-semibold ${NOTES[note].badge}`}>
                   {NOTES[note].initial}
@@ -406,7 +406,7 @@ export function Hero({ onAction }: { onAction: () => void }) {
               </motion.div>
             </AnimatePresence>
             <div className="absolute bottom-0 right-0 flex h-[43.5px] items-center gap-2 rounded-full bg-[var(--lp-ink)] px-[18px]">
-              <span className="lp-pulse size-2 rounded-full bg-[var(--lp-green)]" />
+              <span className="lp-fixed lp-pulse size-2 rounded-full bg-[var(--lp-green)]" />
               <span className="lp-mono text-[13px] leading-[19.5px] text-[var(--lp-cream)]">Arrived in 1.4s · $0 fees</span>
             </div>
           </div>

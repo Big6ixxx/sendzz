@@ -146,7 +146,7 @@ function ApplicationCard({
         )}
       </dl>
 
-      <div className="mt-6 border-t border-[#e3dcce] pt-5">
+      <div className="mt-6 border-t border-[var(--lp-rule)] pt-5">
         {noteOpen ? (
           <div className="space-y-3">
             <label className="block">
@@ -200,8 +200,8 @@ function Figure({ label, value, verified }: { label: string; value: string; veri
         <span
           className={
             verified
-              ? 'rounded-full bg-[#00e87a]/15 px-2 py-px text-[11px] font-semibold text-[#0e7a45]'
-              : 'rounded-full bg-[#f5c451]/30 px-2 py-px text-[11px] font-semibold text-[#8a5a00]'
+              ? 'rounded-full bg-[#00e87a]/15 px-2 py-px text-[11px] font-semibold text-[var(--lp-good)]'
+              : 'rounded-full bg-[#f5c451]/30 px-2 py-px text-[11px] font-semibold text-[var(--lp-warn)]'
           }
         >
           {verified ? 'Verified' : 'Claimed'}

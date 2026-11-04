@@ -218,7 +218,7 @@ export function PendingBridgeClaims({
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5">
                 <div className="flex items-start gap-4">
                   <div className="space-y-1 text-left">
-                    <h4 className="lp-mono text-[12px] uppercase text-[#8a5a00]">
+                    <h4 className="lp-mono text-[12px] uppercase text-[var(--lp-warn)]">
                       Money waiting for you
                     </h4>
                     <p className="lp-display text-[22px] font-semibold tracking-[-0.02em] text-[var(--lp-ink)]">
@@ -230,7 +230,7 @@ export function PendingBridgeClaims({
                         : "Almost ready. You can claim it in a minute or two."}
                     </p>
                     {needsSolWallet && (
-                      <p className="text-[13px] text-[#8a5a00]">
+                      <p className="text-[13px] text-[var(--lp-warn)]">
                         Still loading your wallet…
                       </p>
                     )}

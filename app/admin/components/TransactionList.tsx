@@ -77,12 +77,12 @@ function CopyHash({ hash, className }: { hash: string; className?: string }) {
       }}
       title={`Copy ${hash}`}
       className={cn(
-        'lp-mono inline-flex max-w-full items-center gap-1.5 rounded-full bg-[var(--lp-cream)] px-2.5 py-1 text-[12px] text-[var(--lp-body)] transition-colors hover:bg-[#ece6da] hover:text-[var(--lp-ink)]',
+        'lp-mono inline-flex max-w-full items-center gap-1.5 rounded-full bg-[var(--lp-cream)] px-2.5 py-1 text-[12px] text-[var(--lp-body)] transition-colors hover:bg-[var(--lp-soft-2)] hover:text-[var(--lp-ink)]',
         className,
       )}
     >
       <span className="truncate">{short(hash)}</span>
-      {copied ? <Check className="size-3 shrink-0 text-[#0e7a45]" /> : <Copy className="size-3 shrink-0 opacity-50" />}
+      {copied ? <Check className="size-3 shrink-0 text-[var(--lp-good)]" /> : <Copy className="size-3 shrink-0 opacity-50" />}
     </button>
   );
 }
@@ -106,7 +106,7 @@ export function TransactionList({
   return (
     <>
       {/* Phones: one card per transaction. */}
-      <ul className="divide-y divide-[#ece6da] md:hidden">
+      <ul className="divide-y divide-[var(--lp-soft-2)] md:hidden">
         {items.map((tx) => {
           const hash = getTxHash(tx);
           return (
@@ -139,7 +139,7 @@ export function TransactionList({
       <div className="hidden overflow-x-auto md:block">
         <table className="w-full min-w-[820px] border-collapse text-left">
           <thead>
-            <tr className="lp-mono border-b border-[#e3dcce] text-[11px] uppercase text-[var(--lp-muted)] sm:text-[12px]">
+            <tr className="lp-mono border-b border-[var(--lp-rule)] text-[11px] uppercase text-[var(--lp-muted)] sm:text-[12px]">
               <th className="px-6 py-4 font-normal">Activity</th>
               <th className="px-4 py-4 font-normal">Transaction</th>
               <th className="px-4 py-4 font-normal">Status</th>
@@ -147,12 +147,12 @@ export function TransactionList({
               <th className="px-6 py-4 text-right font-normal">Date</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-[#ece6da]">
+          <tbody className="divide-y divide-[var(--lp-soft-2)]">
             {items.map((tx) => {
               const hash = getTxHash(tx);
               const mint = tx.tx_type === 'bridge' ? getSecondaryHash(tx) : '—';
               return (
-                <tr key={`${tx.tx_type}-${tx.id}`} className="transition-colors hover:bg-[#fbf9f4]">
+                <tr key={`${tx.tx_type}-${tx.id}`} className="transition-colors hover:bg-[var(--lp-raised)]">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
                       <TxTypeBadge type={tx.tx_type} />

@@ -37,6 +37,7 @@ import { KycModal } from "@/components/kyc/KycModal";
 import { InstallAppButton } from "@/components/pwa/InstallAppButton";
 import { LimitsMeter, type Allowance } from "@/components/kyc/LimitsMeter";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useTheme } from "@/lib/theme";
 
 const NON_EVM_RAILS = ["Solana", "Stellar"] as const;
 
@@ -44,6 +45,7 @@ export default function SettingsPage() {
   const { user, logout } = usePrivy();
   const userEmail = user?.email?.address || "";
   const { hideBalance, toggleBalanceVisibility } = useBalanceVisibility();
+  const [theme, setTheme] = useTheme();
 
   const [bankContacts, setBankContacts] = useState<BankContactRow[]>([]);
   const [emailContacts, setEmailContacts] = useState<ContactRow[]>([]);
@@ -473,7 +475,7 @@ export default function SettingsPage() {
     ));
   const personRow = (key: string, initial: string, name: string, detail: string, onDelete: () => void) => (
     <div key={key} className="flex items-center gap-3 py-3.5">
-      <span className="grid size-10 shrink-0 place-items-center rounded-full bg-white text-[14px] font-semibold uppercase shadow-[0_0_0_1px_rgb(17_26_19/0.08)]">
+      <span className="grid size-10 shrink-0 place-items-center rounded-full bg-[var(--lp-surface)] text-[14px] font-semibold uppercase shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)]">
         {initial.trim().charAt(0) || "?"}
       </span>
       <span className="min-w-0 flex-1">
@@ -486,7 +488,7 @@ export default function SettingsPage() {
         type="button"
         onClick={onDelete}
         aria-label={`Remove ${name}`}
-        className="grid size-9 shrink-0 place-items-center rounded-full text-[var(--lp-muted)] transition-colors hover:bg-[#fbe7df] hover:text-[#a1462c]"
+        className="grid size-9 shrink-0 place-items-center rounded-full text-[var(--lp-muted)] transition-colors hover:bg-[var(--lp-danger-soft)] hover:text-[var(--lp-danger)]"
       >
         <Trash2 className="size-4" />
       </button>
@@ -516,7 +518,7 @@ export default function SettingsPage() {
           <DocSection id="account" number={1} title="Your account" description="One smart account that works across every network Sendzz supports. Sendzz never holds your keys.">
             <DocRows>
               <SettingsRow title="Email" description="How you sign in and how people pay you." control={<span className="max-w-[220px] truncate text-[15px] font-semibold" title={userEmail}>{userEmail || "Not set"}</span>} />
-              <SettingsRow title="Smart account" description={`Active, and works on ${networkCount} networks.`} control={<span className="rounded-full bg-[#cdf5de] px-3 py-1 text-[13px] font-semibold text-[#0e7a45]">Active</span>} />
+              <SettingsRow title="Smart account" description={`Active, and works on ${networkCount} networks.`} control={<span className="rounded-full bg-[var(--lp-good-soft)] px-3 py-1 text-[13px] font-semibold text-[var(--lp-good)]">Active</span>} />
               {/* What protects the money, as a meter of the four things that can. */}
               <div className="py-4">
                 <div className="flex items-baseline justify-between gap-3">
@@ -528,7 +530,7 @@ export default function SettingsPage() {
                 <ul className="mt-3 grid grid-cols-2 gap-x-2 gap-y-3 sm:grid-cols-4">
                   {protections.map((p) => (
                     <li key={p.label}>
-                      <span className={cn("block h-1.5 rounded-full transition-colors duration-500", !isSecurityLoading && p.on ? "bg-[#04c96a]" : "bg-[#e3dcce]")} />
+                      <span className={cn("block h-1.5 rounded-full transition-colors duration-500", !isSecurityLoading && p.on ? "bg-[#04c96a]" : "bg-[var(--lp-rule)]")} />
                       <span className={cn("mt-2 block text-[13px]", p.on ? "font-medium text-[var(--lp-ink)]" : "text-[var(--lp-muted)]")}>{p.label}</span>
                     </li>
                   ))}
@@ -561,7 +563,7 @@ export default function SettingsPage() {
                         id="settings-kyc-verify-btn"
                         type="button"
                         onClick={() => setKycModalOpen(true)}
-                        className="inline-flex h-[46px] items-center rounded-full bg-[var(--lp-green)] px-[22px] text-[15px] font-semibold text-[var(--lp-ink)] transition-transform duration-150 hover:-translate-y-px"
+                        className="lp-fixed inline-flex h-[46px] items-center rounded-full bg-[var(--lp-green)] px-[22px] text-[15px] font-semibold text-[var(--lp-ink)] transition-transform duration-150 hover:-translate-y-px"
                       >
                         {kycStatus === "declined" ? "Try again" : "Verify my identity"}
                       </button>
@@ -644,7 +646,7 @@ export default function SettingsPage() {
                             setThresholdModalOpen(true);
                           },
                         })}
-                        className="lp-display inline-flex h-10 items-center rounded-full bg-white px-4 text-[18px] tabular-nums tracking-[-0.02em] shadow-[0_0_0_1px_rgb(17_26_19/0.08)] transition-shadow hover:shadow-[0_0_0_1px_rgb(17_26_19/0.3)] disabled:opacity-50"
+                        className="lp-display inline-flex h-10 items-center rounded-full bg-[var(--lp-surface)] px-4 text-[18px] tabular-nums tracking-[-0.02em] shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)] transition-shadow hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.3)] disabled:opacity-50"
                       >
                         ${twoFaThreshold}
                       </button>
@@ -766,6 +768,11 @@ export default function SettingsPage() {
           <DocSection id="preferences" number={6} title="Preferences" description="How Sendzz looks and reaches you.">
             <DocRows>
               <SettingsRow
+                title="Dark mode"
+                description="Easier on the eyes at night. Saved on this device."
+                control={<Switch label="Dark mode" checked={theme === "dark"} onChange={() => setTheme(theme === "dark" ? "light" : "dark")} />}
+              />
+              <SettingsRow
                 title="Hide balances"
                 description="Show •••• instead of amounts, for when someone is looking over your shoulder."
                 control={<Switch label="Hide balances" checked={hideBalance} onChange={toggleBalanceVisibility} />}
@@ -783,7 +790,7 @@ export default function SettingsPage() {
             <button
               type="button"
               onClick={() => logout()}
-              className="inline-flex h-[46px] items-center gap-2 rounded-full border border-[rgba(161,70,44,0.35)] px-[22px] text-[15px] font-semibold text-[#a1462c] transition-colors hover:bg-[#fbe7df]"
+              className="inline-flex h-[46px] items-center gap-2 rounded-full border border-[var(--lp-danger)]/35 px-[22px] text-[15px] font-semibold text-[var(--lp-danger)] transition-colors hover:bg-[var(--lp-danger-soft)]"
             >
               <LogOut className="size-4" /> Sign out of Sendzz
             </button>

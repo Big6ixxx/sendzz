@@ -54,8 +54,8 @@ function WalletRow({ label, value }: { label: string; value: string | null }) {
           </span>
         </span>
         {value && (
-          <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-[var(--lp-cream)] px-3 py-1.5 text-[13px] font-semibold transition-colors group-hover:bg-[#ece6da]">
-            {copied ? <Check className="size-3.5 text-[#0e7a45]" /> : <Copy className="size-3.5" />}
+          <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-[var(--lp-cream)] px-3 py-1.5 text-[13px] font-semibold transition-colors group-hover:bg-[var(--lp-soft-2)]">
+            {copied ? <Check className="size-3.5 text-[var(--lp-good)]" /> : <Copy className="size-3.5" />}
             {copied ? 'Copied' : 'Copy'}
           </span>
         )}
@@ -130,7 +130,7 @@ function AdminUserDetail() {
   const backLink = (
     <Link
       href={backHref}
-      className="lp-card inline-flex h-10 items-center gap-2 rounded-full px-4 text-[14px] font-semibold transition-colors hover:text-[#00a857]"
+      className="lp-card inline-flex h-10 items-center gap-2 rounded-full px-4 text-[14px] font-semibold transition-colors hover:text-[var(--lp-link)]"
     >
       <ArrowLeft className="size-4" /> All users
     </Link>
@@ -197,7 +197,7 @@ function AdminUserDetail() {
         initial={{ opacity: 0, y: 28 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.9, ease: EASE, delay: 0.06 }}
-        className="rounded-[28px] bg-[var(--lp-forest)] p-5 text-[var(--lp-cream)] sm:p-8 md:rounded-[36px] md:p-10"
+        className="lp-fixed rounded-[28px] bg-[var(--lp-forest)] p-5 text-[var(--lp-cream)] sm:p-8 md:rounded-[36px] md:p-10"
       >
         <div className="flex flex-wrap items-start justify-between gap-3">
           <span className="lp-mono text-[12px] uppercase text-[var(--lp-green)] sm:text-[13px]">Lifetime volume</span>
@@ -241,7 +241,7 @@ function AdminUserDetail() {
               href={kyc.consoleUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-6 inline-flex h-12 items-center justify-center gap-2 self-start rounded-full border border-[rgba(17,26,19,0.15)] px-5 text-[15px] font-semibold transition-colors hover:border-[var(--lp-ink)] xl:mt-auto"
+              className="mt-6 inline-flex h-12 items-center justify-center gap-2 self-start rounded-full border border-[rgb(var(--lp-hair)/0.15)] px-5 text-[15px] font-semibold transition-colors hover:border-[var(--lp-ink)] xl:mt-auto"
             >
               Open in Didit <ExternalLink className="size-4" />
             </a>
@@ -253,7 +253,7 @@ function AdminUserDetail() {
             <FlowLabel as="span" className="sm:text-[13px]">Wallets</FlowLabel>
             <span className="text-[13px] text-[var(--lp-muted)]">Tap one to copy</span>
           </div>
-          <ul className="mt-2 divide-y divide-[#ece6da]">
+          <ul className="mt-2 divide-y divide-[var(--lp-soft-2)]">
             <WalletRow label="EVM" value={user?.smart_account_address ?? null} />
             <WalletRow label="Solana" value={user?.solana_address ?? null} />
             <WalletRow label="Stellar" value={user?.stellar_address ?? null} />

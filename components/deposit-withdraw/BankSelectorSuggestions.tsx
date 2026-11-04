@@ -30,7 +30,7 @@ export function BankSelectorSuggestions({
   );
 
   return (
-    <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-[20px] bg-white p-2 shadow-[0_0_0_1px_rgb(17_26_19/0.08),0_20px_48px_-16px_rgb(17_26_19/0.35)] animate-in fade-in slide-in-from-top-2 duration-200">
+    <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-[20px] bg-[var(--lp-surface)] p-2 shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08),0_20px_48px_-16px_rgb(17_26_19/0.35)] animate-in fade-in slide-in-from-top-2 duration-200">
       {contacts.length === 0 ? (
         <div className="px-4 py-5 text-center">
           <p className="text-[14px] text-[var(--lp-muted)]">No saved accounts yet.</p>
@@ -46,7 +46,7 @@ export function BankSelectorSuggestions({
         <>
           <div className="flex items-center justify-between px-2 pb-2 pt-1">
             <span className="lp-mono text-[11px] uppercase text-[var(--lp-muted)]">Saved accounts</span>
-            <button type="button" onClick={onAddNew} className="text-[13px] font-semibold transition-colors hover:text-[#00a857]">
+            <button type="button" onClick={onAddNew} className="text-[13px] font-semibold transition-colors hover:text-[var(--lp-link)]">
               + Add new
             </button>
           </div>
@@ -72,7 +72,7 @@ export function BankSelectorSuggestions({
                     e.stopPropagation();
                     onDeleteContact(c.id);
                   }}
-                  className="grid size-9 shrink-0 place-items-center rounded-full text-[var(--lp-muted)] transition-colors hover:bg-[#a1462c]/10 hover:text-[#a1462c]"
+                  className="grid size-9 shrink-0 place-items-center rounded-full text-[var(--lp-muted)] transition-colors hover:bg-[#a1462c]/10 hover:text-[var(--lp-danger)]"
                   title="Remove saved account"
                   aria-label={`Remove ${c.account_name}`}
                 >

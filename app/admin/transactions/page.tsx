@@ -83,12 +83,12 @@ export default function AdminTransactions() {
       <div className="grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
         <StatTile label="Transactions" value={count.toLocaleString('en-US')} loading={isPending} hint={ADMIN_DATE_RANGE_LABELS[dateRange]} />
         <StatTile label="Volume" value={formatUsd(summary.volume, 0)} loading={isPending} hint="Matching the filters" />
-        <StatTile label="Settled" value={summary.settled.toLocaleString('en-US')} loading={isPending} tone="text-[#0e7a45]" hint={count ? `${Math.round((summary.settled / count) * 100)}% of these` : '—'} />
+        <StatTile label="Settled" value={summary.settled.toLocaleString('en-US')} loading={isPending} tone="text-[var(--lp-good)]" hint={count ? `${Math.round((summary.settled / count) * 100)}% of these` : '—'} />
         <StatTile
           label="Needs attention"
           value={summary.waiting.toLocaleString('en-US')}
           loading={isPending}
-          tone={summary.waiting > 0 ? 'text-[#8a5a00]' : undefined}
+          tone={summary.waiting > 0 ? 'text-[var(--lp-warn)]' : undefined}
           hint="Still pending or processing"
         />
       </div>

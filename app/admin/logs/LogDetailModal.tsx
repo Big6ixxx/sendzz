@@ -131,9 +131,9 @@ function CopyButton({ text }: { text: string }) {
     <button
       type="button"
       onClick={() => copy(text)}
-      className="inline-flex h-9 items-center gap-2 rounded-full border border-[rgba(17,26,19,0.15)] px-3.5 text-[13px] font-semibold transition-colors hover:border-[var(--lp-ink)]"
+      className="inline-flex h-9 items-center gap-2 rounded-full border border-[rgb(var(--lp-hair)/0.15)] px-3.5 text-[13px] font-semibold transition-colors hover:border-[var(--lp-ink)]"
     >
-      {copied ? <Check className="w-3 h-3 text-[#0e7a45]" /> : <Copy className="w-3 h-3" />}
+      {copied ? <Check className="w-3 h-3 text-[var(--lp-good)]" /> : <Copy className="w-3 h-3" />}
       {copied ? 'Copied' : 'Copy JSON'}
     </button>
   );
@@ -207,7 +207,7 @@ export function LogDetailModal({
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 24 }}
               onClick={(e) => e.stopPropagation()}
-              className="w-full max-h-[90vh] overflow-y-auto rounded-t-[28px] bg-white p-5 shadow-[0_24px_64px_-24px_rgb(17_26_19/0.45)] sm:max-w-3xl sm:rounded-[32px] sm:p-8"
+              className="w-full max-h-[90vh] overflow-y-auto rounded-t-[28px] bg-[var(--lp-surface)] p-5 shadow-[0_24px_64px_-24px_rgb(17_26_19/0.45)] sm:max-w-3xl sm:rounded-[32px] sm:p-8"
             >
               {/* Header */}
               <div className="flex items-start justify-between gap-4 mb-6">
@@ -225,7 +225,7 @@ export function LogDetailModal({
                 <button
                   onClick={onClose}
                   aria-label="Close"
-                  className="grid size-10 shrink-0 place-items-center rounded-full bg-[var(--lp-cream)] transition-colors hover:bg-[#ece6da]"
+                  className="grid size-10 shrink-0 place-items-center rounded-full bg-[var(--lp-cream)] transition-colors hover:bg-[var(--lp-soft-2)]"
                 >
                   <X className="w-4 h-4" />
                 </button>

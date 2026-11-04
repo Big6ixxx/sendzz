@@ -79,7 +79,7 @@ export function PendingIncomingPanel({
     <section className="lp-card rounded-[28px] p-2">
       <div className="flex items-center justify-between px-4 pb-2 pt-3">
         <div className="flex items-center gap-2.5">
-          <span className="lp-pulse size-2 rounded-full bg-[var(--lp-green)]" />
+          <span className="lp-fixed lp-pulse size-2 rounded-full bg-[var(--lp-green)]" />
           <h2 className="lp-display text-[20px] font-semibold tracking-[-0.02em]">Waiting for you to accept</h2>
         </div>
         <span className="lp-mono rounded-full bg-[var(--lp-ink)] px-2.5 py-1 text-[12px] text-[var(--lp-green)]">
@@ -90,13 +90,13 @@ export function PendingIncomingPanel({
         {pendingTransfers.map((transfer) => (
           <li key={transfer.id} className="flex flex-wrap items-center justify-between gap-3 rounded-[20px] bg-[var(--lp-cream)] px-4 py-3">
             <div className="flex min-w-0 flex-1 items-center gap-3">
-              <span className="grid size-10 shrink-0 place-items-center rounded-full bg-[var(--lp-green)] text-[var(--lp-ink)]">
+              <span className="lp-fixed grid size-10 shrink-0 place-items-center rounded-full bg-[var(--lp-green)] text-[var(--lp-ink)]">
                 <ArrowDownLeft className="size-5" />
               </span>
               <div className="min-w-0">
                 <p className="truncate text-[15px] font-semibold">{transfer.sender_email}</p>
                 <p className="truncate text-[13px] text-[var(--lp-muted)]">
-                  <span className="font-semibold text-[#0e7a45]">+{formatMoney(transfer.amount)} USDC</span>
+                  <span className="font-semibold text-[var(--lp-good)]">+{formatMoney(transfer.amount)} USDC</span>
                   {transfer.note && <> · &ldquo;{transfer.note}&rdquo;</>}
                 </p>
               </div>
