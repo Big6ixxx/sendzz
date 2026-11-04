@@ -4,75 +4,55 @@
  * Light and dark mode.
  *
  * The mode is a `data-theme` attribute on <html>, which the palette in app/globals.css reads.
- * It is set by THEME_SCRIPT, inlined at the top of <head>, before anything paints, so a person
- * who chose dark never sees a light frame first. Their choice is kept in localStorage; with no
- * choice saved, the device's own setting decides, and keeps deciding as it changes.
+ * THEME_SCRIPT (lib/theme-script.ts), inlined at the top of <head>, sets it before anything
+ * paints and keeps it in step with the device and with other tabs. This module only saves a
+ * choice and reads the mode on screen.
+ *
+ * Anything whose look depends on the mode should style it with `dark:` utilities rather than
+ * this hook where it can: CSS is right from the first frame, while a hook only learns the mode
+ * after hydration.
  */
 
 import { useSyncExternalStore } from "react";
-import { THEME_BAR as BAR, THEME_KEY as KEY } from "./theme-script";
+import { THEME_EVENT, THEME_KEY, type Theme } from "./theme-script";
 
-export type { Theme } from "./theme-script";
-import type { Theme } from "./theme-script";
+export type { Theme };
 
-const EVENT = "sendzz-theme";
-
-function saved(): Theme | null {
-  try {
-    const t = localStorage.getItem(KEY);
-    return t === "light" || t === "dark" ? t : null;
-  } catch {
-    return null;
+declare global {
+  interface Window {
+    __sendzzTheme?: (theme: Theme) => void;
   }
 }
 
-function apply(theme: Theme) {
-  const root = document.documentElement;
-  // Every colour changes at once rather than each easing on its own transition.
-  root.setAttribute("data-theme-switching", "");
-  root.dataset.theme = theme;
-  root.style.colorScheme = theme;
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", BAR[theme]);
-  requestAnimationFrame(() => requestAnimationFrame(() => root.removeAttribute("data-theme-switching")));
-  window.dispatchEvent(new Event(EVENT));
-}
+const current = (): Theme => (document.documentElement.dataset.theme === "dark" ? "dark" : "light");
 
 /** Save a choice and show it. */
 export function setTheme(theme: Theme) {
   try {
-    localStorage.setItem(KEY, theme);
+    localStorage.setItem(THEME_KEY, theme);
   } catch {
     /* storage blocked: the choice lasts this visit */
   }
-  apply(theme);
+  if (window.__sendzzTheme) window.__sendzzTheme(theme);
+  else {
+    // The head script did not run (it failed or was blocked): apply the essentials here.
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    window.dispatchEvent(new Event(THEME_EVENT));
+  }
+}
+
+/** Switch to the other mode. The one place the flip is decided. */
+export function toggleTheme() {
+  setTheme(current() === "dark" ? "light" : "dark");
 }
 
 function subscribe(onChange: () => void) {
-  // With nothing saved, follow the device as it switches between light and dark.
-  const media = window.matchMedia("(prefers-color-scheme: dark)");
-  const onSystem = () => {
-    if (!saved()) apply(media.matches ? "dark" : "light");
-  };
-  // Another tab changed it.
-  const onStorage = (e: StorageEvent) => {
-    if (e.key === KEY && (e.newValue === "light" || e.newValue === "dark")) apply(e.newValue);
-  };
-  media.addEventListener("change", onSystem);
-  window.addEventListener("storage", onStorage);
-  window.addEventListener(EVENT, onChange);
-  return () => {
-    media.removeEventListener("change", onSystem);
-    window.removeEventListener("storage", onStorage);
-    window.removeEventListener(EVENT, onChange);
-  };
+  window.addEventListener(THEME_EVENT, onChange);
+  return () => window.removeEventListener(THEME_EVENT, onChange);
 }
 
-/** The mode on screen now, and a way to change it. */
-export function useTheme(): [Theme, (theme: Theme) => void] {
-  const theme = useSyncExternalStore<Theme>(
-    subscribe,
-    () => (document.documentElement.dataset.theme === "dark" ? "dark" : "light"),
-    () => "light",
-  );
-  return [theme, setTheme];
+/** The mode on screen now. "light" until hydrated; prefer `dark:` styles for anything visible. */
+export function useTheme(): Theme {
+  return useSyncExternalStore<Theme>(subscribe, current, () => "light");
 }

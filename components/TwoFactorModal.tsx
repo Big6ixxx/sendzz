@@ -3,7 +3,6 @@ import { Fingerprint, X } from "lucide-react";
 import { FlowButton, FlowDialogHeading, FlowTabs } from "@/components/flow/ui";
 import { PinPanel, PinPanelAction } from "@/components/security/PinPad";
 import { createPortal } from "react-dom";
-import { brandFontVars } from "@/components/landing/fonts";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { toast } from "sonner";
 
@@ -188,7 +187,7 @@ export function TwoFactorModal({
   // Portalled to <body> above the payment dialog it interrupts (deposit, withdraw, batch send),
   // and outside any page's cream scope, so it brings that scope with it.
   const modalContent = (
-    <div className={`lp-root ${brandFontVars} contents`}>
+    <div className="lp-root contents">
       <div
         className="fixed inset-0 z-[9999] flex items-end justify-center bg-[rgba(17,26,19,0.5)] p-0 backdrop-blur-sm sm:items-center sm:p-4"
         onClick={handleClose}

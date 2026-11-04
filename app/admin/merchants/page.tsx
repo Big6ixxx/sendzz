@@ -200,8 +200,8 @@ function Figure({ label, value, verified }: { label: string; value: string; veri
         <span
           className={
             verified
-              ? 'rounded-full bg-[#00e87a]/15 px-2 py-px text-[11px] font-semibold text-[var(--lp-good)]'
-              : 'rounded-full bg-[#f5c451]/30 px-2 py-px text-[11px] font-semibold text-[var(--lp-warn)]'
+              ? 'rounded-full bg-[var(--lp-green)]/15 px-2 py-px text-[11px] font-semibold text-[var(--lp-good)]'
+              : 'rounded-full bg-[var(--lp-warn-soft)] px-2 py-px text-[11px] font-semibold text-[var(--lp-warn)]'
           }
         >
           {verified ? 'Verified' : 'Claimed'}

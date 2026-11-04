@@ -50,8 +50,8 @@ const STATUS_MAP: Record<RampOrderStatus, { label: string; italic: string; sub: 
 };
 
 const TONE_DOT: Record<Tone, string> = {
-  moving: 'lp-fixed bg-[var(--lp-green)] lp-pulse',
-  done: 'lp-fixed bg-[var(--lp-green)]',
+  moving: 'bg-[var(--lp-green)] lp-pulse',
+  done: 'bg-[var(--lp-green)]',
   problem: 'bg-[#f0a58f]',
   closed: 'bg-[#9fb8aa]',
 };
@@ -160,7 +160,7 @@ export default function TxStatusPage({
           </Notice>
         ) : loading && !order ? (
           <SkeletonGroup label="Checking the order" className="space-y-6">
-            <div className="lp-fixed space-y-5 rounded-[28px] bg-[var(--lp-forest)] p-7 sm:p-8">
+            <div className="lp-on-forest space-y-5 rounded-[28px] p-7 sm:p-8">
               <Skeleton tone="forest" className="h-3 w-20" />
               <Skeleton tone="forest" className="h-12 w-2/3 rounded-[16px]" />
               <Skeleton tone="forest" className="h-3.5 w-1/2" />
@@ -188,7 +188,7 @@ export default function TxStatusPage({
           status && (
             <>
               {/* Where it is now, on forest like the summary panel in the send and withdraw flows. */}
-              <section aria-live="polite" className="lp-fixed rounded-[28px] bg-[var(--lp-forest)] p-7 text-[var(--lp-cream)] sm:p-8">
+              <section aria-live="polite" className="lp-on-forest rounded-[28px] p-7 text-[var(--lp-cream)] sm:p-8">
                 <p className="lp-mono flex items-center gap-2 text-[12px] uppercase text-[var(--lp-green)]">
                   <span className={cn('size-2 rounded-full', TONE_DOT[status.tone])} aria-hidden /> Status
                 </p>
@@ -206,7 +206,7 @@ export default function TxStatusPage({
                     aria-valuemax={100}
                   >
                     <div
-                      className={cn('h-full rounded-full transition-[width] duration-700', status.tone === 'problem' ? 'bg-[#f0a58f]' : 'lp-fixed bg-[var(--lp-green)]')}
+                      className={cn('h-full rounded-full transition-[width] duration-700', status.tone === 'problem' ? 'bg-[#f0a58f]' : 'bg-[var(--lp-green)]')}
                       style={{ width: `${status.progress}%` }}
                     />
                   </div>

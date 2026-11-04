@@ -6,7 +6,6 @@ import { ArrowLeftRight, LayoutDashboard, Lock, ShieldAlert, Store, Undo2, Users
 import { AppShell, isNavCurrent, type AppNavItem } from '@/components/layout/AppShell';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { brandFontVars } from '@/components/landing/fonts';
 import '@/components/landing/landing.css';
 import { BrandLoading } from '@/components/landing/StatusScreen';
 import { FlowLabel } from '@/components/flow/ui';
@@ -58,8 +57,8 @@ export default function AdminLayout({
 
   if (isAdmin === false) {
     return (
-      <div className={`lp-root ${brandFontVars} min-h-screen flex flex-col items-center justify-center p-8 text-center`}>
-        <div className="mb-8 grid size-20 place-items-center rounded-[24px] bg-[#a1462c]/10">
+      <div className="lp-root min-h-screen flex flex-col items-center justify-center p-8 text-center">
+        <div className="mb-8 grid size-20 place-items-center rounded-[24px] bg-[var(--lp-danger-soft)]">
           <Lock className="size-9 text-[var(--lp-danger)]" />
         </div>
         <FlowLabel>Admin</FlowLabel>

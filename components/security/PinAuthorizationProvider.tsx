@@ -363,14 +363,14 @@ export function PinAuthorizationProvider({ children }: { children: React.ReactNo
                 aria-hidden
                 className="h-3 drop-shadow-[0_1px_0_rgb(17_26_19/0.06)]"
                 style={{
-                  background: "radial-gradient(circle at 8px 12px, transparent 6px, #fff 6.5px) 0 0 / 16px 12px repeat-x",
+                  background: "radial-gradient(circle at 8px 12px, transparent 6px, var(--lp-surface) 6.5px) 0 0 / 16px 12px repeat-x",
                 }}
               />
             </div>
           </div>
 
           {/* ── The keypad: what we are asking for ───────────────────────────── */}
-          <div className="lp-fixed flex flex-col bg-[var(--lp-forest)] px-6 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 text-[var(--lp-cream)] md:justify-center md:py-8">
+          <div className="lp-on-forest flex flex-col px-6 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 text-[var(--lp-cream)] md:justify-center md:py-8">
             {needsSetup ? (
               /* No PIN exists, and we only found out at the moment of paying. Rather than
                  reject and drop them back to the form, the pending authorisation is held open

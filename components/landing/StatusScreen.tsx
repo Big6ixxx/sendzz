@@ -5,7 +5,6 @@
  */
 
 import Link from "next/link";
-import { brandFontVars } from "@/components/landing/fonts";
 import { cn } from "@/lib/utils";
 import "@/components/landing/landing.css";
 import { FlowLabel } from "@/components/flow/ui";
@@ -50,7 +49,7 @@ export function StatusScreen({
 
       <aside
         aria-label={slip.heading}
-        className="lp-fixed relative w-full max-w-[380px] justify-self-center rounded-[28px] bg-[var(--lp-forest)] p-7 text-[var(--lp-cream)] md:justify-self-end"
+        className="lp-on-forest relative w-full max-w-[380px] justify-self-center rounded-[28px] p-7 text-[var(--lp-cream)] md:justify-self-end"
       >
         <p className="lp-mono text-[12px] uppercase text-[var(--lp-green)]">{slip.heading}</p>
         <p className="lp-display mt-6 text-[clamp(64px,10vw,96px)] leading-none tracking-[-0.06em]">{slip.code}</p>
@@ -73,10 +72,10 @@ export function StatusScreen({
 /** A plain cream page with only the logo above, for screens that must not depend on sign-in. */
 export function BareBrandPage({ children }: { children: React.ReactNode }) {
   return (
-    <div className={`lp-root ${brandFontVars} min-h-dvh`}>
+    <div className="lp-root min-h-dvh">
       <header className="mx-auto flex h-[72px] w-full max-w-[1360px] items-center px-4 md:h-[82.5px] md:px-7">
         <Link href="/" aria-label="Sendzz home">
-          <Wordmark width={101.4} height={30} priority />
+          <Wordmark width={101.4} height={30} />
         </Link>
       </header>
       <main className="mx-auto w-full max-w-[1360px] px-4 pb-24 pt-6 md:px-7 md:pt-10">{children}</main>
@@ -88,13 +87,13 @@ export function BareBrandPage({ children }: { children: React.ReactNode }) {
 export function BrandLoading({ label, background }: { label: string; background?: React.ReactNode }) {
   return (
     <div
-      className={`lp-root ${brandFontVars} relative flex min-h-dvh w-full items-center justify-center overflow-hidden`}
+      className="lp-root relative flex min-h-dvh w-full items-center justify-center overflow-hidden"
       role="status"
       aria-live="polite"
     >
       {background}
       <div className="relative z-10 flex flex-col items-center gap-6">
-        <Wordmark width={132} height={40} priority className="animate-pulse" />
+        <Wordmark width={132} height={40} className="animate-pulse" />
         <FlowLabel>{label}</FlowLabel>
       </div>
     </div>

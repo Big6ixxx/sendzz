@@ -123,9 +123,9 @@ export function CurrencyPill({ children }: { children: React.ReactNode }) {
 
 const NOTICE = {
   info: { Icon: Info, box: 'lp-card', icon: 'bg-[var(--lp-cream)] text-[var(--lp-ink)]', title: '' },
-  warning: { Icon: ShieldAlert, box: 'bg-[#f5c451]/20', icon: 'bg-[#f5c451]/40 text-[var(--lp-warn)]', title: 'text-[var(--lp-warn)]' },
-  danger: { Icon: AlertCircle, box: 'bg-[#a1462c]/10', icon: 'bg-[#a1462c]/15 text-[var(--lp-danger)]', title: 'text-[var(--lp-danger)]' },
-  success: { Icon: CheckCircle2, box: 'bg-[#00e87a]/15', icon: 'bg-[#00e87a]/30 text-[var(--lp-good)]', title: 'text-[var(--lp-good)]' },
+  warning: { Icon: ShieldAlert, box: 'bg-[var(--lp-warn-soft)]', icon: 'bg-[var(--lp-warn)]/25 text-[var(--lp-warn)]', title: 'text-[var(--lp-warn)]' },
+  danger: { Icon: AlertCircle, box: 'bg-[var(--lp-danger-soft)]', icon: 'bg-[var(--lp-danger)]/15 text-[var(--lp-danger)]', title: 'text-[var(--lp-danger)]' },
+  success: { Icon: CheckCircle2, box: 'bg-[var(--lp-green)]/15', icon: 'bg-[var(--lp-green)]/30 text-[var(--lp-good)]', title: 'text-[var(--lp-good)]' },
 } as const;
 
 /** One way to say something needs reading: a tinted card, an icon, a title, a line. */
@@ -178,7 +178,7 @@ export function FlowButton({
           ? 'bg-[var(--lp-line)] text-[var(--lp-body)]'
           : [
               tone === 'ink' && 'bg-[var(--lp-ink)] text-[var(--lp-cream)]',
-              tone === 'accent' && 'lp-fixed bg-[var(--lp-green)] text-[var(--lp-ink)]',
+              tone === 'accent' && 'lp-on-green text-[var(--lp-ink)]',
               tone === 'danger' && 'bg-[#a1462c] text-white',
             ],
         // Ink set explicitly: on the forest panel the inherited text is cream, which vanishes on white.
@@ -217,7 +217,7 @@ export const FlowInput = React.forwardRef<
 export function FlowSuccess({ title, italic, body, children }: { title: string; italic: string; body?: React.ReactNode; children?: React.ReactNode }) {
   return (
     <div className="flex flex-col items-center text-center animate-in fade-in zoom-in-95 duration-500">
-      <span className="lp-fixed grid size-20 place-items-center rounded-full bg-[var(--lp-green)] text-[var(--lp-ink)]">
+      <span className="lp-on-green grid size-20 place-items-center rounded-full text-[var(--lp-ink)]">
         <CheckCircle2 className="size-10" />
       </span>
       <h3 className="lp-display mt-6 text-[clamp(32px,8.4vw,44px)] leading-[0.95] tracking-[-0.045em]">
@@ -302,14 +302,14 @@ export function FlowFrame({ main, aside, action }: { main: React.ReactNode; asid
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6 pt-5 sm:px-8 sm:pb-8">
           {main}
-          {aside && !split && <div className="lp-fixed mt-5 rounded-[28px] bg-[var(--lp-forest)] p-5 text-[var(--lp-cream)]">{aside}</div>}
+          {aside && !split && <div className="lp-on-forest mt-5 rounded-[28px] p-5 text-[var(--lp-cream)]">{aside}</div>}
         </div>
 
         {action && !split && <div className="shrink-0 border-t border-[var(--lp-rule)] bg-[var(--lp-cream)] px-5 py-4 sm:px-8">{action}</div>}
       </div>
 
       {split && (
-        <aside className="lp-fixed flex min-h-0 flex-col bg-[var(--lp-forest)] text-[var(--lp-cream)]">
+        <aside className="lp-on-forest flex min-h-0 flex-col text-[var(--lp-cream)]">
           <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-6 pt-20">{aside}</div>
           {action && <div className="shrink-0 px-8 pb-8">{action}</div>}
         </aside>
@@ -444,7 +444,7 @@ export function FlowPage({
         {main}
       </section>
       <div className="min-w-0 space-y-4 lg:sticky lg:top-6">
-        <section className="lp-fixed rounded-[32px] bg-[var(--lp-forest)] p-6 text-[var(--lp-cream)] sm:p-7">
+        <section className="lp-on-forest rounded-[32px] p-6 text-[var(--lp-cream)] sm:p-7">
           {summary}
           <div className="mt-6 space-y-3">{action}</div>
         </section>

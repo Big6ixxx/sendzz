@@ -667,7 +667,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
             <span
               className={cn(
                 "mx-auto grid size-20 place-items-center rounded-full",
-                hook.transferError ? "bg-[#a1462c]/10 text-[var(--lp-danger)]" : "lp-card",
+                hook.transferError ? "bg-[var(--lp-danger-soft)] text-[var(--lp-danger)]" : "lp-card",
               )}
             >
               {hook.transferError ? <AlertCircle className="size-9" /> : <Loader2 className="size-9 animate-spin" />}
@@ -800,7 +800,7 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
         <FlowFrame
           main={
             <div className="space-y-6 py-4 text-center animate-in fade-in duration-300">
-              <span className="mx-auto grid size-20 place-items-center rounded-full bg-[#a1462c]/10 text-[var(--lp-danger)]">
+              <span className="mx-auto grid size-20 place-items-center rounded-full bg-[var(--lp-danger-soft)] text-[var(--lp-danger)]">
                 <AlertCircle className="size-9" />
               </span>
               <div>

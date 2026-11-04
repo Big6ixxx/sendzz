@@ -59,7 +59,7 @@ export function HistoryList({
       {!list.isLoading && (list.all?.length ?? 0) > 0 && (
         <section
           aria-label="Last 30 days"
-          className="lp-fixed grid grid-cols-2 overflow-hidden rounded-[28px] bg-[var(--lp-forest)] text-[var(--lp-cream)]"
+          className="lp-on-forest grid grid-cols-2 overflow-hidden rounded-[28px] text-[var(--lp-cream)]"
         >
           {[
             { label: "In · last 30 days", value: `+$${formatMoney(month.moneyIn)}`, accent: true },
@@ -255,7 +255,7 @@ function HistoryRow({
               disabled={reclaiming || accepting}
               className={cn(
                 "inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-[13px] font-semibold transition-opacity disabled:opacity-60",
-                canAccept ? "lp-fixed bg-[var(--lp-green)] text-[var(--lp-ink)]" : "bg-[var(--lp-ink)] text-[var(--lp-cream)]",
+                canAccept ? "lp-on-green text-[var(--lp-ink)]" : "bg-[var(--lp-ink)] text-[var(--lp-cream)]",
               )}
             >
               {reclaiming || accepting ? (

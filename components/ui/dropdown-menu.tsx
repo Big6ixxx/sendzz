@@ -5,7 +5,6 @@ import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { brandFontVars } from "@/components/landing/fonts";
 import "@/components/landing/landing.css";
 
 function DropdownMenu({
@@ -38,7 +37,7 @@ function DropdownMenuContent({
   sideOffset = 4,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
-  // Carries the cream scope it leaves when portalled (see Dialog).
+  // Carries the page scope it leaves when portalled (see Dialog).
   return (
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content
@@ -46,7 +45,7 @@ function DropdownMenuContent({
         sideOffset={sideOffset}
         className={cn(
           "text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 max-h-(--radix-dropdown-menu-content-available-height) min-w-32 origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto p-1",
-          `lp-root ${brandFontVars} rounded-[20px] !bg-[var(--lp-surface)] shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08),0_20px_48px_-16px_rgb(17_26_19/0.35)]`,
+          "lp-root rounded-[20px] !bg-[var(--lp-surface)] shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08),0_20px_48px_-16px_rgb(17_26_19/0.35)]",
           className,
         )}
         {...props}

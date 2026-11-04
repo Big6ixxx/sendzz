@@ -67,7 +67,7 @@ export function SigningProgress({
                 className={cn(
                   "mt-0.5 w-5 h-5 shrink-0 rounded-full border flex items-center justify-center",
                   done
-                    ? "lp-fixed border-transparent bg-[var(--lp-green)] text-[var(--lp-ink)]"
+                    ? "lp-on-green border-transparent text-[var(--lp-ink)]"
                     : active
                       ? "border-[var(--lp-ink)] text-[var(--lp-ink)]"
                       : "border-[var(--lp-line)] text-[var(--lp-muted)]",

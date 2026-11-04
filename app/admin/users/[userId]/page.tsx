@@ -197,7 +197,7 @@ function AdminUserDetail() {
         initial={{ opacity: 0, y: 28 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.9, ease: EASE, delay: 0.06 }}
-        className="lp-fixed rounded-[28px] bg-[var(--lp-forest)] p-5 text-[var(--lp-cream)] sm:p-8 md:rounded-[36px] md:p-10"
+        className="lp-on-forest rounded-[28px] p-5 text-[var(--lp-cream)] sm:p-8 md:rounded-[36px] md:p-10"
       >
         <div className="flex flex-wrap items-start justify-between gap-3">
           <span className="lp-mono text-[12px] uppercase text-[var(--lp-green)] sm:text-[13px]">Lifetime volume</span>

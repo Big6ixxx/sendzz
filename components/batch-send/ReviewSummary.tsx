@@ -45,7 +45,7 @@ export function ReviewSummary({ hook }: ReviewSummaryProps) {
                   <button
                     onClick={() => hook.removeRecipient(r.id)}
                     aria-label={`Remove ${r.email}`}
-                    className="grid size-8 shrink-0 place-items-center rounded-full text-[var(--lp-muted)] transition-colors hover:bg-[#a1462c]/10 hover:text-[var(--lp-danger)]"
+                    className="grid size-8 shrink-0 place-items-center rounded-full text-[var(--lp-muted)] transition-colors hover:bg-[var(--lp-danger-soft)] hover:text-[var(--lp-danger)]"
                   >
                     <X className="size-4" />
                   </button>

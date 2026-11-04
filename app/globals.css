@@ -7,7 +7,9 @@
 /* The palette, by meaning. Set on the document so everything, portals and toasts included,
    reads it, and redefined for dark mode below. Components use these tokens, never the hex. */
 :root,
-.lp-fixed {
+.lp-fixed,
+.lp-on-green,
+.lp-on-forest {
   --lp-ink: #111a13;          /* text, and the dark button */
   --lp-cream: #f6f2e9;        /* the page */
   --lp-sand: #e7dfcf;         /* a quieter panel */
@@ -29,13 +31,22 @@
   --lp-danger: #a1462c;
   --lp-danger-soft: #fbe7df;
   --lp-mark: #f3d3b8;
+  --lp-good-faint: #f3fbf6;   /* a barely-there tint, for an unread row */
+  --lp-info: #1d5fb4;         /* transfers, informational marks */
+  --lp-info-soft: rgb(42 120 214 / 0.1);
+  --lp-violet: #4b3bb3;       /* moves between networks */
+  --lp-violet-soft: rgb(98 80 214 / 0.1);
+  --lp-on-ink: #00e87a;       /* an accent on the ink fill (a badge, an avatar letter) */
   /* The same in both modes. */
   --lp-green: #00e87a;
   --lp-forest: #0b3b29;
 }
 
-/* Dark: a deep green-black page, cards a step lighter, the same green and forest. */
-[data-theme="dark"] {
+/* Dark: a deep green-black page, cards a step lighter, the same green and forest. Also applied
+   to `.lp-themed`, a card set inside a pinned surface (a step card on a green block): pinned
+   surfaces hold the light palette, and a card in one would otherwise stay milky at night. */
+[data-theme="dark"],
+[data-theme="dark"] .lp-themed {
   color-scheme: dark;
   --lp-ink: #eceee6;
   --lp-cream: #0c120e;
@@ -50,19 +61,41 @@
   --lp-soft-2: #243027;
   --lp-hair: 236 238 230;
   --lp-placeholder: rgba(145, 154, 146, 0.8);
-  --lp-link: #3ddc8a;
-  --lp-good: #4fd28f;
-  --lp-good-soft: rgb(0 232 122 / 0.14);
+  --lp-link: #4cbf84;
+  --lp-good: #4cbf84;
+  --lp-good-soft: rgb(36 178 107 / 0.16);
   --lp-warn: #f0c15a;
   --lp-warn-soft: rgb(245 196 81 / 0.14);
   --lp-danger: #f19a82;
   --lp-danger-soft: rgb(224 122 95 / 0.16);
   --lp-mark: rgb(243 211 184 / 0.28);
+  --lp-good-faint: rgb(36 178 107 / 0.1);
+  --lp-info: #8fb6ee;
+  --lp-info-soft: rgb(143 182 238 / 0.14);
+  --lp-violet: #b5a8f4;
+  --lp-violet-soft: rgb(181 168 244 / 0.14);
+  /* Ink turns light at night, where green on it would not read: forest instead. */
+  --lp-on-ink: #0b3b29;
+}
+
+/* The brand green, calmer at night: full #00e87a glares on a dark page. Applied inside the pinned
+   surfaces too (green buttons included), so the green is one green in each mode. */
+[data-theme="dark"],
+[data-theme="dark"] .lp-fixed,
+[data-theme="dark"] .lp-on-green,
+[data-theme="dark"] .lp-on-forest {
+  --lp-green: #24b26b;
 }
 
 /* Surfaces that look the same in both modes (the forest panels, the bright green buttons) keep
    the light values for everything inside them, so dark text on green stays dark. */
-.lp-fixed {
+/* Pinned surfaces. Use the utilities for a green or forest background (they set the colour and
+   the pin together, so the pin cannot be forgotten); lp-fixed alone is for anything else that
+   must stay light, such as the white ground behind a QR code. Each selector list below names all
+   three, and .lp-themed undoes the pin for a card inside one. */
+.lp-fixed,
+.lp-on-green,
+.lp-on-forest {
   color-scheme: light;
 }
 
@@ -82,11 +115,11 @@
      same values plus the brand fonts, for anything portalled out of a page. */
   --color-brand-primary: var(--lp-surface);
   --color-brand-secondary: var(--lp-ink);
-  --color-accent: #00e87a;
+  --color-accent: var(--lp-green);
   --color-accent-fg: var(--lp-good);
   --color-danger: var(--lp-danger);
   --color-warning: var(--lp-warn);
-  --color-info: #1d5fb4;
+  --color-info: var(--lp-info);
 
   --font-sans: var(--font-geist), system-ui, -apple-system, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
@@ -107,7 +140,7 @@
     --popover-foreground: var(--lp-ink);
     --ring: var(--lp-ink);
     --radius: 0.75rem;
-    --accent: #00e87a;
+    --accent: var(--lp-green);
   }
 
   * {
@@ -180,6 +213,25 @@
 @utility lp-card {
   background-color: var(--lp-surface);
   box-shadow: 0 0 0 1px rgb(var(--lp-hair) / 0.06);
+}
+
+/* A pinned surface restates its text colour: an inherited colour arrives already worked out
+   from the page's (dark) tokens, so without this, text on a green button would be light. In the
+   base layer, so a text utility on the same element still wins. */
+@layer base {
+  .lp-fixed,
+  .lp-on-green,
+  .lp-on-forest,
+  .lp-themed {
+    color: var(--lp-ink);
+  }
+}
+
+@utility lp-on-green {
+  background-color: var(--lp-green);
+}
+@utility lp-on-forest {
+  background-color: var(--lp-forest);
 }
 
 /* While the mode switches, nothing animates its colour: every surface changes in the same frame

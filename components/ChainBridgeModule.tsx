@@ -634,7 +634,7 @@ export function ChainBridgeModule({
         <span
           className={cn(
             "mx-auto grid size-20 place-items-center rounded-full transition-colors duration-500",
-            isDone ? "lp-fixed bg-[var(--lp-green)] text-[var(--lp-ink)]" : "bg-[var(--lp-cream)] text-[var(--lp-ink)]",
+            isDone ? "lp-on-green text-[var(--lp-ink)]" : "bg-[var(--lp-cream)] text-[var(--lp-ink)]",
           )}
         >
           {isDone ? <CheckCircle2 className="size-10" /> : <Loader2 className="size-9 animate-spin" />}
@@ -670,7 +670,7 @@ export function ChainBridgeModule({
               <span
                 className={cn(
                   "grid size-7 shrink-0 place-items-center rounded-full text-[13px] font-semibold",
-                  st.done ? "bg-[var(--lp-good)] text-white" : st.active ? "bg-[var(--lp-ink)] text-[var(--lp-cream)]" : "bg-[var(--lp-cream)] text-[var(--lp-muted)]",
+                  st.done ? "bg-[var(--lp-good)] text-[var(--lp-cream)]" : st.active ? "bg-[var(--lp-ink)] text-[var(--lp-cream)]" : "bg-[var(--lp-cream)] text-[var(--lp-muted)]",
                 )}
               >
                 {st.done ? <Check className="size-4" /> : i + 1}
@@ -752,7 +752,7 @@ export function ChainBridgeModule({
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,380px)] lg:items-start lg:gap-6">
       {/* ── The converter ─────────────────────────────────────────────────── */}
-      <section className="lp-fixed rounded-[36px] bg-[var(--lp-forest)] p-3 text-[var(--lp-cream)] sm:p-4">
+      <section className="lp-on-forest rounded-[36px] p-3 text-[var(--lp-cream)] sm:p-4">
         <div className="relative space-y-2">
           <Slot label="From">
             <div className="flex items-center justify-between gap-3">
@@ -802,7 +802,7 @@ export function ChainBridgeModule({
             onClick={swap}
             disabled={!canSwap}
             aria-label="Swap networks"
-            className="lp-fixed absolute left-1/2 top-1/2 z-10 grid size-12 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-4 border-[var(--lp-forest)] bg-[var(--lp-green)] text-[var(--lp-ink)] transition-transform duration-200 hover:rotate-180 disabled:bg-[var(--lp-line)] disabled:text-[var(--lp-muted)] disabled:hover:rotate-0"
+            className="lp-on-green absolute left-1/2 top-1/2 z-10 grid size-12 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-4 border-[var(--lp-forest)] text-[var(--lp-ink)] transition-transform duration-200 hover:rotate-180 disabled:bg-[var(--lp-line)] disabled:text-[var(--lp-muted)] disabled:hover:rotate-0"
           >
             <ArrowUpDown className="size-5" />
           </button>

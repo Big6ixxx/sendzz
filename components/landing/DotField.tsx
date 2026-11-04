@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { MEDIA, useMedia } from "./motion";
+import { THEME_EVENT } from "@/lib/theme-script";
 
 /** Stands for the theme's ink, read from --lp-ink when drawn, so the dots show in dark mode too. */
 const INK = "ink";
@@ -159,7 +160,22 @@ export function DotField() {
       drawSpecks();
     });
     resize.observe(el);
-    if (reduce) return () => resize.disconnect();
+
+    // The mode changed: pick up the new ink and repaint. Registered before the reduced-motion
+    // return, which has no frame loop to pick up a dirty flag, so it repaints directly there.
+    const onTheme = () => {
+      ink = readInk();
+      if (reduce) {
+        drawGrid();
+        drawSpecks();
+      } else dirty = true;
+    };
+    window.addEventListener(THEME_EVENT, onTheme);
+    if (reduce)
+      return () => {
+        resize.disconnect();
+        window.removeEventListener(THEME_EVENT, onTheme);
+      };
 
     let prev = performance.now();
     let frame = requestAnimationFrame(function tick(now) {
@@ -202,12 +218,6 @@ export function DotField() {
     const leave = () => {
       pointer.present = false;
     };
-    // The mode changed: pick up the new ink and repaint the grid (the specks follow next frame).
-    const onTheme = () => {
-      ink = readInk();
-      dirty = true;
-    };
-    window.addEventListener("sendzz-theme", onTheme);
     if (fine) {
       window.addEventListener("pointermove", move, { passive: true });
       document.documentElement.addEventListener("pointerleave", leave);
@@ -216,7 +226,7 @@ export function DotField() {
     return () => {
       cancelAnimationFrame(frame);
       resize.disconnect();
-      window.removeEventListener("sendzz-theme", onTheme);
+      window.removeEventListener(THEME_EVENT, onTheme);
       window.removeEventListener("pointermove", move);
       document.documentElement.removeEventListener("pointerleave", leave);
     };

@@ -5,7 +5,6 @@ import { Check, ChevronDown, ChevronUp } from 'lucide-react';
 import * as React from 'react';
 
 import { cn } from '@/lib/utils';
-import { brandFontVars } from '@/components/landing/fonts';
 import '@/components/landing/landing.css';
 
 const Select = SelectPrimitive.Root;
@@ -77,7 +76,7 @@ const SelectContent = React.forwardRef<
     <SelectPrimitive.Content
       ref={ref}
       className={cn(
-        `lp-root ${brandFontVars}`,
+        "lp-root",
         // Portalled to <body>, outside any cream page, so it brings the scope with it; !bg-[var(--lp-surface)] beats lp-root's own background.
         'relative z-50 max-h-96 min-w-32 overflow-hidden rounded-[22px] !bg-[var(--lp-surface)] text-[var(--lp-ink)] shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08),0_24px_48px_-20px_rgb(17_26_19/0.35)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',
         position === 'popper' &&

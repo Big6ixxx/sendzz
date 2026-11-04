@@ -170,7 +170,7 @@ export function BankSelector({
           editable, anyone could type over a confirmed beneficiary and the typed value went on to
           the order, so the badge vouched for a name nobody had checked. */}
       {accountName && !recipientNameNeeded && (
-        <div className="flex items-center justify-between gap-3 rounded-[18px] bg-[#00e87a]/15 px-4 py-3.5 animate-in fade-in slide-in-from-top-2 duration-300">
+        <div className="flex items-center justify-between gap-3 rounded-[18px] bg-[var(--lp-green)]/15 px-4 py-3.5 animate-in fade-in slide-in-from-top-2 duration-300">
           <div className="min-w-0">
             <p className="text-[13px] text-[var(--lp-good)]">Account holder</p>
             <p className="break-words text-[16px] font-semibold uppercase tracking-wide">{accountName}</p>

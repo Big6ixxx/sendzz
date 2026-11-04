@@ -4,7 +4,6 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { XIcon } from 'lucide-react';
 import * as React from 'react';
 
-import { brandFontVars } from '@/components/landing/fonts';
 import '@/components/landing/landing.css';
 import { cn } from '@/lib/utils';
 
@@ -57,7 +56,7 @@ function DialogContent({
   showCloseButton?: boolean;
 }) {
   // Portalled to <body>, outside any page's `lp-root`, so the dialog brings that scope with it:
-  // the cream surface, the brand fonts, and the theme tokens in cream (landing.css).
+  // the page surface and type of the current theme (landing.css).
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
@@ -74,7 +73,7 @@ function DialogContent({
           // browser chrome RETRACTED, so a vh-bound dialog is still cut off while the address
           // bar is showing — which is exactly when someone is reading it.
           'max-h-[calc(100dvh-2rem)] overflow-y-auto',
-          `lp-root ${brandFontVars} grid-cols-[minmax(0,1fr)] rounded-[28px] [box-shadow:0_0_0_1px_rgb(var(--lp-hair)/0.06),0_32px_80px_-24px_rgb(17_26_19/0.45)] sm:rounded-[32px]`,
+          'lp-root grid-cols-[minmax(0,1fr)] rounded-[28px] [box-shadow:0_0_0_1px_rgb(var(--lp-hair)/0.06),0_32px_80px_-24px_rgb(17_26_19/0.45)] sm:rounded-[32px]',
           className,
         )}
         {...props}

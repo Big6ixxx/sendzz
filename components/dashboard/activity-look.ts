@@ -13,9 +13,9 @@ export function activityRoute(a: Activity): string | null {
 /** How each kind of activity is named and marked, wherever an activity is shown in the cream style. */
 export const ACTIVITY_LOOK: Record<ActivityType, { label: string; icon: typeof ArrowUpRight; badge: string; sign: string }> = {
   sent: { label: "Sent", icon: ArrowUpRight, badge: "bg-[var(--lp-ink)] text-[var(--lp-cream)]", sign: "−" },
-  received: { label: "Received", icon: ArrowDownLeft, badge: "lp-fixed bg-[var(--lp-green)] text-[var(--lp-ink)]", sign: "+" },
+  received: { label: "Received", icon: ArrowDownLeft, badge: "lp-on-green text-[var(--lp-ink)]", sign: "+" },
   deposit: { label: "Deposit", icon: Wallet, badge: "bg-[var(--lp-good-soft)] text-[var(--lp-good)]", sign: "+" },
-  withdrawal: { label: "To bank", icon: Landmark, badge: "lp-fixed bg-[var(--lp-forest)] text-[var(--lp-green)]", sign: "−" },
+  withdrawal: { label: "To bank", icon: Landmark, badge: "lp-on-forest text-[var(--lp-green)]", sign: "−" },
   bridge: { label: "Moved between networks", icon: Repeat, badge: "bg-[var(--lp-sand)] text-[var(--lp-ink)]", sign: "" },
   security: { label: "Security", icon: Shield, badge: "bg-[var(--lp-warn-soft)] text-[var(--lp-warn)]", sign: "" },
 };

@@ -169,7 +169,7 @@ function Step({
       whileInView={pinned ? undefined : { opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "0px 0px -15% 0px" }}
       transition={{ duration: 0.9, ease: EASE, delay }}
-      className="flex flex-col gap-6 rounded-[30px] bg-[var(--lp-cream)] p-7"
+      className="lp-themed flex flex-col gap-6 rounded-[30px] bg-[var(--lp-cream)] p-7"
     >
       <span className="lp-display text-[64px] leading-[0.8] tracking-[-0.05em]">{n}</span>
       {children}
@@ -291,7 +291,7 @@ export function HowItWorks() {
         <div
           ref={card}
           style={pinned ? { position: "sticky", top: box.stickyTop } : undefined}
-          className="lp-fixed rounded-[32px] bg-[var(--lp-green)] px-[clamp(20px,4vw,64px)] py-[clamp(40px,5.6vw,78px)] md:rounded-[44px]"
+          className="lp-on-green rounded-[32px] px-[clamp(20px,4vw,64px)] py-[clamp(40px,5.6vw,78px)] md:rounded-[44px]"
         >
           <div className="mx-auto max-w-[1280px]">
             <Reveal>
@@ -384,7 +384,7 @@ function SafetyCard({
         <motion.article
           ref={tiltRef}
           style={tiltStyle}
-          className="lp-fixed flex h-full min-h-[280px] flex-col gap-4 rounded-[30px] bg-[var(--lp-forest)] p-8 text-[var(--lp-cream)] md:min-h-[348px]"
+          className="lp-on-forest flex h-full min-h-[280px] flex-col gap-4 rounded-[30px] p-8 text-[var(--lp-cream)] md:min-h-[348px]"
         >
           <h3 className="lp-display text-[32px] leading-none tracking-[-0.04em] md:text-[36px]">{title}</h3>
           <p className="text-[16px] leading-[1.55] text-[#cfe0d6]">{body}</p>
@@ -480,7 +480,7 @@ function HoldCard() {
         className={`${pill} relative touch-none select-none overflow-hidden [-webkit-touch-callout:none]`}
       >
         {label}
-        <span aria-hidden className={`lp-fixed absolute inset-0 grid place-items-center bg-[var(--lp-green)] text-[var(--lp-ink)] ${CLIP[state]}`}>
+        <span aria-hidden className={`lp-on-green absolute inset-0 grid place-items-center text-[var(--lp-ink)] ${CLIP[state]}`}>
           {label}
         </span>
       </button>
@@ -526,7 +526,7 @@ function SplitCard() {
             initial={false}
             animate={split ? { opacity: 0, scale: 0.95 } : { opacity: 1, scale: 1 }}
             transition={{ duration: split ? 0.15 : 0.3, delay: split ? 0 : d * 0.6, ease: EASE }}
-            className="lp-fixed absolute left-0 top-0 flex h-10 origin-left items-center gap-1.5 whitespace-nowrap rounded-full bg-[var(--lp-green)] px-3.5 text-[13px] font-semibold text-[var(--lp-ink)]"
+            className="lp-on-green absolute left-0 top-0 flex h-10 origin-left items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 text-[13px] font-semibold text-[var(--lp-ink)]"
           >
             <KeyIcon />
             Your key
@@ -696,7 +696,7 @@ export function Faq({ items }: { items: { q: string; a: string }[] }) {
                   className="flex w-full cursor-pointer items-center justify-between gap-5 rounded-[22px] px-6 py-6 text-left text-[17px] font-semibold md:px-7 md:text-[19px]"
                 >
                   {item.q}
-                  <span className="relative grid size-9 flex-none place-items-center rounded-full bg-[var(--lp-ink)] text-[var(--lp-green)]">
+                  <span className="relative grid size-9 flex-none place-items-center rounded-full bg-[var(--lp-ink)] text-[var(--lp-on-ink)]">
                     <span className="absolute h-0.5 w-3.5 rounded-full bg-current" />
                     <span className={`absolute h-3.5 w-0.5 rounded-full bg-current transition-transform duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] ${isOpen ? "scale-y-0" : ""}`} />
                   </span>

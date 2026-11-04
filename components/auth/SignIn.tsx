@@ -25,10 +25,10 @@ import {
   useState,
 } from "react";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
-import Image from "next/image";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { DetailRows, FlowButton, FlowDialogHeading, FlowInput } from "@/components/flow/ui";
 import { EASE } from "@/components/landing/motion";
+import { Wordmark } from "@/components/brand/Wordmark";
 import { cn } from "@/lib/utils";
 import { PinPanel, PinPanelAction } from "@/components/security/PinPad";
 
@@ -287,10 +287,10 @@ function SignInDialog({ open, onClose, prefill }: { open: boolean; onClose: () =
 function SlipPanel({ address, typing, sent }: { address: string; typing: boolean; sent: boolean }) {
   const to = address || "you@example.com";
   return (
-    <div className="lp-fixed relative overflow-hidden bg-[var(--lp-forest)] px-6 pb-6 pt-14 text-[var(--lp-cream)] sm:px-8 md:flex md:flex-col md:justify-between md:p-10">
+    <div className="lp-on-forest relative overflow-hidden px-6 pb-6 pt-14 text-[var(--lp-cream)] sm:px-8 md:flex md:flex-col md:justify-between md:p-10">
       <div className="hidden md:block">
         {/* The full wordmark, lettered in cream: this panel is forest in light and dark mode alike. */}
-        <Image src="/landing/logo-dark.svg" alt="Sendzz" width={101.4} height={30} />
+        <Wordmark width={101.4} height={30} className="text-[var(--lp-cream)]" />
         <p className="lp-display mt-10 text-[40px] leading-[0.95] tracking-[-0.045em]">
           Your email is <span className="lp-serif tracking-[-0.02em]">your account.</span>
         </p>
@@ -299,12 +299,13 @@ function SlipPanel({ address, typing, sent }: { address: string; typing: boolean
         </p>
       </div>
 
-      {/* The slip. Cream paper, a torn edge, the details a real payment shows. */}
+      {/* The slip. Paper, a torn edge, the details a real payment shows. */}
       <motion.div
         initial={{ y: 12, rotate: -1.5 }}
         animate={{ y: 0, rotate: -1.5 }}
         transition={{ duration: 0.6, ease: EASE }}
-        className="relative mx-auto w-full max-w-[340px] md:mx-0 md:mt-10"
+        // Themed: paper by day, a dark slip at night, rather than a bright card on the panel.
+        className="lp-themed relative mx-auto w-full max-w-[340px] md:mx-0 md:mt-10"
       >
         <div className="rounded-t-[20px] bg-[var(--lp-cream)] px-5 pb-5 pt-4 text-[var(--lp-ink)] shadow-[0_24px_48px_-24px_rgb(0_0_0/0.6)]">
           <div className="flex items-center justify-between">
@@ -313,7 +314,7 @@ function SlipPanel({ address, typing, sent }: { address: string; typing: boolean
           </div>
           <p className="mt-4 text-[12px] text-[var(--lp-muted)]">To</p>
           <p
-            className={cn("mt-0.5 flex min-w-0 items-center text-[17px] font-semibold", !address && "text-[#9aa29b]")}
+            className={cn("mt-0.5 flex min-w-0 items-center text-[17px] font-semibold", !address && "text-[var(--lp-placeholder)]")}
             aria-hidden
           >
             <span className="truncate">{to}</span>

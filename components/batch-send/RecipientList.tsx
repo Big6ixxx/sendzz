@@ -59,7 +59,7 @@ export function RecipientList({ hook, senderEmail }: RecipientListProps) {
                     key={r.id}
                     className={cn(
                       'inline-flex max-w-full items-center gap-1.5 rounded-full py-1 pl-3 pr-1.5 text-[14px] font-medium',
-                      r.valid ? 'bg-[var(--lp-ink)] text-[var(--lp-cream)]' : 'bg-[#a1462c]/10 text-[var(--lp-danger)] line-through decoration-1',
+                      r.valid ? 'bg-[var(--lp-ink)] text-[var(--lp-cream)]' : 'bg-[var(--lp-danger-soft)] text-[var(--lp-danger)] line-through decoration-1',
                     )}
                   >
                     <span className="truncate">{r.email}</span>

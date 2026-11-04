@@ -250,7 +250,7 @@ export function DepositForm({ hook }: DepositFormProps) {
               <div
                 className={cn(
                   "flex items-center justify-between gap-3 rounded-full px-5 py-3",
-                  secondsLeft < 60 ? "bg-[#a1462c]/10 text-[var(--lp-danger)]" : "lp-card",
+                  secondsLeft < 60 ? "bg-[var(--lp-danger-soft)] text-[var(--lp-danger)]" : "lp-card",
                 )}
               >
                 <span className="flex items-center gap-2 text-[14px] font-semibold">

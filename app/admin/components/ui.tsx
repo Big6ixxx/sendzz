@@ -130,7 +130,7 @@ export function Pills<T extends string | null>({
                 'whitespace-nowrap rounded-full px-4 py-2 text-[14px] font-medium transition-colors duration-150',
                 active
                   ? tone === 'green'
-                    ? 'lp-fixed bg-[var(--lp-green)] text-[var(--lp-ink)]'
+                    ? 'lp-on-green text-[var(--lp-ink)]'
                     : 'bg-[var(--lp-ink)] text-[var(--lp-cream)]'
                   : 'text-[var(--lp-body)] hover:text-[var(--lp-link)]',
               )}
@@ -212,25 +212,25 @@ export function statusTone(status: string): string {
     case 'approved':
     case 'settled':
     case 'processed':
-      return 'bg-[#00e87a]/15 text-[var(--lp-good)]';
+      return 'bg-[var(--lp-green)]/15 text-[var(--lp-good)]';
     case 'pending':
     case 'pending_claim':
     case 'awaiting_verification':
     case 'processing':
     case 'in_review':
-      return 'bg-[#f5c451]/30 text-[var(--lp-warn)]';
+      return 'bg-[var(--lp-warn-soft)] text-[var(--lp-warn)]';
     case 'failed':
     case 'cancelled':
     case 'declined':
     case 'refunded':
     case 'expired':
     case 'refunding':
-      return 'bg-[#a1462c]/10 text-[var(--lp-danger)]';
+      return 'bg-[var(--lp-danger-soft)] text-[var(--lp-danger)]';
     case 'reversed':
     case 'validated':
-      return 'bg-[#2a78d6]/10 text-[#1d5fb4]';
+      return 'bg-[var(--lp-info-soft)] text-[var(--lp-info)]';
     case 'deposited':
-      return 'bg-[#6250d6]/10 text-[#4b3bb3]';
+      return 'bg-[var(--lp-violet-soft)] text-[var(--lp-violet)]';
     default:
       return 'bg-[var(--lp-cream)] text-[var(--lp-body)]';
   }
@@ -246,10 +246,10 @@ export function StatusBadge({ status, label }: { status: string; label?: string 
 }
 
 const TX_TYPES: Record<string, { Icon: typeof ArrowDownLeft; badge: string; label: string }> = {
-  deposit: { Icon: ArrowDownLeft, badge: 'bg-[#00e87a]/15 text-[var(--lp-good)]', label: 'Deposit' },
-  withdrawal: { Icon: ArrowUpRight, badge: 'bg-[#a1462c]/10 text-[var(--lp-danger)]', label: 'Withdrawal' },
-  transfer: { Icon: ArrowLeftRight, badge: 'bg-[#2a78d6]/10 text-[#1d5fb4]', label: 'Transfer' },
-  bridge: { Icon: Link2, badge: 'bg-[#6250d6]/10 text-[#4b3bb3]', label: 'Bridge' },
+  deposit: { Icon: ArrowDownLeft, badge: 'bg-[var(--lp-green)]/15 text-[var(--lp-good)]', label: 'Deposit' },
+  withdrawal: { Icon: ArrowUpRight, badge: 'bg-[var(--lp-danger-soft)] text-[var(--lp-danger)]', label: 'Withdrawal' },
+  transfer: { Icon: ArrowLeftRight, badge: 'bg-[var(--lp-info-soft)] text-[var(--lp-info)]', label: 'Transfer' },
+  bridge: { Icon: Link2, badge: 'bg-[var(--lp-violet-soft)] text-[var(--lp-violet)]', label: 'Bridge' },
 };
 
 export function txTypeLook(type: string) {
@@ -392,7 +392,7 @@ export function Avatar({ email, size = 'md' }: { email: string; size?: 'md' | 'l
   return (
     <span
       className={cn(
-        'grid shrink-0 place-items-center rounded-full bg-[var(--lp-ink)] font-semibold text-[var(--lp-green)]',
+        'grid shrink-0 place-items-center rounded-full bg-[var(--lp-ink)] font-semibold text-[var(--lp-on-ink)]',
         size === 'lg' ? 'size-14 text-[22px] sm:size-16' : 'size-10 text-[15px]',
       )}
     >

@@ -5,7 +5,6 @@ import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { brandFontVars } from '@/components/landing/fonts';
 
 interface NotificationItem {
   id: string;
@@ -278,7 +277,7 @@ export function NotificationCenter({
       >
         <Bell className="w-5 h-5" />
         {unreadCount > 0 && (
-          <span className="lp-fixed absolute -top-1 -right-1 grid h-5 min-w-5 place-items-center rounded-full border-2 border-[var(--lp-cream)] bg-[#00e87a] px-1 text-[10px] font-bold text-[var(--lp-ink)]">
+          <span className="lp-on-green absolute -top-1 -right-1 grid h-5 min-w-5 place-items-center rounded-full border-2 border-[var(--lp-cream)] px-1 text-[10px] font-bold text-[var(--lp-ink)]">
             {unreadCount}
           </span>
         )}
@@ -295,7 +294,7 @@ export function NotificationCenter({
             width: panelPos.width,
             maxHeight: Math.min(384, panelPos.maxHeight), // 384px = the old max-h-96
           }}
-          className={`lp-root ${brandFontVars} z-50 flex flex-col space-y-3 rounded-[24px] !bg-[var(--lp-surface)] p-4 text-[var(--lp-ink)] shadow-[0_24px_48px_-20px_rgb(17_26_19/0.35),0_0_0_1px_rgb(var(--lp-hair)/0.06)]`}
+          className="lp-root z-50 flex flex-col space-y-3 rounded-[24px] !bg-[var(--lp-surface)] p-4 text-[var(--lp-ink)] shadow-[0_24px_48px_-20px_rgb(17_26_19/0.35),0_0_0_1px_rgb(var(--lp-hair)/0.06)]"
         >
           <div className="flex shrink-0 items-center justify-between border-b border-[var(--lp-rule)] pb-2">
             <span className="text-[15px] font-semibold">Notifications</span>

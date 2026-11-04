@@ -44,10 +44,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { CHART_TOOLTIP } from '@/components/dashboard/chart-tooltip';
 
 /**
- * The single series colour: the brand green, on the forest card. Against #0b3b29 it is well
- * past 3:1 and reads as the same green as everywhere else in the cream brand.
+ * The single series colour: the brand green, on the forest card, drawn as currentColor from the
+ * chart's wrapper so it is the theme's green (calmer in dark mode). Well past 3:1 on #0b3b29.
  */
-const SERIES = '#00e87a';
+const SERIES = 'currentColor';
 const MONO = 'var(--font-geist-mono), ui-monospace, monospace';
 
 
@@ -87,7 +87,7 @@ const ACTIVITY_TONE = {
   none: 'bg-[var(--lp-cream)] text-[var(--lp-muted)]',
   starting: 'bg-[var(--lp-warn-soft)] text-[var(--lp-warn)]',
   active: 'bg-[var(--lp-good-soft)] text-[var(--lp-good)]',
-  high: 'lp-fixed bg-[var(--lp-green)] text-[var(--lp-ink)]',
+  high: 'lp-on-green text-[var(--lp-ink)]',
 } as const;
 
 function monthLabel(key: string): string {
@@ -193,7 +193,7 @@ function MerchantDashboard() {
       />
 
       {/* ── Earnings by month ─────────────────────────────────────────────── */}
-      <section className="lp-fixed rounded-[32px] bg-[var(--lp-forest)] p-6 text-[var(--lp-cream)] sm:p-8">
+      <section className="lp-on-forest rounded-[32px] p-6 text-[var(--lp-cream)] sm:p-8">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="lp-mono text-[12px] uppercase text-[var(--lp-green)]">Earned all time</p>
@@ -207,7 +207,7 @@ function MerchantDashboard() {
         </div>
 
         {hasEarnings ? (
-          <div className="-ml-2 mt-6 h-56">
+          <div className="-ml-2 mt-6 h-56 text-[var(--lp-green)]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
                 <CartesianGrid stroke="rgba(246,242,233,0.08)" vertical={false} />

@@ -25,8 +25,8 @@ function viewParams(searchTerm: string, page: number): string {
 
 /** Spend tiers, by lifetime volume. */
 function tierOf(volume: number): { label: string; className: string } | null {
-  if (volume >= 10000) return { label: 'Whale', className: 'bg-[var(--lp-ink)] text-[var(--lp-green)]' };
-  if (volume >= 1000) return { label: 'Power', className: 'bg-[#00e87a]/15 text-[var(--lp-good)]' };
+  if (volume >= 10000) return { label: 'Whale', className: 'bg-[var(--lp-ink)] text-[var(--lp-on-ink)]' };
+  if (volume >= 1000) return { label: 'Power', className: 'bg-[var(--lp-green)]/15 text-[var(--lp-good)]' };
   return null;
 }
 

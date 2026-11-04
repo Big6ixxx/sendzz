@@ -72,7 +72,7 @@ export function BankSelectorSuggestions({
                     e.stopPropagation();
                     onDeleteContact(c.id);
                   }}
-                  className="grid size-9 shrink-0 place-items-center rounded-full text-[var(--lp-muted)] transition-colors hover:bg-[#a1462c]/10 hover:text-[var(--lp-danger)]"
+                  className="grid size-9 shrink-0 place-items-center rounded-full text-[var(--lp-muted)] transition-colors hover:bg-[var(--lp-danger-soft)] hover:text-[var(--lp-danger)]"
                   title="Remove saved account"
                   aria-label={`Remove ${c.account_name}`}
                 >

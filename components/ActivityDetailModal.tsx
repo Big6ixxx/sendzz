@@ -368,7 +368,7 @@ export function ActivityDetailModal({
 
   const look = ACTIVITY_LOOK[activity.type] ?? ACTIVITY_LOOK.sent;
   // Settled reads as done; anything else names its real state.
-  const status = activityStatus(activity.status) ?? { text: "Completed", tone: "bg-[#00e87a]/15 text-[var(--lp-good)]" };
+  const status = activityStatus(activity.status) ?? { text: "Completed", tone: "bg-[var(--lp-green)]/15 text-[var(--lp-good)]" };
   const receiptData = (() => {
     const base = activityToReceiptData(activity);
     if (activity.type === "withdrawal" && base.fiatPayoutAmount == null && estimatedFiatRate) {
@@ -458,7 +458,7 @@ export function ActivityDetailModal({
           </dl>
 
           {activity.note && (
-            <div className="mt-3 rounded-[22px] bg-[#00e87a]/12 px-5 py-4">
+            <div className="mt-3 rounded-[22px] bg-[var(--lp-green)]/12 px-5 py-4">
               <p className="text-[13px] text-[var(--lp-good)]">Memo</p>
               <p className="mt-0.5 break-words text-[15px] leading-[1.5] [overflow-wrap:anywhere]">{activity.note}</p>
             </div>
@@ -490,7 +490,7 @@ export function ActivityDetailModal({
                   // than left blank, which reads as a transfer that never finished.
                   if (activity.status === "complete") {
                     return (
-                      <p className="flex flex-1 items-center justify-center rounded-full bg-[#00e87a]/12 px-4 py-2 text-center text-[13px] text-[var(--lp-good)]">
+                      <p className="flex flex-1 items-center justify-center rounded-full bg-[var(--lp-green)]/12 px-4 py-2 text-center text-[13px] text-[var(--lp-good)]">
                         Delivered on {chainLabel(activity.destChain ?? "base")}
                       </p>
                     );
@@ -499,7 +499,7 @@ export function ActivityDetailModal({
                     <button
                       onClick={handleClaim}
                       disabled={isClaiming}
-                      className="lp-fixed inline-flex h-11 flex-1 items-center justify-center rounded-full bg-[var(--lp-green)] px-4 text-[14px] font-semibold text-[var(--lp-ink)] transition-[scale,opacity] duration-150 active:scale-[0.97] disabled:opacity-50"
+                      className="lp-on-green inline-flex h-11 flex-1 items-center justify-center rounded-full px-4 text-[14px] font-semibold text-[var(--lp-ink)] transition-[scale,opacity] duration-150 active:scale-[0.97] disabled:opacity-50"
                     >
                       {isClaiming ? "Claiming…" : "Claim USDC"}
                     </button>

@@ -62,7 +62,7 @@ export default function AdminLogs() {
   const health: { label: string; word: string; dot: string } = !lastEventTime
     ? { label: 'No activity', word: 'Offline', dot: 'bg-[#a9c2b5]' }
     : (now.getTime() - lastEventTime.getTime()) / 3_600_000 < 24
-      ? { label: 'Active and healthy', word: 'Online', dot: 'lp-fixed bg-[var(--lp-green)] lp-pulse' }
+      ? { label: 'Active and healthy', word: 'Online', dot: 'bg-[var(--lp-green)] lp-pulse' }
       : { label: 'Idle for over 24h', word: 'Warning', dot: 'bg-[#f5c451]' };
 
   return (
@@ -93,7 +93,7 @@ export default function AdminLogs() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, ease: EASE }}
-          className="lp-fixed grid grid-cols-1 gap-2 rounded-[28px] bg-[var(--lp-forest)] p-3 text-[var(--lp-cream)] sm:grid-cols-3 sm:p-4 md:rounded-[32px]"
+          className="lp-on-forest grid grid-cols-1 gap-2 rounded-[28px] p-3 text-[var(--lp-cream)] sm:grid-cols-3 sm:p-4 md:rounded-[32px]"
         >
           {[
             {
@@ -145,7 +145,7 @@ export default function AdminLogs() {
                     onClick={() => setSelected(log)}
                     className="flex w-full items-start gap-3 px-5 py-4 text-left transition-colors hover:bg-[var(--lp-raised)] focus:bg-[var(--lp-raised)] focus:outline-none sm:items-center sm:gap-4 sm:px-6"
                   >
-                    <span className={cn('grid size-10 shrink-0 place-items-center rounded-full', outcome ? outcome.tone : 'bg-[#2a78d6]/10 text-[#1d5fb4]')}>
+                    <span className={cn('grid size-10 shrink-0 place-items-center rounded-full', outcome ? outcome.tone : 'bg-[var(--lp-info-soft)] text-[var(--lp-info)]')}>
                       {isWebhook ? <Webhook className="size-[18px]" /> : <Terminal className="size-[18px]" />}
                     </span>
                     <span className="min-w-0 flex-1">

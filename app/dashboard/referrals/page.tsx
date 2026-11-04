@@ -239,7 +239,7 @@ function ReferralsDashboard() {
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] lg:gap-5">
         {/* ── The link ──────────────────────────────────────────────────────── */}
-        <section className="lp-fixed relative overflow-hidden rounded-[32px] bg-[var(--lp-forest)] p-6 text-[var(--lp-cream)] sm:p-8">
+        <section className="relative overflow-hidden rounded-[32px] lp-on-forest p-6 text-[var(--lp-cream)] sm:p-8">
           <p className="lp-mono text-[12px] uppercase text-[var(--lp-green)]">Your invite code</p>
           <p className="lp-display mt-2 break-all text-[clamp(36px,7vw,56px)] leading-[0.95] tracking-[-0.03em]">{data.code}</p>
           <p className="lp-mono mt-3 truncate text-[13px] text-[#a9c2b5]" title={link}>
@@ -260,7 +260,7 @@ function ReferralsDashboard() {
             <button
               type="button"
               onClick={share}
-              className="lp-fixed inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-full bg-[var(--lp-green)] px-5 text-[15px] font-semibold text-[var(--lp-ink)] transition-transform duration-150 active:scale-[0.98]"
+              className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-full lp-on-green px-5 text-[15px] font-semibold text-[var(--lp-ink)] transition-transform duration-150 active:scale-[0.98]"
             >
               <Share2 className="size-4" /> Share
             </button>
@@ -295,7 +295,7 @@ function ReferralsDashboard() {
             <p className="text-[14px] text-[var(--lp-muted)]">${data.monthlyVolumeUsdc.toLocaleString()} cashed out this month</p>
           </div>
           <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-[var(--lp-cream)]" role="progressbar" aria-valuenow={Math.round(tierProgress)} aria-valuemin={0} aria-valuemax={100}>
-            <div className="lp-fixed h-full rounded-full bg-[var(--lp-green)]" style={{ width: `${tierProgress}%` }} />
+            <div className="h-full rounded-full bg-[var(--lp-green)]" style={{ width: `${tierProgress}%` }} />
           </div>
           <p className="mt-4 text-[15px] leading-[1.55] text-[var(--lp-body)]">
             <span className="font-semibold text-[var(--lp-ink)]">${data.nextTier.volumeNeededUsdc.toLocaleString()} more</span> in cash-outs from the

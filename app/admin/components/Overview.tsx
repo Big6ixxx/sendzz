@@ -91,7 +91,7 @@ export function VolumeHero({
       initial={{ opacity: 0, y: 28 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.9, ease: EASE, delay: 0.06 }}
-      className="lp-fixed overflow-hidden rounded-[28px] bg-[var(--lp-forest)] text-[var(--lp-cream)] md:rounded-[36px]"
+      className="lp-on-forest overflow-hidden rounded-[28px] text-[var(--lp-cream)] md:rounded-[36px]"
     >
       <div className="grid grid-cols-1 gap-6 p-5 sm:gap-8 sm:p-8 md:p-10 xl:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] xl:gap-10">
         <div className="flex min-w-0 flex-col">
@@ -159,7 +159,8 @@ export function VolumeHero({
             )}
           </div>
 
-          <div className="mt-4 h-[200px] sm:h-[240px] md:h-[280px]">
+          {/* The series is drawn in currentColor, so it takes the theme's green (calmer in dark). */}
+          <div className="mt-4 h-[200px] text-[var(--lp-green)] sm:h-[240px] md:h-[280px]">
             {!ready ? (
               <ChartShimmer onDark />
             ) : total === 0 ? (
@@ -174,8 +175,8 @@ export function VolumeHero({
                 <AreaChart data={points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="admin-volume" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#00e87a" stopOpacity={0.4} />
-                      <stop offset="100%" stopColor="#00e87a" stopOpacity={0} />
+                      <stop offset="0%" stopColor="currentColor" stopOpacity={0.4} />
+                      <stop offset="100%" stopColor="currentColor" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid stroke="rgba(246,242,233,0.08)" vertical={false} />
@@ -206,10 +207,10 @@ export function VolumeHero({
                   <Area
                     type="monotone"
                     dataKey="volume"
-                    stroke="#00e87a"
+                    stroke="currentColor"
                     strokeWidth={2}
                     fill="url(#admin-volume)"
-                    activeDot={{ r: 5, fill: '#00e87a', stroke: '#0b3b29', strokeWidth: 2 }}
+                    activeDot={{ r: 5, fill: 'currentColor', stroke: '#0b3b29', strokeWidth: 2 }}
                   />
                 </AreaChart>
               </ResponsiveContainer>
@@ -241,7 +242,7 @@ export function NewUsersCard({
 
   return (
     <Reveal className="h-full">
-      <section className={cn('lp-fixed flex h-full flex-col rounded-[28px] bg-[var(--lp-green)] p-5 transition-opacity duration-300 sm:rounded-[32px] sm:p-8', stale && 'opacity-70')}>
+      <section className={cn('lp-on-green flex h-full flex-col rounded-[28px] p-5 transition-opacity duration-300 sm:rounded-[32px] sm:p-8', stale && 'opacity-70')}>
         <div className="flex items-center justify-between gap-3">
           <Eyebrow>New users</Eyebrow>
           <span className="lp-mono text-[11px] uppercase sm:text-[12px]">{periodLabel}</span>
@@ -311,7 +312,7 @@ export function AttentionCard({ pending, loading }: { pending: number; loading: 
             <span
               className={cn(
                 'shrink-0 rounded-full px-3 py-1 text-[12px] font-semibold sm:text-[13px]',
-                clear ? 'bg-[#00e87a]/15 text-[var(--lp-good)]' : 'bg-[#f5c451]/30 text-[var(--lp-warn)]',
+                clear ? 'bg-[var(--lp-green)]/15 text-[var(--lp-good)]' : 'bg-[var(--lp-warn-soft)] text-[var(--lp-warn)]',
               )}
             >
               {clear ? 'All clear' : 'Action needed'}

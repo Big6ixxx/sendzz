@@ -6,7 +6,6 @@ import { Check, Copy, Globe, X } from 'lucide-react';
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 
-import { brandFontVars } from '@/components/landing/fonts';
 import { getCurrencyCountry, getCurrencyFlag } from '@/lib/currency-config';
 import { cn } from '@/lib/utils';
 import type { AdminLog, AuditLog, WebhookLog } from '@/types/admin';
@@ -183,12 +182,12 @@ export function LogDetailModal({
    * `position: fixed` overlay so it mounts but is never visible. Escaping to the body sidesteps
    * every ancestor's overflow, transform and z-index.
    *
-   * Out there it is also outside the admin's `lp-root`, so it brings the brand scope with it:
+   * Out there it is also outside the admin's "lp-root", so it brings the brand scope with it:
    * without it the text takes the app's global near-white and the cream fills have no colour.
    * `contents` keeps the wrapper itself out of the layout.
    */
   return createPortal(
-    <div className={`lp-root ${brandFontVars} contents`}>
+    <div className="lp-root contents">
       <AnimatePresence>
         {log && (
           <motion.div
@@ -260,7 +259,7 @@ export function LogDetailModal({
                 what a status means: an admin opening a log already knows what "expired" is, and
                 filling the space with boilerplate hides the fact that the real cause is absent. */}
               {causes.length > 0 && (
-                <div className="mb-7 rounded-[22px] border-l-4 border-[#f5c451] bg-[#f5c451]/15 py-4 pl-5 pr-4">
+                <div className="mb-7 rounded-[22px] border-l-4 border-[#f5c451] bg-[var(--lp-warn-soft)] py-4 pl-5 pr-4">
                   {causes.map((c, i) => (
                     <div key={c.key} className={i > 0 ? 'mt-5' : undefined}>
                       <p className="text-[16px] leading-relaxed text-[var(--lp-ink)]">{c.value}</p>

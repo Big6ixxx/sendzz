@@ -103,7 +103,7 @@ export function DashboardOverview({
         initial={{ opacity: 0, y: 28 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.9, ease: EASE, delay: 0.08 }}
-        className="lp-fixed relative overflow-hidden rounded-[32px] bg-[var(--lp-forest)] p-6 text-[var(--lp-cream)] sm:p-8 md:rounded-[36px] md:p-10"
+        className="lp-on-forest relative overflow-hidden rounded-[32px] p-6 text-[var(--lp-cream)] sm:p-8 md:rounded-[36px] md:p-10"
       >
         <div className="flex flex-wrap items-center gap-2">
           <span className="lp-mono text-[12px] uppercase text-[var(--lp-green)]">Total balance</span>
@@ -178,7 +178,7 @@ export function DashboardOverview({
             <button
               type="button"
               onClick={onDeposit}
-              className="lp-fixed inline-flex h-[54px] items-center gap-2 rounded-full bg-[var(--lp-green)] px-6 text-[16px] font-semibold text-[var(--lp-ink)] transition-[scale] duration-150 active:scale-[0.97]"
+              className="lp-on-green inline-flex h-[54px] items-center gap-2 rounded-full px-6 text-[16px] font-semibold text-[var(--lp-ink)] transition-[scale] duration-150 active:scale-[0.97]"
             >
               <ArrowDownLeft className="size-[18px]" /> Deposit
             </button>
@@ -212,7 +212,7 @@ export function DashboardOverview({
           <QuickSend onSend={onSendTo} />
 
           <Reveal delay={0.08}>
-            <section className="lp-fixed relative overflow-hidden rounded-[28px] bg-[var(--lp-green)] p-6 sm:p-8">
+            <section className="lp-on-green relative overflow-hidden rounded-[28px] p-6 sm:p-8">
               <p className="lp-mono text-[12px] uppercase">Batch payroll</p>
               <h2 className="lp-display mt-3 max-w-[420px] text-[clamp(26px,3vw,34px)] font-bold leading-none tracking-[-0.03em]">
                 Pay everyone <span className="lp-serif font-normal tracking-[-0.01em]">at once.</span>

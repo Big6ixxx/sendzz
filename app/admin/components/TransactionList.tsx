@@ -167,7 +167,7 @@ export function TransactionList({
                       <CopyHash hash={hash} />
                       {mint !== '—' && (
                         <span className="flex items-center gap-1.5">
-                          <span className="lp-mono text-[11px] uppercase text-[#4b3bb3]">Mint</span>
+                          <span className="lp-mono text-[11px] uppercase text-[var(--lp-violet)]">Mint</span>
                           <CopyHash hash={mint} />
                         </span>
                       )}

@@ -56,11 +56,10 @@ export default function RootLayout({
     <html lang="en" className={brandFontVars} suppressHydrationWarning>
       <head>
         <link rel="manifest" href="/manifest.json" />
-        <meta name="theme-color" content="#f6f2e9" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <link rel="apple-touch-icon" href="/Sendz-192.png" />
-        {/* Sets light or dark before the first paint, so a saved choice never flashes the other. */}
+        {/* Sets light or dark before the first paint, so a saved choice never flashes the other, and
+            writes the theme-color and iOS status bar tags for that mode (see lib/theme-script). */}
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
       <body className="antialiased min-h-screen bg-background text-foreground flex flex-col">

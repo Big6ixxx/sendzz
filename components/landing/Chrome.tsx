@@ -23,7 +23,7 @@ export function LandingHeader({ onGetStarted, showNav = false }: { onGetStarted:
         className={`mx-auto grid h-[72px] w-full max-w-[1360px] grid-cols-[1fr_auto] items-center px-4 md:h-[82.5px] md:px-7 ${showNav ? "md:grid-cols-[1fr_auto_1fr]" : ""}`}
       >
         <Link href="/" aria-label="Sendzz home" className="justify-self-start">
-          <Wordmark width={101.4} height={30} priority />
+          <Wordmark width={101.4} height={30} />
         </Link>
 
         {showNav && (
@@ -45,7 +45,7 @@ export function LandingHeader({ onGetStarted, showNav = false }: { onGetStarted:
           <button
             type="button"
             onClick={onGetStarted}
-            className="lp-fixed h-[46.5px] rounded-full bg-[var(--lp-green)] px-[22px] text-[15px] font-semibold leading-[22.5px] text-[var(--lp-ink)] transition-[scale] duration-150 active:scale-[0.97]"
+            className="lp-on-green h-[46.5px] rounded-full px-[22px] text-[15px] font-semibold leading-[22.5px] text-[var(--lp-ink)] transition-[scale] duration-150 active:scale-[0.97]"
           >
             Get started
           </button>

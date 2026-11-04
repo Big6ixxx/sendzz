@@ -175,10 +175,10 @@ export default function DevicesSettingsPage() {
             {sessions === null ? (
               <Skeleton tone="page" className="h-24 rounded-[24px]" />
             ) : current ? (
-              <div className="lp-fixed rounded-[24px] bg-[var(--lp-forest)] p-6 text-[var(--lp-cream)]">
+              <div className="lp-on-forest rounded-[24px] p-6 text-[var(--lp-cream)]">
                 <p className="lp-display text-[clamp(24px,4vw,32px)] leading-[1.05] tracking-[-0.03em]">{describe(current.userAgent)}</p>
                 <p className="mt-3 flex items-center gap-2 text-[15px] text-[#cfe0d6]">
-                  <span className="lp-fixed size-2 rounded-full bg-[var(--lp-green)]" aria-hidden /> Active now
+                  <span className="size-2 rounded-full bg-[var(--lp-green)]" aria-hidden /> Active now
                 </p>
               </div>
             ) : (
@@ -229,7 +229,7 @@ export default function DevicesSettingsPage() {
                       type="button"
                       onClick={() => void revoke({ all: true }, "all")}
                       disabled={busy !== null}
-                      className="inline-flex h-[46px] items-center rounded-full border border-[rgba(161,70,44,0.35)] px-[22px] text-[15px] font-semibold text-[var(--lp-danger)] transition-colors hover:bg-[var(--lp-danger-soft)] disabled:opacity-50"
+                      className="inline-flex h-[46px] items-center rounded-full border border-[var(--lp-danger)]/35 px-[22px] text-[15px] font-semibold text-[var(--lp-danger)] transition-colors hover:bg-[var(--lp-danger-soft)] disabled:opacity-50"
                     >
                       {busy === "all" ? "Signing out…" : `Sign out all ${others.length} other devices`}
                     </button>

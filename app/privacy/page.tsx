@@ -127,8 +127,9 @@ const sections: LegalSection[] = [
     body: (
       <>
         <p>
-          This website does not use advertising or analytics cookies. It loads its fonts from Google Fonts and its reference
-          exchange rates from ExchangeRate-API. As with any request on the web, those services receive your IP address.
+          This website does not use advertising or analytics cookies. Its fonts are served by Sendzz itself. It loads its
+          reference exchange rates from ExchangeRate-API and, as with any request on the web, that service receives your IP
+          address.
         </p>
         <p>
           The Sendzz app stores a small amount of data on your device to keep you signed in and remember your settings. The app

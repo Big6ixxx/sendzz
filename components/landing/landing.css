@@ -1,16 +1,19 @@
-/* The cream brand. Scoped under .lp-root, which every page and every portalled dialog or menu
-   carries, so the brand fonts and tokens travel with them. */
+/* The brand's type and surfaces. The palette and fonts are set on the document (app/globals.css,
+   app/layout.tsx); `.lp-root`, on every page and every portalled dialog or menu, applies them. */
 
-.lp-root,
-.lp-fixed {
-  /* The app's theme tokens (app/globals.css), restated so a component built on them, such as
-     text-muted-foreground, reads the same inside a portal as on the page. */
+.lp-fixed,
+.lp-on-green,
+.lp-on-forest,
+.lp-themed {
+  /* The app's theme tokens (app/globals.css), restated where the palette changes under them (a
+     pinned surface, or a themed card inside one): an alias is worked out where it is declared,
+     so without this, text-muted-foreground there would keep the page's value. */
   --color-brand-primary: var(--lp-surface);
   --color-brand-secondary: var(--lp-ink);
   --color-accent-fg: var(--lp-good);
   --color-danger: var(--lp-danger);
   --color-warning: var(--lp-warn);
-  --color-info: #1d5fb4;
+  --color-info: var(--lp-info);
   /* The aliases Tailwind reads (`--color-*`) too, not only what they alias: an alias takes its
      value once, at the root, so overriding the base variable here would not reach it. */
   --color-background: var(--lp-cream);
@@ -107,10 +110,10 @@
 }
 @keyframes lp-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(0, 232, 122, 0.6);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--lp-green) 60%, transparent);
   }
   100% {
-    box-shadow: 0 0 0 8px rgba(0, 232, 122, 0);
+    box-shadow: 0 0 0 8px color-mix(in srgb, var(--lp-green) 0%, transparent);
   }
 }
 
@@ -132,7 +135,7 @@
   border-radius: 9999px;
   box-shadow: inset 0 0 0 1px rgb(var(--lp-hair) / 0.2);
   cursor: pointer;
-  background: linear-gradient(to right, var(--lp-ink) var(--fill), #fff var(--fill));
+  background: linear-gradient(to right, var(--lp-ink) var(--fill), var(--lp-surface) var(--fill));
 }
 .lp-range::-webkit-slider-thumb {
   -webkit-appearance: none;

@@ -98,8 +98,8 @@ export default function AdminRefunds() {
         transition={{ duration: 0.9, ease: EASE, delay: 0.06 }}
         className={
           !isPending && refunds.length === 0
-            ? 'lp-fixed rounded-[28px] bg-[var(--lp-green)] p-5 sm:p-8 md:rounded-[36px] md:p-10'
-            : 'lp-fixed rounded-[28px] bg-[var(--lp-forest)] p-5 text-[var(--lp-cream)] sm:p-8 md:rounded-[36px] md:p-10'
+            ? 'lp-on-green rounded-[28px] p-5 sm:p-8 md:rounded-[36px] md:p-10'
+            : 'lp-on-forest rounded-[28px] p-5 text-[var(--lp-cream)] sm:p-8 md:rounded-[36px] md:p-10'
         }
       >
         {isPending ? (

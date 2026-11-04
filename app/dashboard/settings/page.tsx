@@ -37,7 +37,7 @@ import { KycModal } from "@/components/kyc/KycModal";
 import { InstallAppButton } from "@/components/pwa/InstallAppButton";
 import { LimitsMeter, type Allowance } from "@/components/kyc/LimitsMeter";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useTheme } from "@/lib/theme";
+import { ThemeSwitch } from "@/components/brand/ThemeToggle";
 
 const NON_EVM_RAILS = ["Solana", "Stellar"] as const;
 
@@ -45,7 +45,6 @@ export default function SettingsPage() {
   const { user, logout } = usePrivy();
   const userEmail = user?.email?.address || "";
   const { hideBalance, toggleBalanceVisibility } = useBalanceVisibility();
-  const [theme, setTheme] = useTheme();
 
   const [bankContacts, setBankContacts] = useState<BankContactRow[]>([]);
   const [emailContacts, setEmailContacts] = useState<ContactRow[]>([]);
@@ -563,7 +562,7 @@ export default function SettingsPage() {
                         id="settings-kyc-verify-btn"
                         type="button"
                         onClick={() => setKycModalOpen(true)}
-                        className="lp-fixed inline-flex h-[46px] items-center rounded-full bg-[var(--lp-green)] px-[22px] text-[15px] font-semibold text-[var(--lp-ink)] transition-transform duration-150 hover:-translate-y-px"
+                        className="lp-on-green inline-flex h-[46px] items-center rounded-full px-[22px] text-[15px] font-semibold text-[var(--lp-ink)] transition-transform duration-150 hover:-translate-y-px"
                       >
                         {kycStatus === "declined" ? "Try again" : "Verify my identity"}
                       </button>
@@ -770,7 +769,7 @@ export default function SettingsPage() {
               <SettingsRow
                 title="Dark mode"
                 description="Easier on the eyes at night. Saved on this device."
-                control={<Switch label="Dark mode" checked={theme === "dark"} onChange={() => setTheme(theme === "dark" ? "light" : "dark")} />}
+                control={<ThemeSwitch />}
               />
               <SettingsRow
                 title="Hide balances"

@@ -161,7 +161,7 @@ export function ForgotPinDialog({
                     <span
                       key={p}
                       className={`h-1.5 flex-1 rounded-full transition-colors duration-300 ${
-                        i <= ["code", "pin", "confirm"].indexOf(phase) ? "lp-fixed bg-[var(--lp-green)]" : "bg-[rgba(246,242,233,0.18)]"
+                        i <= ["code", "pin", "confirm"].indexOf(phase) ? "bg-[var(--lp-green)]" : "bg-[rgba(246,242,233,0.18)]"
                       }`}
                     />
                   ))}

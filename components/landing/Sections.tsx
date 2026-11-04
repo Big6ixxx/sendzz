@@ -230,11 +230,11 @@ export function Features() {
       />
 
       <div className="mt-12 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 xl:gap-[22px]">
-        <FeatureCard index={0} className="lp-fixed bg-[var(--lp-green)]">
+        <FeatureCard index={0} className="lp-on-green">
           <span className="lp-mono text-[13px]">01 / SEND BY EMAIL</span>
-          <div data-box className="flex flex-col gap-2.5 rounded-[22px] bg-[var(--lp-cream)] p-[18px] shadow-[0_20px_40px_-20px_rgb(0_60_30/0.5)]">
+          <div data-box className="lp-themed flex flex-col gap-2.5 rounded-[22px] bg-[var(--lp-cream)] p-[18px] shadow-[0_20px_40px_-20px_rgb(0_60_30/0.5)]">
             <div className="flex items-center gap-3 rounded-[14px] bg-[var(--lp-surface)] p-2.5">
-              <span className="grid size-[38px] flex-none place-items-center rounded-full bg-[var(--lp-ink)] font-semibold text-[var(--lp-green)]">C</span>
+              <span className="grid size-[38px] flex-none place-items-center rounded-full bg-[var(--lp-ink)] font-semibold text-[var(--lp-on-ink)]">C</span>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[15px] font-semibold">chloe@example.com</div>
                 <div className="text-[13px] text-[var(--lp-muted)]">Not on Sendzz yet · claim link sent</div>
@@ -257,12 +257,12 @@ export function Features() {
           />
         </FeatureCard>
 
-        <FeatureCard index={1} className="lp-fixed bg-[var(--lp-forest)] text-[#f5f4ee]">
+        <FeatureCard index={1} className="lp-on-forest text-[#f5f4ee]">
           <span className="lp-mono text-[13px] text-[var(--lp-green)]">02 / LOCAL RAMPS</span>
           <ul className="flex flex-col gap-2 [perspective:600px]">
             {RAMPS.map((r) => (
               <li key={r.code} data-row className="flex min-h-[57px] items-center gap-3.5 rounded-2xl bg-[rgba(245,244,238,0.07)] px-4 py-2">
-                <span data-coin className="lp-fixed lp-mono rounded-[8px] bg-[var(--lp-green)] px-[9px] py-[6px] text-[13px] font-medium leading-none text-[#0d120f]">
+                <span data-coin className="lp-on-green lp-mono rounded-[8px] px-[9px] py-[6px] text-[13px] font-medium leading-none text-[#0d120f]">
                   {r.code}
                 </span>
                 <span className="flex-1 text-[15px]">{r.label}</span>

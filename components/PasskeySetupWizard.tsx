@@ -458,7 +458,7 @@ export function PinSetup({
           key={p}
           className={cn(
             "h-1.5 flex-1 rounded-full transition-colors duration-300",
-            phase === "confirm" || p === "enter" ? "lp-fixed bg-[var(--lp-green)]" : "bg-[rgba(246,242,233,0.18)]",
+            phase === "confirm" || p === "enter" ? "bg-[var(--lp-green)]" : "bg-[rgba(246,242,233,0.18)]",
           )}
         />
       ))}

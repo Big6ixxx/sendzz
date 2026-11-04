@@ -67,11 +67,18 @@ export function Switch({
   onChange,
   disabled,
   label,
+  followsTheme,
 }: {
   checked: boolean;
   onChange: () => void;
   disabled?: boolean;
   label: string;
+  /**
+   * The dark mode switch: drawn from the page's `data-theme` (on in dark) rather than `checked`,
+   * which React only learns after hydration, so a switch saved on does not slide over on load.
+   * `checked` still sets what screen readers hear.
+   */
+  followsTheme?: boolean;
 }) {
   return (
     <button
@@ -86,13 +93,18 @@ export function Switch({
       }}
       className={cn(
         "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-[#04c96a] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
-        checked ? "bg-[var(--lp-ink)]" : "bg-[var(--lp-rule)]",
+        // Written out in full: Tailwind only builds classes it can find in the source.
+        followsTheme ? "bg-[var(--lp-rule)] dark:bg-[var(--lp-ink)]" : checked ? "bg-[var(--lp-ink)]" : "bg-[var(--lp-rule)]",
       )}
     >
       <span
         className={cn(
           "size-5 rounded-full shadow-[0_1px_3px_rgb(17_26_19/0.25)] transition-transform duration-200",
-          checked ? "lp-fixed translate-x-6 bg-[var(--lp-green)]" : "translate-x-1 bg-[var(--lp-surface)]",
+          followsTheme
+            ? "translate-x-1 bg-[var(--lp-surface)] dark:translate-x-6 dark:bg-[var(--lp-green)]"
+            : checked
+              ? "translate-x-6 bg-[var(--lp-green)]"
+              : "translate-x-1 bg-[var(--lp-surface)]",
         )}
       />
     </button>

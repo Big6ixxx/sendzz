@@ -115,7 +115,7 @@ export function InstallAppPrompt() {
                   { icon: <Check className="size-3.5" />, text: "Tap Add" },
                 ].map((step, i) => (
                   <li key={i} className="flex items-center gap-3">
-                    <span className="grid size-7 shrink-0 place-items-center rounded-full bg-[var(--lp-ink)] text-[var(--lp-green)]">
+                    <span className="grid size-7 shrink-0 place-items-center rounded-full bg-[var(--lp-ink)] text-[var(--lp-on-ink)]">
                       {step.icon}
                     </span>
                     <span className="text-[14px] text-[var(--lp-body)]">{step.text}</span>

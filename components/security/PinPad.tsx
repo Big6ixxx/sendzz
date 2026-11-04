@@ -192,7 +192,7 @@ export function PinPad({
                   error
                     ? "bg-[#e07a5f]"
                     : value[i]
-                      ? "lp-fixed scale-110 bg-[var(--lp-green)]"
+                      ? "scale-110 bg-[var(--lp-green)]"
                       : "shadow-[inset_0_0_0_2px_rgba(246,242,233,0.35)]",
                 )}
               />
@@ -274,7 +274,7 @@ export function PinPanel({
   footer?: React.ReactNode;
 }) {
   return (
-    <div className="lp-fixed -mx-6 -mb-6 space-y-4 bg-[var(--lp-forest)] px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-6 text-[var(--lp-cream)] sm:-mx-8 sm:-mb-8 sm:px-8 sm:pb-8 sm:pt-7">
+    <div className="lp-on-forest -mx-6 -mb-6 space-y-4 px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-6 text-[var(--lp-cream)] sm:-mx-8 sm:-mb-8 sm:px-8 sm:pb-8 sm:pt-7">
       {above}
       <div className="flex items-baseline justify-between gap-3">
         <p className="text-[15px] font-semibold">{label}</p>

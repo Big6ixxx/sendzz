@@ -77,7 +77,7 @@ export function TxDetailModal({ row, open, loading, timeZone, timeMode, onClose 
               href={primaryUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="lp-fixed inline-flex h-14 w-full items-center justify-center gap-2 rounded-full bg-[var(--lp-green)] px-6 text-[16px] font-semibold text-[var(--lp-ink)] transition-[scale] duration-150 active:scale-[0.98]"
+              className="lp-on-green inline-flex h-14 w-full items-center justify-center gap-2 rounded-full px-6 text-[16px] font-semibold text-[var(--lp-ink)] transition-[scale] duration-150 active:scale-[0.98]"
             >
               View on block explorer <ExternalLink className="size-4" />
             </a>

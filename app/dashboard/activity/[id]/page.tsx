@@ -498,7 +498,7 @@ export default function ActivityDetailPage({
   }
 
   const look = ACTIVITY_LOOK[activity.type as ActivityType] ?? ACTIVITY_LOOK.security;
-  const status = activityStatus(activity.status) ?? { text: 'Completed', tone: 'lp-fixed bg-[var(--lp-green)] text-[var(--lp-ink)]' };
+  const status = activityStatus(activity.status) ?? { text: 'Completed', tone: 'lp-on-green text-[var(--lp-ink)]' };
   const isOutgoing = activity.type === 'sent' || activity.type === 'withdrawal';
 
   // Network(s): accurate for bridges; transfers don't persist their chain yet.
@@ -637,7 +637,7 @@ export default function ActivityDetailPage({
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, ease: EASE }}
-          className="lp-fixed relative overflow-hidden rounded-[32px] bg-[var(--lp-forest)] p-6 text-[var(--lp-cream)] sm:p-8 lg:sticky lg:top-6"
+          className="lp-on-forest relative overflow-hidden rounded-[32px] p-6 text-[var(--lp-cream)] sm:p-8 lg:sticky lg:top-6"
         >
           <div className="flex items-center justify-between gap-3">
             <span className="flex min-w-0 items-center gap-3">
@@ -725,7 +725,7 @@ export default function ActivityDetailPage({
                 </div>
               )}
               {bridgeAction === 'claim' && (
-                <button type="button" onClick={handleClaim} disabled={isClaiming} className={`lp-fixed ${pill} bg-[var(--lp-green)] text-[var(--lp-ink)]`}>
+                <button type="button" onClick={handleClaim} disabled={isClaiming} className={`lp-on-green ${pill} text-[var(--lp-ink)]`}>
                   {isClaiming && <Loader2 className="size-4 animate-spin" />}
                   {isClaiming ? 'Finishing…' : 'Finish this move'}
                 </button>

@@ -214,7 +214,7 @@ export default function DedicatedNotificationsPage() {
                       type="button"
                       onClick={() => handleNotificationClick(notif)}
                       className={`group flex w-full items-start gap-3 rounded-[20px] px-3 py-3.5 text-left transition-colors hover:bg-[var(--lp-cream)] ${
-                        notif.read ? '' : 'bg-[var(--lp-good-soft)]'
+                        notif.read ? '' : 'bg-[var(--lp-good-faint)]'
                       }`}
                     >
                       {/* Unread is a dot in the gutter, so read and unread rows still line up. */}

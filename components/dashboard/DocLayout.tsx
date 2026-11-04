@@ -213,7 +213,7 @@ export function DocSection({
 /** The forest card that ends a document and points to the next one. */
 export function DocReadNext({ title, body, href, cta = "Read it" }: { title: string; body: string; href: string; cta?: string }) {
   return (
-    <aside className="lp-fixed mt-6 flex flex-col gap-5 rounded-[30px] bg-[var(--lp-forest)] p-8 text-[var(--lp-cream)] sm:flex-row sm:items-end sm:justify-between">
+    <aside className="lp-on-forest mt-6 flex flex-col gap-5 rounded-[30px] p-8 text-[var(--lp-cream)] sm:flex-row sm:items-end sm:justify-between">
       <div className="min-w-0">
         <p className="lp-mono text-[13px] uppercase text-[var(--lp-green)]">Read next</p>
         <p className="lp-display mt-4 text-[36px] leading-none tracking-[-0.04em]">{title}</p>
@@ -221,7 +221,7 @@ export function DocReadNext({ title, body, href, cta = "Read it" }: { title: str
       </div>
       <Link
         href={href}
-        className="lp-fixed inline-flex h-[46px] shrink-0 items-center gap-2 self-start rounded-full bg-[var(--lp-green)] px-[22px] text-[15px] font-semibold text-[var(--lp-ink)] transition-transform duration-150 hover:-translate-y-px sm:self-auto"
+        className="lp-on-green inline-flex h-[46px] shrink-0 items-center gap-2 self-start rounded-full px-[22px] text-[15px] font-semibold text-[var(--lp-ink)] transition-transform duration-150 hover:-translate-y-px sm:self-auto"
       >
         {cta} <ArrowRight className="size-4" />
       </Link>

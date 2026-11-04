@@ -193,7 +193,7 @@ function Calculator({ onSend }: { onSend: () => void }) {
         <button
           type="button"
           onClick={send}
-          className="lp-fixed relative h-[63.5px] w-full overflow-hidden rounded-full bg-[var(--lp-green)] text-[17px] font-semibold leading-[25.5px] transition-[scale] duration-150 active:scale-[0.97]"
+          className="lp-on-green relative h-[63.5px] w-full overflow-hidden rounded-full text-[17px] font-semibold leading-[25.5px] transition-[scale] duration-150 active:scale-[0.97]"
         >
           <motion.span
             aria-hidden
@@ -222,7 +222,7 @@ function Calculator({ onSend }: { onSend: () => void }) {
 const WORDS = ["Money", "that", "goes", "where"];
 const NOUNS = ["people", "family", "clients", "friends"];
 const NOTES = [
-  { initial: "C", badge: "lp-fixed bg-[var(--lp-green)]", title: "Chidi sent you $200.00", detail: "Ready to withdraw to Access Bank" },
+  { initial: "C", badge: "lp-on-green", title: "Chidi sent you $200.00", detail: "Ready to withdraw to Access Bank" },
   { initial: "A", badge: "bg-[var(--lp-mark)]", title: "Invoice paid · $1,800.00", detail: "From client@austin.co" },
   { initial: "M", badge: "bg-[var(--lp-good-soft)]", title: "Mum got GH₵3,120.00", detail: "Sent to MTN MoMo in 1.4s" },
 ];
@@ -381,7 +381,7 @@ export function Hero({ onAction }: { onAction: () => void }) {
               src="/landing/hero.png"
               alt="A smiling man in a grey beanie against an orange wall"
               fill
-              priority
+              preload
               sizes="(min-width: 1024px) 805px, 100vw"
               className="object-cover object-[50%_28%]"
             />
@@ -406,7 +406,7 @@ export function Hero({ onAction }: { onAction: () => void }) {
               </motion.div>
             </AnimatePresence>
             <div className="absolute bottom-0 right-0 flex h-[43.5px] items-center gap-2 rounded-full bg-[var(--lp-ink)] px-[18px]">
-              <span className="lp-fixed lp-pulse size-2 rounded-full bg-[var(--lp-green)]" />
+              <span className="lp-pulse size-2 rounded-full bg-[var(--lp-green)]" />
               <span className="lp-mono text-[13px] leading-[19.5px] text-[var(--lp-cream)]">Arrived in 1.4s · $0 fees</span>
             </div>
           </div>

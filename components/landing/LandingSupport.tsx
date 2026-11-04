@@ -35,8 +35,8 @@ export function LandingSupport() {
           aria-expanded={open}
           className={`grid size-[52px] place-items-center rounded-full transition-[scale,background-color] duration-150 active:scale-[0.94] ${
             open
-              ? "bg-[var(--lp-ink)] text-[var(--lp-green)]"
-              : "lp-fixed bg-[var(--lp-green)] text-[var(--lp-ink)] shadow-[0_14px_30px_-12px_rgb(0_60_30/0.55)] hover:scale-105"
+              ? "bg-[var(--lp-ink)] text-[var(--lp-on-ink)]"
+              : "lp-on-green text-[var(--lp-ink)] shadow-[0_14px_30px_-12px_rgb(0_60_30/0.55)] hover:scale-105"
           }`}
         >
           <AnimatePresence mode="wait" initial={false}>
@@ -70,7 +70,7 @@ export function LandingSupport() {
           >
             <header className="shrink-0 border-b border-[var(--lp-rule)] px-6 pb-4 pt-5">
               <div className="flex items-center gap-2.5">
-                <span className="lp-fixed lp-pulse size-2 rounded-full bg-[var(--lp-green)]" />
+                <span className="lp-pulse size-2 rounded-full bg-[var(--lp-green)]" />
                 <h2 className="lp-display text-[22px] font-semibold tracking-[-0.02em]">How can we help?</h2>
               </div>
               <p className="mt-1 text-[14px] leading-5 text-[var(--lp-muted)]">
@@ -97,7 +97,7 @@ export function LandingSupport() {
                             className="flex w-full items-center gap-3 px-3 py-3 text-left"
                           >
                             <span className="flex-1 text-[15px] font-semibold leading-snug">{entry.question}</span>
-                            <span className="relative grid size-7 flex-none place-items-center rounded-full bg-[var(--lp-ink)] text-[var(--lp-green)]">
+                            <span className="relative grid size-7 flex-none place-items-center rounded-full bg-[var(--lp-ink)] text-[var(--lp-on-ink)]">
                               <span className="absolute h-0.5 w-3 rounded-full bg-current" />
                               <span
                                 className={`absolute h-3 w-0.5 rounded-full bg-current transition-transform duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] ${isOpen ? "scale-y-0" : ""}`}
@@ -129,7 +129,7 @@ export function LandingSupport() {
                   href={TELEGRAM_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="lp-fixed flex items-center gap-3 rounded-[20px] bg-[var(--lp-green)] px-4 py-3.5 transition-[scale] duration-150 active:scale-[0.98]"
+                  className="lp-on-green flex items-center gap-3 rounded-[20px] px-4 py-3.5 transition-[scale] duration-150 active:scale-[0.98]"
                 >
                   <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[var(--lp-ink)]">
                     <TelegramMark />

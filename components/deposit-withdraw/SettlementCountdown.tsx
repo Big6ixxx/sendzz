@@ -76,7 +76,6 @@ export function SettlementCountdown() {
             cy="52"
             r={R}
             fill="none"
-            stroke="#00e87a"
             strokeWidth="2"
             strokeLinecap="round"
             strokeDasharray={CIRCUMFERENCE}
@@ -85,7 +84,8 @@ export function SettlementCountdown() {
             strokeDashoffset={
               isOvertime ? CIRCUMFERENCE * 0.75 : CIRCUMFERENCE * progress
             }
-            style={{ transition: isOvertime ? undefined : "stroke-dashoffset 1s linear" }}
+            // A style, not the stroke attribute, so the theme's green resolves.
+            style={{ stroke: "var(--lp-green)", transition: isOvertime ? undefined : "stroke-dashoffset 1s linear" }}
           />
         </svg>
 
