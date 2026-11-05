@@ -2,8 +2,10 @@
 
 import { useEffect, useRef } from "react";
 import { MEDIA, useMedia } from "./motion";
+import { THEME_EVENT } from "@/lib/theme-script";
 
-const INK = "#111a13";
+/** Stands for the theme's ink, read from --lp-ink when drawn, so the dots show in dark mode too. */
+const INK = "ink";
 const GREEN = "#00a857";
 const GOLD = "#e3a51b";
 const TAU = Math.PI * 2;
@@ -52,6 +54,8 @@ export function DotField() {
     let scrollVelocity = 0;
     let dirty = false;
     const pointer = { x: 0, y: 0, present: false };
+    const readInk = () => getComputedStyle(document.documentElement).getPropertyValue("--lp-ink").trim() || "#111a13";
+    let ink = readInk();
     const light = { x: 0, y: 0, strength: 0 };
 
     const drawGrid = () => {
@@ -60,7 +64,7 @@ export function DotField() {
       const y0 = (((-shift % GRID) + GRID) % GRID) - GRID / 2;
       grid.clearRect(0, 0, w, h);
       grid.globalAlpha = GRID_ALPHA;
-      grid.fillStyle = INK;
+      grid.fillStyle = ink;
       grid.beginPath();
       for (let y = y0; y < h + GRID; y += GRID)
         for (let x = x0; x < w; x += GRID) {
@@ -135,7 +139,7 @@ export function DotField() {
       specksCtx.clearRect(0, 0, w, h);
       for (const s of specks) {
         specksCtx.globalAlpha = s.alpha;
-        specksCtx.fillStyle = s.color;
+        specksCtx.fillStyle = s.color === INK ? ink : s.color;
         specksCtx.beginPath();
         specksCtx.arc(s.x, s.y, 0.8 + s.depth * 2.4, 0, TAU);
         specksCtx.fill();
@@ -156,7 +160,22 @@ export function DotField() {
       drawSpecks();
     });
     resize.observe(el);
-    if (reduce) return () => resize.disconnect();
+
+    // The mode changed: pick up the new ink and repaint. Registered before the reduced-motion
+    // return, which has no frame loop to pick up a dirty flag, so it repaints directly there.
+    const onTheme = () => {
+      ink = readInk();
+      if (reduce) {
+        drawGrid();
+        drawSpecks();
+      } else dirty = true;
+    };
+    window.addEventListener(THEME_EVENT, onTheme);
+    if (reduce)
+      return () => {
+        resize.disconnect();
+        window.removeEventListener(THEME_EVENT, onTheme);
+      };
 
     let prev = performance.now();
     let frame = requestAnimationFrame(function tick(now) {
@@ -207,6 +226,7 @@ export function DotField() {
     return () => {
       cancelAnimationFrame(frame);
       resize.disconnect();
+      window.removeEventListener(THEME_EVENT, onTheme);
       window.removeEventListener("pointermove", move);
       document.documentElement.removeEventListener("pointerleave", leave);
     };

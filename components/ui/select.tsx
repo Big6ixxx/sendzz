@@ -5,6 +5,7 @@ import { Check, ChevronDown, ChevronUp } from 'lucide-react';
 import * as React from 'react';
 
 import { cn } from '@/lib/utils';
+import '@/components/landing/landing.css';
 
 const Select = SelectPrimitive.Root;
 
@@ -19,14 +20,14 @@ const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      'flex h-12 w-full items-center justify-between rounded-2xl border border-white/5 bg-white/3 px-4 py-2 text-xs font-bold uppercase tracking-widest text-brand-secondary/60 ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:border-accent/30 disabled:cursor-not-allowed disabled:opacity-50 transition-all [&>span]:line-clamp-1',
+      'flex h-12 w-full items-center justify-between gap-2 rounded-full bg-[var(--lp-surface)] px-4 text-[15px] font-medium text-[var(--lp-ink)] shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)] outline-2 outline-offset-2 outline-transparent transition-[outline-color,box-shadow] duration-150 hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.3)] focus-visible:outline-[var(--lp-ink)] disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1',
       className,
     )}
     {...props}
   >
     {children}
     <SelectPrimitive.Icon asChild>
-      <ChevronDown className="h-4 w-4 opacity-30" />
+      <ChevronDown className="size-4 shrink-0 text-[var(--lp-muted)]" />
     </SelectPrimitive.Icon>
   </SelectPrimitive.Trigger>
 ));
@@ -75,7 +76,9 @@ const SelectContent = React.forwardRef<
     <SelectPrimitive.Content
       ref={ref}
       className={cn(
-        'relative z-50 max-h-96 min-w-32 overflow-hidden rounded-2xl border border-white/10 bg-[#16161a]/90 backdrop-blur-2xl text-brand-secondary shadow-[0_20px_50px_rgba(0,0,0,0.4)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',
+        "lp-root",
+        // Portalled to <body>, outside any cream page, so it brings the scope with it; !bg-[var(--lp-surface)] beats lp-root's own background.
+        'relative z-50 max-h-96 min-w-32 overflow-hidden rounded-[22px] !bg-[var(--lp-surface)] text-[var(--lp-ink)] shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08),0_24px_48px_-20px_rgb(17_26_19/0.35)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',
         position === 'popper' &&
           'data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1',
         className,
@@ -106,7 +109,7 @@ const SelectLabel = React.forwardRef<
   <SelectPrimitive.Label
     ref={ref}
     className={cn(
-      'py-1.5 pl-8 pr-2 text-xs font-bold uppercase tracking-widest text-brand-secondary/30',
+      'lp-mono py-2 pl-8 pr-2 text-[11px] uppercase text-[var(--lp-muted)]',
       className,
     )}
     {...props}
@@ -121,14 +124,14 @@ const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      'relative flex w-full cursor-default select-none items-center rounded-xl py-3 pl-8 pr-2 text-[10px] font-bold uppercase tracking-widest outline-none transition-colors focus:bg-white/5 focus:text-accent data-disabled:pointer-events-none data-disabled:opacity-50',
+      'relative flex w-full cursor-default select-none items-center rounded-[14px] py-2.5 pl-8 pr-2 text-[14px] outline-none transition-colors focus:bg-[var(--lp-cream)] data-disabled:pointer-events-none data-disabled:opacity-50',
       className,
     )}
     {...props}
   >
     <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
       <SelectPrimitive.ItemIndicator>
-        <Check className="h-4 w-4" />
+        <Check className="size-4 text-[var(--lp-good)]" />
       </SelectPrimitive.ItemIndicator>
     </span>
 
@@ -143,7 +146,7 @@ const SelectSeparator = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <SelectPrimitive.Separator
     ref={ref}
-    className={cn('-mx-1 my-1 h-px bg-white/5', className)}
+    className={cn('-mx-1 my-1 h-px bg-[var(--lp-line)]', className)}
     {...props}
   />
 ));

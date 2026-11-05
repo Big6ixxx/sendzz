@@ -42,7 +42,11 @@ function formatNotificationTime(dateStr: string, nowTimestamp: number): string {
   return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export function NotificationCenter({ userEmail }: { userEmail: string }) {
+export function NotificationCenter({
+  userEmail,
+}: {
+  userEmail: string;
+}) {
   const router = useRouter();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [isOpen, setIsOpen] = useState(false);
@@ -209,20 +213,8 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
   };
 
   const getIcon = (type: NotificationItem['type']) => {
-    switch (type) {
-      case 'transfer':
-        return <Mail className="w-4 h-4 text-green-400" />;
-      case 'bridge':
-        return <Repeat className="w-4 h-4 text-blue-400" />;
-      case 'deposit':
-        return <ArrowDownCircle className="w-4 h-4 text-emerald-400" />;
-      case 'withdrawal':
-        return <ArrowUpCircle className="w-4 h-4 text-orange-400" />;
-      case 'security':
-        return <ShieldAlert className="w-4 h-4 text-red-400" />;
-      default:
-        return <Bell className="w-4 h-4 text-white/50" />;
-    }
+    const Icon = { transfer: Mail, bridge: Repeat, deposit: ArrowDownCircle, withdrawal: ArrowUpCircle, security: ShieldAlert }[type] ?? Bell;
+    return <Icon className={`size-4 ${type === 'security' ? 'text-[var(--lp-danger)]' : 'text-[var(--lp-muted)]'}`} aria-hidden />;
   };
   const popupNotifications = notifications.slice(0, 5);
 
@@ -280,17 +272,18 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
       <button
         ref={triggerRef}
         onClick={() => setIsOpen(!isOpen)}
-        className="relative p-2.5 rounded-xl border border-white/5 bg-white/3 hover:bg-white/8 hover:border-white/10 transition-all text-white/60 hover:text-white"
+        aria-label="Notifications"
+        className="relative grid size-10 place-items-center rounded-full bg-[var(--lp-surface)] text-[var(--lp-ink)] shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)] transition-[scale] duration-150 hover:bg-[var(--lp-cream)] active:scale-[0.94]"
       >
         <Bell className="w-5 h-5" />
         {unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 w-5 h-5 bg-accent text-[#07070a] font-bold text-[10px] rounded-full flex items-center justify-center animate-pulse border border-[#07070a]">
+          <span className="lp-on-green absolute -top-1 -right-1 grid h-5 min-w-5 place-items-center rounded-full border-2 border-[var(--lp-cream)] px-1 text-[10px] font-bold text-[var(--lp-ink)]">
             {unreadCount}
           </span>
         )}
       </button>
 
-      {/* Dropdown Card — portalled to <body> so the sidebar's overflow can't clip it */}
+      {/* Dropdown Card, portalled to <body> so the sidebar's overflow can't clip it */}
       {isOpen && panelPos && createPortal(
         <div
           ref={panelRef}
@@ -301,16 +294,14 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
             width: panelPos.width,
             maxHeight: Math.min(384, panelPos.maxHeight), // 384px = the old max-h-96
           }}
-          className="z-50 flex flex-col p-4 space-y-3 rounded-2xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.6)] bg-[#07070a]/95 backdrop-blur-2xl"
+          className="lp-root z-50 flex flex-col space-y-3 rounded-[24px] !bg-[var(--lp-surface)] p-4 text-[var(--lp-ink)] shadow-[0_24px_48px_-20px_rgb(17_26_19/0.35),0_0_0_1px_rgb(var(--lp-hair)/0.06)]"
         >
-          <div className="flex items-center justify-between border-b border-white/5 pb-2 shrink-0">
-            <span className="text-xs font-bold text-white uppercase tracking-wider">
-              Notifications
-            </span>
+          <div className="flex shrink-0 items-center justify-between border-b border-[var(--lp-rule)] pb-2">
+            <span className="text-[15px] font-semibold">Notifications</span>
             {unreadCount > 0 && (
               <button
                 onClick={handleMarkAllRead}
-                className="text-[10px] text-accent hover:text-accent/80 font-bold flex items-center gap-1 transition-colors"
+                className="flex items-center gap-1 text-[12px] font-semibold text-[var(--lp-link)] transition-colors hover:text-[var(--lp-good)]"
               >
                 <Check className="w-3 h-3" /> Mark all read
               </button>
@@ -318,9 +309,9 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
           </div>
 
           {/* Notifications List (Max 5 items) */}
-          <div className="flex-1 overflow-y-auto space-y-2 max-h-64 pr-1">
+          <div className="flex-1 space-y-1 overflow-y-auto max-h-64 pr-1">
             {popupNotifications.length === 0 ? (
-              <div className="py-8 text-center text-white/20 text-xs flex flex-col items-center gap-2">
+              <div className="flex flex-col items-center gap-2 py-8 text-center text-[13px] text-[var(--lp-muted)]">
                 <Bell className="w-6 h-6 stroke-1" />
                 No notifications yet
               </div>
@@ -329,33 +320,19 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
                 <div
                   key={notif.id}
                   onClick={() => handleNotificationClick(notif)}
-                  className={`p-3 rounded-xl border text-left cursor-pointer transition-all flex gap-3 ${
-                    notif.read
-                      ? 'bg-transparent border-white/3 text-white/50 hover:bg-white/2'
-                      : 'bg-white/5 border-white/10 text-white hover:border-white/20 hover:bg-white/8'
+                  className={`flex cursor-pointer gap-3 rounded-[16px] p-3 text-left transition-colors ${
+                    notif.read ? 'text-[var(--lp-muted)] hover:bg-[var(--lp-cream)]' : 'bg-[var(--lp-cream)] text-[var(--lp-ink)] hover:bg-[var(--lp-soft)]'
                   }`}
                 >
-                  <div className="mt-0.5 shrink-0">
-                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
-                      notif.read ? 'bg-white/3' : 'bg-white/8'
-                    }`}>
-                      {getIcon(notif.type)}
-                    </div>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold truncate leading-tight">
-                      {notif.title}
-                    </p>
-                    <p className="text-[10px] text-white/40 leading-snug mt-0.5 line-clamp-2">
-                      {notif.body}
-                    </p>
-                    <span className="text-[9px] text-white/20 mt-1 block">
+                  <div className="mt-0.5 shrink-0">{getIcon(notif.type)}</div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[13px] font-semibold leading-tight">{notif.title}</p>
+                    <p className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-[var(--lp-body)]">{notif.body}</p>
+                    <span className="mt-1 block text-[11px] text-[var(--lp-muted)]">
                       {formatNotificationTime(notif.created_at, nowTimestamp)}
                     </span>
                   </div>
-                  {!notif.read && (
-                    <div className="w-1.5 h-1.5 rounded-full bg-accent mt-2 shrink-0" />
-                  )}
+                  {!notif.read && <div className="mt-2 size-1.5 shrink-0 rounded-full bg-[var(--lp-link)]" aria-label="Unread" />}
                 </div>
               ))
             )}
@@ -363,15 +340,15 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
 
           {/* Footer View All Notifications Link (Only shown when notifications exist) */}
           {popupNotifications.length > 0 && (
-            <div className="border-t border-white/5 pt-2 text-center shrink-0">
+            <div className="shrink-0 border-t border-[var(--lp-rule)] pt-2 text-center">
               <button
                 onClick={() => {
                   setIsOpen(false);
                   router.push('/dashboard/notifications');
                 }}
-                className="text-xs font-bold text-accent hover:text-accent/80 flex items-center justify-center gap-1.5 w-full py-1.5 rounded-lg hover:bg-white/5 transition-all"
+                className="flex w-full items-center justify-center gap-1.5 rounded-full py-2 text-[13px] font-semibold text-[var(--lp-link)] transition-colors hover:bg-[var(--lp-cream)]"
               >
-                View All Notifications <ChevronRight className="w-3.5 h-3.5" />
+                View all notifications <ChevronRight className="w-3.5 h-3.5" />
               </button>
             </div>
           )}

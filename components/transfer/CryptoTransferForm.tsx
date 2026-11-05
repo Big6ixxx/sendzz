@@ -2,23 +2,12 @@ import { ChainLogo } from '@/components/deposit-withdraw/ChainLogo';
 import { formatFeeSummary } from '@/lib/format-usdc';
 import { usePlatformFeePercent } from '@/lib/hooks/usePlatformFeePercent';
 import React from 'react';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Info, Loader2, ShieldCheck, Wallet } from 'lucide-react';
 import { SupportedChain } from '@/lib/circle/gateway';
 import { SourceSelector } from '@/components/SourceSelector';
 import type { ChainBalances, SourcePreference } from '@/lib/web3/routing';
+import { AmountField, AsideFigure, AsideRows, CurrencyPill, FlowButton, FlowInput, FlowPage, FlowLabel } from '@/components/flow/ui';
+import { cn } from '@/lib/utils';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface CryptoTransferFormProps {
   recipientAddress: string;
@@ -43,6 +32,10 @@ interface CryptoTransferFormProps {
   setSourcePref: (p: SourcePreference) => void;
   chainBalances: ChainBalances;
   solanaBalance: number;
+  /** The email-or-wallet choice, shown above the form. */
+  tabs: React.ReactNode;
+  /** Cards under the summary. */
+  extra?: React.ReactNode;
 }
 
 // Ethereum L1 commented out — see BRIDGE_DISABLED_CHAINS in lib/circle/gateway.
@@ -92,225 +85,173 @@ export function CryptoTransferForm({
   setSourcePref,
   chainBalances,
   solanaBalance,
+  tabs,
+  extra,
 }: CryptoTransferFormProps) {
   const transferFeePercent = usePlatformFeePercent("transfer");
   const fundedSources =
     Object.values(chainBalances).filter((b) => (b ?? 0) > 0).length +
     (solanaBalance > 0 ? 1 : 0);
+  const formId = React.useId();
+  const amt = parseFloat(amount || '0');
+  // What actually leaves the wallet. The fee is charged on-chain in the same transaction,
+  // so showing it here is the only place the user learns about it before it's taken.
+  const fee =
+    amt > 0 && transferFeePercent !== null
+      ? formatFeeSummary(amt, (amt * transferFeePercent) / 100, amt * (1 + transferFeePercent / 100))
+      : null;
+  const chainName = ALL_CHAIN_NAMES[selectedChain];
+
   return (
-    <form
-      onSubmit={handleTransfer}
-      className="flex flex-col gap-6 relative z-10 animate-in fade-in slide-in-from-right-4 duration-300"
-    >
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-              Network
-            </label>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger type="button">
-                  <Info className="w-3 h-3 text-muted-foreground/50 hover:text-muted-foreground" />
-                </TooltipTrigger>
-                <TooltipContent>
-                  Select the blockchain network to send USDC to.
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+    <FlowPage
+      tabs={tabs}
+      main={
+        <form id={formId} onSubmit={handleTransfer} className="space-y-5 animate-in fade-in duration-300">
+          <div>
+            <FlowLabel>Network the address is on</FlowLabel>
+            <div className="mt-2 flex flex-wrap gap-1.5" role="radiogroup" aria-label="Network">
+              {AVAILABLE_CHAINS.filter((c) => c !== 'stellar' || stellarReady).map((chain) => (
+                <button
+                  key={chain}
+                  type="button"
+                  role="radio"
+                  aria-checked={selectedChain === chain}
+                  onClick={() => setSelectedChain(chain)}
+                  className={cn(
+                    'flex items-center gap-2 whitespace-nowrap rounded-full py-1.5 pl-1.5 pr-3.5 text-[14px] font-semibold transition-colors duration-150',
+                    selectedChain === chain
+                      ? 'bg-[var(--lp-ink)] text-[var(--lp-cream)]'
+                      : 'bg-[var(--lp-surface)] shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)] hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.3)]',
+                  )}
+                >
+                  <ChainLogo chain={chain} size={22} />
+                  {ALL_CHAIN_NAMES[chain]}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-        
-        <Select
-          value={selectedChain}
-          onValueChange={(val) => setSelectedChain(val as SupportedChain | 'stellar' | 'solana')}
-        >
-          <SelectTrigger className="w-full h-14 bg-white/5 border border-white/10 text-sm">
-            <SelectValue placeholder="Select network" />
-          </SelectTrigger>
-          <SelectContent>
-            {AVAILABLE_CHAINS.filter((c) => c !== 'stellar' || stellarReady).map((chain) => (
-              <SelectItem key={chain} value={chain}>
-                <div className="flex items-center gap-3">
-                  <ChainLogo chain={chain} size={20} />
-                  <span className="text-xs font-bold">{ALL_CHAIN_NAMES[chain]}</span>
-                </div>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
 
-        <div className="flex justify-end items-center gap-2 px-1 pt-1">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-              Available Balance:
-            </span>
-            {isFetchingBalance ? (
-                <Loader2 className="w-3 h-3 animate-spin text-accent" />
-            ) : (
-                <span className="text-[11px] font-black tracking-wider text-foreground">
-                    {parseFloat(balance).toFixed(2)} USDC
-                </span>
-            )}
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <div className="flex items-center gap-2 mb-1">
-          <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-            Recipient Wallet Address
-          </label>
-        </div>
-        <div className="relative">
-          <input
+          <FlowInput
+            label="Wallet address"
             type="text"
             value={recipientAddress}
             onChange={(e) => setRecipientAddress(e.target.value)}
-            className="input-elegant h-14 text-sm font-mono w-full pr-10"
-            placeholder={selectedChain === "stellar" ? "G..." : selectedChain === "solana" ? "Solana address..." : "0x..."}
+            className="lp-mono text-[15px]"
+            placeholder={selectedChain === 'stellar' ? 'G…' : selectedChain === 'solana' ? 'Solana address' : '0x…'}
             required
             autoComplete="off"
-            spellCheck="false"
+            spellCheck={false}
+            hint={`Only send to an address on ${chainName}. A wrong network can lose the money for good.`}
           />
-          <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none">
-            <Wallet className="w-4 h-4 text-muted-foreground/50" />
-          </div>
-        </div>
-      </div>
 
-      {selectedChain === 'stellar' && (
-        <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
-          <div className="flex items-center gap-2 mb-1">
-            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-              Memo (optional)
-            </label>
-          </div>
-          <div className="relative">
-            <input
+          {selectedChain === 'stellar' && (
+            <FlowInput
+              label="Memo (optional)"
               type="text"
               value={memo}
               onChange={(e) => setMemo(e.target.value)}
-              className="input-elegant h-14 text-sm w-full pr-10"
-              placeholder="Memo text (max 28 chars)"
+              placeholder="Up to 28 characters"
               maxLength={28}
               autoComplete="off"
+              hint="Exchanges often need one. Copy it exactly from them."
+            />
+          )}
+
+          <AmountField
+            label="How much"
+            value={amount}
+            onChange={setAmount}
+            symbol="$"
+            currency={<CurrencyPill>USDC</CurrencyPill>}
+            placeholder="0.00"
+            footer={
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[14px] text-[var(--lp-muted)]">
+                <span className="inline-flex items-center gap-1.5">
+                  On {chainName}:{' '}
+                  {isFetchingBalance ? <Skeleton className="inline-block h-3.5 w-20 align-middle" aria-label="Loading balance" /> : `${parseFloat(balance).toFixed(2)} USDC`}
+                </span>
+                {spendable > 0 && (
+                  <button
+                    type="button"
+                    disabled={transferFeePercent === null}
+                    // Everything the router can reach, less the fee — matching the balance check.
+                    // Previously this filled in the selected chain's balance, which with a fee on
+                    // top immediately exceeded that chain and forced a pointless consolidation.
+                    onClick={() => {
+                      if (transferFeePercent === null) return;
+                      const max = spendable / (1 + transferFeePercent / 100);
+                      setAmount((Math.floor(max * 1e6) / 1e6).toString());
+                    }}
+                    className="rounded-full bg-[var(--lp-cream)] px-3 py-1 text-[13px] font-semibold text-[var(--lp-ink)] transition-colors hover:bg-[var(--lp-sand)] disabled:text-[var(--lp-muted)]"
+                  >
+                    Use max
+                  </button>
+                )}
+              </div>
+            }
+          />
+
+          {amt > 0 && fundedSources > 1 && (
+            <SourceSelector
+              balances={chainBalances}
+              solanaBalance={solanaBalance}
+              requiredAmount={amt}
+              allowConsolidate
+              value={sourcePref}
+              onChange={setSourcePref}
+            />
+          )}
+        </form>
+      }
+      summary={
+        <>
+          <AsideFigure label="They receive" value={`$${fee ? fee.amount : amt > 0 ? amt.toFixed(2) : '0.00'}`} unit="USDC" />
+          <div className="mt-5">
+            <AsideRows
+              rows={[
+                {
+                  label: 'Network',
+                  value: (
+                    <span className="inline-flex items-center gap-2">
+                      <ChainLogo chain={selectedChain} size={18} />
+                      {chainName}
+                    </span>
+                  ),
+                },
+                ...(fee
+                  ? [
+                      { label: `Fee (${transferFeePercent}%)`, value: `${fee.fee} USDC` },
+                      { label: 'From your balance', value: `${fee.total} USDC` },
+                    ]
+                  : []),
+              ]}
             />
           </div>
-        </div>
-      )}
-
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-              Amount (USDC)
-            </label>
-          </div>
-          <div className="flex flex-row gap-2 items-center">
-            {spendable > 0 && (
-              <button
-                type="button"
-                disabled={transferFeePercent === null}
-                // Everything the router can reach, less the fee — matching the balance check.
-                // Previously this filled in the selected chain's balance, which with a fee on
-                // top immediately exceeded that chain and forced a pointless consolidation.
-                onClick={() => {
-                  if (transferFeePercent === null) return;
-                  const max = spendable / (1 + transferFeePercent / 100);
-                  setAmount((Math.floor(max * 1e6) / 1e6).toString());
-                }}
-                className="px-3 py-1 rounded-lg bg-accent/10 text-accent text-[10px] font-black uppercase tracking-widest hover:bg-accent/20 transition-colors"
-              >
-                MAX
-              </button>
-            )}
-          </div>
-        </div>
-        <div className="relative">
-          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xl font-black opacity-40">
-            $
-          </span>
-          <input
-            type="number"
-            step="0.01"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            className="input-elegant h-16 pl-10 text-3xl font-black tracking-tight text-right pr-4"
-            placeholder="0.00"
-            required
-          />
-        </div>
-      </div>
-
-      {/* What actually leaves the wallet. The fee is charged on-chain in the same transaction,
-          so showing it here is the only place the user learns about it before it's taken. */}
-      {parseFloat(amount || '0') > 0 && transferFeePercent !== null && (() => {
-        const amt = parseFloat(amount);
-        const s = formatFeeSummary(
-          amt,
-          (amt * transferFeePercent) / 100,
-          amt * (1 + transferFeePercent / 100),
-        );
-        return (
-        <div className="rounded-2xl bg-white/3 border border-white/8 px-4 py-3 space-y-2">
-          <div className="flex justify-between text-[11px] text-white/40">
-            <span>Sending</span>
-            <span className="tabular-nums">{s.amount} USDC</span>
-          </div>
-          <div className="flex justify-between text-[11px] text-white/40">
-            <span>Platform Fee ({transferFeePercent}%)</span>
-            <span className="tabular-nums">
-              {s.fee} USDC
-            </span>
-          </div>
-          <div className="flex justify-between text-xs font-bold text-white pt-2 border-t border-white/8">
-            <span>Total Deducted</span>
-            <span className="tabular-nums">
-              {s.total} USDC
-            </span>
-          </div>
-        </div>
-        );
-      })()}
-
-      {parseFloat(amount || '0') > 0 && fundedSources > 1 && (
-        <SourceSelector
-          balances={chainBalances}
-          solanaBalance={solanaBalance}
-          requiredAmount={parseFloat(amount || '0')}
-          allowConsolidate
-          value={sourcePref}
-          onChange={setSourcePref}
-        />
-      )}
-
-      <div className="space-y-4 pt-4">
-        <button
-          type="submit"
-          disabled={loading || isZeroBalance || isOverBalance || !recipientAddress || isFetchingBalance}
-          className="btn-primary w-full h-14 text-lg gap-3 shadow-xl hover:shadow-2xl transition-all disabled:opacity-50"
-        >
-          {loading ? (
-            <Loader2 className="animate-spin" />
-          ) : isZeroBalance ? (
-            'Insufficient Funds'
-          ) : isOverBalance ? (
-            // Now means "more than you hold anywhere", not "more than this one chain" — the
-            // router gathers from other networks when a single chain doesn't cover it.
-            'Exceeds Total Balance'
-          ) : (
-            <>
-              Send Crypto Now
-              <ShieldCheck className="w-5 h-5 opacity-60" />
-            </>
-          )}
-        </button>
-
-        {status && (
-          <div className="p-4 rounded-xl text-xs font-bold uppercase tracking-tight text-center break-words animate-in fade-in slide-in-from-top-2 duration-300 bg-muted/50 text-muted-foreground">
-            {status}
-          </div>
-        )}
-      </div>
-    </form>
+        </>
+      }
+      action={
+        <>
+          <FlowButton
+            type="submit"
+            form={formId}
+            tone="accent"
+            loading={loading}
+            disabled={isZeroBalance || isOverBalance || !recipientAddress || isFetchingBalance}
+          >
+            {isZeroBalance
+              ? 'No balance to send'
+              : isOverBalance
+                ? // Now means "more than you hold anywhere", not "more than this one chain" — the
+                  // router gathers from other networks when a single chain doesn't cover it.
+                  'More than your total balance'
+                : amt > 0
+                  ? `Send $${fee ? fee.amount : amt.toFixed(2)}`
+                  : 'Send'}
+          </FlowButton>
+          {status && <p className="text-center text-[13px] leading-[1.5] text-[#cfe0d6] animate-in fade-in duration-300">{status}</p>}
+        </>
+      }
+      extra={extra}
+    />
   );
 }

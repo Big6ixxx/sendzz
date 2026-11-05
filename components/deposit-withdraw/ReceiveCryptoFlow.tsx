@@ -13,8 +13,9 @@
  * dedicated /dashboard/bridge page (linked at the bottom).
  */
 
-import { truncateAddress } from '@/lib/utils';
-import { ArrowRight, Copy, Loader2 } from 'lucide-react';
+import { cn, truncateAddress } from '@/lib/utils';
+import { ArrowRight, Copy } from 'lucide-react';
+import { FlowButton, FlowFrame, FlowLabel, Notice } from '@/components/flow/ui';
 import { QRCodeSVG } from 'qrcode.react';
 import Link from 'next/link';
 import { useState } from 'react';
@@ -22,6 +23,7 @@ import { toast } from 'sonner';
 import { ChainLogo } from './ChainLogo';
 import { isStellarReady, useActivateStellar } from '@/hooks/useStellarWallet';
 import { useEnsureSolanaWallet } from '@/hooks/useEnsureSolanaWallet';
+import { Skeleton, SkeletonGroup } from '@/components/ui/skeleton';
 
 type Rail = 'evm' | 'solana' | 'stellar';
 
@@ -31,10 +33,10 @@ type Rail = 'evm' | 'solana' | 'stellar';
  * Listed rather than hard-coded as three buttons so the tab, the address, the QR and the
  * warning copy can never disagree about what is offered.
  */
-const RAILS: { key: Rail; label: string }[] = [
-  { key: 'evm', label: 'EVM Networks' },
-  { key: 'solana', label: 'Solana' },
-  { key: 'stellar', label: 'Stellar' },
+const RAILS: { value: Rail; label: string }[] = [
+  { value: 'evm', label: 'EVM' },
+  { value: 'solana', label: 'Solana' },
+  { value: 'stellar', label: 'Stellar' },
 ];
 
 // EVM networks the single smart-account address can receive on (shared CREATE2 address).
@@ -74,7 +76,7 @@ export function ReceiveCryptoFlow({
   const solanaAddress = solanaAddressProp || solanaWallet.address;
 
   const stellarReady = !!stellarAddress && !!stellarTrustlineReady;
-  const address = rail === 'evm' ? evmAddress : rail === 'solana' ? solanaAddress ?? '' : stellarAddress ?? '';
+  const address = rail === 'evm' ? evmAddress : rail === 'solana' ? (solanaAddress ?? '') : (stellarAddress ?? '');
 
   // Stellar is opt-in: nothing is created or activated until the user presses this.
   const handleActivate = async () => {
@@ -98,180 +100,161 @@ export function ReceiveCryptoFlow({
     toast.success('Address copied');
   };
 
+  const networkName = rail === 'evm' ? 'EVM networks' : rail === 'solana' ? 'Solana' : 'Stellar';
+  const panel = 'lp-card rounded-[24px] p-5';
+
+  const settingUp = (rail === 'solana' && !solanaAddress) || (rail === 'stellar' && !stellarReady);
+
   return (
-    <div className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-400">
-      {/* Rail switcher */}
-      <div className="flex bg-white/5 p-1 rounded-2xl border border-white/5">
-        {RAILS.map((r) => (
-          <button
-            key={r.key}
-            onClick={() => setRail(r.key)}
-            className={
-              'flex-1 py-2.5 text-[10px] font-bold uppercase tracking-[0.2em] rounded-xl transition-all ' +
-              (rail === r.key
-                ? 'bg-white/10 text-brand-secondary'
-                : 'text-brand-secondary/40 hover:text-brand-secondary/60')
-            }
-          >
-            {r.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Instruction banner */}
-      <div
-        className="px-4 py-3 rounded-2xl text-center"
-        style={{ background: 'rgba(0,232,122,0.06)', border: '1px solid rgba(0,232,122,0.2)' }}
-      >
-        <p className="text-sm font-bold" style={{ color: '#00e87a' }}>
-          {rail === 'evm'
-            ? 'Send USDC on any of these networks'
-            : rail === 'solana'
-            ? 'Send USDC on Solana'
-            : 'Send USDC on Stellar'}
-        </p>
-        <p className="text-[11px] mt-0.5" style={{ color: 'rgba(248,248,246,0.4)' }}>
-          It appears in your balance automatically — no bridging needed.
-        </p>
-      </div>
-
-      {rail === 'solana' && !solanaAddress ? (
-        <div
-          className="p-6 rounded-3xl text-center text-sm space-y-4"
-          style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(248,248,246,0.5)' }}
-        >
-          {solanaWallet.status === 'failed' ? (
-            <>
-              <p>We couldn&apos;t set up your Solana wallet. Don&apos;t send anything to Solana until your address shows here.</p>
-              <button
-                onClick={solanaWallet.retry}
-                className="btn-accent mx-auto inline-flex h-11 items-center gap-2 rounded-xl px-5 text-xs font-bold uppercase tracking-widest"
-              >
-                Try again
-              </button>
-            </>
-          ) : (
-            <p className="inline-flex items-center gap-2">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              Setting up your Solana wallet…
-            </p>
-          )}
-        </div>
-      ) : rail === 'stellar' && !stellarReady ? (
-        <div
-          className="p-6 rounded-3xl text-center space-y-4"
-          style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
-        >
-          <ChainLogo chain="stellar" size={40} />
-          <div className="space-y-1.5">
-            <p className="font-bold text-base text-brand-secondary">Activate your Stellar address</p>
-            <p className="text-xs leading-relaxed" style={{ color: 'rgba(248,248,246,0.5)' }}>
-              Only needed if you want to receive USDC on Stellar. It&apos;s free and takes a few
-              seconds. Your other networks work without it.
-            </p>
-          </div>
-          <button
-            onClick={handleActivate}
-            disabled={activating}
-            className="btn-accent mx-auto inline-flex h-11 items-center gap-2 rounded-xl px-5 text-xs font-bold uppercase tracking-widest disabled:opacity-60"
-          >
-            {activating ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                Activating…
-              </>
-            ) : activationFailed ? (
-              'Try again'
-            ) : (
-              'Activate Stellar address'
-            )}
-          </button>
-          {activationFailed && (
-            <p className="text-[11px] leading-relaxed" style={{ color: '#f87171' }}>
-              Activation didn&apos;t finish. Please try again, or contact support if it keeps
-              happening. Don&apos;t send anything to Stellar until your address shows here.
-            </p>
-          )}
-        </div>
-      ) : (
-        <>
-          {/* QR + Address */}
-          <div
-            className="p-5 rounded-3xl flex flex-col items-center space-y-4"
-            style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
-          >
-            <div className="p-3 bg-white rounded-2xl shadow-lg">
-              <QRCodeSVG value={address} size={160} level="M" fgColor="#07070a" bgColor="#ffffff" />
-            </div>
-            <div className="w-full text-center space-y-2">
-              <p className="text-sm font-mono font-medium break-all leading-relaxed" style={{ color: '#f8f8f6' }}>
-                {truncateAddress(address, 12, 8)}
-              </p>
-              <button
-                onClick={copy}
-                className="flex items-center gap-1.5 mx-auto text-xs font-bold uppercase tracking-widest py-2 px-4 rounded-xl transition-all hover:opacity-80"
-                style={{ background: 'rgba(0,232,122,0.1)', color: '#00e87a', border: '1px solid rgba(0,232,122,0.2)' }}
-              >
-                <Copy className="w-3.5 h-3.5" />
-                Copy Full Address
-              </button>
-            </div>
-          </div>
-
-          {/* Supported networks */}
-          {rail === 'evm' && (
-            <div className="space-y-2">
-              <p
-                className="text-[10px] font-bold uppercase tracking-[0.2em] px-1"
-                style={{ color: 'rgba(248,248,246,0.3)' }}
-              >
-                Works on these networks
-              </p>
-              <div className="grid grid-cols-3 gap-2">
-                {EVM_NETWORKS.map((n) => (
-                  <div
-                    key={n.key}
-                    className="flex items-center gap-2 px-3 py-2.5 rounded-xl"
-                    style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
-                  >
-                    <ChainLogo chain={n.key} size={18} />
-                    <span className="text-xs font-medium" style={{ color: 'rgba(248,248,246,0.7)' }}>
-                      {n.name}
+    <FlowFrame
+      main={
+        <div className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-400">
+          {/* Chips with each network's mark, so this reads as a second, smaller choice under the
+          bank-or-wallet tabs rather than a repeat of them. */}
+          <div>
+            <FlowLabel>Network</FlowLabel>
+            <div className="mt-2 flex gap-1.5" role="tablist" aria-label="Network">
+              {RAILS.map((r) => (
+                <button
+                  key={r.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={rail === r.value}
+                  onClick={() => setRail(r.value)}
+                  className={cn(
+                    'flex min-w-0 items-center gap-1.5 whitespace-nowrap rounded-full py-1 pl-1 pr-3 text-[13px] font-semibold transition-colors duration-150 sm:gap-2 sm:py-1.5 sm:pl-1.5 sm:pr-4 sm:text-[14px]',
+                    rail === r.value
+                      ? 'bg-[var(--lp-ink)] text-[var(--lp-cream)]'
+                      : 'bg-[var(--lp-surface)] shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)] hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.3)]',
+                  )}
+                >
+                  {r.value === 'evm' ? (
+                    // Several networks share the one EVM address, so the chip shows a few of their marks.
+                    <span className="flex -space-x-2">
+                      {['base', 'polygon', 'arbitrum'].map((c) => (
+                        <span key={c} className="rounded-full ring-2 ring-white">
+                          <ChainLogo chain={c} size={18} />
+                        </span>
+                      ))}
                     </span>
+                  ) : (
+                    <ChainLogo chain={r.value} size={22} />
+                  )}
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {settingUp ? (
+            rail === 'solana' && !solanaAddress ? (
+              <div className={`${panel} space-y-4 text-center`}>
+                {solanaWallet.status === 'failed' ? (
+                  <>
+                    <p className="text-[15px] leading-[1.5] text-[var(--lp-body)]">
+                      We couldn&apos;t set up your Solana wallet. Don&apos;t send anything to Solana until your address shows here.
+                    </p>
+                    <FlowButton onClick={solanaWallet.retry}>Try again</FlowButton>
+                  </>
+                ) : (
+                  <SkeletonGroup label="Setting up your Solana wallet" className="flex flex-col items-center gap-4 py-2">
+                    <Skeleton className="size-[176px] rounded-[16px]" />
+                    <Skeleton className="h-3.5 w-56" />
+                    <p className="text-[14px] text-[var(--lp-muted)]">Setting up your Solana wallet</p>
+                  </SkeletonGroup>
+                )}
+              </div>
+            ) : rail === 'stellar' && !stellarReady ? (
+              <div className={`${panel} space-y-4 text-center`}>
+                <div className="flex justify-center">
+                  <ChainLogo chain="stellar" size={44} />
+                </div>
+                <div>
+                  <p className="lp-display text-[24px] font-semibold tracking-[-0.02em]">
+                    Activate <span className="lp-serif font-normal">Stellar.</span>
+                  </p>
+                  <p className="mx-auto mt-2 max-w-[300px] text-[14px] leading-[1.5] text-[var(--lp-body)]">
+                    Only needed to receive USDC on Stellar. It&apos;s free and takes a few seconds. Your other networks work without it.
+                  </p>
+                </div>
+                <FlowButton tone="accent" onClick={handleActivate} loading={activating}>
+                  {activationFailed ? 'Try again' : 'Activate my Stellar address'}
+                </FlowButton>
+                {activationFailed && (
+                  <p className="text-[13px] leading-[1.5] text-[var(--lp-danger)]">
+                    Activation didn&apos;t finish. Please try again, or contact support if it keeps happening. Don&apos;t send anything to
+                    Stellar until your address shows here.
+                  </p>
+                )}
+              </div>
+            ) : null
+          ) : (
+            <>
+              {rail === 'evm' && (
+                <div>
+                  <FlowLabel>Works on these networks</FlowLabel>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {EVM_NETWORKS.map((n) => (
+                      <span
+                        key={n.key}
+                        className="lp-card flex items-center gap-2 rounded-full py-1.5 pl-1.5 pr-3.5"
+                      >
+                        <ChainLogo chain={n.key} size={22} />
+                        <span className="text-[14px] font-medium">{n.name}</span>
+                      </span>
+                    ))}
                   </div>
-                ))}
+                </div>
+              )}
+
+              <Notice tone="warning" title="Only send USDC">
+                {rail === 'evm'
+                  ? 'On one of the networks above.'
+                  : rail === 'solana'
+                    ? 'On the Solana network.'
+                    : 'On the Stellar network.'}{' '}
+                Other tokens, or an unsupported network, can be lost for good.
+              </Notice>
+            </>
+          )}
+
+        </div>
+      }
+      aside={
+        settingUp ? undefined : (
+          <div className="text-center">
+            <p className="lp-mono text-[12px] uppercase text-[var(--lp-green)]">Your address</p>
+            <p className="lp-display mt-2 text-[clamp(26px,6vw,32px)] leading-[1] tracking-[-0.03em]">
+              Send USDC <span className="lp-serif tracking-[-0.01em] text-[#cfe0d6]">on {networkName}</span>
+            </p>
+            {/* Pinned light in both modes: a scanner needs dark modules on a light ground. */}
+            <div className="lp-fixed mx-auto mt-6 w-fit rounded-[24px] bg-[var(--lp-cream)] p-4">
+              <div className="rounded-[16px] bg-[var(--lp-surface)] p-3">
+                <QRCodeSVG value={address} size={176} level="M" fgColor="#111a13" bgColor="#ffffff" />
               </div>
             </div>
-          )}
-
-          {/* Network warning */}
-          <div
-            className="flex items-start gap-2.5 p-3 rounded-xl"
-            style={{ background: 'rgba(251,146,60,0.06)', border: '1px solid rgba(251,146,60,0.15)' }}
-          >
-            <div className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0" style={{ background: '#fb923c' }} />
-            <p className="text-[11px] leading-relaxed" style={{ color: 'rgba(251,146,60,0.9)' }}>
-              <strong>Only send USDC</strong>
-              {rail === 'evm'
-                ? ' on one of the networks above. '
-                : rail === 'solana'
-                ? ' on the Solana network. '
-                : ' on the Stellar network. '}
-              Sending other tokens or using an unsupported network may result in permanent loss.
-            </p>
+            <p className="lp-mono mt-5 break-all text-[14px] leading-relaxed text-[#cfe0d6]">{truncateAddress(address, 12, 8)}</p>
+            <p className="mt-2 text-[13px] text-[#a9c2b5]">It lands in your balance by itself. No bridging needed.</p>
           </div>
-        </>
-      )}
-
-      {/* Power-user consolidation path */}
-      <Link
-        href="/dashboard/bridge"
-        className="flex items-center justify-center gap-1.5 text-[11px] font-bold uppercase tracking-widest py-2 transition-colors"
-        style={{ color: 'rgba(248,248,246,0.35)' }}
-      >
-        Have funds in another wallet? Move them
-        <ArrowRight className="w-3 h-3" />
-      </Link>
-    </div>
+        )
+      }
+      action={
+        <div className="space-y-3">
+          {!settingUp && (
+            <FlowButton tone="accent" onClick={copy}>
+              <Copy className="size-5" /> Copy address
+            </FlowButton>
+          )}
+          {/* At the foot of the dialog, the last thing read: the way to move funds already held
+              elsewhere. It takes the colour of where it sits, the forest panel or the cream bar. */}
+          <Link
+            href="/dashboard/bridge"
+            className="flex items-center justify-center gap-1.5 text-[14px] font-semibold opacity-80 transition-opacity hover:opacity-100"
+          >
+            Have funds in another wallet? Move them <ArrowRight className="size-4" />
+          </Link>
+        </div>
+      }
+    />
   );
 }

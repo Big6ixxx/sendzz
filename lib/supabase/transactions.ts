@@ -786,7 +786,7 @@ export async function triggerWithdrawalNotifications(
         notifTitle,
         refundOwed
           ? `Your withdrawal of ${amount} USDC could not be completed. We are returning your ` +
-            `funds — you will receive ${owed} USDC back shortly.`
+            `funds. You will receive ${owed} USDC back shortly.`
           : `Your withdrawal of ${amount} USDC has failed. Your funds remain in your wallet.`,
         "withdrawal",
         {

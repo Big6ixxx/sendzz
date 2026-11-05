@@ -12,10 +12,10 @@
  */
 
 import { usePwaInstall } from "@/hooks/usePwaInstall";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Check, Download, Share } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { FlowButton, FlowDialog, FlowLabel } from "@/components/flow/ui";
 
 export function InstallAppButton({ compact = false }: { compact?: boolean }) {
   const { isInstalled, canPrompt, needsManualSteps, install } = usePwaInstall();
@@ -24,8 +24,8 @@ export function InstallAppButton({ compact = false }: { compact?: boolean }) {
 
   if (isInstalled) {
     return (
-      <span className="inline-flex items-center gap-2 text-xs font-semibold text-accent">
-        <Check className="w-3.5 h-3.5" />
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--lp-good-soft)] px-3 py-1.5 text-[13px] font-semibold text-[var(--lp-good)]">
+        <Check className="size-3.5" />
         Installed
       </span>
     );
@@ -55,42 +55,34 @@ export function InstallAppButton({ compact = false }: { compact?: boolean }) {
         disabled={busy}
         className={
           compact
-            ? "inline-flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-accent hover:text-accent/80 transition-colors"
-            : "btn-primary w-full gap-2"
+            ? "inline-flex h-9 items-center gap-1.5 rounded-full bg-[var(--lp-ink)] px-4 text-[14px] font-semibold text-[var(--lp-cream)] disabled:opacity-60"
+            : "inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[var(--lp-ink)] px-6 text-[15px] font-semibold text-[var(--lp-cream)] disabled:opacity-60"
         }
       >
-        <Download className="w-4 h-4" />
-        {busy ? "Opening…" : "Install app"}
+        <Download className="size-4" />
+        {busy ? "Opening…" : "Install"}
       </button>
 
-      <Dialog open={stepsOpen} onOpenChange={setStepsOpen}>
-        <DialogContent className="max-w-[26rem]">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-semibold text-brand-secondary">
-              Keep Sendzz one tap away
-            </DialogTitle>
-          </DialogHeader>
-
+      <FlowDialog open={stepsOpen} onClose={() => setStepsOpen(false)} eyebrow="Install Sendzz" title="Keep Sendzz" italic="one tap away.">
           <div className="space-y-5">
             {/* Why first. Someone who opened this already knows what installing means; what
                 they do not know is what it gets them, and that is what decides it. */}
-            <ul className="space-y-2.5">
+            <ul className="divide-y divide-[var(--lp-line)] border-y border-[var(--lp-line)]">
               {[
                 "Open straight from your home screen, no typing the address",
                 "Full screen, with no browser bar in the way",
                 "Get told the moment a withdrawal reaches your bank",
               ].map((benefit) => (
-                <li key={benefit} className="flex items-start gap-2.5">
-                  <Check className="w-4 h-4 text-accent shrink-0 mt-0.5" />
-                  <span className="text-sm text-brand-secondary/70 leading-snug">{benefit}</span>
+                <li key={benefit} className="py-3 text-[15px] leading-snug">
+                  {benefit}
                 </li>
               ))}
             </ul>
 
-            <div className="pt-1 space-y-3">
-              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
+            <div className="space-y-3">
+              <FlowLabel>
                 {needsManualSteps ? "Three taps in Safari" : "From your browser menu"}
-              </p>
+              </FlowLabel>
 
               {needsManualSteps ? (
                 <ol className="space-y-3">
@@ -100,31 +92,28 @@ export function InstallAppButton({ compact = false }: { compact?: boolean }) {
                     { icon: <Check className="w-4 h-4" />, text: "Tap Add." },
                   ].map((step, i) => (
                     <li key={i} className="flex items-center gap-3">
-                      <span className="w-8 h-8 rounded-full bg-white/[0.06] border border-white/10 grid place-items-center text-brand-secondary/60 shrink-0">
+                      <span className="lp-card grid size-9 shrink-0 place-items-center rounded-full text-[var(--lp-ink)]">
                         {step.icon}
                       </span>
-                      <span className="text-sm text-brand-secondary/70 leading-snug">
+                      <span className="text-[15px] leading-snug">
                         {step.text}
                       </span>
                     </li>
                   ))}
                 </ol>
               ) : (
-                <p className="text-sm text-brand-secondary/60 leading-relaxed">
-                  Choose <span className="text-brand-secondary">Install app</span> or{" "}
-                  <span className="text-brand-secondary">Add to Home screen</span>.
+                <p className="text-[15px] leading-relaxed text-[var(--lp-body)]">
+                  Choose <span className="font-semibold text-[var(--lp-ink)]">Install app</span> or{" "}
+                  <span className="font-semibold text-[var(--lp-ink)]">Add to Home screen</span>.
                 </p>
               )}
             </div>
           </div>
 
-          <div className="flex justify-end pt-2">
-            <button onClick={() => setStepsOpen(false)} className="btn-primary px-6">
-              Got it
-            </button>
+          <div className="mt-6">
+            <FlowButton onClick={() => setStepsOpen(false)}>Got it</FlowButton>
           </div>
-        </DialogContent>
-      </Dialog>
+      </FlowDialog>
     </>
   );
 }

@@ -15,6 +15,7 @@ import { Check, Loader2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { signatureCount, type SigningPlan } from "@/lib/signing/plan";
+import { FlowLabel } from "@/components/flow/ui";
 
 export function SigningProgress({
   plan,
@@ -44,12 +45,12 @@ export function SigningProgress({
   }, []);
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 space-y-4">
+    <div className="lp-card space-y-4 rounded-[22px] p-5">
       <div className="flex items-baseline justify-between gap-4">
-        <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-brand-secondary/35">
+        <FlowLabel>
           In progress
-        </p>
-        <p className="text-[11px] text-brand-secondary/35">
+        </FlowLabel>
+        <p className="lp-mono text-[12px] tabular-nums text-[var(--lp-muted)]">
           Step {Math.min(current + 1, plan.steps.length)} of {plan.steps.length}
         </p>
       </div>
@@ -66,10 +67,10 @@ export function SigningProgress({
                 className={cn(
                   "mt-0.5 w-5 h-5 shrink-0 rounded-full border flex items-center justify-center",
                   done
-                    ? "border-accent/50 bg-accent/15 text-accent"
+                    ? "lp-on-green border-transparent text-[var(--lp-ink)]"
                     : active
-                      ? "border-accent/60 text-accent"
-                      : "border-white/12 text-brand-secondary/25",
+                      ? "border-[var(--lp-ink)] text-[var(--lp-ink)]"
+                      : "border-[var(--lp-line)] text-[var(--lp-muted)]",
                 )}
               >
                 {done ? (
@@ -84,17 +85,17 @@ export function SigningProgress({
               <span className="min-w-0 flex-1">
                 <span
                   className={cn(
-                    "block text-[13.5px] font-semibold",
+                    "block text-[15px] font-semibold",
                     done
-                      ? "text-brand-secondary/45 line-through decoration-white/20"
+                      ? "text-[var(--lp-muted)] line-through decoration-[var(--lp-line)]"
                       : active
-                        ? "text-brand-secondary"
-                        : "text-brand-secondary/45",
+                        ? "text-[var(--lp-ink)]"
+                        : "text-[var(--lp-muted)]",
                   )}
                 >
                   {step.title}
                   {thisSignature && signatures > 1 && (
-                    <span className="ml-2 text-[10px] font-bold uppercase tracking-[0.12em] text-brand-secondary/30">
+                    <span className="lp-mono ml-2 text-[11px] font-normal uppercase text-[var(--lp-muted)]">
                       Confirmation {thisSignature} of {signatures}
                     </span>
                   )}
@@ -103,7 +104,7 @@ export function SigningProgress({
                 {/* The detail is only worth the space while the step is the one happening.
                     Every step's explanation shown at once is a wall nobody reads. */}
                 {active && (step.detail || status) && (
-                  <span className="block text-[12px] text-brand-secondary/50 leading-relaxed mt-1">
+                  <span className="mt-1 block text-[14px] leading-[1.5] text-[var(--lp-body)]">
                     {status || step.detail}
                   </span>
                 )}

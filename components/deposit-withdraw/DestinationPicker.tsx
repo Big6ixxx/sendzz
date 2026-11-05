@@ -9,9 +9,10 @@
  */
 
 import * as React from "react";
-import { ChevronRight, Loader2, Search } from "lucide-react";
+import { ChevronRight, Search } from "lucide-react";
 import { usePayoutCountries } from "@/lib/hooks/usePayoutCountries";
 import { getCountryFlag } from "@/lib/currency-config";
+import { Skeleton, SkeletonGroup } from '@/components/ui/skeleton';
 
 /** Below this, scanning the list beats typing into a box above it. */
 const SEARCH_THRESHOLD = 8;
@@ -37,59 +38,60 @@ export function DestinationPicker({
 
   if (isLoading && options.length === 0) {
     return (
-      <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
-        <Loader2 className="w-4 h-4 animate-spin" />
-        Loading destinations…
-      </div>
+      <SkeletonGroup label="Loading countries" className="lp-card w-full space-y-4 rounded-[22px] p-4">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="flex items-center gap-3 px-1">
+            <Skeleton className="size-7 rounded-[8px]" />
+            <div className="flex-1 space-y-2">
+              <Skeleton className="h-3.5 w-1/3" />
+              <Skeleton className="h-3 w-1/4" />
+            </div>
+          </div>
+        ))}
+      </SkeletonGroup>
     );
   }
 
   return (
     <div className="w-full space-y-3">
       {options.length > SEARCH_THRESHOLD && (
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+        <label className="flex h-12 items-center gap-3 rounded-full bg-[var(--lp-surface)] px-4 shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)] outline-2 outline-offset-2 outline-transparent transition-[outline-color] duration-150 focus-within:outline-[var(--lp-ink)]">
+          <Search className="size-4 shrink-0 text-[var(--lp-muted)]" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search country or currency"
-            className="input-elegant w-full pl-9"
+            className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-[var(--lp-placeholder)] md:text-[15px]"
             aria-label="Search destinations"
           />
-        </div>
+        </label>
       )}
 
-      {/* Scrolls in its own box so the dialog itself never grows a second scrollbar. */}
+      {/* Scrolls in its own panel so the dialog never grows a second scrollbar. */}
       <div
         aria-label="Destination"
-        className="w-full max-h-[320px] overflow-y-auto rounded-xl border border-white/[0.07] divide-y divide-white/[0.05]"
+        className="lp-card max-h-[340px] w-full overflow-y-auto rounded-[22px] p-1.5"
       >
         {filtered.length === 0 ? (
-          <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-            Nothing matches “{search}”.
-          </p>
+          <p className="px-4 py-8 text-center text-[15px] text-[var(--lp-muted)]">Nothing matches “{search}”.</p>
         ) : (
           filtered.map((option) => (
-              <button
-                key={`${option.code}-${option.currency}`}
-                type="button"
-                onClick={() => onSelect({ code: option.code, currency: option.currency })}
-                className="w-full flex items-center gap-3 px-3.5 py-3 text-left transition-colors hover:bg-white/[0.03]"
-              >
-                <span className="text-xl leading-none shrink-0" aria-hidden>
-                  {getCountryFlag(option.code, option.currency)}
-                </span>
-
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-semibold truncate">{option.name}</span>
-                  <span className="block text-[11.5px] font-medium text-muted-foreground">
-                    Pays out in {option.currency}
-                  </span>
-                </span>
-
-                <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground" />
-              </button>
-            ))
+            <button
+              key={`${option.code}-${option.currency}`}
+              type="button"
+              onClick={() => onSelect({ code: option.code, currency: option.currency })}
+              className="flex w-full items-center gap-3 rounded-[16px] px-3 py-3 text-left transition-colors hover:bg-[var(--lp-cream)]"
+            >
+              <span className="text-[24px] leading-none shrink-0" aria-hidden>
+                {getCountryFlag(option.code, option.currency)}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[15px] font-semibold">{option.name}</span>
+                <span className="block text-[13px] text-[var(--lp-muted)]">Pays out in {option.currency}</span>
+              </span>
+              <ChevronRight className="size-4 shrink-0 text-[var(--lp-muted)]" />
+            </button>
+          ))
         )}
       </div>
     </div>

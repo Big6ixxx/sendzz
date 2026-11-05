@@ -6,6 +6,7 @@ import { ArrowDownLeft, CheckCircle2, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { parseAppError } from '@/lib/errors/appErrors';
+import { formatMoney } from '@/lib/format-usdc';
 
 interface PendingTransfer {
   id: string;
@@ -75,111 +76,42 @@ export function PendingIncomingPanel({
   if (!pendingTransfers || pendingTransfers.length === 0) return null;
 
   return (
-    <section>
-      <div
-        className="rounded-3xl overflow-hidden"
-        style={{
-          background: 'rgba(0,232,122,0.04)',
-          border: '1px solid rgba(0,232,122,0.15)',
-        }}
-      >
-        {/* Header */}
-        <div
-          className="px-6 py-4 flex items-center justify-between"
-          style={{ borderBottom: '1px solid rgba(0,232,122,0.1)' }}
-        >
-          <div className="flex items-center gap-2.5">
-            <div
-              className="w-2 h-2 rounded-full animate-pulse"
-              style={{ background: '#00e87a' }}
-            />
-            <span
-              className="text-xs font-bold uppercase tracking-widest"
-              style={{ color: '#00e87a' }}
-            >
-              Incoming Payments
-            </span>
-          </div>
-          <span
-            className="text-xs font-bold px-2 py-0.5 rounded-full"
-            style={{
-              background: 'rgba(0,232,122,0.12)',
-              color: '#00e87a',
-              border: '1px solid rgba(0,232,122,0.2)',
-            }}
-          >
-            {pendingTransfers.length}
-          </span>
+    <section className="lp-card rounded-[28px] p-2">
+      <div className="flex items-center justify-between px-4 pb-2 pt-3">
+        <div className="flex items-center gap-2.5">
+          <span className="lp-pulse size-2 rounded-full bg-[var(--lp-green)]" />
+          <h2 className="lp-display text-[20px] font-semibold tracking-[-0.02em]">Waiting for you to accept</h2>
         </div>
-
-        {/* Transfer rows */}
-        <div className="divide-y divide-white/5">
-          {pendingTransfers.map((transfer) => (
-            <div
-              key={transfer.id}
-              className="px-6 py-4 flex items-center justify-between gap-4"
-            >
-              <div className="flex items-center gap-3 min-w-0">
-                <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-                  style={{
-                    background: 'rgba(0,232,122,0.08)',
-                    border: '1px solid rgba(0,232,122,0.15)',
-                    color: '#00e87a',
-                  }}
-                >
-                  <ArrowDownLeft className="w-5 h-5" />
-                </div>
-                <div className="min-w-0">
-                  <p className="font-bold text-sm text-brand-secondary truncate">
-                    {transfer.sender_email}
-                  </p>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span
-                      className="text-sm font-bold tabular-nums"
-                      style={{ color: '#00e87a' }}
-                    >
-                      +{transfer.amount.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}{' '}
-                      <span className="text-[10px] opacity-50 font-bold uppercase">USDC</span>
-                    </span>
-                    {transfer.note && (
-                      <span className="text-[10px] text-brand-secondary/30 truncate max-w-[120px]">
-                        &ldquo;{transfer.note}&rdquo;
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <button
-                onClick={() => handleAccept(transfer.id)}
-                disabled={acceptingId === transfer.id}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-[11px] font-bold uppercase tracking-widest transition-all disabled:opacity-50 shrink-0 hover:scale-105 active:scale-95"
-                style={{
-                  background: 'rgba(0,232,122,0.12)',
-                  color: '#00e87a',
-                  border: '1px solid rgba(0,232,122,0.25)',
-                }}
-              >
-                {acceptingId === transfer.id ? (
-                  <>
-                    <RefreshCw className="w-3 h-3 animate-spin" />
-                    Accepting…
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="w-3 h-3" />
-                    Accept
-                  </>
-                )}
-              </button>
-            </div>
-          ))}
-        </div>
+        <span className="lp-mono rounded-full bg-[var(--lp-ink)] px-2.5 py-1 text-[12px] text-[var(--lp-on-ink)]">
+          {pendingTransfers.length}
+        </span>
       </div>
+      <ul className="flex flex-col gap-1">
+        {pendingTransfers.map((transfer) => (
+          <li key={transfer.id} className="flex flex-wrap items-center justify-between gap-3 rounded-[20px] bg-[var(--lp-cream)] px-4 py-3">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <span className="lp-on-green grid size-10 shrink-0 place-items-center rounded-full text-[var(--lp-ink)]">
+                <ArrowDownLeft className="size-5" />
+              </span>
+              <div className="min-w-0">
+                <p className="truncate text-[15px] font-semibold">{transfer.sender_email}</p>
+                <p className="truncate text-[13px] text-[var(--lp-muted)]">
+                  <span className="font-semibold text-[var(--lp-good)]">+{formatMoney(transfer.amount)} USDC</span>
+                  {transfer.note && <> · &ldquo;{transfer.note}&rdquo;</>}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => handleAccept(transfer.id)}
+              disabled={acceptingId === transfer.id}
+              className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[var(--lp-ink)] px-4 text-[14px] font-semibold text-[var(--lp-cream)] transition-[scale] duration-150 active:scale-[0.97] disabled:opacity-60 max-sm:w-full"
+            >
+              {acceptingId === transfer.id ? <RefreshCw className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
+              {acceptingId === transfer.id ? 'Accepting…' : 'Accept'}
+            </button>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }

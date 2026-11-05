@@ -43,111 +43,93 @@ export function TransactionsFeed({
   const [actions, setActions] = useState<{ row: PublicFeedRow; anchor: HTMLElement } | null>(null);
   const openActions = (row: PublicFeedRow, anchor: HTMLElement) => setActions({ row, anchor });
 
+  const th = 'px-5 py-3 lp-mono text-[11.5px] font-normal uppercase text-[var(--lp-muted)]';
+  const empty = <p className="py-16 text-center text-[15px] text-[var(--lp-muted)]">No transactions match these filters.</p>;
+  const pageButton =
+    'inline-flex h-10 items-center gap-1 rounded-full bg-[var(--lp-surface)] px-4 text-[14px] font-semibold shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.12)] transition-shadow hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.4)] disabled:cursor-not-allowed disabled:opacity-40';
+
   return (
     <section aria-labelledby="feed-heading" className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 id="feed-heading" className="font-display text-xl font-bold text-white tracking-tight">
+          <h2 id="feed-heading" className="lp-display text-[clamp(26px,4vw,34px)] tracking-[-0.03em]">
             Transactions
           </h2>
-          <p className="text-[11px] font-medium text-white/40 mt-0.5">
+          <p className="mt-1 text-[14px] text-[var(--lp-muted)]">
             {timeMode === 'relative'
               ? 'Times shown relative to now'
               : `Times in ${timeZone.replace(/_/g, ' ')}${abbrev ? ` · ${abbrev}` : ''}`}
           </p>
         </div>
-        <p className="text-xs font-medium text-white/50 whitespace-nowrap" aria-live="polite">
+        <p className="text-[14px] text-[var(--lp-muted)]" aria-live="polite">
           {fetching ? 'Updating…' : `Showing ${showingFrom}–${showingTo} of ${total.toLocaleString()}`}
         </p>
       </div>
 
       {/* Desktop table */}
-      <div className="card-glass p-0! overflow-hidden hidden md:block">
+      <div className="lp-card hidden overflow-hidden rounded-[28px] md:block">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full border-collapse text-left">
             <caption className="sr-only">Public transaction feed</caption>
             <thead>
-              <tr className="border-b border-white/8 bg-white/2">
-                <th scope="col" className="px-6 py-4 text-[10px] font-bold text-white/50 uppercase tracking-[0.2em]">Type</th>
-                <th scope="col" className="px-6 py-4 text-[10px] font-bold text-white/50 uppercase tracking-[0.2em]">Tx Hash</th>
-                <th scope="col" className="px-6 py-4 text-[10px] font-bold text-white/50 uppercase tracking-[0.2em]">Chain / Route</th>
-                <th scope="col" className="px-6 py-4 text-[10px] font-bold text-white/50 uppercase tracking-[0.2em]">Amount</th>
-                <th scope="col" className="px-6 py-4 text-[10px] font-bold text-white/50 uppercase tracking-[0.2em]">Status</th>
-                <th scope="col" className="px-6 py-4 text-[10px] font-bold text-white/50 uppercase tracking-[0.2em]">{dateHeader}</th>
-                <th scope="col" className="px-6 py-4 text-right">
+              <tr className="border-b border-[var(--lp-line)]">
+                <th scope="col" className={th}>Type</th>
+                <th scope="col" className={th}>Transaction</th>
+                <th scope="col" className={th}>Network</th>
+                <th scope="col" className={th}>Amount</th>
+                <th scope="col" className={th}>Status</th>
+                <th scope="col" className={th}>{dateHeader}</th>
+                <th scope="col" className="px-5 py-3">
                   <span className="sr-only">Actions</span>
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-[var(--lp-line)]">
               {loading ? (
                 Array.from({ length: 8 }).map((_, i) => <TxTableRowSkeleton key={i} />)
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-20 text-center text-white/40 font-medium">
-                    No transactions match these filters.
-                  </td>
+                  <td colSpan={7}>{empty}</td>
                 </tr>
               ) : (
-                rows.map((row) => (
-                  <TxTableRow
-                    key={row.id}
-                    row={row}
-                    timeZone={timeZone}
-                    timeMode={timeMode}
-                    onOpenActions={openActions}
-                  />
-                ))
+                rows.map((row) => <TxTableRow key={row.id} row={row} timeZone={timeZone} timeMode={timeMode} onOpenActions={openActions} />)
               )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Mobile cards */}
-      <div className="md:hidden space-y-3">
+      {/* Phone rows */}
+      <div className="lp-card rounded-[28px] px-4 md:hidden">
         {loading ? (
-          Array.from({ length: 5 }).map((_, i) => <TxCardSkeleton key={i} />)
+          <ul className="divide-y divide-[var(--lp-line)]">{Array.from({ length: 5 }).map((_, i) => <TxCardSkeleton key={i} />)}</ul>
         ) : rows.length === 0 ? (
-          <div className="card-glass py-16 text-center text-white/40 font-medium">
-            No transactions match these filters.
-          </div>
+          empty
         ) : (
-          rows.map((row) => (
-            <TxCard
-              key={row.id}
-              row={row}
-              timeZone={timeZone}
-              timeMode={timeMode}
-              onOpenActions={openActions}
-            />
-          ))
+          <ul className="divide-y divide-[var(--lp-line)]">
+            {rows.map((row) => (
+              <TxCard key={row.id} row={row} timeZone={timeZone} timeMode={timeMode} onOpenActions={openActions} />
+            ))}
+          </ul>
         )}
       </div>
 
-      {/* Pagination */}
       <nav aria-label="Pagination" className="flex items-center justify-between pt-2">
-        <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">
+        <p className="text-[14px] text-[var(--lp-muted)]">
           Page {page} of {totalPages}
         </p>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page <= 1}
-            aria-label="Previous page"
-            className="inline-flex items-center gap-1 px-4 h-10 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-xs font-bold uppercase tracking-widest"
-          >
-            <ChevronLeft className="w-4 h-4" /> Prev
+          <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} aria-label="Previous page" className={pageButton}>
+            <ChevronLeft className="size-4" /> Previous
           </button>
           <button
             type="button"
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             disabled={page >= totalPages}
             aria-label="Next page"
-            className="inline-flex items-center gap-1 px-4 h-10 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-xs font-bold uppercase tracking-widest"
+            className={pageButton}
           >
-            Next <ChevronRight className="w-4 h-4" />
+            Next <ChevronRight className="size-4" />
           </button>
         </div>
       </nav>

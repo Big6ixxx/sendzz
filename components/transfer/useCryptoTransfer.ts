@@ -623,8 +623,8 @@ export function useCryptoTransfer({
     // Broadcast but not yet confirmed — the Stellar rule: never look like a failure the user
     // should retry.
     toast.info(
-      `Your ${amount} USDC is still confirming on Solana. Your funds are safe — ` +
-        `please don't send it again; it will appear in your history shortly.`,
+      `Your ${amount} USDC is still confirming on Solana. Your funds are safe, ` +
+        `so please don't send it again; it will appear in your history shortly.`,
     );
     // The server writes the history row once the send confirms (recordedByServer), so it does
     // not depend on this tab staying open; the page only refreshes balances when it sees it.
@@ -694,8 +694,8 @@ export function useCryptoTransfer({
         // the reconciler writes the row if and when the chain confirms it.
         if (data.pending) {
           toast.info(
-            `Your ${amount} USDC is still confirming on Stellar. Your funds are safe — ` +
-              `please don't send it again; it will appear in your history shortly.`,
+            `Your ${amount} USDC is still confirming on Stellar. Your funds are safe, ` +
+              `so please don't send it again; it will appear in your history shortly.`,
           );
           invalidateBalances();
           setStatus("");

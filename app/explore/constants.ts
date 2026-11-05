@@ -7,7 +7,7 @@ export const TYPE_FILTERS: { label: string; value: TxType | null }[] = [
   { label: 'Deposits', value: 'deposit' },
   { label: 'Withdrawals', value: 'withdrawal' },
   { label: 'Transfers', value: 'transfer' },
-  { label: 'Bridges', value: 'bridge' },
+  { label: 'Moves', value: 'bridge' },
 ];
 
 export const RANGE_FILTERS: { label: string; value: TimeRange }[] = [
@@ -25,20 +25,20 @@ export const STATUS_META: Record<
 > = {
   operational: {
     label: 'All systems operational',
-    dot: 'bg-[#00e87a]',
-    text: 'text-[#00e87a]',
-    ring: 'border-[#00e87a]/30 bg-[#00e87a]/10',
+    dot: 'bg-[#04c96a]',
+    text: 'text-[var(--lp-good)]',
+    ring: 'bg-[var(--lp-good-soft)]',
   },
   degraded: {
     label: 'Degraded performance',
-    dot: 'bg-amber-400',
-    text: 'text-amber-300',
-    ring: 'border-amber-400/30 bg-amber-400/10',
+    dot: 'bg-[#e0a526]',
+    text: 'text-[var(--lp-warn)]',
+    ring: 'bg-[var(--lp-warn-soft)]',
   },
   down: {
     label: 'Service disruption',
-    dot: 'bg-red-400',
-    text: 'text-red-300',
-    ring: 'border-red-400/30 bg-red-400/10',
+    dot: 'bg-[#a1462c]',
+    text: 'text-[var(--lp-danger)]',
+    ring: 'bg-[var(--lp-danger-soft)]',
   },
 };

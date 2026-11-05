@@ -3,25 +3,14 @@
 import { checkOrderById } from '@/lib/actions/ramp';
 import { RampOrderStatus } from '@/lib/ramp';
 import { cn } from '@/lib/utils';
-import { AnimatePresence, motion } from 'framer-motion';
-import {
-  ArrowLeft,
-  CheckCircle2,
-  ChevronRight,
-  Clock,
-  Copy,
-  Info,
-  Landmark,
-  Loader2,
-  MessageSquare,
-  RefreshCw,
-  ShieldCheck,
-  XCircle,
-} from 'lucide-react';
+import { ArrowLeft, Copy, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { use, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { publicOrderId } from '@/lib/ramp/public-order-id';
+import { DetailRows, Notice, FlowLabel } from '@/components/flow/ui';
+import { BareBrandPage, statusAction } from '@/components/landing/StatusScreen';
+import { Skeleton, SkeletonGroup } from '@/components/ui/skeleton';
 
 interface OrderData {
   id: string;
@@ -45,86 +34,26 @@ interface OrderData {
   };
 }
 
-const STATUS_MAP: Record<
-  RampOrderStatus,
-  {
-    label: string;
-    sub: string;
-    icon: React.ElementType;
-    color: string;
-    progress: number;
-  }
-> = {
-  initiated: {
-    label: 'Awaiting Bank Transfer',
-    sub: 'Please send the exact amount to the bank details below.',
-    icon: Clock,
-    color: '#3b82f6',
-    progress: 20,
-  },
-  pending: {
-    label: 'Payment Detected',
-    sub: 'We have spotted your payment. Verifying on-chain...',
-    icon: Loader2,
-    color: '#00e87a',
-    progress: 40,
-  },
-  deposited: {
-    label: 'Deposit Confirmed',
-    sub: 'Funds are being processed for final settlement.',
-    icon: Loader2,
-    color: '#00e87a',
-    progress: 60,
-  },
-  validated: {
-    label: 'Order Validated',
-    sub: 'Security checks passed. Preparing your wallet transfer.',
-    icon: Loader2,
-    color: '#00e87a',
-    progress: 75,
-  },
-  settling: {
-    label: 'Settling Funds',
-    sub: 'Finalizing the transfer to your destination address.',
-    icon: Loader2,
-    color: '#00e87a',
-    progress: 90,
-  },
-  settled: {
-    label: 'Successfully Settled',
-    sub: 'Transaction complete. Your funds are now in your wallet.',
-    icon: CheckCircle2,
-    color: '#00e87a',
-    progress: 100,
-  },
-  refunding: {
-    label: 'Refunding Payment',
-    sub: 'We encountered an issue and are returning your funds.',
-    icon: Loader2,
-    color: '#f87171',
-    progress: 50,
-  },
-  refunded: {
-    label: 'Payment Refunded',
-    sub: 'Funds have been successfully returned to your bank.',
-    icon: XCircle,
-    color: '#f87171',
-    progress: 0,
-  },
-  expired: {
-    label: 'Transaction Expired',
-    sub: 'The payment window timed out. Please initiate a new order.',
-    icon: XCircle,
-    color: 'rgba(248,248,246,0.3)',
-    progress: 0,
-  },
-  failed: {
-    label: 'Transaction Failed',
-    sub: 'Something went wrong processing this order. Please try again.',
-    icon: XCircle,
-    color: '#f87171',
-    progress: 0,
-  },
+type Tone = 'moving' | 'done' | 'problem' | 'closed';
+
+const STATUS_MAP: Record<RampOrderStatus, { label: string; italic: string; sub: string; tone: Tone; progress: number }> = {
+  initiated: { label: 'Waiting for', italic: 'your transfer.', sub: 'Send the exact amount to the account below from your bank app.', tone: 'moving', progress: 20 },
+  pending: { label: 'Payment', italic: 'spotted.', sub: 'We can see your payment and are confirming it now.', tone: 'moving', progress: 40 },
+  deposited: { label: 'Deposit', italic: 'confirmed.', sub: 'Your money has arrived. We are converting it now.', tone: 'moving', progress: 60 },
+  validated: { label: 'Checks', italic: 'passed.', sub: 'Everything checks out. Getting it ready to send.', tone: 'moving', progress: 75 },
+  settling: { label: 'Almost', italic: 'there.', sub: 'Sending it to its destination.', tone: 'moving', progress: 90 },
+  settled: { label: 'All', italic: 'done.', sub: 'This order is complete and the money has arrived.', tone: 'done', progress: 100 },
+  refunding: { label: 'Sending it', italic: 'back.', sub: 'Something went wrong, so we are returning your money.', tone: 'problem', progress: 50 },
+  refunded: { label: 'Money', italic: 'returned.', sub: 'Your money has been sent back to where it came from.', tone: 'problem', progress: 0 },
+  expired: { label: 'This order', italic: 'expired.', sub: 'The payment window closed before any money arrived. Start a new order to try again.', tone: 'closed', progress: 0 },
+  failed: { label: 'This order', italic: 'failed.', sub: 'It could not be completed. Start a new one, or message us on Telegram.', tone: 'problem', progress: 0 },
+};
+
+const TONE_DOT: Record<Tone, string> = {
+  moving: 'bg-[var(--lp-green)] lp-pulse',
+  done: 'bg-[var(--lp-green)]',
+  problem: 'bg-[#f0a58f]',
+  closed: 'bg-[#9fb8aa]',
 };
 
 export default function TxStatusPage({
@@ -158,10 +87,10 @@ export default function TxStatusPage({
         setOrder(data as OrderData);
         setError('');
       } else {
-        setError('Order resolution failed. Record not found.');
+        setError('We couldn\u2019t find this order. Check the link and try again.');
       }
     } catch {
-      setError('Network synchronization error.');
+      setError('We couldn\u2019t reach Sendzz. Check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -171,15 +100,18 @@ export default function TxStatusPage({
     refreshStatus();
   }, [refreshStatus]);
 
-  // Polling logic
+  // A check the person asked for: shown on the button, and never two at once.
+  const [refreshing, setRefreshing] = useState(false);
+  const checkNow = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    await refreshStatus();
+    setRefreshing(false);
+  };
+
+  // Keep checking until the order can no longer change.
   useEffect(() => {
-    if (
-      !order ||
-      order.status === 'settled' ||
-      order.status === 'expired' ||
-      order.status === 'refunded'
-    )
-      return;
+    if (!order || (['settled', 'expired', 'refunded', 'failed'] as RampOrderStatus[]).includes(order.status)) return;
     const interval = setInterval(refreshStatus, 8000);
     return () => clearInterval(interval);
   }, [order, refreshStatus]);
@@ -191,340 +123,172 @@ export default function TxStatusPage({
   };
 
   if (!mounted) return null;
-  if (!orderId)
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[#07070a] text-white">
-        <p className="opacity-40 animate-pulse uppercase tracking-[0.3em] font-bold text-[10px]">
-          Invalid Reference
-        </p>
-      </div>
-    );
 
   const status = order ? STATUS_MAP[order.status] : null;
 
   return (
-    <div
-      className="min-h-screen relative selection:bg-accent/30"
-      style={{ background: '#07070a' }}
-    >
-      {/* Background Ambience */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-[-10%] left-[-5%] w-[60%] h-[60%] rounded-full bg-accent opacity-[0.05] blur-[160px]" />
-        <div className="absolute bottom-[-10%] right-[-5%] w-[50%] h-[50%] rounded-full bg-[#3b82f6] opacity-[0.04] blur-[140px]" />
-      </div>
-
-      <main className="max-w-2xl mx-auto px-6 py-12 md:py-24 relative z-10 space-y-12">
-        {/* Header */}
-        <header className="flex items-center justify-between pb-8 border-b border-white/6">
-          <div className="flex items-center gap-6">
-            <Link
-              href="/dashboard"
-              className="w-12 h-12 rounded-2xl flex items-center justify-center transition-all hover:bg-white/5 border border-white/8"
-              style={{ color: 'rgba(248,248,246,0.6)' }}
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </Link>
-            <div className="space-y-1">
-              <h1 className="font-display text-2xl font-bold tracking-tight text-brand-secondary">
-                Order Status
-              </h1>
-              <div className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-                <code className="text-[10px] font-bold uppercase tracking-widest opacity-30">
-                  REF: {publicOrderId(orderId)}
-                </code>
-              </div>
-            </div>
-          </div>
-          <button
-            onClick={refreshStatus}
-            disabled={loading}
-            className="p-3 rounded-xl transition-all hover:bg-white/5 text-accent"
+    <BareBrandPage>
+      <div className="mx-auto w-full max-w-[640px] space-y-6">
+        <div className="flex items-center justify-between gap-4">
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center gap-2 text-[15px] font-medium text-[var(--lp-body)] transition-colors hover:text-[var(--lp-ink)]"
           >
-            <RefreshCw className={cn('w-5 h-5', loading && 'animate-spin')} />
-          </button>
+            <ArrowLeft className="size-4" /> My account
+          </Link>
+          {orderId && (
+            <button
+              type="button"
+              onClick={checkNow}
+              disabled={loading || refreshing}
+              aria-label={refreshing ? 'Checking the status' : 'Check the status again'}
+              className="lp-card grid size-10 place-items-center rounded-full transition-[scale] duration-150 active:scale-[0.94] disabled:active:scale-100"
+            >
+              <RefreshCw className={cn('size-4', (loading || refreshing) && 'animate-spin')} />
+            </button>
+          )}
+        </div>
+
+        <header>
+          <p className="lp-mono text-[13px] uppercase">Order</p>
+          {orderId && <p className="lp-mono mt-2 break-all text-[13px] text-[var(--lp-muted)]">Ref {publicOrderId(orderId)}</p>}
         </header>
 
-        <AnimatePresence mode="wait">
-          {loading ? (
-            <motion.div
-              key="loading"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="py-24 flex flex-col items-center gap-8"
-            >
-              <div className="relative">
-                <Loader2
-                  className="w-16 h-16 animate-spin opacity-20"
-                  style={{ color: '#00e87a' }}
-                />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="w-8 h-8 rounded-full bg-accent/10 animate-pulse" />
-                </div>
-              </div>
-              <p className="text-xs font-bold uppercase tracking-[0.3em] opacity-30">
-                Syncing order status...
-              </p>
-            </motion.div>
-          ) : error ? (
-            <motion.div
-              key="error"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="card-glass p-12 text-center space-y-8 border-red-500/20"
-            >
-              <div className="w-20 h-20 rounded-3xl bg-red-500/10 flex items-center justify-center mx-auto text-red-500 border border-red-500/20">
-                <XCircle className="w-10 h-10" />
-              </div>
-              <div className="space-y-2">
-                <h2 className="text-xl font-bold text-brand-secondary">
-                  Data Resolution Failed
-                </h2>
-                <p className="text-sm opacity-40 max-w-xs mx-auto">{error}</p>
-              </div>
-              <button
-                onClick={refreshStatus}
-                className="btn-accent h-14 px-8 text-xs font-bold"
-              >
-                Attempt Re-Sync
+        {!orderId ? (
+          <Notice tone="danger" title="This link has no order in it.">
+            Open the order from your account history instead.
+          </Notice>
+        ) : loading && !order ? (
+          <SkeletonGroup label="Checking the order" className="space-y-6">
+            <div className="lp-on-forest space-y-5 rounded-[28px] p-7 sm:p-8">
+              <Skeleton tone="forest" className="h-3 w-20" />
+              <Skeleton tone="forest" className="h-12 w-2/3 rounded-[16px]" />
+              <Skeleton tone="forest" className="h-3.5 w-1/2" />
+              <Skeleton tone="forest" className="h-1.5 w-full" />
+            </div>
+            <div className="lp-card space-y-5 rounded-[28px] p-6 sm:p-7">
+              <Skeleton className="h-3 w-16" />
+              <Skeleton className="h-12 w-40 rounded-[16px]" />
+              <Skeleton className="h-3.5 w-full" />
+              <Skeleton className="h-3.5 w-3/4" />
+            </div>
+          </SkeletonGroup>
+        ) : error && !order ? (
+          <Notice
+            tone="danger"
+            title={error}
+            action={
+              <button type="button" onClick={checkNow} className="text-[14px] font-semibold underline underline-offset-2">
+                Try again
               </button>
-            </motion.div>
-          ) : (
-            order &&
-            status && (
-              <motion.div
-                key="content"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="space-y-12"
-              >
-                {/* Primary Status Card */}
-                <div className="text-center space-y-6">
+            }
+          />
+        ) : (
+          order &&
+          status && (
+            <>
+              {/* Where it is now, on forest like the summary panel in the send and withdraw flows. */}
+              <section aria-live="polite" className="lp-on-forest rounded-[28px] p-7 text-[var(--lp-cream)] sm:p-8">
+                <p className="lp-mono flex items-center gap-2 text-[12px] uppercase text-[var(--lp-green)]">
+                  <span className={cn('size-2 rounded-full', TONE_DOT[status.tone])} aria-hidden /> Status
+                </p>
+                <h1 className="lp-display mt-5 text-[clamp(40px,9vw,60px)] leading-[0.95] tracking-[-0.05em]">
+                  {status.label} <span className="lp-serif tracking-[-0.02em]">{status.italic}</span>
+                </h1>
+                <p className="mt-4 max-w-[460px] text-[16px] leading-[1.55] text-[#cfe0d6]">{status.sub}</p>
+                {status.progress > 0 && (
                   <div
-                    className="w-28 h-28 rounded-[2.5rem] flex items-center justify-center mx-auto relative group shadow-2xl"
-                    style={{
-                      background: `rgba(${status.color === '#00e87a' ? '0,232,122' : '59,130,246'}, 0.08)`,
-                      border: `1px solid ${status.color}33`,
-                      color: status.color,
-                    }}
+                    className="mt-7 h-1.5 overflow-hidden rounded-full bg-[rgba(246,242,233,0.15)]"
+                    role="progressbar"
+                    aria-label="Order progress"
+                    aria-valuenow={status.progress}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
                   >
-                    <div className="absolute inset-0 rounded-[2.5rem] blur-3xl opacity-20 bg-current" />
-                    <status.icon
-                      className={cn(
-                        'w-12 h-12 relative z-10',
-                        status.progress < 100 &&
-                          status.progress > 0 &&
-                          'animate-pulse',
-                      )}
+                    <div
+                      className={cn('h-full rounded-full transition-[width] duration-700', status.tone === 'problem' ? 'bg-[#f0a58f]' : 'bg-[var(--lp-green)]')}
+                      style={{ width: `${status.progress}%` }}
                     />
                   </div>
+                )}
+              </section>
 
-                  <div className="space-y-2">
-                    <h2 className="font-display text-4xl font-bold tracking-tight text-brand-secondary">
-                      {status.label}
-                    </h2>
-                    <p className="text-sm opacity-50 max-w-md mx-auto">
-                      {status.sub}
-                    </p>
-                  </div>
-
-                  {/* Progress Bar */}
-                  {status.progress > 0 && (
-                    <div className="max-w-xs mx-auto pt-4 space-y-4">
-                      <div className="h-1.5 w-full bg-white/3 rounded-full overflow-hidden border border-white/5">
-                        <motion.div
-                          initial={{ width: 0 }}
-                          animate={{ width: `${status.progress}%` }}
-                          transition={{ duration: 1.5, ease: 'circOut' }}
-                          className="h-full bg-linear-to-r from-accent to-[#3b82f6] shadow-[0_0_12px_rgba(0,232,122,0.4)]"
-                        />
-                      </div>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-20">
-                        Network Finalization: {status.progress}%
-                      </p>
-                    </div>
+              <section aria-label="Order details" className="lp-card rounded-[28px] p-6 sm:p-7">
+                <FlowLabel>Amount</FlowLabel>
+                <p className="lp-display mt-3 break-words text-[clamp(40px,10vw,56px)] leading-none tracking-[-0.05em] tabular-nums">
+                  {order.amount}
+                  {order.source?.currency && (
+                    <span className="lp-mono ml-2 align-middle text-[14px] tracking-normal text-[var(--lp-muted)]">{order.source.currency}</span>
                   )}
-                </div>
-
-                {/* Financial Summary */}
-                <div className="card-glass p-10 relative overflow-hidden group">
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-accent opacity-[0.03] blur-3xl rounded-full" />
-
-                  <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-10">
-                    <div className="space-y-4">
-                      <p className="text-[10px] font-bold uppercase tracking-[0.3em] opacity-30">
-                        Settlement Value
-                      </p>
-                      <div className="flex items-baseline gap-4">
-                        <span className="font-display text-6xl md:text-7xl font-bold tracking-tighter text-brand-secondary">
-                          {order.amount}
+                </p>
+                <DetailRows
+                  className="mt-6 border-b-0"
+                  rows={[
+                    { label: 'Type', value: order.source?.type === 'fiat' ? 'Bank deposit' : 'Payout' },
+                    {
+                      label: 'Started',
+                      value: (
+                        <span className="lp-mono text-[14px]">
+                          {new Date(order.createdAt).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}
                         </span>
-                        <span className="text-2xl font-bold opacity-20 text-brand-secondary">
-                          {order.source?.currency}
-                        </span>
-                      </div>
-                    </div>
+                      ),
+                    },
+                    !!order.destination?.recipient?.memo && {
+                      label: 'Note',
+                      value: (
+                        <span className="lp-serif block truncate text-[18px] font-normal">&ldquo;{order.destination.recipient.memo}&rdquo;</span>
+                      ),
+                    },
+                  ]}
+                />
+              </section>
 
-                    <div className="flex flex-col md:items-end gap-4">
-                      <div className="px-4 py-2 rounded-xl bg-accent/10 border border-accent/20 flex items-center gap-2">
-                        <ShieldCheck className="w-4 h-4 text-accent" />
-                        <span className="text-[11px] font-bold uppercase tracking-widest text-accent">
-                          Multi-Chain Secured
-                        </span>
-                      </div>
-                      <p className="text-[10px] font-bold opacity-30 uppercase tracking-widest">
-                        Ledger Updated:{' '}
-                        {new Date(order.createdAt).toLocaleTimeString()}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-10 pt-10 border-t border-white/6 grid grid-cols-2 md:grid-cols-3 gap-8">
-                    <div className="space-y-1.5">
-                      <p className="text-[9px] font-bold uppercase tracking-widest opacity-30">
-                        Order Type
-                      </p>
-                      <p className="text-xs font-bold text-brand-secondary uppercase tracking-tight">
-                        {order.source?.type === 'fiat'
-                          ? 'Fiat Deposit'
-                          : 'Crypto Payout'}
-                      </p>
-                    </div>
-                    <div className="space-y-1.5 text-right md:text-left">
-                      <p className="text-[9px] font-bold uppercase tracking-widest opacity-30">
-                        Status Phase
-                      </p>
-                      <p
-                        className="text-xs font-bold uppercase tracking-tight"
-                        style={{ color: status.color }}
-                      >
-                        {order.status}
-                      </p>
-                    </div>
-                    {order.destination?.recipient?.memo && (
-                      <div className="col-span-2 md:col-span-1 space-y-1.5">
-                        <p className="text-[9px] font-bold uppercase tracking-widest opacity-30 flex items-center gap-2">
-                          <MessageSquare className="w-3 h-3" /> Note
-                        </p>
-                        <p className="text-xs font-bold text-brand-secondary italic truncate">
-                          &quot;{order.destination.recipient.memo}&quot;
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Action Panels */}
-                {order.source?.type === 'fiat' &&
-                  order.providerAccount?.accountIdentifier &&
-                  order.status === 'initiated' && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="card-glass p-8 space-y-8 bg-white/2 border-accent/20 shadow-[0_32px_80px_rgba(0,0,0,0.6)]"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="w-14 h-14 rounded-2xl bg-accent/10 flex items-center justify-center border border-accent/20">
-                          <Landmark className="w-7 h-7 text-accent" />
-                        </div>
-                        <div>
-                          <h3 className="text-lg font-bold text-brand-secondary">
-                            Deposit Instructions
-                          </h3>
-                          <p className="text-xs opacity-40">
-                            Complete the transfer from your bank app
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {[
-                          {
-                            label: 'Transfer Amount',
-                            value: `${order.providerAccount.amountToTransfer} ${order.providerAccount.currency}`,
-                            accent: true,
-                          },
-                          {
-                            label: 'Institution',
-                            value: order.providerAccount.institution,
-                          },
-                          {
-                            label: 'Account Identity',
-                            value: order.providerAccount.accountName,
-                          },
-                          {
-                            label: 'Account Number',
-                            value: order.providerAccount.accountIdentifier,
-                            copy: true,
-                          },
-                        ].map((item) => (
-                          <div
-                            key={item.label}
-                            className="p-4 rounded-2xl bg-black/40 border border-white/4 space-y-1"
+              {order.source?.type === 'fiat' && order.providerAccount?.accountIdentifier && order.status === 'initiated' && (
+                <section aria-label="Where to send it" className="lp-card rounded-[28px] p-6 sm:p-7">
+                  <FlowLabel>Send exactly</FlowLabel>
+                  <p className="lp-display mt-3 break-words text-[clamp(32px,8vw,44px)] leading-none tracking-[-0.04em] tabular-nums">
+                    {order.providerAccount.amountToTransfer}
+                    <span className="lp-mono ml-2 align-middle text-[14px] tracking-normal text-[var(--lp-muted)]">
+                      {order.providerAccount.currency}
+                    </span>
+                  </p>
+                  <DetailRows
+                    className="mt-6 border-b-0"
+                    rows={[
+                      !!order.providerAccount.institution && { label: 'Bank', value: order.providerAccount.institution },
+                      !!order.providerAccount.accountName && { label: 'Account name', value: order.providerAccount.accountName },
+                      {
+                        label: 'Account number',
+                        value: (
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(order.providerAccount!.accountIdentifier!, 'Account number')}
+                            className="lp-mono inline-flex items-center gap-2 text-[15px] transition-colors hover:text-[var(--lp-link)]"
+                            aria-label={`Copy account number ${order.providerAccount.accountIdentifier}`}
                           >
-                            <p className="text-[9px] font-bold uppercase tracking-[0.2em] opacity-20">
-                              {item.label}
-                            </p>
-                            {item.copy ? (
-                              <button
-                                onClick={() =>
-                                  copyToClipboard(item.value!, 'Account number')
-                                }
-                                className="w-full flex items-center justify-between group text-left"
-                              >
-                                <span className="text-sm font-bold font-mono text-brand-secondary">
-                                  {item.value}
-                                </span>
-                                <Copy className="w-4 h-4 opacity-10 group-hover:opacity-100 transition-opacity text-accent" />
-                              </button>
-                            ) : (
-                              <p
-                                className={cn(
-                                  'text-sm font-bold truncate',
-                                  item.accent
-                                    ? 'text-accent text-lg'
-                                    : 'text-brand-secondary',
-                                )}
-                              >
-                                {item.value}
-                              </p>
-                            )}
-                          </div>
-                        ))}
-                      </div>
+                            {order.providerAccount.accountIdentifier} <Copy className="size-4" />
+                          </button>
+                        ),
+                      },
+                    ]}
+                  />
+                  <div className="mt-5">
+                    <Notice tone="info">
+                      Send the exact amount, in one transfer. Your balance updates by itself once it is confirmed.
+                    </Notice>
+                  </div>
+                </section>
+              )}
 
-                      <div className="flex items-start gap-4 p-5 rounded-2xl bg-accent/5 border border-accent/10">
-                        <Info className="w-5 h-5 text-accent shrink-0 mt-0.5" />
-                        <p className="text-[11px] leading-relaxed text-accent opacity-80 font-medium">
-                          Funds will be credited automatically once the transfer
-                          is verified. Please ensure the amount matches exactly
-                          to avoid delays.
-                        </p>
-                      </div>
-                    </motion.div>
-                  )}
+              {error && <Notice tone="warning" title={error}>The details above may be out of date.</Notice>}
 
-                {/* Utility Footer */}
-                <footer className="flex flex-col sm:flex-row gap-4 pt-8">
-                  <button
-                    onClick={() => window.location.reload()}
-                    className="flex-1 h-16 rounded-2xl bg-white/4 border border-white/8 text-brand-secondary font-bold text-[10px] uppercase tracking-[0.3em] transition-all hover:bg-white/8 flex items-center justify-center gap-3"
-                  >
-                    <RefreshCw className="w-4 h-4" /> Hard Refresh
-                  </button>
-                  <Link
-                    href="/dashboard"
-                    className="flex-1 h-16 rounded-2xl bg-accent text-[#07070a] font-bold text-[10px] uppercase tracking-[0.3em] flex items-center justify-center gap-3 transition-all hover:brightness-110 shadow-[0_20px_40px_rgba(0,232,122,0.2)]"
-                  >
-                    Return to Portal <ChevronRight className="w-4 h-4" />
-                  </Link>
-                </footer>
-              </motion.div>
-            )
-          )}
-        </AnimatePresence>
-      </main>
-    </div>
+              <Link href="/dashboard" className={`${statusAction.primary} w-full`}>
+                Back to my account
+              </Link>
+            </>
+          )
+        )}
+      </div>
+    </BareBrandPage>
   );
 }

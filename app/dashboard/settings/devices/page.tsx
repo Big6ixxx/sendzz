@@ -11,11 +11,11 @@
  * `revoked_at` every time — so it does not wait for a token to expire.
  */
 
-import { DashboardPageHeader } from '@/components/layout/DashboardPageHeader';
-import { ArrowLeft, Laptop, Loader2, Smartphone, ShieldOff } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { DocBody, DocHeader, DocReadNext, DocSection } from '@/components/dashboard/DocLayout';
+import { DocRows, RowAction, SettingsBack, SettingsRow } from '@/components/dashboard/SettingsKit';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface DeviceSession {
   id: string;
@@ -111,7 +111,6 @@ function timeAgo(iso: string): string {
 }
 
 export default function DevicesSettingsPage() {
-  const router = useRouter();
   const [sessions, setSessions] = useState<DeviceSession[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -151,89 +150,106 @@ export default function DevicesSettingsPage() {
   };
 
   const others = (sessions ?? []).filter((s) => !s.current);
+  const current = (sessions ?? []).find((s) => s.current);
+
+  const nav = [
+    { id: "this-device", label: "This device" },
+    { id: "other-devices", label: "Other devices" },
+    { id: "how-it-works", label: "How signing out works" },
+  ];
 
   return (
-    <div className="space-y-6">
-      <div>
-        <button
-          type="button"
-          onClick={() => router.back()}
-          className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors mb-6"
-        >
-          <ArrowLeft className="w-3 h-3" />
-          Back to Settings
-        </button>
-        <DashboardPageHeader
-          title="Devices"
-          subtitle="Everywhere you are signed in."
-        />
-      </div>
+    <div className="mx-auto max-w-[1100px] space-y-8 pb-24">
+      <SettingsBack />
+      <DocHeader
+        eyebrow="Devices"
+        title="Where you're"
+        italic="signed in."
+        lead="Every phone and computer that can open your Sendzz right now. Lost one? Sign it out here and it loses access straight away."
+        meta={sessions?.length ? `${sessions.length} ${sessions.length === 1 ? "session" : "sessions"} open` : undefined}
+      />
 
-      <div className="card-glass p-4 border-white/5 flex gap-3">
-        <div className="p-2 h-fit rounded-lg bg-white/5">
-          <ShieldOff className="w-4 h-4 text-brand-secondary/60" />
-        </div>
-        <p className="text-[11px] text-white/40 leading-relaxed font-medium">
-          Lost a phone? Sign it out here and it loses access immediately. Sessions also end on
-          their own after a week without any sign of that device.
-        </p>
-      </div>
-
-      {sessions === null ? (
-        <div className="flex justify-center py-12">
-          <Loader2 className="w-5 h-5 animate-spin text-brand-secondary/40" />
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {sessions.map((s) => {
-            const Icon = isMobile(s.userAgent) ? Smartphone : Laptop;
-            return (
-              <div
-                key={s.id}
-                className="card-glass p-4 border-white/5 flex items-center gap-3"
-              >
-                <div className="p-2 h-fit rounded-lg bg-white/5">
-                  <Icon className="w-4 h-4 text-brand-secondary/60" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-brand-secondary truncate">
-                      {describe(s.userAgent)}
-                    </p>
-                    {s.current && (
-                      <span className="text-[9px] font-bold uppercase tracking-widest text-accent shrink-0">
-                        This device
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-white/35 mt-0.5">
-                    Active {timeAgo(s.lastActiveAt)}
-                  </p>
-                </div>
-                {!s.current && (
-                  <button
-                    onClick={() => void revoke({ sessionRowId: s.id }, s.id)}
-                    disabled={busy !== null}
-                    className="text-[10px] font-bold uppercase tracking-widest text-red-400 hover:text-red-300 disabled:opacity-40 shrink-0"
-                  >
-                    {busy === s.id ? 'Signing out…' : 'Sign out'}
-                  </button>
-                )}
+      <div className="pt-4 lg:pt-12">
+        <DocBody items={nav}>
+          <DocSection id="this-device" number={1} title="This device" description="The one you are using now.">
+            {sessions === null ? (
+              <Skeleton tone="page" className="h-24 rounded-[24px]" />
+            ) : current ? (
+              <div className="lp-on-forest rounded-[24px] p-6 text-[var(--lp-cream)]">
+                <p className="lp-display text-[clamp(24px,4vw,32px)] leading-[1.05] tracking-[-0.03em]">{describe(current.userAgent)}</p>
+                <p className="mt-3 flex items-center gap-2 text-[15px] text-[#cfe0d6]">
+                  <span className="size-2 rounded-full bg-[var(--lp-green)]" aria-hidden /> Active now
+                </p>
               </div>
-            );
-          })}
+            ) : (
+              <p className="text-[17px] text-[var(--lp-body)]">We could not match this browser to a session.</p>
+            )}
+          </DocSection>
 
-          {others.length > 0 && (
-            <button
-              onClick={() => void revoke({ all: true }, 'all')}
-              disabled={busy !== null}
-              className="btn-secondary w-full mt-2 disabled:opacity-40"
-            >
-              {busy === 'all' ? 'Signing out…' : `Sign out all other devices (${others.length})`}
-            </button>
-          )}
-        </div>
-      )}
+          <DocSection
+            id="other-devices"
+            number={2}
+            title="Other devices"
+            description={
+              sessions === null
+                ? undefined
+                : others.length
+                  ? `${others.length} other ${others.length === 1 ? "device is" : "devices are"} signed in.`
+                  : "Only this device is signed in. Nothing else to worry about."
+            }
+          >
+            {sessions === null ? (
+              <DocRows>
+                {[0, 1].map((i) => (
+                  <div key={i} className="space-y-2 py-4">
+                    <Skeleton tone="page" className="h-4 w-1/2" />
+                    <Skeleton tone="page" className="h-3 w-1/3" />
+                  </div>
+                ))}
+              </DocRows>
+            ) : (
+              others.length > 0 && (
+                <div className="space-y-5">
+                  <DocRows>
+                    {others.map((s) => (
+                      <SettingsRow
+                        key={s.id}
+                        title={describe(s.userAgent)}
+                        description={`${isMobile(s.userAgent) ? "Phone or tablet" : "Computer"} · active ${timeAgo(s.lastActiveAt)}`}
+                        control={
+                          <RowAction tone="danger" onClick={() => void revoke({ sessionRowId: s.id }, s.id)}>
+                            {busy === s.id ? "Signing out…" : "Sign out"}
+                          </RowAction>
+                        }
+                      />
+                    ))}
+                  </DocRows>
+                  {others.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => void revoke({ all: true }, "all")}
+                      disabled={busy !== null}
+                      className="inline-flex h-[46px] items-center rounded-full border border-[var(--lp-danger)]/35 px-[22px] text-[15px] font-semibold text-[var(--lp-danger)] transition-colors hover:bg-[var(--lp-danger-soft)] disabled:opacity-50"
+                    >
+                      {busy === "all" ? "Signing out…" : `Sign out all ${others.length} other devices`}
+                    </button>
+                  )}
+                </div>
+              )
+            )}
+          </DocSection>
+
+          <DocSection id="how-it-works" number={3} title="How signing out works">
+            <div className="space-y-4 text-[17px] leading-[1.65] text-[var(--lp-body)]">
+              <p>A device you sign out loses access on its very next step. It does not wait for anything to expire.</p>
+              <p>Sessions also end by themselves after a week without any sign of that device, so an old laptop in a drawer does not stay signed in forever.</p>
+              <p>Signing out never touches your money. Your balance stays in your account, under your keys.</p>
+            </div>
+          </DocSection>
+
+          <DocReadNext title="Fees and questions" body="What everything costs, and plain answers to what people ask most." href="/dashboard/settings/fees" />
+        </DocBody>
+      </div>
     </div>
   );
 }

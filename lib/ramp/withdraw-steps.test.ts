@@ -17,7 +17,7 @@ const hook = read('components/deposit-withdraw/useDepositWithdraw.ts');
 describe('the transfer form has two steps', () => {
   it('declares exactly recipient then amount', () => {
     expect(form).toMatch(/type Phase = "recipient" \| "amount";/);
-    expect(form).toMatch(/\{ id: "recipient", label: "Recipient" \},\s*\{ id: "amount", label: "Amount" \},/);
+    expect(form).toMatch(/const PHASE_LABELS = \["Who you're paying", "How much"\];/);
   });
 
   it('shows the bank selector only once a destination is chosen', () => {
@@ -29,7 +29,7 @@ describe('the transfer form has two steps', () => {
   });
 
   it('asks for the quote from the amount step, the last question', () => {
-    const amount = form.slice(form.indexOf('{phase === "amount" && ('));
+    const amount = form.slice(form.indexOf('<FlowSteps steps={PHASE_LABELS} current={1} />'));
     expect(amount).toMatch(/onClick=\{hook\.handleWithdrawQuote\}/);
   });
 });
@@ -45,14 +45,17 @@ describe('nothing country-specific is fetched before a destination exists', () =
 describe('the amount step', () => {
   it('cannot ask for a quote below 1 USDC, zero included', () => {
     expect(form).toMatch(/if \(usdcBase < 1\) return "Minimum transfer is 1 USDC equivalent\.";/);
-    const amount = form.slice(form.indexOf('{phase === "amount" && ('));
-    expect(amount).toMatch(/disabled=\{\s*hook\.loading \|\|\s*hook\.rateLoading \|\|\s*usdcBase < 1 \|\|/);
+    const amount = form.slice(form.indexOf('<FlowSteps steps={PHASE_LABELS} current={1} />'));
+    // FlowButton disables itself while `loading`, so loading, a missing rate and a sub-1 amount all block it.
+    expect(amount).toMatch(/loading=\{hook\.loading\}\s*disabled=\{hook\.rateLoading \|\| usdcBase < 1 \|\|/);
   });
 });
 
 describe('every earlier step can be gone back to', () => {
   it('the recipient step goes back to the country list', () => {
-    expect(form).toMatch(/\{hook\.payoutCountry && \(\s*<button\s*type="button"\s*onClick=\{clearDestination\}/);
+    // Both the country card's "Change" and the step's back arrow return to the list.
+    expect(form).toMatch(/onClick=\{clearDestination\}[\s\S]*?>\s*Change\s*</);
+    expect(form).toMatch(/\{hook\.payoutCountry && backButton\(clearDestination\)\}/);
   });
 
   it('offers only contacts whose bank pays out in the chosen country', () => {

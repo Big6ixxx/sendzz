@@ -1,46 +1,42 @@
 'use client';
 
-import { DashboardPageHeader } from '@/components/layout/DashboardPageHeader';
-import { HistoryModule } from '@/components/HistoryModule';
+import { ActivityDetailModal } from '@/components/ActivityDetailModal';
+import type { Activity } from '@/components/HistoryModule';
+import { HistoryList } from '@/components/dashboard/HistoryList';
+import { PageHeader } from '@/components/dashboard/PageHeader';
 import { usePrivy } from '@privy-io/react-auth';
-import { useRouter } from 'next/navigation';
-import { Loader2, Send } from 'lucide-react';
+import { ArrowUpRight } from 'lucide-react';
+import Link from 'next/link';
+import { useState } from 'react';
+import { PageSkeleton } from '@/components/dashboard/PageSkeleton';
 
 export default function HistoryPage() {
   const { ready, authenticated, user } = usePrivy();
-  const router = useRouter();
+  const [selected, setSelected] = useState<Activity | null>(null);
 
   if (!ready || !authenticated || !user) {
-    return (
-      <div className="h-[60vh] flex items-center justify-center">
-        <Loader2 className="animate-spin w-8 h-8 text-muted-foreground/50" />
-      </div>
-    );
+    return <PageSkeleton variant="list" />;
   }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-8">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <DashboardPageHeader
-          title="History"
-          subtitle="Review your global settlement activity."
-        />
-        <button
-          onClick={() => router.push('/dashboard/transfer')}
-          className="btn-accent h-12 px-6 rounded-2xl flex items-center gap-2 text-xs font-bold uppercase tracking-widest shrink-0"
-        >
-          <Send className="w-4 h-4" />
-          New Transfer
-        </button>
-      </div>
-
-      <HistoryModule
-        userId={user.id}
-        userEmail={user.email?.address || ''}
-        hideHeader={true}
-        showControls={true}
-        onTxClick={(a) => router.push(`/dashboard/activity/${a.id}`)}
+    <div className="mx-auto max-w-[880px] space-y-6 pb-24 md:space-y-8">
+      <PageHeader
+        eyebrow="History"
+        title="Every dollar,"
+        italic="accounted for."
+        actions={
+          <Link
+            href="/dashboard/transfer"
+            className="inline-flex h-12 items-center gap-2 rounded-full bg-[var(--lp-ink)] px-6 text-[15px] font-semibold text-[var(--lp-cream)] transition-transform duration-150 hover:-translate-y-px"
+          >
+            Send money <ArrowUpRight className="size-4" />
+          </Link>
+        }
       />
+
+      <HistoryList userId={user.id} userEmail={user.email?.address || ''} onOpen={setSelected} />
+
+      <ActivityDetailModal activity={selected} isOpen={!!selected} onClose={() => setSelected(null)} />
     </div>
   );
 }

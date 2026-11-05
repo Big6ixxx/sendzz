@@ -45,7 +45,7 @@ self.addEventListener('push', (event) => {
             .catch(() => {}),
         ])
       );
-    } catch (e) {
+    } catch {
       const text = event.data.text();
       event.waitUntil(
         self.registration.showNotification('Sendzz Alert', {

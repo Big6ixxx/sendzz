@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ConnectedWallet } from "@privy-io/react-auth";
-import { Send, Wallet } from "lucide-react";
+import { FlowTabs } from "./flow/ui";
 import { useTransfer } from "./transfer/useTransfer";
 import { TransferForm } from "./transfer/TransferForm";
 import { AddContactModal } from "./contacts/AddContactModal";
@@ -26,6 +26,7 @@ export function TransferModule({
   stellarAddress,
   stellarWalletId,
   stellarBalance,
+  extra,
 }: {
   smartAddress: string;
   embeddedProvider?: ConnectedWallet;
@@ -38,6 +39,8 @@ export function TransferModule({
   stellarAddress?: string;
   stellarWalletId?: string;
   stellarBalance?: number;
+  /** Cards shown under the send summary. */
+  extra?: React.ReactNode;
 }) {
   const [transferMode, setTransferMode] = useState<"email" | "crypto">("email");
 
@@ -108,47 +111,20 @@ export function TransferModule({
     solanaSource,
   });
 
+  const tabs = (
+    <FlowTabs
+      label="Send to"
+      value={transferMode}
+      onChange={setTransferMode}
+      options={[
+        { label: "To an email", value: "email" },
+        { label: "To a wallet", value: "crypto" },
+      ]}
+    />
+  );
+
   return (
-    <div className="card-elegant p-5 sm:p-8 md:p-12 bg-background border-border relative overflow-hidden">
-      <div className="flex items-center gap-4 mb-6 sm:mb-8 border-b border-border/50 pb-6">
-        <div className="p-3 bg-foreground text-background rounded-2xl shadow-lg">
-          {transferMode === 'email' ? <Send className="w-6 h-6 md:w-8 md:h-8" /> : <Wallet className="w-6 h-6 md:w-8 md:h-8" />}
-        </div>
-        <div className="space-y-1">
-          <h2 className="text-xl sm:text-2xl md:text-3xl font-black uppercase tracking-tighter">
-            Transfer
-          </h2>
-          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-            {transferMode === 'email' ? 'Send funds using an email address' : 'Send crypto to an external wallet'}
-          </p>
-        </div>
-      </div>
-
-      <div className="flex bg-muted/50 p-1 rounded-2xl mb-8 relative z-20 w-full">
-        <button
-          type="button"
-          onClick={() => setTransferMode('email')}
-          className={`flex-1 py-2.5 text-xs font-bold uppercase tracking-widest rounded-xl transition-all duration-300 ${
-            transferMode === 'email'
-              ? 'bg-background shadow-md text-foreground'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          Email
-        </button>
-        <button
-          type="button"
-          onClick={() => setTransferMode('crypto')}
-          className={`flex-1 py-2.5 text-xs font-bold uppercase tracking-widest rounded-xl transition-all duration-300 ${
-            transferMode === 'crypto'
-              ? 'bg-background shadow-md text-foreground'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          External Wallet
-        </button>
-      </div>
-
+    <>
       {transferMode === "email" ? (
         <TransferForm
           recipientEmail={recipientEmail}
@@ -181,6 +157,8 @@ export function TransferModule({
           solanaBalance={transferSolanaBalance}
           activePlan={activePlan}
           activeStep={activeStep}
+          tabs={tabs}
+          extra={extra}
         />
       ) : (
         <CryptoTransferForm
@@ -205,6 +183,8 @@ export function TransferModule({
           setSourcePref={cryptoTransfer.setSourcePref}
           chainBalances={cryptoTransfer.chainBalances}
           solanaBalance={cryptoTransfer.solanaBalance}
+          tabs={tabs}
+          extra={extra}
         />
       )}
 
@@ -270,7 +250,6 @@ export function TransferModule({
         onClose={cryptoTransfer.cancelBridgeSend}
       />
 
-      <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-muted/20 rounded-full blur-3xl z-0 pointer-events-none" />
-    </div>
+    </>
   );
 }

@@ -117,7 +117,15 @@ export function useActivities(userEmail: string, userId: string) {
         }),
       ];
 
-      return unified;
+      // Newest first. The tables are read unordered and joined type by type, so without this
+      // anything taking the first few (Recent activity) got the oldest sends, months back. Each
+      // time is read once; one that cannot be read goes last rather than scrambling the order.
+      const at = new Map(unified.map((a) => [a, Date.parse(a.timestamp)]));
+      const time = (a: Activity) => {
+        const t = at.get(a) ?? NaN;
+        return Number.isNaN(t) ? -Infinity : t;
+      };
+      return unified.sort((a, b) => time(b) - time(a) || 0);
     },
     enabled: !!userEmail,
     refetchInterval: 15000,

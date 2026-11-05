@@ -1,15 +1,41 @@
-/* Landing page only. Scoped under .lp-root so nothing here reaches the app. */
+/* The brand's type and surfaces. The palette and fonts are set on the document (app/globals.css,
+   app/layout.tsx); `.lp-root`, on every page and every portalled dialog or menu, applies them. */
+
+.lp-fixed,
+.lp-on-green,
+.lp-on-forest,
+.lp-themed {
+  /* The app's theme tokens (app/globals.css), restated where the palette changes under them (a
+     pinned surface, or a themed card inside one): an alias is worked out where it is declared,
+     so without this, text-muted-foreground there would keep the page's value. */
+  --color-brand-primary: var(--lp-surface);
+  --color-brand-secondary: var(--lp-ink);
+  --color-accent-fg: var(--lp-good);
+  --color-danger: var(--lp-danger);
+  --color-warning: var(--lp-warn);
+  --color-info: var(--lp-info);
+  /* The aliases Tailwind reads (`--color-*`) too, not only what they alias: an alias takes its
+     value once, at the root, so overriding the base variable here would not reach it. */
+  --color-background: var(--lp-cream);
+  --color-foreground: var(--lp-ink);
+  --color-muted: var(--lp-cream);
+  --color-muted-foreground: var(--lp-muted);
+  --color-border: var(--lp-rule);
+  --color-input: var(--lp-surface);
+  --color-popover: var(--lp-surface);
+  --color-popover-foreground: var(--lp-ink);
+  --background: var(--lp-cream);
+  --foreground: var(--lp-ink);
+  --muted: var(--lp-cream);
+  --muted-foreground: var(--lp-muted);
+  --border: var(--lp-rule);
+  --input: var(--lp-surface);
+  --ring: var(--lp-ink);
+  --font-sans: var(--font-geist), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
 
 .lp-root {
-  --lp-ink: #111a13;
-  --lp-cream: #f6f2e9;
-  --lp-sand: #e7dfcf;
-  --lp-body: #3d463f;
-  --lp-muted: #5b645d;
-  --lp-line: #d9d3c5;
-  --lp-green: #00e87a;
-  --lp-forest: #0b3b29;
-
   font-family: var(--font-geist), system-ui, sans-serif;
   color: var(--lp-ink);
   background: var(--lp-cream);
@@ -84,10 +110,10 @@
 }
 @keyframes lp-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(0, 232, 122, 0.6);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--lp-green) 60%, transparent);
   }
   100% {
-    box-shadow: 0 0 0 8px rgba(0, 232, 122, 0);
+    box-shadow: 0 0 0 8px color-mix(in srgb, var(--lp-green) 0%, transparent);
   }
 }
 
@@ -107,9 +133,9 @@
   width: 100%;
   height: 8px;
   border-radius: 9999px;
-  box-shadow: inset 0 0 0 1px rgba(17, 26, 19, 0.2);
+  box-shadow: inset 0 0 0 1px rgb(var(--lp-hair) / 0.2);
   cursor: pointer;
-  background: linear-gradient(to right, var(--lp-ink) var(--fill), #fff var(--fill));
+  background: linear-gradient(to right, var(--lp-ink) var(--fill), var(--lp-surface) var(--fill));
 }
 .lp-range::-webkit-slider-thumb {
   -webkit-appearance: none;
@@ -147,4 +173,30 @@
   0% {
     opacity: 0;
   }
+}
+
+/* A rejected PIN: the dots shake once, the way a phone refuses an unlock code. */
+@keyframes lp-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-8px); }
+  40% { transform: translateX(7px); }
+  60% { transform: translateX(-5px); }
+  80% { transform: translateX(3px); }
+}
+.lp-shake {
+  animation: lp-shake 0.4s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+@media (prefers-reduced-motion: reduce) {
+  .lp-shake { animation: none; }
+}
+
+/* A text caret, for a field being typed into elsewhere (the sign-in slip). */
+@keyframes lp-blink {
+  50% { opacity: 0; }
+}
+.lp-caret {
+  animation: lp-blink 1.05s steps(1) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lp-caret { animation: none; }
 }

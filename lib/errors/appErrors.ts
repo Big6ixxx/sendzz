@@ -149,7 +149,7 @@ function classify(err: unknown): AppError {
     }
   }
   if (msg.includes('gas sponsor error') || msg.includes('gas station error')) {
-    return { message: "We couldn't cover the network fee for this transfer right now. Nothing was sent — please try again shortly.", category: 'service_unavailable', isSilent: false, isAlreadyProcessed: false };
+    return { message: "We couldn't cover the network fee for this transfer right now. Nothing was sent, so please try again shortly.", category: 'service_unavailable', isSilent: false, isAlreadyProcessed: false };
   }
 
   // A fast transfer's attestation is only valid for a short window on the destination chain.
@@ -161,7 +161,7 @@ function classify(err: unknown): AppError {
     msg.includes('must be re-signed') ||
     msg.includes('signature expired')
   ) {
-    return { message: 'This transfer needs a fresh signature. We have requested one — your funds are safe, please check back in a minute.', category: 'attestation_expired', isSilent: false, isAlreadyProcessed: false };
+    return { message: 'This transfer needs a fresh signature. We have requested one. Your funds are safe, please check back in a minute.', category: 'attestation_expired', isSilent: false, isAlreadyProcessed: false };
   }
 
   if (
@@ -186,7 +186,7 @@ function classify(err: unknown): AppError {
     msg.includes('waitforuseroperationreceipt') ||
     msg.includes('timed out while waiting for user operation')
   ) {
-    return { message: 'Your transfer is still confirming on the network. Your funds are safe — please don\'t send it again; it will appear in your history shortly.', category: 'broadcast_unconfirmed', isSilent: false, isAlreadyProcessed: false };
+    return { message: 'Your transfer is still confirming on the network. Your funds are safe, so please don\'t send it again; it will appear in your history shortly.', category: 'broadcast_unconfirmed', isSilent: false, isAlreadyProcessed: false };
   }
 
   if (
@@ -231,7 +231,7 @@ function classify(err: unknown): AppError {
     msg.includes('op_no_trust') ||
     msg.includes('not set up to receive')
   ) {
-    return { message: "Your Stellar account isn't ready to receive USDC yet. We're finishing setup — please retry in a moment.", category: 'destination_not_ready', isSilent: false, isAlreadyProcessed: false };
+    return { message: "Your Stellar account isn't ready to receive USDC yet. We're finishing setup, please retry in a moment.", category: 'destination_not_ready', isSilent: false, isAlreadyProcessed: false };
   }
 
   // ── Stellar / Soroban host errors — always opaque, never user-facing ───────
@@ -244,7 +244,7 @@ function classify(err: unknown): AppError {
     msg.includes('tx_failed') ||
     msg.includes('op_underfunded')
   ) {
-    return { message: 'The claim could not be completed on Stellar right now. Your funds are safe — please try again shortly.', category: 'contract_revert', isSilent: false, isAlreadyProcessed: false };
+    return { message: 'The claim could not be completed on Stellar right now. Your funds are safe, so please try again shortly.', category: 'contract_revert', isSilent: false, isAlreadyProcessed: false };
   }
 
   if (

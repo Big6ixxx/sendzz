@@ -6,6 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { getDisplayOffRampRate } from "@/lib/actions/ramp";
 import { useCorridorFee } from "@/lib/hooks/useCorridorFee";
 import { AnimatedNumber, EASE, EASE_IN_OUT, Label, MEDIA, Magnetic, useMedia } from "./motion";
+import { formatMoney } from "@/lib/format-usdc";
 
 /* ── Calculator ─────────────────────────────────────────────────────────── */
 
@@ -20,9 +21,6 @@ const CURRENCIES = [
 ] as const;
 
 type Code = (typeof CURRENCIES)[number]["code"];
-
-const money = (n: number) =>
-  n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const COIN =
   "inline-grid flex-none place-items-center rounded-full bg-[radial-gradient(circle_at_34%_28%,#ffe98f,#f6c53d_55%,#e3a51b)] shadow-[inset_0_0_0_2px_#c98a12,inset_0_-3px_0_2px_rgb(122_78_6/0.22)] leading-none font-bold text-[#5c3b06]";
@@ -118,7 +116,7 @@ function Calculator({ onSend }: { onSend: () => void }) {
   };
 
   return (
-    <div className="flex h-full w-full min-w-0 flex-col gap-3 rounded-[36px] bg-white p-5 sm:p-7 lg:pb-[60px]">
+    <div className="flex h-full w-full min-w-0 flex-col gap-3 rounded-[36px] bg-[var(--lp-surface)] p-5 sm:p-7 lg:pb-[60px]">
       <h2 className="lp-display mb-1 text-[22px] font-semibold leading-[33px] tracking-[-0.02em]">
         How much are you sending?
       </h2>
@@ -154,13 +152,13 @@ function Calculator({ onSend }: { onSend: () => void }) {
       <dl className="flex flex-col gap-2 px-1.5 py-1 text-[14px] leading-5 text-[var(--lp-muted)]">
         <div className="flex justify-between gap-4">
           <dt>Fees</dt>
-          <dd className="font-semibold text-[var(--lp-ink)]">{fee == null ? "…" : `$${money(fee)}`}</dd>
+          <dd className="font-semibold text-[var(--lp-ink)]">{fee == null ? "…" : `$${formatMoney(fee)}`}</dd>
         </div>
         <div className="flex justify-between gap-4">
           <dt>{isLive ? "Live mid-market rate" : "Indicative rate"}</dt>
           <dd className="lp-mono whitespace-nowrap text-[var(--lp-ink)]">
             1 USDC = {currency.symbol}
-            {money(rate)}
+            {formatMoney(rate)}
           </dd>
         </div>
         <div className="flex justify-between gap-4">
@@ -175,7 +173,7 @@ function Calculator({ onSend }: { onSend: () => void }) {
         </p>
         <p className="lp-display mb-3 truncate text-[clamp(30px,8vw,40px)] leading-[60px] tracking-[-0.04em] tabular-nums">
           {currency.symbol}
-          <AnimatedNumber value={received} format={money} />
+          <AnimatedNumber value={received} format={formatMoney} />
         </p>
         <div className="flex flex-wrap gap-1.5">
           {CURRENCIES.map((c) => (
@@ -195,7 +193,7 @@ function Calculator({ onSend }: { onSend: () => void }) {
         <button
           type="button"
           onClick={send}
-          className="relative h-[63.5px] w-full overflow-hidden rounded-full bg-[var(--lp-green)] text-[17px] font-semibold leading-[25.5px] transition-[scale] duration-150 active:scale-[0.97]"
+          className="lp-on-green relative h-[63.5px] w-full overflow-hidden rounded-full text-[17px] font-semibold leading-[25.5px] transition-[scale] duration-150 active:scale-[0.97]"
         >
           <motion.span
             aria-hidden
@@ -224,9 +222,9 @@ function Calculator({ onSend }: { onSend: () => void }) {
 const WORDS = ["Money", "that", "goes", "where"];
 const NOUNS = ["people", "family", "clients", "friends"];
 const NOTES = [
-  { initial: "C", badge: "bg-[var(--lp-green)]", title: "Chidi sent you $200.00", detail: "Ready to withdraw to Access Bank" },
-  { initial: "A", badge: "bg-[#f3d3b8]", title: "Invoice paid · $1,800.00", detail: "From client@austin.co" },
-  { initial: "M", badge: "bg-[#cdf5de]", title: "Mum got GH₵3,120.00", detail: "Sent to MTN MoMo in 1.4s" },
+  { initial: "C", badge: "lp-on-green", title: "Chidi sent you $200.00", detail: "Ready to withdraw to Access Bank" },
+  { initial: "A", badge: "bg-[var(--lp-mark)]", title: "Invoice paid · $1,800.00", detail: "From client@austin.co" },
+  { initial: "M", badge: "bg-[var(--lp-good-soft)]", title: "Mum got GH₵3,120.00", detail: "Sent to MTN MoMo in 1.4s" },
 ];
 
 /** Advances an index every `ms` while the section is on screen. */
@@ -383,7 +381,7 @@ export function Hero({ onAction }: { onAction: () => void }) {
               src="/landing/hero.png"
               alt="A smiling man in a grey beanie against an orange wall"
               fill
-              priority
+              preload
               sizes="(min-width: 1024px) 805px, 100vw"
               className="object-cover object-[50%_28%]"
             />
@@ -396,7 +394,7 @@ export function Hero({ onAction }: { onAction: () => void }) {
                 initial={{ opacity: 0, y: reduce ? 0 : 14, scale: reduce ? 1 : 0.95 }}
                 animate={{ opacity: 1, y: 0, scale: 1, transition: { duration: 0.5, ease: EASE, delay: 0.15 } }}
                 exit={{ opacity: 0, y: reduce ? 0 : -10, scale: reduce ? 1 : 0.97, transition: { duration: 0.2 } }}
-                className="absolute left-0 top-0 flex max-w-full origin-top-left items-center gap-[14px] rounded-[22px] bg-white py-[14px] pl-[14px] pr-5 shadow-[0px_24px_48px_-20px_rgba(17,26,19,0.35)]"
+                className="absolute left-0 top-0 flex max-w-full origin-top-left items-center gap-[14px] rounded-[22px] bg-[var(--lp-surface)] py-[14px] pl-[14px] pr-5 shadow-[0px_24px_48px_-20px_rgba(17,26,19,0.35)]"
               >
                 <span className={`grid size-11 shrink-0 place-items-center rounded-full text-[18px] font-semibold ${NOTES[note].badge}`}>
                   {NOTES[note].initial}

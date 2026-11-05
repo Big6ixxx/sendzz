@@ -1,17 +1,15 @@
 'use client';
 
 import { usePrivy } from '@privy-io/react-auth';
-import {
-  ArrowRight,
-  CheckCircle2,
-  Clock,
-  Loader2,
-  Lock,
-  XCircle,
-} from 'lucide-react';
+import { useSignIn } from '@/components/auth/SignIn';
+import { ArrowRight } from 'lucide-react';
 import Link from 'next/link';
+import { DetailRows, FlowButton, FlowDialogHeading, FlowSuccess, Notice, FlowLabel } from '@/components/flow/ui';
+import { BareBrandPage, statusAction } from '@/components/landing/StatusScreen';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
+import { Skeleton, SkeletonGroup } from '@/components/ui/skeleton';
+import { formatUsd } from '@/lib/format-usdc';
 
 type ClaimState =
   | 'idle'
@@ -29,7 +27,8 @@ interface PreviewData {
 }
 
 function ClaimContent() {
-  const { ready, authenticated, login } = usePrivy();
+  const { ready, authenticated } = usePrivy();
+  const { signIn } = useSignIn();
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
@@ -46,7 +45,7 @@ function ClaimContent() {
     if (!ready) return;
     if (!token) {
       setTimeout(() => {
-        setErrorMessage('Invalid link — no claim token found.');
+        setErrorMessage('This link is incomplete. It has no claim code in it.');
         setState('error');
       }, 0);
       return;
@@ -120,227 +119,131 @@ function ClaimContent() {
   }
 
   // ── Not ready yet ──
-  if (!ready || state === 'idle') {
-    return (
-      <div className="flex items-center justify-center gap-3 text-brand-secondary/40">
-        <Loader2 className="w-5 h-5 animate-spin" />
-        <span className="text-sm font-bold uppercase tracking-widest">Loading…</span>
-      </div>
-    );
-  }
+  if (!ready || state === 'idle') return <ClaimLoading />;
 
   // ── Needs to log in ──
   if (state === 'authenticating') {
     return (
-      <div className="space-y-6 text-center">
-        <div
-          className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto"
-          style={{ background: 'rgba(0,232,122,0.1)', border: '1px solid rgba(0,232,122,0.2)' }}
-        >
-          <Lock className="w-7 h-7" style={{ color: '#00e87a' }} />
-        </div>
-        <div className="space-y-2">
-          <h1 className="font-display text-3xl font-bold tracking-tight text-brand-secondary">
-            Funds waiting for you
-          </h1>
-          <p className="text-sm text-brand-secondary/50 leading-relaxed max-w-xs mx-auto">
-            Sign in to your Sendzz account to collect your USDC.
-          </p>
-        </div>
-        <button
-          onClick={login}
-          className="btn-accent w-full h-14 rounded-2xl flex items-center justify-center gap-3 font-bold text-sm uppercase tracking-widest"
-        >
-          Sign In to Claim
-          <ArrowRight className="w-4 h-4" />
-        </button>
-      </div>
-    );
-  }
-
-  // ── Preview / confirmation step ──
-  if (state === 'previewing' && previewData) {
-    const formattedAmount = Number(previewData.amount).toLocaleString(undefined, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-
-    return (
       <div className="space-y-8">
-        {/* Transfer summary */}
-        <div className="text-center space-y-2">
-          <p
-            className="text-xs font-bold uppercase tracking-[0.25em]"
-            style={{ color: 'rgba(0,232,122,0.7)' }}
-          >
-            Incoming Transfer
-          </p>
-          <p className="font-display text-5xl font-bold tracking-tighter text-brand-secondary">
-            ${formattedAmount}{' '}
-            <span className="text-xl opacity-30 font-bold">USDC</span>
-          </p>
-          <p className="text-sm text-brand-secondary/50">
-            from{' '}
-            <span className="text-brand-secondary/80 font-semibold">
-              {previewData.senderEmail}
-            </span>
-          </p>
-        </div>
-
-        {/* Note */}
-        {previewData.note && (
-          <div
-            className="px-4 py-3 rounded-2xl text-sm text-brand-secondary/60 text-center leading-relaxed"
-            style={{
-              background: 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.08)',
-            }}
-          >
-            &ldquo;{previewData.note}&rdquo;
-          </div>
-        )}
-
-        {/* Expiry */}
-        {previewData.expiresAt && (
-          <div className="flex items-center justify-center gap-2 text-xs text-brand-secondary/30">
-            <Clock className="w-3.5 h-3.5" />
-            <span>
-              Expires{' '}
-              {new Date(previewData.expiresAt).toLocaleDateString(undefined, {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-              })}
-            </span>
-          </div>
-        )}
-
-        <button
-          onClick={handleConfirm}
-          className="btn-accent w-full h-14 rounded-2xl flex items-center justify-center gap-3 font-bold text-sm uppercase tracking-widest"
-        >
-          Confirm &amp; Accept Funds
-          <ArrowRight className="w-4 h-4" />
-        </button>
-      </div>
-    );
-  }
-
-  // ── Claiming in progress ──
-  if (state === 'claiming') {
-    return (
-      <div className="space-y-4 text-center">
-        <div className="flex items-center justify-center gap-3 text-brand-secondary/40">
-          <Loader2 className="w-6 h-6 animate-spin" style={{ color: '#00e87a' }} />
-        </div>
-        <p className="text-sm font-bold uppercase tracking-widest text-brand-secondary/40">
-          Crediting your balance…
+        <FlowDialogHeading Title="h1" eyebrow="Payment for you" title="Money is" italic="waiting." />
+        <p className="text-[17px] leading-[1.6] text-[var(--lp-body)]">
+          Someone sent you USDC through Sendzz. Sign in with the email address the link came to, and you will see who sent it
+          and how much before you accept.
         </p>
+        <FlowButton tone="accent" onClick={() => signIn()}>
+          Sign in to claim <ArrowRight className="size-4" />
+        </FlowButton>
       </div>
     );
   }
+
+  // ── Preview / confirmation step, and the claim while it runs ──
+  if ((state === 'previewing' || state === 'claiming') && previewData) {
+    const claiming = state === 'claiming';
+    return (
+      <div className="space-y-6">
+        <FlowDialogHeading Title="h1" eyebrow="Payment for you" title="Check it," italic="then accept." />
+
+        <section aria-label="Payment" className="lp-card rounded-[28px] p-6 sm:p-7">
+          <FlowLabel>You receive</FlowLabel>
+          <p className="lp-display mt-3 break-words text-[clamp(44px,12vw,64px)] leading-none tracking-[-0.05em] tabular-nums">
+            {formatUsd(previewData.amount)}
+            <span className="lp-mono ml-2 align-middle text-[14px] tracking-normal text-[var(--lp-muted)]">USDC</span>
+          </p>
+          {previewData.note && (
+            <p className="lp-serif mt-5 text-[22px] leading-[1.3] text-[var(--lp-ink)]">&ldquo;{previewData.note}&rdquo;</p>
+          )}
+          <DetailRows
+            className="mt-6 border-b-0"
+            rows={[
+              { label: 'From', value: <span className="block truncate">{previewData.senderEmail}</span> },
+              !!previewData.expiresAt && {
+                label: 'Claim by',
+                value: (
+                  <span className="lp-mono text-[14px]">
+                    {new Date(previewData.expiresAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                  </span>
+                ),
+              },
+            ]}
+          />
+        </section>
+
+        <FlowButton tone="accent" onClick={handleConfirm} loading={claiming} aria-label={claiming ? 'Adding to your balance' : undefined}>
+          Accept {formatUsd(previewData.amount)} <ArrowRight className="size-4" />
+        </FlowButton>
+        {claiming && <p className="lp-mono text-center text-[12px] uppercase text-[var(--lp-muted)]">Adding it to your balance</p>}
+      </div>
+    );
+  }
+
+  // ── Claiming, if the preview was never shown ──
+  if (state === 'claiming') return <ClaimLoading label="Adding it to your balance" />;
 
   // ── Success ──
   if (state === 'success') {
     return (
-      <div className="space-y-8 text-center">
-        <div
-          className="w-20 h-20 rounded-3xl flex items-center justify-center mx-auto"
-          style={{ background: 'rgba(0,232,122,0.12)', border: '1px solid rgba(0,232,122,0.25)' }}
-        >
-          <CheckCircle2 className="w-10 h-10" style={{ color: '#00e87a' }} />
-        </div>
-
-        <div className="space-y-3">
-          <p
-            className="text-xs font-bold uppercase tracking-[0.25em]"
-            style={{ color: 'rgba(0,232,122,0.7)' }}
-          >
-            Funds Received
-          </p>
-          {claimedAmount && (
-            <p className="font-display text-5xl font-bold tracking-tighter text-brand-secondary">
-              ${claimedAmount}{' '}
-              <span className="text-xl opacity-30 font-bold">USDC</span>
-            </p>
-          )}
-          <p className="text-sm text-brand-secondary/50 leading-relaxed">
-            Your funds are now in your Sendzz balance.
-          </p>
-        </div>
-
-        <button
-          onClick={() => router.push('/dashboard')}
-          className="btn-accent w-full h-14 rounded-2xl flex items-center justify-center gap-3 font-bold text-sm uppercase tracking-widest"
-        >
-          Go to Dashboard
-          <ArrowRight className="w-4 h-4" />
-        </button>
-      </div>
+      <FlowSuccess
+        title={claimedAmount ? `$${claimedAmount}` : 'Money'}
+        italic="received."
+        body="It is in your Sendzz balance now, ready to send on or withdraw."
+      >
+        <FlowButton onClick={() => router.push('/dashboard')}>
+          Open my balance <ArrowRight className="size-4" />
+        </FlowButton>
+      </FlowSuccess>
     );
   }
 
   // ── Error ──
   return (
-    <div className="space-y-8 text-center">
-      <div
-        className="w-20 h-20 rounded-3xl flex items-center justify-center mx-auto"
-        style={{ background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.2)' }}
-      >
-        <XCircle className="w-10 h-10" style={{ color: '#f87171' }} />
-      </div>
-
-      <div className="space-y-3">
-        <p className="text-xs font-bold uppercase tracking-[0.25em]" style={{ color: '#f87171' }}>
-          Claim Failed
-        </p>
-        <p className="text-base font-semibold text-brand-secondary">
-          {errorMessage || 'Something went wrong.'}
-        </p>
-        <p className="text-sm text-brand-secondary/40 leading-relaxed max-w-xs mx-auto">
-          If you believe this is a mistake, contact support or ask the sender to resend.
-        </p>
-      </div>
-
-      <Link
-        href="/"
-        className="block w-full h-14 rounded-2xl flex items-center justify-center gap-3 font-bold text-sm uppercase tracking-widest transition-all"
-        style={{
-          background: 'rgba(255,255,255,0.06)',
-          border: '1px solid rgba(255,255,255,0.1)',
-          color: 'rgba(248,248,246,0.6)',
-        }}
-      >
-        Back to Home
+    <div className="space-y-6">
+      <FlowDialogHeading Title="h1" eyebrow="Payment for you" title="We couldn't" italic="claim it." />
+      <Notice tone="danger" title={errorMessage || 'Something went wrong.'}>
+        If you think this is a mistake, ask the sender to send it again, or message us on Telegram.
+      </Notice>
+      <Link href="/" className={`${statusAction.secondary} w-full`}>
+        Go to the home page
       </Link>
     </div>
   );
 }
 
+/** The payment slip before its details are in. */
+function ClaimLoading({ label = 'Loading' }: { label?: string }) {
+  return (
+    <SkeletonGroup label={label} className="space-y-6">
+      <div className="space-y-3">
+        <Skeleton tone="page" className="h-3 w-32" />
+        <Skeleton tone="page" className="h-10 w-64 rounded-[14px]" />
+      </div>
+      <div className="lp-card space-y-5 rounded-[28px] p-6 sm:p-7">
+        <Skeleton className="h-3 w-24" />
+        <Skeleton className="h-14 w-48 rounded-[16px]" />
+        <div className="space-y-4 border-t border-[var(--lp-rule)] pt-5">
+          <div className="flex justify-between gap-4">
+            <Skeleton className="h-3.5 w-14" />
+            <Skeleton className="h-3.5 w-40" />
+          </div>
+          <div className="flex justify-between gap-4">
+            <Skeleton className="h-3.5 w-16" />
+            <Skeleton className="h-3.5 w-24" />
+          </div>
+        </div>
+      </div>
+      <Skeleton tone="page" className="h-14 w-full" />
+    </SkeletonGroup>
+  );
+}
+
 export default function ClaimPage() {
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
-      <div
-        className="w-full max-w-sm card-glass p-8 rounded-3xl space-y-2"
-        style={{ border: '1px solid rgba(255,255,255,0.08)' }}
-      >
-        {/* Logo / brand mark */}
-        <div className="text-center pb-4">
-          <span className="font-display text-2xl font-bold tracking-tighter text-brand-secondary">
-            Sendzz
-          </span>
-        </div>
-
-        <Suspense
-          fallback={
-            <div className="flex items-center justify-center gap-3 text-brand-secondary/30 py-8">
-              <Loader2 className="w-5 h-5 animate-spin" />
-            </div>
-          }
-        >
+    <BareBrandPage>
+      <div className="mx-auto w-full max-w-[480px] md:pt-6">
+        <Suspense fallback={<ClaimLoading />}>
           <ClaimContent />
         </Suspense>
       </div>
-    </div>
+    </BareBrandPage>
   );
 }

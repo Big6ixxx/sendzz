@@ -37,9 +37,9 @@ export function TimeDisplaySelect({
     <Select value={value} onValueChange={onValueChange}>
       <SelectTrigger
         aria-label="Time display"
-        className="gap-2 lg:w-[16rem] rounded-xl border-white/10 bg-white/5 text-white/70 [&>span]:flex-1 [&>span]:text-left"
+        className="lg:w-[17rem] [&>span]:flex-1 [&>span]:text-left"
       >
-        <Globe className="h-4 w-4 shrink-0 opacity-40" />
+        <Globe className="size-4 shrink-0 text-[var(--lp-muted)]" />
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
@@ -48,7 +48,7 @@ export function TimeDisplaySelect({
         <SelectGroup>
           <SelectLabel>Timezone</SelectLabel>
           <SelectItem value="local">
-            Local — {localTimeZone}
+            Local ({localTimeZone})
             {abbrev ? ` (${abbrev})` : ''}
           </SelectItem>
           {ALL_TIMEZONES.map((tz) => (

@@ -3,17 +3,7 @@
 import { CurrencySelector } from "@/components/CurrencySelector";
 import { getCurrencySymbol } from "@/lib/currency-config";
 import { cn } from "@/lib/utils";
-import {
-  AlertCircle,
-  ArrowRight,
-  CheckCircle2,
-  Clock,
-  Copy,
-  Info,
-  Loader2,
-  Plus,
-  ShieldAlert,
-} from "lucide-react";
+import { ArrowRight, Check, Clock, Copy, Loader2, Plus } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -24,9 +14,38 @@ import { ReceiptActions } from "@/components/receipt/ReceiptActions";
 import { ReceiptData } from "@/lib/receipt/types";
 import { KycModal } from "@/components/kyc/KycModal";
 import { namesMatch } from "@/lib/ramp/onramp-kyc";
+import { AmountField, AsideFigure, AsideRows, FlowButton, FlowFrame, FlowLabel, FlowSuccess, Notice } from "@/components/flow/ui";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface DepositFormProps {
   hook: ReturnType<typeof useDepositWithdraw>;
+}
+
+/** One of the bank details to pay into, copied with a tap. */
+function PayDetail({ label, value, copy }: { label: string; value?: string; copy?: boolean }) {
+  const [copied, setCopied] = React.useState(false);
+  return (
+    <div className="flex items-center justify-between gap-3 border-b border-[rgba(246,242,233,0.12)] py-3 last:border-b-0">
+      <span className="text-[14px] text-[#a9c2b5]">{label}</span>
+      {copy && value ? (
+        <button
+          type="button"
+          onClick={() => {
+            navigator.clipboard.writeText(value);
+            setCopied(true);
+            toast.success(`${label} copied`);
+            setTimeout(() => setCopied(false), 1400);
+          }}
+          className="flex min-w-0 items-center gap-2 rounded-full bg-[rgba(245,244,238,0.1)] px-3 py-1.5 text-[15px] font-semibold tabular-nums transition-colors hover:bg-[rgba(245,244,238,0.18)]"
+        >
+          <span className="truncate">{value}</span>
+          {copied ? <Check className="size-3.5 shrink-0 text-[var(--lp-green)]" /> : <Copy className="size-3.5 shrink-0 opacity-70" />}
+        </button>
+      ) : (
+        <span className="min-w-0 truncate text-right text-[15px] font-semibold">{value || "—"}</span>
+      )}
+    </div>
+  );
 }
 
 export function DepositForm({ hook }: DepositFormProps) {
@@ -36,13 +55,9 @@ export function DepositForm({ hook }: DepositFormProps) {
   const blocked = requirement?.ok === false ? requirement : null;
   const canVerify = blocked?.need === "verification" || blocked?.need === "reverify";
   const verifiedName = requirement?.name;
-  const refundNameMismatch =
-    !!verifiedName && !!hook.bankDetails.accountName && !namesMatch(verifiedName, hook.bankDetails.accountName);
+  const refundNameMismatch = !!verifiedName && !!hook.bankDetails.accountName && !namesMatch(verifiedName, hook.bankDetails.accountName);
   // Nothing is deducted on the way in, so the estimate is simply the amount at the rate.
-  const estimatedUsdc =
-    hook.rate && hook.amount
-      ? (parseFloat(hook.amount) / hook.rate).toFixed(4)
-      : null;
+  const estimatedUsdc = hook.rate && hook.amount ? (parseFloat(hook.amount) / hook.rate).toFixed(4) : null;
 
   // Checked at the size being deposited, not a fixed one: a corridor quotes some amounts and not
   // others, and only the user's own figure answers "can this go through".
@@ -64,342 +79,235 @@ export function DepositForm({ hook }: DepositFormProps) {
   }, [hook.order]);
 
   if (hook.step === 1) {
+    const amount = parseFloat(hook.amount);
     return (
-      <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        {blocked && (
-          <div
-            role="alert"
-            className="rounded-2xl p-4"
-            style={{
-              background: "linear-gradient(135deg, rgba(245,158,11,0.12) 0%, rgba(217,119,6,0.06) 100%)",
-              border: "1px solid rgba(245,158,11,0.2)",
-            }}
-          >
-            <div className="flex items-start gap-3">
-              <div
-                className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center mt-0.5"
-                style={{ background: "rgba(245,158,11,0.15)" }}
-              >
-                <ShieldAlert className="w-4 h-4" style={{ color: "#f59e0b" }} aria-hidden />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold" style={{ color: "#f59e0b" }}>
-                  {blocked.need === "verification"
+      <FlowFrame
+        main={
+          <div className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {blocked && (
+              <Notice
+                tone="warning"
+                title={
+                  blocked.need === "verification"
                     ? "Verify your identity to deposit"
                     : blocked.need === "reverify"
                       ? "One more verification needed"
                       : blocked.need === "in_review"
-                        ? "Verification in review"
-                        : "Deposits unavailable"}
-                </p>
-                <p className="text-xs mt-1 leading-relaxed" style={{ color: "rgba(248,248,246,0.5)" }}>
-                  {blocked.message}
-                </p>
-              </div>
-            </div>
-            {canVerify && (
-              <div className="mt-3.5 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => setKycModalOpen(true)}
-                  className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 sm:py-2 rounded-xl text-xs font-bold transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
-                  style={{
-                    background: "rgba(245,158,11,0.2)",
-                    color: "#f59e0b",
-                    border: "1px solid rgba(245,158,11,0.3)",
-                  }}
-                >
-                  {blocked.need === "reverify" ? "Verify again" : "Verify identity"}
-                  <ArrowRight className="w-3.5 h-3.5 shrink-0" />
-                </button>
-              </div>
+                        ? "Your verification is in review"
+                        : "Deposits are unavailable"
+                }
+                action={
+                  canVerify && (
+                    <button
+                      type="button"
+                      onClick={() => setKycModalOpen(true)}
+                      className="inline-flex h-10 items-center gap-2 rounded-full bg-[var(--lp-ink)] px-4 text-[14px] font-semibold text-[var(--lp-cream)] transition-[scale] duration-150 active:scale-[0.97]"
+                    >
+                      {blocked.need === "reverify" ? "Verify again" : "Verify identity"}
+                      <ArrowRight className="size-4" />
+                    </button>
+                  )
+                }
+              >
+                {blocked.message}
+              </Notice>
             )}
-          </div>
-        )}
-        {depositUnavailable && (
-          <div className="card-glass p-4 border-amber-500/20 bg-amber-500/2 flex gap-3">
-            <div className="p-2 h-fit rounded-lg bg-amber-500/10">
-              <AlertCircle className="w-4 h-4 text-amber-400" />
-            </div>
-            <div className="space-y-1">
-              <h5 className="text-xs font-bold text-amber-400 uppercase tracking-widest">
-                {checkedAmount ? "Amount Unavailable" : "Deposits Unavailable"}
-              </h5>
-              <p className="text-[11px] text-white/40 leading-relaxed font-medium">
+            {depositUnavailable && (
+              <Notice tone="warning" title={checkedAmount ? "That amount can't go through right now" : "Deposits are paused"}>
                 {checkedAmount
                   ? `Nobody is quoting this amount in ${hook.fiatCurrency} right now. Try a smaller amount.`
                   : `${hook.fiatCurrency} deposits are paused right now. Try another currency or check back shortly.`}
-              </p>
-            </div>
-          </div>
-        )}
+              </Notice>
+            )}
 
-        <div className="space-y-4">
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-sm font-semibold text-muted-foreground">
-                Amount to Deposit ({hook.fiatCurrency})
-              </label>
-              <CurrencySelector
-                selected={hook.fiatCurrency}
-                onChange={hook.setFiatCurrency}
-                includeUsd={false}
-                size="sm"
-                /* Only corridors an on-ramp provider can actually fulfil. Without this the
-                   list came from Bitnob, which has no fiat on-ramp, so a user could pick a
-                   currency that only failed once they had entered an amount. */
-                scope="onramp"
+            <AmountField
+              label="You deposit"
+              value={hook.amount}
+              onChange={hook.setAmount}
+              symbol={getCurrencySymbol(hook.fiatCurrency)}
+              placeholder="5,000"
+              currency={
+                <CurrencySelector
+                  selected={hook.fiatCurrency}
+                  onChange={hook.setFiatCurrency}
+                  includeUsd={false}
+                  size="md"
+                  /* Only corridors an on-ramp provider can actually fulfil. Without this the list
+                     came from Bitnob, which has no fiat on-ramp, so a user could pick a currency
+                     that only failed once they had entered an amount. */
+                  scope="onramp"
+                />
+              }
+            />
+
+            <div className="space-y-3 pt-1">
+              {/* Said before the fields, not under them: being asked for a bank account while
+                  money is arriving reads as a mistake until you know it is the refund route. */}
+              <div>
+                <FlowLabel>Refund account</FlowLabel>
+                <p className="mt-1.5 text-[14px] leading-[1.5] text-[var(--lp-body)]">
+                  If anything goes wrong, we send your money back here. Use an account in your own name
+                  {verifiedName ? ` (${verifiedName})` : ""}.{hook.fiatCurrency === "KES" && " Use your own M-Pesa number."}
+                </p>
+              </div>
+
+              <BankSelector
+                label="Bank"
+                institutions={hook.institutions}
+                selectedBankCode={hook.bankDetails.bankCode}
+                onSelect={(b) => hook.setBankDetails({ ...hook.bankDetails, bankCode: b.code, bankName: b.name, accountName: "" })}
+                onSelectContact={hook.handleSelectContact}
+                accountNumber={hook.bankDetails.accountNumber}
+                onAccountNumberChange={(val) => hook.setBankDetails({ ...hook.bankDetails, accountNumber: val, accountName: "" })}
+                accountName={hook.bankDetails.accountName}
+                isVerifying={hook.verifyingBank}
+                contacts={hook.bankContacts}
+                userEmail={hook.userEmail}
+                onContactsChanged={hook.refreshBankContacts}
+                memo={hook.bankDetails.memo}
+                onMemoChange={(val) => hook.setBankDetails({ ...hook.bankDetails, memo: val })}
               />
+
+              {refundNameMismatch && (
+                <Notice tone="danger" title="This account isn't in your name">
+                  It belongs to {hook.bankDetails.accountName}, not {verifiedName}. Use an account in your own name, or the deposit will be
+                  refused.
+                </Notice>
+              )}
             </div>
-            <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-muted-foreground">
-                {getCurrencySymbol(hook.fiatCurrency)}
-              </span>
-              <input
-                type="number"
-                value={hook.amount}
-                onChange={(e) => hook.setAmount(e.target.value)}
-                className="input-elegant pl-14 text-xl font-bold"
-                placeholder="5,000"
-              />
-            </div>
+
+            <KycModal
+              isOpen={kycModalOpen}
+              onClose={() => {
+                setKycModalOpen(false);
+                hook.refreshOnRampRequirement();
+              }}
+              userEmail={hook.userEmail}
+              depositCurrency={hook.fiatCurrency}
+            />
           </div>
-
-          <div className="p-4 bg-muted/30 rounded-2xl border border-border space-y-3">
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Exchange Rate</span>
-              <span className="font-semibold">
-                {hook.rateLoading ? (
-                  <Loader2 className="w-4 h-4 animate-spin inline" />
-                ) : hook.rate ? (
-                  `1 USDC = ${hook.rate.toLocaleString()} ${hook.fiatCurrency}`
-                ) : (
-                  <span className="text-red-400 font-bold uppercase text-[10px] tracking-widest">
-                    Unavailable
-                  </span>
-                )}
-              </span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Estimated Received</span>
-              <span className="font-bold text-foreground">
-                {hook.rateLoading ? (
-                  <Loader2 className="w-4 h-4 animate-spin inline" />
-                ) : estimatedUsdc ? (
-                  `${estimatedUsdc} USDC`
-                ) : (
-                  "—"
-                )}
-              </span>
-            </div>
-            {/* Deposits are free. The row that used to sit here quoted the withdrawal rate,
-                which is now the only fee in the product — showing it on the way in told
-                people they were being charged twice. */}
-            <div className="flex justify-between text-sm pt-2 border-t border-border">
-              <span className="text-muted-foreground">Deposit Fee</span>
-              <span className="font-semibold text-accent">Free</span>
-            </div>
+        }
+        aside={
+          <div className="space-y-6">
+            <AsideFigure
+              label="You deposit"
+              value={`${getCurrencySymbol(hook.fiatCurrency)}${Number.isFinite(amount) ? amount.toLocaleString() : "0"}`}
+              unit={hook.fiatCurrency}
+            />
+            <AsideRows
+              rows={[
+                {
+                  label: "Rate",
+                  value: hook.rateLoading ? (
+                    <Skeleton tone="forest" className="inline-block h-3.5 w-32 align-middle" aria-label="Loading rate" />
+                  ) : hook.rate ? (
+                    `1 USDC = ${hook.rate.toLocaleString()} ${hook.fiatCurrency}`
+                  ) : (
+                    "Unavailable"
+                  ),
+                },
+                // Deposits are free. A withdrawal fee shown here told people they were being charged twice.
+                { label: "Fee", value: "Free", tone: "good" },
+              ]}
+            />
+            <AsideFigure
+              label="You receive"
+              size="md"
+              value={hook.rateLoading ? <Skeleton tone="forest" className="inline-block h-9 w-36 rounded-[12px] align-middle" aria-label="Loading amount" /> : (estimatedUsdc ?? "0.00")}
+              unit="USDC"
+            />
+            <p className="text-[14px] leading-[1.5] text-[#a9c2b5]">Added to your balance as soon as your transfer lands.</p>
           </div>
-        </div>
-
-        <div className="pt-4 border-t border-border space-y-3">
-          {/* Above the field, not under it: being asked for a bank account while money is
-              arriving reads as a mistake until you know it is the refund route. */}
-          <div className="flex items-start gap-2.5 rounded-xl border border-accent/20 bg-accent/[0.06] px-3.5 py-3">
-            <Info className="w-4 h-4 mt-[1px] shrink-0 text-accent" />
-            <p className="text-[12.5px] leading-relaxed text-foreground/80">
-              Where should we send your money back if anything goes wrong? Give an account in
-              your own name{verifiedName ? ` (${verifiedName})` : ""}. Refunds are only ever
-              returned here.
-              {hook.fiatCurrency === "KES" && " Use your own M-Pesa number."}
-            </p>
-          </div>
-
-          <BankSelector
-            label="Bank"
-            institutions={hook.institutions}
-            selectedBankCode={hook.bankDetails.bankCode}
-            onSelect={(b) =>
-              hook.setBankDetails({
-                ...hook.bankDetails,
-                bankCode: b.code,
-                bankName: b.name,
-                accountName: "",
-              })
-            }
-            onSelectContact={hook.handleSelectContact}
-            accountNumber={hook.bankDetails.accountNumber}
-            onAccountNumberChange={(val) =>
-              hook.setBankDetails({
-                ...hook.bankDetails,
-                accountNumber: val,
-                accountName: "",
-              })
-            }
-            accountName={hook.bankDetails.accountName}
-            isVerifying={hook.verifyingBank}
-            contacts={hook.bankContacts}
-            userEmail={hook.userEmail}
-            onContactsChanged={hook.refreshBankContacts}
-            // Without these the field was a controlled input whose value never changed and
-            // whose onChange went nowhere — it looked editable and swallowed every keystroke.
-            memo={hook.bankDetails.memo}
-            onMemoChange={(val) =>
-              hook.setBankDetails({ ...hook.bankDetails, memo: val })
-            }
-          />
-
-          {refundNameMismatch && (
-            <p className="flex items-start gap-2 text-[12px] leading-relaxed text-amber-400">
-              <AlertCircle className="w-3.5 h-3.5 mt-[2px] shrink-0" />
-              This account is in the name {hook.bankDetails.accountName}, not {verifiedName}. Use an
-              account in your own name, or the deposit will be refused.
-            </p>
-          )}
-
-        </div>
-
-        <button
-          onClick={() => hook.handleDepositInitiate()}
-          disabled={
-            hook.loading ||
-            hook.rateLoading ||
-            depositUnavailable ||
-            !!blocked ||
-            !hook.amount ||
-            !hook.bankDetails.accountName
-          }
-          className="btn-primary w-full gap-2 mt-4"
-        >
-          {hook.loading ? (
-            <Loader2 className="w-5 h-5 animate-spin" />
-          ) : (
-            "Continue to Deposit"
-          )}
-        </button>
-
-        <KycModal
-          isOpen={kycModalOpen}
-          onClose={() => {
-            setKycModalOpen(false);
-            hook.refreshOnRampRequirement();
-          }}
-          userEmail={hook.userEmail}
-          depositCurrency={hook.fiatCurrency}
-        />
-      </div>
+        }
+        action={
+          <FlowButton
+            tone="accent"
+            onClick={() => hook.handleDepositInitiate()}
+            loading={hook.loading}
+            disabled={hook.rateLoading || depositUnavailable || !!blocked || !hook.amount || !hook.bankDetails.accountName}
+          >
+            Continue <ArrowRight className="size-5" />
+          </FlowButton>
+        }
+      />
     );
   }
 
   if (hook.step === 2 && hook.order) {
+    const account = hook.order.providerAccount;
     return (
-      <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        {hook.depositUnderReview && (
-          <div role="status" className="p-4 rounded-2xl border border-amber-500/25 bg-amber-500/[0.06] flex gap-3">
-            <ShieldAlert className="w-5 h-5 shrink-0 text-amber-400" />
-            <div className="space-y-1">
-              <p className="text-sm font-semibold text-amber-400">Your payment is being reviewed</p>
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                We received it and it is going through a routine check, which can take a few days.
-                Please don&apos;t pay again, as a second payment would be held too. It will either
-                arrive in your balance or be returned to the account it came from.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {secondsLeft !== null && !hook.depositUnderReview && (
-          <div
-            className={cn(
-              "p-4 rounded-2xl border flex items-center justify-between",
-              secondsLeft < 60
-                ? "bg-red-950/30 border-red-900 text-red-400"
-                : "bg-muted/50 border-border",
+      <FlowFrame
+        main={
+          <div className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {hook.depositUnderReview && (
+              <Notice tone="warning" title="Your payment is being reviewed">
+                We received it and it is going through a routine check, which can take a few days. Please don&apos;t pay again, as a second
+                payment would be held too. It will either arrive in your balance or be returned to the account it came from.
+              </Notice>
             )}
-          >
-            <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4" />
-              <span className="text-xs font-bold uppercase tracking-wider">
-                Expires In
-              </span>
-            </div>
-            <span className="text-xl font-black tabular-nums">
-              {Math.floor(secondsLeft / 60)}:
-              {String(secondsLeft % 60).padStart(2, "0")}
-            </span>
-          </div>
-        )}
 
-        <div className="p-6 bg-foreground text-background rounded-2xl shadow-xl space-y-4">
-          <p className="text-xs font-bold opacity-60 uppercase tracking-widest">
-            Amount to Transfer
-          </p>
-          <h3 className="text-4xl font-black">
-            {hook.order.providerAccount?.amountToTransfer}{" "}
-            {hook.order.providerAccount?.currency}
-          </h3>
-
-          <div className="space-y-3 pt-4 border-t border-background/10">
-            {[
-              { label: "Bank", value: hook.order.providerAccount?.institution },
-              {
-                label: "Account",
-                value: hook.order.providerAccount?.accountIdentifier,
-                copy: true,
-              },
-              { label: "Name", value: hook.order.providerAccount?.accountName },
-            ].map((item) => (
+            {secondsLeft !== null && !hook.depositUnderReview && (
               <div
-                key={item.label}
-                className="flex justify-between items-center text-sm"
+                className={cn(
+                  "flex items-center justify-between gap-3 rounded-full px-5 py-3",
+                  secondsLeft < 60 ? "bg-[var(--lp-danger-soft)] text-[var(--lp-danger)]" : "lp-card",
+                )}
               >
-                <span className="opacity-60">{item.label}</span>
-                <button
-                  onClick={() =>
-                    item.copy &&
-                    (navigator.clipboard.writeText(item.value || ""),
-                    toast.success("Copied!"))
-                  }
-                  className={cn(
-                    "font-bold flex items-center gap-2",
-                    item.copy &&
-                      "hover:text-muted-foreground transition-colors",
-                  )}
-                >
-                  {item.value} {item.copy && <Copy className="w-3 h-3" />}
-                </button>
+                <span className="flex items-center gap-2 text-[14px] font-semibold">
+                  <Clock className="size-4" /> Pay within
+                </span>
+                <span className="lp-display text-[24px] leading-none tracking-[-0.03em] tabular-nums">
+                  {Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, "0")}
+                </span>
               </div>
-            ))}
-          </div>
-        </div>
+            )}
 
-        <div className="bg-muted/50 p-4 rounded-xl border border-border flex gap-3">
-          <AlertCircle className="w-5 h-5 text-muted-foreground shrink-0" />
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            Pay from a bank account in your own name
-            {verifiedName ? ` (${verifiedName})` : ""}. A payment from anyone else&apos;s
-            account is sent back to it. Funds are credited automatically once confirmed.
-          </p>
-        </div>
-
-        {hook.polling ? (
-          <div className="p-4 bg-muted/80 rounded-2xl border border-border text-center space-y-2">
-            <div className="flex items-center justify-center gap-3">
-              <Loader2 className="w-5 h-5 animate-spin text-foreground" />
-              <span className="font-bold uppercase tracking-wider text-sm">
-                Checking Payment
-              </span>
+            <div>
+              <FlowLabel>How to pay</FlowLabel>
+              <ol className="mt-3 space-y-3">
+                {[
+                  "Open your banking app.",
+                  "Send exactly the amount shown, to the account shown.",
+                  `Pay from an account in your own name${verifiedName ? ` (${verifiedName})` : ""}. A payment from anyone else is sent back.`,
+                  "Come back and tap “I’ve sent the money”. Your balance updates by itself.",
+                ].map((line, i) => (
+                  <li key={i} className="flex items-start gap-3">
+                    <span className="grid size-7 shrink-0 place-items-center rounded-full bg-[var(--lp-ink)] text-[13px] font-semibold text-[var(--lp-cream)]">
+                      {i + 1}
+                    </span>
+                    <span className="pt-0.5 text-[15px] leading-[1.5] text-[var(--lp-body)]">{line}</span>
+                  </li>
+                ))}
+              </ol>
             </div>
-            <p className="text-[10px] text-muted-foreground uppercase font-bold">
-              Status: {hook.txStatus || "Pending"}
-            </p>
+
+            {hook.polling && (
+              <p className="text-[14px] capitalize text-[var(--lp-muted)]">Status: {(hook.txStatus || "pending").replace(/_/g, " ")}</p>
+            )}
           </div>
-        ) : (
-          <button onClick={() => hook.startPolling()} className="btn-primary w-full">
-            I Have Made the Transfer
-          </button>
-        )}
-      </div>
+        }
+        aside={
+          <div>
+            <AsideFigure label="Transfer exactly" value={account?.amountToTransfer} unit={account?.currency} />
+            <div className="mt-6">
+              <PayDetail label="Bank" value={account?.institution} />
+              <PayDetail label="Account" value={account?.accountIdentifier} copy />
+              <PayDetail label="Name" value={account?.accountName} />
+            </div>
+          </div>
+        }
+        action={
+          hook.polling ? (
+            <FlowButton tone="quiet" disabled className="disabled:opacity-100">
+              <Loader2 className="size-5 animate-spin" /> Watching for your payment
+            </FlowButton>
+          ) : (
+            <FlowButton tone="accent" onClick={() => hook.startPolling()}>
+              I&apos;ve sent the money
+            </FlowButton>
+          )
+        }
+      />
     );
   }
 
@@ -409,8 +317,7 @@ export function DepositForm({ hook }: DepositFormProps) {
       type: "deposit",
       status: "confirmed",
       timestamp: new Date().toISOString(),
-      amountUsdc:
-        hook.rate && hook.amount ? parseFloat(hook.amount) / hook.rate : 0,
+      amountUsdc: hook.rate && hook.amount ? parseFloat(hook.amount) / hook.rate : 0,
       fiatAmount: parseFloat(hook.amount),
       fiatCurrency: hook.fiatCurrency,
       exchangeRate: hook.rate ?? undefined,
@@ -418,63 +325,41 @@ export function DepositForm({ hook }: DepositFormProps) {
     };
 
     return (
-      <div className="flex flex-col items-center justify-center py-10 text-center space-y-6 animate-in zoom-in duration-500">
-        <div className="w-20 h-20 bg-green-500 text-background rounded-full flex items-center justify-center shadow-lg shadow-green-900/20">
-          <CheckCircle2 className="w-10 h-10" />
-        </div>
-        <div className="space-y-2">
-          <h2 className="text-3xl font-black uppercase tracking-tighter">
-            Success!
-          </h2>
-          <p className="text-muted-foreground">
-            Your funds have been deposited and are ready to use.
-          </p>
-        </div>
+      <FlowFrame
+        main={
+          <div className="py-4">
+            <FlowSuccess title="Money" italic="received." body="It's in your balance and ready to use.">
+              <ReceiptActions data={depositReceipt} />
 
-        <div className="w-full space-y-1.5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60 text-center">
-            Transaction Receipt
-          </p>
-          <ReceiptActions data={depositReceipt} variant="light" />
-        </div>
+              {hook.showSavePrompt && (
+                <div className="lp-card rounded-[22px] p-4 text-left animate-in fade-in slide-in-from-top-4 duration-500">
+                  <div className="flex items-start gap-3">
+                    <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[var(--lp-cream)]">
+                      <Plus className="size-4" />
+                    </span>
+                    <div>
+                      <p className="text-[15px] font-semibold">Save this refund account?</p>
+                      <p className="text-[13px] text-[var(--lp-muted)]">It&apos;s filled in for you next time.</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    <FlowButton tone="quiet" className="h-11 text-[15px]" onClick={() => hook.setShowSavePrompt(false)}>
+                      Not now
+                    </FlowButton>
+                    <FlowButton className="h-11 text-[15px]" onClick={hook.handleSaveBankContact}>
+                      Save it
+                    </FlowButton>
+                  </div>
+                </div>
+              )}
 
-        {hook.showSavePrompt && (
-          <div className="w-full max-w-sm p-6 bg-accent/5 border border-accent/20 rounded-3xl space-y-4 animate-in fade-in slide-in-from-top-4 duration-500">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-accent/10 rounded-xl">
-                <Plus className="w-5 h-5 text-accent" />
-              </div>
-              <div className="text-left">
-                <p className="font-bold text-sm">Save this refund bank?</p>
-                <p className="text-[10px] text-muted-foreground uppercase font-bold">
-                  Securely store your bank details for future refunds
-                </p>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={() => hook.setShowSavePrompt(false)}
-                className="h-10 rounded-xl text-[10px] font-black uppercase tracking-widest border border-white/10 hover:bg-white/5 transition-colors text-foreground"
-              >
-                No, Thanks
-              </button>
-              <button
-                onClick={hook.handleSaveBankContact}
-                className="h-10 rounded-xl text-[10px] font-black uppercase tracking-widest bg-accent text-accent-foreground hover:scale-[1.02] transition-all shadow-lg shadow-accent/20"
-              >
-                Yes, Save
-              </button>
-            </div>
+              <FlowButton tone="quiet" onClick={() => hook.onClose?.()}>
+                Back to dashboard
+              </FlowButton>
+            </FlowSuccess>
           </div>
-        )}
-
-        <button
-          onClick={() => hook.onClose?.()}
-          className="btn-secondary px-10"
-        >
-          View Dashboard
-        </button>
-      </div>
+        }
+      />
     );
   }
 

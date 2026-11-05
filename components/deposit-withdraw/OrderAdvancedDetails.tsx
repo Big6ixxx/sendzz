@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { CHAIN_NAMES, type SupportedChain } from '@/lib/circle/gateway';
 import { publicOrderId } from '@/lib/ramp/public-order-id';
+import { FlowLabel } from '@/components/flow/ui';
 
 interface OrderAdvancedDetailsProps {
   orderId?: string;
@@ -71,37 +72,37 @@ export function OrderAdvancedDetails({
   if (rows.length === 0) return null;
 
   return (
-    <div className="rounded-2xl bg-white/3 border border-white/8 overflow-hidden text-left">
+    <div className="lp-card overflow-hidden rounded-[20px] text-left">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         className="w-full flex items-center justify-between gap-3 px-4 py-3"
       >
-        <span className="text-[10px] font-bold uppercase tracking-widest text-brand-secondary/40">
+        <FlowLabel as="span">
           Advanced details
-        </span>
+        </FlowLabel>
         <ChevronDown
           className={cn(
-            'w-4 h-4 text-brand-secondary/40 transition-transform shrink-0',
+            'w-4 h-4 text-[var(--lp-muted)] transition-transform shrink-0',
             open && 'rotate-180',
           )}
         />
       </button>
 
       {open && (
-        <div className="px-4 pb-3 space-y-2 border-t border-white/6 pt-3">
+        <div className="space-y-2 border-t border-[var(--lp-rule)] px-4 pb-3 pt-3">
           {rows.map((r) => (
-            <div key={r.label} className="flex items-center justify-between gap-3 text-xs">
-              <span className="text-brand-secondary/40 font-medium uppercase tracking-wide text-[10px] shrink-0">
+            <div key={r.label} className="flex items-center justify-between gap-3 text-[14px]">
+              <span className="shrink-0 text-[var(--lp-muted)]">
                 {r.label}
               </span>
-              <span className="font-semibold text-brand-secondary/90 flex items-center gap-1.5 min-w-0">
+              <span className="lp-mono flex min-w-0 items-center gap-1.5 text-[13px] text-[var(--lp-ink)]">
                 <span className="truncate">{r.value}</span>
                 {r.copy && (
                   <button
                     type="button"
                     onClick={() => copy(r.label, r.copy!)}
-                    className="text-brand-secondary/40 hover:text-accent transition-colors shrink-0"
+                    className="shrink-0 text-[var(--lp-muted)] transition-colors hover:text-[var(--lp-ink)]"
                     aria-label={`Copy ${r.label}`}
                   >
                     <Copy className="w-3 h-3" />

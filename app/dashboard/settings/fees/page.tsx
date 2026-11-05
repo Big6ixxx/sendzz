@@ -1,345 +1,194 @@
 'use client';
 
-import {
-  ArrowLeft,
-  ArrowRightLeft,
-  BookOpen,
-  ChevronDown,
-  Coins,
-  HelpCircle,
-  Key,
-  Landmark,
-  MessageCircleQuestion,
-  Receipt,
-  Send,
-  ShieldCheck,
-  Wallet,
-  Zap,
-} from 'lucide-react';
-import { useRouter } from 'next/navigation';
+/**
+ * Fees and common questions.
+ *
+ * Laid out as a price list: what you are doing, and what it costs, with the figure in display
+ * type on the right so the eye runs down one column of prices. The platform fee comes from the
+ * server (usePlatformFee), never a constant here, so the page cannot disagree with the checkout.
+ */
+
+import { Plus } from 'lucide-react';
 import { useState } from 'react';
 
+import { DocBody, DocHeader, DocReadNext, DocSection } from '@/components/dashboard/DocLayout';
+import { SettingsBack } from '@/components/dashboard/SettingsKit';
 import { usePlatformFee } from '@/lib/hooks/usePlatformFee';
-
-// ─── Data ────────────────────────────────────────────────────────────────────
+import { usePlatformFeePercent } from '@/lib/hooks/usePlatformFeePercent';
+import { cn } from '@/lib/utils';
 
 const HELP_FAQS = [
   {
     q: "Is Sendzz non-custodial? What does 'Your Email Is Your Key' mean?",
-    a: "Sendzz is 100% non-custodial. Your email address acts as your key to a non-custodial smart wallet (ERC-4337). Sendzz never holds your private keys and cannot touch or freeze your funds. You have complete control over your money at all times.",
-    icon: Key,
-    badge: "Non-Custodial",
+    a: "Sendzz is 100% non-custodial. Your email address acts as your key to a non-custodial smart wallet. Sendzz never holds your private keys and cannot touch or freeze your funds. You have complete control over your money at all times.",
   },
   {
     q: "How does identity verification (KYC) work, and what are the limits?",
     a: "Sending, receiving and depositing are unlimited and need no verification. The limit applies only to cashing out: an unverified account can withdraw $100 in total to a bank account. After that, a quick 2-minute identity verification removes the limit, keeping Sendzz compliant with financial regulations.",
-    icon: ShieldCheck,
-    badge: "$100 Withdrawal Limit",
   },
   {
     q: "Where does Sendzz sponsor gas fees?",
     a: "Sendzz sponsors 100% of network gas fees for P2P transfers and embedded wallet deposits across every supported chain, using account abstraction paymasters. You never need native ETH or SOL to pay for gas.",
-    icon: Zap,
-    badge: "Free Gas",
   },
   {
     q: "What happens if I send money to an email that isn't registered yet?",
     a: "The funds are held safely in a smart escrow contract. Sendzz emails a secure claim link to the recipient. When they open the link and log in with their email, their smart wallet is created instantly and the funds are claimed automatically.",
-    icon: Send,
-    badge: "Universal Escrow",
   },
   {
     q: "What counts towards my KYC limit?",
     a: "Only fiat withdrawals to your bank account. Sending USDC to an email or wallet address, receiving transfers, crypto deposits, and moving your own funds between networks are all unlimited and never count.",
-    icon: Receipt,
-    badge: "Limit Scope",
   },
   {
     q: "How do I contact support?",
     a: "You can reach us at support@sendzz.com. For urgent issues related to stuck transactions or failed withdrawals, please include your email address and transaction ID in your message for faster resolution.",
-    icon: MessageCircleQuestion,
-    badge: "Support",
   },
 ];
 
-// ─── FaqItem ─────────────────────────────────────────────────────────────────
-
-function HelpFaqItem({ faq }: { faq: (typeof HELP_FAQS)[number] }) {
-  const [open, setOpen] = useState(false);
-  const Icon = faq.icon;
-
-  return (
-    <div className="card-glass p-0 overflow-hidden border border-white/5 hover:border-white/10 transition-colors">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full p-5 text-left flex items-center justify-between gap-4 hover:bg-white/2 transition-colors"
-      >
-        <div className="flex items-center gap-3.5">
-          <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-accent/10 text-accent">
-            <Icon className="w-4 h-4" />
-          </div>
-          <div>
-            <p className="font-bold text-sm text-foreground">{faq.q}</p>
-            <span className="text-[9px] font-bold uppercase tracking-widest text-accent">
-              {faq.badge}
-            </span>
-          </div>
-        </div>
-        <div
-          className={`w-7 h-7 rounded-full flex items-center justify-center border border-white/10 shrink-0 transition-transform duration-200 ${
-            open ? 'rotate-180 bg-white/10' : 'bg-white/5'
-          }`}
-        >
-          <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
-        </div>
-      </button>
-
-      {open && (
-        <div className="px-5 pb-5 pt-1 border-t border-white/5 bg-white/[0.01]">
-          <p className="text-xs text-muted-foreground leading-relaxed">{faq.a}</p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
+type Price = { what: string; detail: string; price: string; note?: string; good?: boolean };
 
 export default function HelpCenterPage() {
   const platformFee = usePlatformFee();
-  const router = useRouter();
+  const walletSendFee = usePlatformFeePercent('transfer');
+  const bridgeFee = usePlatformFeePercent('bridge');
+  const [openFaq, setOpenFaq] = useState<number | null>(0);
+
+  const groups: { title: string; rows: Price[] }[] = [
+    {
+      title: 'Sending',
+      rows: [
+        {
+          what: 'To anyone by email',
+          detail: 'USDC to another Sendzz account, or to an email that has not joined yet.',
+          price: 'Free',
+          note: 'Network fee on us',
+          good: true,
+        },
+        {
+          what: 'To an outside wallet',
+          detail: 'USDC to a wallet address on another app or exchange. Shown before you confirm.',
+          price: walletSendFee != null ? `${walletSendFee}%` : '—',
+          note: 'Of the amount sent',
+        },
+      ],
+    },
+    {
+      title: 'Adding money',
+      rows: [
+        {
+          what: 'From your Sendzz wallets',
+          detail: 'Moving USDC in from your own Solana or other network wallets.',
+          price: 'Free',
+          note: 'Network fee on us',
+          good: true,
+        },
+        {
+          what: 'From an outside Stellar wallet',
+          detail: 'Sending in from a Stellar wallet you hold elsewhere.',
+          price: 'Network fee',
+          note: 'Paid by the sending wallet',
+        },
+      ],
+    },
+    {
+      title: 'Cashing out',
+      rows: [
+        {
+          what: 'To your bank or mobile money',
+          detail: 'Our fee for paying out locally. Some countries cost a little more than others.',
+          price: platformFee != null ? `${platformFee}%` : '—',
+          note: 'Of the withdrawal',
+        },
+        {
+          what: 'Network fee',
+          detail: 'The cost of processing the payout on the network.',
+          price: 'On us',
+          note: 'You pay 0 USDC',
+          good: true,
+        },
+      ],
+    },
+    {
+      title: 'Moving between networks',
+      rows: [
+        {
+          what: 'On the Bridge page',
+          detail: 'Moving your own money from one network to another. Moves that happen inside a send or a cash out are not charged.',
+          price: bridgeFee != null ? `${bridgeFee}%` : '—',
+          note: 'Added to the amount moved',
+        },
+      ],
+    },
+  ];
+
+  const slug = (t: string) => t.toLowerCase().replace(/[^a-z]+/g, '-');
+  const nav = [...groups.map((g) => ({ id: slug(g.title), label: g.title })), { id: 'questions', label: 'Common questions' }];
 
   return (
-    <div className="max-w-5xl mx-auto space-y-10">
+    <div className="mx-auto max-w-[1100px] space-y-8 pb-24">
+      <SettingsBack />
+      <DocHeader
+        eyebrow="Help"
+        title="What it"
+        italic="costs."
+        lead="Adding money and sending by email are free. You pay when you cash out to a bank or send to an outside wallet, and we cover network fees almost everywhere."
+        meta="Figures come straight from our checkout, so they always match what you are charged."
+      />
 
-      {/* Back nav */}
-      <button
-        onClick={() => router.back()}
-        className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <ArrowLeft className="w-3 h-3" />
-        Back to Settings
-      </button>
-
-      {/* Page header — Help Center style, not fee-specific */}
-      <div className="relative card-glass p-8 overflow-hidden border border-white/8">
-        <div className="absolute inset-0 bg-gradient-to-br from-accent/5 via-transparent to-transparent pointer-events-none" />
-        <div className="absolute -right-16 -top-16 w-56 h-56 bg-accent/5 rounded-full blur-3xl pointer-events-none" />
-        <div className="relative flex items-start gap-5">
-          <div className="w-12 h-12 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
-            <BookOpen className="w-6 h-6 text-accent" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-black text-foreground tracking-tight">Help Center</h1>
-            <p className="text-sm text-muted-foreground mt-1 max-w-xl leading-relaxed">
-              Everything you need to know about fees, gas sponsorship, identity limits, and how Sendzz works.
-            </p>
-            <div className="flex flex-wrap gap-2 mt-4">
-              {[
-                { label: 'Fees & Gas', icon: Zap },
-                { label: 'KYC & Limits', icon: ShieldCheck },
-                { label: 'Transfers', icon: ArrowRightLeft },
-                { label: 'FAQ', icon: HelpCircle },
-              ].map(({ label, icon: I }) => (
-                <span
-                  key={label}
-                  className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full bg-white/5 border border-white/8 text-muted-foreground"
-                >
-                  <I className="w-3 h-3" /> {label}
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Section: Fees & Gas ───────────────────────────────────────────── */}
-      <div className="space-y-6">
-        <div className="flex items-center gap-3">
-          <div className="w-7 h-7 rounded-xl bg-accent/10 flex items-center justify-center">
-            <Receipt className="w-4 h-4 text-accent" />
-          </div>
-          <div>
-            <h2 className="text-sm font-black text-foreground uppercase tracking-wider">Fee Schedule & Gas</h2>
-            <p className="text-[10px] text-muted-foreground">Full transparency on what you pay and what we cover</p>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          {/* Fiat Withdrawals */}
-          <div className="space-y-3">
-            <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-1 flex items-center gap-2">
-              <Landmark className="w-3.5 h-3.5 text-accent" />
-              Fiat Withdrawals (Off-Ramp)
-            </h3>
-            <div className="card-glass p-6 space-y-4 relative overflow-hidden group hover:border-accent/30 transition-colors">
-              <div className="absolute right-0 top-0 w-32 h-32 bg-accent/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 group-hover:bg-accent/10 transition-colors" />
-
-              <div className="flex justify-between items-start border-b border-white/5 pb-4">
-                <div>
-                  <p className="font-bold text-foreground">Platform Fee</p>
-                  <p className="text-[11px] text-muted-foreground max-w-[260px] mt-1">
-                    Our fee for cashing out to your local bank account. Adding money is free — you are only charged on the way out, and some corridors cost a little more than others.
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="font-black text-xl text-accent">{platformFee ?? '—'}%</p>
-                  <p className="text-[10px] uppercase font-bold text-muted-foreground">Of withdrawal</p>
-                </div>
-              </div>
-
-              <div className="flex justify-between items-start pt-2">
-                <div>
-                  <p className="font-bold text-foreground">Network Gas Fee (Base)</p>
-                  <p className="text-[11px] text-muted-foreground mt-1">
-                    The cost to process the smart contract transaction on the Base network.
-                  </p>
-                </div>
-                <div className="text-right flex flex-col items-end">
-                  <div className="flex items-center gap-1.5 text-green-400 bg-green-400/10 px-2 py-1 rounded-md">
-                    <Zap className="w-3.5 h-3.5" />
-                    <span className="text-[10px] font-black uppercase tracking-widest">Sponsored</span>
-                  </div>
-                  <p className="text-[10px] uppercase font-bold text-muted-foreground mt-1.5">You pay 0 USDC</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* P2P Transfers */}
-          <div className="space-y-3">
-            <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-1 flex items-center gap-2">
-              <ArrowRightLeft className="w-3.5 h-3.5 text-blue-400" />
-              Sendzz P2P Transfers
-            </h3>
-            <div className="card-glass p-6 relative overflow-hidden group hover:border-blue-400/30 transition-colors">
-              <div className="absolute right-0 top-0 w-32 h-32 bg-blue-400/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 group-hover:bg-blue-400/10 transition-colors" />
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="font-bold text-foreground">Smart Account Transfers</p>
-                  <p className="text-[11px] text-muted-foreground max-w-[300px] mt-1">
-                    Sending USDC between Sendzz users on the Base network using your Smart Account.
-                  </p>
-                </div>
-                <div className="text-right flex flex-col items-end">
-                  <div className="flex items-center gap-1.5 text-green-400 bg-green-400/10 px-2 py-1 rounded-md">
-                    <ShieldCheck className="w-3.5 h-3.5" />
-                    <span className="text-[10px] font-black uppercase tracking-widest">100% Free</span>
-                  </div>
-                  <p className="text-[10px] uppercase font-bold text-muted-foreground mt-1.5">Gas is Sponsored</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Deposits & Bridging */}
-          <div className="space-y-3">
-            <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-1 flex items-center gap-2">
-              <Coins className="w-3.5 h-3.5 text-purple-400" />
-              Deposits & Cross-Chain Bridging
-            </h3>
-            <div className="card-glass p-0 overflow-hidden divide-y divide-white/5">
-
-              <div className="p-5 hover:bg-white/2 transition-colors">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="font-bold text-foreground text-sm">Embedded Solana Wallet Deposit</p>
-                    <p className="text-[11px] text-muted-foreground max-w-[300px] mt-1">
-                      Depositing USDC from your Sendzz Embedded Solana Wallet to Base.
-                    </p>
-                  </div>
-                  <div className="text-right flex flex-col items-end">
-                    <div className="flex items-center gap-1.5 text-green-400 bg-green-400/10 px-2 py-1 rounded-md">
-                      <Zap className="w-3.5 h-3.5" />
-                      <span className="text-[10px] font-black uppercase tracking-widest">Sponsored</span>
-                    </div>
-                    <p className="text-[10px] uppercase font-bold text-muted-foreground mt-1.5">Gas covered by Sendzz</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-5 hover:bg-white/2 transition-colors">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="font-bold text-foreground text-sm">Embedded EVM Wallets (Optimism, Polygon, etc.)</p>
-                    <p className="text-[11px] text-muted-foreground max-w-[300px] mt-1">
-                      Depositing USDC from your Sendzz Embedded EVM Wallet to Base.
-                    </p>
-                  </div>
-                  <div className="text-right flex flex-col items-end">
-                    <div className="flex items-center gap-1.5 text-green-400 bg-green-400/10 px-2 py-1 rounded-md">
-                      <Zap className="w-3.5 h-3.5" />
-                      <span className="text-[10px] font-black uppercase tracking-widest">Sponsored</span>
-                    </div>
-                    <p className="text-[10px] uppercase font-bold text-muted-foreground mt-1.5">Gas covered by Sendzz</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-5 hover:bg-white/2 transition-colors">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="font-bold text-foreground text-sm">External Stellar Wallet Deposit</p>
-                    <p className="text-[11px] text-muted-foreground max-w-[300px] mt-1">
-                      Depositing from Stellar networks.
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <div className="flex items-center w-fit justify-self-end gap-1.5 text-brand-secondary bg-brand-secondary/10 px-2 py-1 rounded-md mb-1.5 justify-end">
-                      <Wallet className="w-3.5 h-3.5" />
-                      <span className="text-[10px] font-black uppercase tracking-widest">User Pays</span>
-                    </div>
-                    <p className="text-[10px] uppercase font-bold text-muted-foreground mt-1 text-right">Native Gas Token Required</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-5 hover:bg-white/2 transition-colors bg-black/20">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="font-bold text-foreground text-sm">Cross-Chain Bridge Fee</p>
-                    <p className="text-[11px] text-muted-foreground max-w-[300px] mt-1">
-                      A small dynamic network fee charged when moving USDC between chains.
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-black text-sm text-foreground">Dynamic</p>
-                    <p className="text-[10px] uppercase font-bold text-muted-foreground mt-1">Deducted from USDC</p>
-                  </div>
-                </div>
-              </div>
-
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Divider */}
-      <div className="flex items-center gap-4">
-        <div className="flex-1 h-px bg-white/5" />
-        <span className="text-[10px] font-bold uppercase tracking-widest text-white/20">FAQ</span>
-        <div className="flex-1 h-px bg-white/5" />
-      </div>
-
-      {/* ── Section: FAQ ──────────────────────────────────────────────────── */}
-      <div className="space-y-6 pb-10">
-        <div className="flex items-center gap-3">
-          <div className="w-7 h-7 rounded-xl bg-white/5 flex items-center justify-center">
-            <HelpCircle className="w-4 h-4 text-muted-foreground" />
-          </div>
-          <div>
-            <h2 className="text-sm font-black text-foreground uppercase tracking-wider">Frequently Asked Questions</h2>
-            <p className="text-[10px] text-muted-foreground">Common questions about security, limits, and how Sendzz works</p>
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          {HELP_FAQS.map((faq, idx) => (
-            <HelpFaqItem key={idx} faq={faq} />
+      <div className="pt-4 lg:pt-12">
+        <DocBody items={nav}>
+          {groups.map((g, i) => (
+            <DocSection key={g.title} id={slug(g.title)} number={i + 1} title={g.title}>
+              <ul className="divide-y divide-[var(--lp-rule)] border-t border-[var(--lp-rule)]">
+                {g.rows.map((r) => (
+                  <li key={r.what} className="flex items-start justify-between gap-6 py-5">
+                    <span className="min-w-0">
+                      <span className="block text-[17px] font-semibold leading-snug">{r.what}</span>
+                      <span className="mt-1 block max-w-[440px] text-[15px] leading-[1.55] text-[var(--lp-body)]">{r.detail}</span>
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <span
+                        className={cn(
+                          'lp-display block text-[clamp(24px,4vw,32px)] leading-none tracking-[-0.03em] tabular-nums',
+                          r.good && 'text-[var(--lp-good)]',
+                        )}
+                      >
+                        {r.price}
+                      </span>
+                      {r.note && <span className="mt-1.5 block text-[13px] text-[var(--lp-muted)]">{r.note}</span>}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </DocSection>
           ))}
-        </div>
-      </div>
 
+          <DocSection id="questions" number={groups.length + 1} title="Common questions">
+            <ul className="divide-y divide-[var(--lp-rule)] border-t border-[var(--lp-rule)]">
+              {HELP_FAQS.map((faq, i) => {
+                const open = openFaq === i;
+                return (
+                  <li key={faq.q}>
+                    <button
+                      type="button"
+                      aria-expanded={open}
+                      onClick={() => setOpenFaq(open ? null : i)}
+                      className="flex w-full items-center justify-between gap-4 py-4 text-left"
+                    >
+                      <span className="text-[17px] font-semibold leading-snug">{faq.q}</span>
+                      <Plus className={cn('size-5 shrink-0 transition-transform duration-200', open && 'rotate-45')} />
+                    </button>
+                    {open && (
+                      <p className="pb-5 text-[17px] leading-[1.65] text-[var(--lp-body)] animate-in fade-in duration-200">{faq.a}</p>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </DocSection>
+
+          <DocReadNext title="Notifications" body="Choose what reaches your phone and your inbox, kind by kind." href="/dashboard/settings/notifications" />
+        </DocBody>
+      </div>
     </div>
   );
 }

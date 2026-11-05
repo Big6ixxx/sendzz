@@ -230,11 +230,11 @@ export function Features() {
       />
 
       <div className="mt-12 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 xl:gap-[22px]">
-        <FeatureCard index={0} className="bg-[var(--lp-green)]">
+        <FeatureCard index={0} className="lp-on-green">
           <span className="lp-mono text-[13px]">01 / SEND BY EMAIL</span>
-          <div data-box className="flex flex-col gap-2.5 rounded-[22px] bg-[var(--lp-cream)] p-[18px] shadow-[0_20px_40px_-20px_rgb(0_60_30/0.5)]">
-            <div className="flex items-center gap-3 rounded-[14px] bg-white p-2.5">
-              <span className="grid size-[38px] flex-none place-items-center rounded-full bg-[var(--lp-ink)] font-semibold text-[var(--lp-green)]">C</span>
+          <div data-box className="lp-themed flex flex-col gap-2.5 rounded-[22px] bg-[var(--lp-cream)] p-[18px] shadow-[0_20px_40px_-20px_rgb(0_60_30/0.5)]">
+            <div className="flex items-center gap-3 rounded-[14px] bg-[var(--lp-surface)] p-2.5">
+              <span className="grid size-[38px] flex-none place-items-center rounded-full bg-[var(--lp-ink)] font-semibold text-[var(--lp-on-ink)]">C</span>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[15px] font-semibold">chloe@example.com</div>
                 <div className="text-[13px] text-[var(--lp-muted)]">Not on Sendzz yet · claim link sent</div>
@@ -242,7 +242,7 @@ export function Features() {
             </div>
             <div className="lp-display flex justify-between px-2.5 py-1 text-[30px] font-bold">
               <span data-amount className="tabular-nums">$250.00</span>
-              <span data-check className="text-[#00a857]">✓</span>
+              <span data-check className="text-[var(--lp-link)]">✓</span>
             </div>
           </div>
           <CardFooter
@@ -257,12 +257,12 @@ export function Features() {
           />
         </FeatureCard>
 
-        <FeatureCard index={1} className="bg-[var(--lp-forest)] text-[#f5f4ee]">
+        <FeatureCard index={1} className="lp-on-forest text-[#f5f4ee]">
           <span className="lp-mono text-[13px] text-[var(--lp-green)]">02 / LOCAL RAMPS</span>
           <ul className="flex flex-col gap-2 [perspective:600px]">
             {RAMPS.map((r) => (
               <li key={r.code} data-row className="flex min-h-[57px] items-center gap-3.5 rounded-2xl bg-[rgba(245,244,238,0.07)] px-4 py-2">
-                <span data-coin className="lp-mono rounded-[8px] bg-[var(--lp-green)] px-[9px] py-[6px] text-[13px] font-medium leading-none text-[#0d120f]">
+                <span data-coin className="lp-on-green lp-mono rounded-[8px] px-[9px] py-[6px] text-[13px] font-medium leading-none text-[#0d120f]">
                   {r.code}
                 </span>
                 <span className="flex-1 text-[15px]">{r.label}</span>
@@ -277,7 +277,7 @@ export function Features() {
           />
         </FeatureCard>
 
-        <FeatureCard index={2} className="border-[1.5px] border-[var(--lp-ink)] bg-white md:col-span-2 xl:col-span-1">
+        <FeatureCard index={2} className="border-[1.5px] border-[var(--lp-ink)] bg-[var(--lp-surface)] md:col-span-2 xl:col-span-1">
           <span className="lp-mono text-[13px]">03 / ZERO GAS</span>
           <div className="lp-display text-[clamp(120px,14vw,188px)] leading-[0.8] tracking-[-0.06em] tabular-nums">
             <span data-fee>$0</span>
@@ -285,7 +285,7 @@ export function Features() {
           </div>
           <div className="flex flex-wrap gap-1.5">
             {STRUCK.map((s) => (
-              <s key={s} className="relative rounded-full border border-[rgba(17,26,19,0.2)] px-3 py-[7px] text-[13px] whitespace-nowrap text-[var(--lp-muted)] no-underline">
+              <s key={s} className="relative rounded-full border border-[rgb(var(--lp-hair)/0.2)] px-3 py-[7px] text-[13px] whitespace-nowrap text-[var(--lp-muted)] no-underline">
                 {s}
                 <span data-strike className="absolute inset-x-2 top-1/2 h-[1.5px] origin-left bg-[var(--lp-muted)]" />
               </s>
@@ -339,7 +339,7 @@ function Story({ story, index }: { story: (typeof STORIES)[number]; index: numbe
             />
           </motion.div>
           {/* Always shown on touch; slides up on hover where there is a pointer. */}
-          <div className="absolute inset-x-3 bottom-3 flex items-center justify-between gap-3 rounded-[18px] bg-white px-4 py-3 shadow-[0_18px_36px_-18px_rgb(17_26_19/0.45)] transition-[translate,opacity] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] [@media(hover:hover)_and_(pointer:fine)]:translate-y-[calc(100%+16px)] [@media(hover:hover)_and_(pointer:fine)]:opacity-0 group-hover:translate-y-0! group-hover:opacity-100!">
+          <div className="absolute inset-x-3 bottom-3 flex items-center justify-between gap-3 rounded-[18px] bg-[var(--lp-surface)] px-4 py-3 shadow-[0_18px_36px_-18px_rgb(17_26_19/0.45)] transition-[translate,opacity] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] [@media(hover:hover)_and_(pointer:fine)]:translate-y-[calc(100%+16px)] [@media(hover:hover)_and_(pointer:fine)]:opacity-0 group-hover:translate-y-0! group-hover:opacity-100!">
             <span className="lp-display text-[20px] tracking-[-0.03em]">{story.amount}</span>
             <span className="lp-mono min-w-0 truncate text-[12px] text-[var(--lp-muted)]">{story.route}</span>
           </div>

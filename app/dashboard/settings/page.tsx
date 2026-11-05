@@ -1,6 +1,10 @@
 "use client";
 
-import { DashboardPageHeader } from "@/components/layout/DashboardPageHeader";
+import { DocBody, DocHeader, DocReadNext, DocSection } from "@/components/dashboard/DocLayout";
+import { DocRows, RowAction, SettingsRow, Switch } from "@/components/dashboard/SettingsKit";
+import { shortenDetail } from "@/components/dashboard/activity-look";
+import { AmountField, CurrencyPill, FlowButton, FlowDialog } from "@/components/flow/ui";
+import { cn } from "@/lib/utils";
 import { AddBankContactModal } from "@/components/deposit-withdraw/AddBankContactModal";
 import { DeleteConfirmDialog } from "@/components/contacts/DeleteConfirmDialog";
 import {
@@ -18,34 +22,10 @@ import { getInstitutions } from "@/lib/actions/ramp";
 import { RampInstitution } from "@/lib/ramp";
 import { CHAIN_NAMES } from "@/lib/circle/gateway";
 import { usePrivy } from "@privy-io/react-auth";
-import {
-  AtSign,
-  Bell,
-  ChevronRight,
-  Globe,
-  Landmark,
-  LogOut,
-  Plus,
-  Shield,
-  Trash2,
-  User,
-  Eye,
-  EyeOff,
-  HelpCircle,
-  Smartphone,
-  Network,
-  KeyRound,
-} from "lucide-react";
+import { LogOut, Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useBalanceVisibility } from "@/components/providers/BalanceVisibilityProvider";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { useRouter } from "next/navigation";
 import { TOTPSetupWizard } from "@/components/TOTPSetupWizard";
 import { PasskeySetupWizard } from "@/components/PasskeySetupWizard";
 import {
@@ -53,49 +33,16 @@ import {
   type StepUpRequest,
 } from "@/components/security/SecurityStepUp";
 import { ForgotPinDialog } from "@/components/security/ForgotPinDialog";
-import { Fingerprint } from "lucide-react";
 import { KycModal } from "@/components/kyc/KycModal";
 import { InstallAppButton } from "@/components/pwa/InstallAppButton";
 import { LimitsMeter, type Allowance } from "@/components/kyc/LimitsMeter";
-
-interface ToggleProps {
-  checked: boolean;
-  onChange: () => void;
-  disabled?: boolean;
-  activeColor: string;
-  activeBg: string;
-}
-
-function PremiumToggle({ checked, onChange, disabled, activeColor, activeBg }: ToggleProps) {
-  return (
-    <button
-      onClick={(e) => {
-        e.stopPropagation();
-        if (!disabled) onChange();
-      }}
-      disabled={disabled}
-      className={`relative inline-flex h-[26px] w-[46px] shrink-0 cursor-pointer rounded-full border transition-all duration-300 ease-in-out focus:outline-none ${
-        checked 
-          ? `${activeBg} shadow-inner` 
-          : 'bg-white/5 border-white/10 hover:border-white/20'
-      } ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
-    >
-      <span
-        className={`pointer-events-none absolute top-[2px] left-[2px] block h-5 w-5 rounded-full transition-all duration-300 ease-in-out ${
-          checked 
-            ? `${activeColor} translate-x-[20px] shadow-[0_0_8px_rgba(255,255,255,0.2)]` 
-            : 'bg-white/30 translate-x-0'
-        }`}
-      />
-    </button>
-  );
-}
+import { Skeleton } from "@/components/ui/skeleton";
+import { ThemeSwitch } from "@/components/brand/ThemeToggle";
 
 const NON_EVM_RAILS = ["Solana", "Stellar"] as const;
 
 export default function SettingsPage() {
   const { user, logout } = usePrivy();
-  const router = useRouter();
   const userEmail = user?.email?.address || "";
   const { hideBalance, toggleBalanceVisibility } = useBalanceVisibility();
 
@@ -473,670 +420,387 @@ export default function SettingsPage() {
   void handleEmailPrefToggle;
   void handleTogglePush;
 
-  interface SettingItem {
-    label: string;
-    value: string;
-    icon: React.ComponentType<{ className?: string }>;
-    onClick?: () => void;
-    action?: React.ReactNode;
-  }
+  const kycStatus = kycData?.kyc.status;
+  const verified = kycStatus === "approved";
+  const kycLabel =
+    kycStatus === "approved"
+      ? "Verified"
+      : kycStatus === "declined"
+        ? "Not approved"
+        : kycStatus === "pending"
+          ? "In progress"
+          : kycStatus === "in_review"
+            ? "Under review"
+            : "Not verified";
+  const networkCount = Object.keys(CHAIN_NAMES).length + NON_EVM_RAILS.length;
 
-  interface SettingSection {
-    title: string;
-    items: SettingItem[];
-  }
+  // The protections the account can have, as the meter on the account card counts them.
+  const protections = [
+    { label: "PIN", on: pinEnabled },
+    { label: "Large withdrawal check", on: twoFaEnabled },
+    { label: "Authenticator app", on: totpEnabled },
+    { label: "Passkey", on: passkeyEnabled },
+  ];
+  const protectionsOn = protections.filter((p) => p.on).length;
 
-  const sections: SettingSection[] = [
-    {
-      title: "Account",
-      items: [
-        {
-          label: "Email",
-          value: user?.email?.address || "Not set",
-          icon: User,
-        },
-        { label: "Wallet", value: "Smart Account Active", icon: Shield },
-        {
-          label: "Networks",
-          // EVM chains share one smart-account address; Solana and Stellar are each a
-          // separate rail with their own address. Counted from the same list the rest of
-          // the app routes on, plus the two non-EVM rails named explicitly — the count was
-          // hardcoded as "+ 1" and silently stopped including Stellar when it was added.
-          value: `Active on ${Object.keys(CHAIN_NAMES).length + NON_EVM_RAILS.length} networks (EVM + ${NON_EVM_RAILS.join(" + ")})`,
-          icon: Network,
-        },
-      ],
-    },
-    {
-      title: "Preferences",
-      items: [
-        {
-          label: "Notifications",
-          value: "Manage push & email notification preferences",
-          icon: Bell,
-          onClick: () => router.push("/dashboard/settings/notifications"),
-        },
-        {
-          label: "Devices",
-          value: "See where you are signed in and sign out a lost device",
-          icon: Smartphone,
-          onClick: () => router.push("/dashboard/settings/devices"),
-        },
-        {
-          // Always offered while the app is not installed. The browser's own banner appears
-          // once, unbidden, and never returns once dismissed — so this is the only place a
-          // user who said "not now" can come back to.
-          label: "Install Sendzz",
-          value: "Add it to your home screen and open it like an app",
-          icon: Smartphone,
-          action: <InstallAppButton compact />,
-        },
-        { label: "Language", value: "English (US)", icon: Globe },
-        {
-          label: "Hide Sensitive Data",
-          value: hideBalance ? "On" : "Off",
-          icon: hideBalance ? EyeOff : Eye,
-          onClick: toggleBalanceVisibility,
-        },
-      ],
-    },
-    {
-      title: "Help & Support",
-      items: [
-        {
-          label: "Help Center & FAQ",
-          value: "Fees, gas sponsorship, KYC limits, and common questions",
-          icon: HelpCircle,
-          onClick: () => router.push("/dashboard/settings/fees"),
-        },
-      ],
-    },
+  const nav = [
+    { id: "account", label: "Your account" },
+    { id: "verification", label: "Verification" },
+    { id: "security", label: "Security" },
+    { id: "recipients", label: "Saved recipients" },
+    { id: "banks", label: "Bank accounts" },
+    { id: "preferences", label: "Preferences" },
+    { id: "sign-out", label: "Signing out" },
   ];
 
+  const addButton = (label: string, onClick: () => void) => (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex h-9 items-center gap-1.5 rounded-full bg-[var(--lp-ink)] px-4 text-[14px] font-semibold text-[var(--lp-cream)]"
+    >
+      <Plus className="size-4" /> {label}
+    </button>
+  );
+  const skeletonRows = (n: number) =>
+    Array.from({ length: n }, (_, i) => (
+      <div key={i} className="flex items-center gap-3 py-4">
+        <Skeleton tone="page" className="size-10" />
+        <span className="flex-1 space-y-2">
+          <Skeleton tone="page" className="h-3.5 w-2/5" />
+          <Skeleton tone="page" className="h-3 w-1/3" />
+        </span>
+      </div>
+    ));
+  const personRow = (key: string, initial: string, name: string, detail: string, onDelete: () => void) => (
+    <div key={key} className="flex items-center gap-3 py-3.5">
+      <span className="grid size-10 shrink-0 place-items-center rounded-full bg-[var(--lp-surface)] text-[14px] font-semibold uppercase shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)]">
+        {initial.trim().charAt(0) || "?"}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[15px] font-semibold">{name}</span>
+        <span className="block truncate text-[13px] text-[var(--lp-muted)]" title={detail}>
+          {shortenDetail(detail)}
+        </span>
+      </span>
+      <button
+        type="button"
+        onClick={onDelete}
+        aria-label={`Remove ${name}`}
+        className="grid size-9 shrink-0 place-items-center rounded-full text-[var(--lp-muted)] transition-colors hover:bg-[var(--lp-danger-soft)] hover:text-[var(--lp-danger)]"
+      >
+        <Trash2 className="size-4" />
+      </button>
+    </div>
+  );
+  const emptyRow = (text: string, cta: string, onClick: () => void) => (
+    <div className="flex flex-col items-center gap-2 py-8 text-center">
+      <p className="text-[15px] text-[var(--lp-muted)]">{text}</p>
+      <button type="button" onClick={onClick} className="text-[14px] font-semibold underline-offset-2 hover:underline">
+        {cta}
+      </button>
+    </div>
+  );
+
   return (
-    <div className="max-w-5xl mx-auto space-y-8">
-      <DashboardPageHeader
-        title="Settings"
-        subtitle="Manage your personal account and preferences."
+    <div className="mx-auto max-w-[1100px] pb-24">
+      <DocHeader
+        eyebrow="Settings"
+        title="Your"
+        italic="account."
+        lead="Who you are, what protects your money, who you pay and how we reach you. Anything that weakens a protection asks you to confirm it's you first."
+        meta={userEmail ? `Signed in as ${userEmail}` : undefined}
       />
 
-      <div className="space-y-8">
-        {sections.map((section) => (
-          <div key={section.title} className="space-y-4">
-            <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground px-1">
-              {section.title}
-            </h3>
-            <div className="card-glass p-0 overflow-hidden divide-y divide-white/4">
-              {section.items.map((item) => (
-                <div
-                  key={item.label}
-                  className="p-6 flex items-center justify-between group cursor-pointer hover:bg-white/2 transition-colors"
-                  onClick={item.action ? undefined : item.onClick}
-                >
-                  <div className="flex items-center gap-5">
-                    <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-brand-secondary/40 group-hover:text-accent transition-colors border border-white/8">
-                      <item.icon className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
-                        {item.label}
-                      </p>
-                      <p className="font-bold text-brand-secondary">
-                        {item.value}
-                      </p>
-                    </div>
-                  </div>
-                  {item.action ? (
-                    <div onClick={(e) => e.stopPropagation()}>{item.action}</div>
-                  ) : item.onClick ? (
-                    <ChevronRight className="w-4 h-4 text-brand-secondary/20 group-hover:text-brand-secondary/60 transition-colors" />
-                  ) : null}
+      <div className="mt-12 lg:mt-20">
+        <DocBody items={nav}>
+          <DocSection id="account" number={1} title="Your account" description="One smart account that works across every network Sendzz supports. Sendzz never holds your keys.">
+            <DocRows>
+              <SettingsRow title="Email" description="How you sign in and how people pay you." control={<span className="max-w-[220px] truncate text-[15px] font-semibold" title={userEmail}>{userEmail || "Not set"}</span>} />
+              <SettingsRow title="Smart account" description={`Active, and works on ${networkCount} networks.`} control={<span className="rounded-full bg-[var(--lp-good-soft)] px-3 py-1 text-[13px] font-semibold text-[var(--lp-good)]">Active</span>} />
+              {/* What protects the money, as a meter of the four things that can. */}
+              <div className="py-4">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-[17px] font-semibold">Your protection</span>
+                  <span className="text-[15px] text-[var(--lp-muted)]">
+                    {isSecurityLoading ? "Checking…" : `${protectionsOn} of ${protections.length} on`}
+                  </span>
                 </div>
-              ))}
-            </div>
-          </div>
-        ))}
-
-        {/* ── Identity Verification Section ─────────────────────────────────── */}
-        {/* Anchored: the limit modal links straight here rather than to the top of the page. */}
-        <div id="identity" className="space-y-4 scroll-mt-24">
-          <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground px-1">
-            Identity Verification
-          </h3>
-          <div className="card-glass p-6 space-y-6">
-            {isKycLoading ? (
-              <div className="space-y-4 animate-pulse">
-                <div className="h-4 w-48 bg-white/10 rounded" />
-                <div className="h-2 w-full bg-white/10 rounded" />
-                <div className="h-2 w-full bg-white/10 rounded" />
-                <div className="h-2 w-full bg-white/10 rounded" />
+                <ul className="mt-3 grid grid-cols-2 gap-x-2 gap-y-3 sm:grid-cols-4">
+                  {protections.map((p) => (
+                    <li key={p.label}>
+                      <span className={cn("block h-1.5 rounded-full transition-colors duration-500", !isSecurityLoading && p.on ? "bg-[#04c96a]" : "bg-[var(--lp-rule)]")} />
+                      <span className={cn("mt-2 block text-[13px]", p.on ? "font-medium text-[var(--lp-ink)]" : "text-[var(--lp-muted)]")}>{p.label}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
-            ) : (
-              <>
-                {/* Status badge + CTA */}
-                <div className="flex items-center justify-between flex-wrap gap-4">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="w-10 h-10 rounded-xl flex items-center justify-center"
-                      style={{
-                        background:
-                          kycData?.kyc.status === "approved"
-                            ? "rgba(0,232,122,0.12)"
-                            : kycData?.kyc.status === "declined"
-                            ? "rgba(239,68,68,0.12)"
-                            : kycData?.kyc.status === "pending" || kycData?.kyc.status === "in_review"
-                            ? "rgba(59,130,246,0.12)"
-                            : "rgba(255,255,255,0.05)",
-                      }}
-                    >
-                      <Shield
-                        className="w-5 h-5"
-                        style={{
-                          color:
-                            kycData?.kyc.status === "approved"
-                              ? "#00e87a"
-                              : kycData?.kyc.status === "declined"
-                              ? "#ef4444"
-                              : kycData?.kyc.status === "pending" || kycData?.kyc.status === "in_review"
-                              ? "#60a5fa"
-                              : "rgba(248,248,246,0.3)",
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: "rgba(248,248,246,0.3)" }}>
-                        KYC Status
-                      </p>
-                      <p className="font-bold text-sm" style={{ color: "rgba(248,248,246,0.85)" }}>
-                        {kycData?.kyc.status === "approved"
-                          ? "✓ Verified"
-                          : kycData?.kyc.status === "declined"
-                          ? "✗ Not Approved"
-                          : kycData?.kyc.status === "pending"
-                          ? "⏳ In Progress"
-                          : kycData?.kyc.status === "in_review"
-                          ? "🔍 Under Review"
-                          : "Not Started"}
-                      </p>
-                    </div>
-                  </div>
+            </DocRows>
+          </DocSection>
 
-                  {kycData?.kyc.status !== "approved" && kycData?.kyc.status !== "in_review" && (
-                    <button
-                      id="settings-kyc-verify-btn"
-                      onClick={() => setKycModalOpen(true)}
-                      className="px-5 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
-                      style={{
-                        background: "linear-gradient(135deg, rgba(0,232,122,0.15) 0%, rgba(0,196,104,0.08) 100%)",
-                        color: "#00e87a",
-                        border: "1px solid rgba(0,232,122,0.25)",
-                      }}
-                    >
-                      {kycData?.kyc.status === "declined" ? "Try Again" : "Verify Identity"}
-                    </button>
-                  )}
-                </div>
-
-                {/* Limits meter */}
-                {kycData && (
-                  <LimitsMeter
-                    allowance={kycData.allowance}
-                    isVerified={kycData.kyc.status === "approved"}
-                  />
-                )}
-
-                {kycData?.kyc.status !== "approved" && (
-                  <p className="text-xs" style={{ color: "rgba(248,248,246,0.3)" }}>
-                    Verifying is a one-time check that takes a few minutes. It removes the
-                    withdrawal allowance entirely, and it is what the regulations we operate
-                    under require of us.
-                  </p>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* Security Section */}
-        <div className="space-y-4">
-          <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground px-1">
-            Security
-          </h3>
-          <div className="card-glass p-0 overflow-hidden divide-y divide-white/4">
-            {isSecurityLoading ? (
-              <>
-                <div className="p-6 flex items-center justify-between">
-                  <div className="flex items-center gap-5 w-full">
-                    <div className="w-12 h-12 bg-white/5 rounded-2xl animate-pulse" />
-                    <div className="space-y-2 flex-1">
-                      <div className="h-3 w-32 bg-white/10 rounded animate-pulse" />
-                      <div className="h-4 w-48 bg-white/10 rounded animate-pulse" />
-                    </div>
-                  </div>
-                </div>
-                <div className="p-6 flex items-center justify-between">
-                  <div className="flex items-center gap-5 w-full">
-                    <div className="w-12 h-12 bg-white/5 rounded-2xl animate-pulse" />
-                    <div className="space-y-2 flex-1">
-                      <div className="h-3 w-32 bg-white/10 rounded animate-pulse" />
-                      <div className="h-4 w-48 bg-white/10 rounded animate-pulse" />
-                    </div>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="p-6 flex items-center justify-between hover:bg-white/2 transition-colors">
-                  <div className="flex items-center gap-5">
-                    <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-brand-secondary/40 border border-white/8">
-                      <Shield className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
-                        Two-Factor Authentication
-                      </p>
-                      <p className="font-bold text-brand-secondary">
-                        Require OTP for large transactions
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className={`text-xs font-black tracking-wider ${twoFaEnabled ? 'text-accent' : 'text-white/35'}`}>
-                      {twoFaEnabled ? 'ON' : 'OFF'}
-                    </span>
-                    <PremiumToggle
-                      checked={twoFaEnabled}
-                      onChange={withStepUp({
-                        title: twoFaEnabled
-                          ? "Turn off verification"
-                          : "Turn on verification",
-                        description: twoFaEnabled
-                          ? "Large withdrawals will stop asking for a second check. Confirm this first."
-                          : "Large withdrawals will ask for a second check. Confirm this first.",
-                        confirmLabel: twoFaEnabled ? "Turn off" : "Turn on",
-                        destructive: twoFaEnabled,
-                        control: "two_fa",
-                        run: (authorization) => {
-                          const checked = !twoFaEnabled;
-                          setTwoFaEnabled(checked);
-                          updateSecurityPrefs(checked, twoFaThreshold, authorization);
-                        },
-                      })}
-                      disabled={isUpdatingSecurity}
-                      activeColor="bg-[#00e87a]"
-                      activeBg="bg-[#00e87a]/15 border-[#00e87a]/40"
-                    />
-                  </div>
-                </div>
-
-                <div
-                  className="p-6 flex items-center justify-between hover:bg-white/2 transition-colors cursor-pointer"
-                  onClick={() => {
-                    if (!twoFaEnabled) return;
-                    withStepUp({
-                      title: "Change verification threshold",
-                      description:
-                        "Raising the threshold means more can be withdrawn without a second check. Confirm this first.",
-                      confirmLabel: "Continue",
-                      control: "threshold",
-                      run: (authorization) => {
-                        setThresholdAuthorization(authorization);
-                        setThresholdValue(twoFaThreshold);
-                        setThresholdModalOpen(true);
-                      },
-                    })();
-                  }}
-                >
-                  <div className="flex items-center gap-5">
-                    <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-brand-secondary/40 border border-white/8">
-                      <Landmark className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
-                        2FA Threshold (USDC)
-                      </p>
-                      <p className="font-bold text-brand-secondary text-sm max-w-xs">
-                        Transactions above this amount will require an email OTP
-                        verification.
-                      </p>
-                    </div>
-                  </div>
-                  <div
-                    className={`px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-right font-bold text-brand-secondary transition-colors ${
-                      !twoFaEnabled ? "opacity-50" : ""
-                    }`}
-                  >
-                    ${twoFaThreshold}
-                  </div>
-                </div>
-
-                <div className="p-6 flex items-center justify-between hover:bg-white/2 transition-colors">
-                  <div className="flex items-center gap-5">
-                    <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-brand-secondary/40 border border-white/8">
-                      <Smartphone className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
-                        Authenticator App
-                      </p>
-                      <p className="font-bold text-brand-secondary">
-                        {totpEnabled ? "Enabled" : "Not set up"}
-                      </p>
-                    </div>
-                  </div>
-                  {totpEnabled ? (
-                    <button
-                      onClick={withStepUp({
-                        title: "Remove authenticator app",
-                        description:
-                          "Codes from your authenticator app will no longer be accepted. You can pair an app again at any time.",
-                        confirmLabel: "Remove app",
-                        destructive: true,
-                        control: "totp",
-                        run: handleDisableTotp,
-                      })}
-                      className="text-xs font-bold uppercase tracking-widest text-red-400 hover:text-red-300 transition-colors"
-                    >
-                      Remove
-                    </button>
-                  ) : (
-                    <button
-                      onClick={withStepUp({
-                        title: "Add authenticator app",
-                        description:
-                          "Confirm it is you before adding a new way to approve withdrawals.",
-                        confirmLabel: "Continue",
-                        control: "totp",
-                        run: () => setTotpSetupOpen(true),
-                      })}
-                      className="text-xs font-bold uppercase tracking-widest text-accent hover:text-accent/80 transition-colors"
-                    >
-                      Set up
-                    </button>
-                  )}
-                </div>
-
-                <div className="p-6 flex items-center justify-between hover:bg-white/2 transition-colors">
-                  <div className="flex items-center gap-5">
-                    <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-brand-secondary/40 border border-white/8">
-                      <Fingerprint className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
-                        Passkey
-                      </p>
-                      <p className="font-bold text-brand-secondary">
-                        {passkeyEnabled ? "Enabled" : "Not set up"}
-                      </p>
-                    </div>
-                  </div>
-                  {passkeyEnabled ? (
-                    <button
-                      onClick={withStepUp({
-                        title: "Remove passkey",
-                        description:
-                          "Every passkey on your account is removed. Withdrawals will fall back to your other methods.",
-                        confirmLabel: "Remove passkey",
-                        destructive: true,
-                        control: "passkey",
-                        run: handleDisablePasskey,
-                      })}
-                      className="text-xs font-bold uppercase tracking-widest text-red-400 hover:text-red-300 transition-colors"
-                    >
-                      Remove
-                    </button>
-                  ) : (
-                    <button
-                      onClick={withStepUp({
-                        title: "Add passkey",
-                        description:
-                          "Confirm it is you before adding a new way to approve withdrawals.",
-                        confirmLabel: "Continue",
-                        control: "passkey",
-                        run: () => setPasskeySetupOpen(true),
-                      })}
-                      className="text-xs font-bold uppercase tracking-widest text-accent hover:text-accent/80 transition-colors"
-                    >
-                      Set up
-                    </button>
-                  )}
-                </div>
-
-                {/* Its own row, so the PIN can be changed without touching the passkey.
-                    There is no longer a "remove" here: the PIN gates every outgoing
-                    transaction, so taking it away would not relax a setting — it would leave
-                    the account unable to send, withdraw or bridge at all. What people
-                    actually want from that button is covered by the two below: change it if
-                    you know it, reset it by email if you don't. */}
-                <div className="p-6 flex items-center justify-between hover:bg-white/2 transition-colors">
-                  <div className="flex items-center gap-5">
-                    <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-brand-secondary/40 border border-white/8">
-                      <KeyRound className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
-                        Transaction PIN
-                      </p>
-                      <p className="font-bold text-brand-secondary">
-                        {pinEnabled ? "Enabled" : "Not set up"}
-                      </p>
-                    </div>
-                  </div>
-                  {pinEnabled ? (
-                    <div className="flex items-center gap-5">
-                      <button
-                        onClick={() => setPinSetupOpen(true)}
-                        className="text-xs font-bold uppercase tracking-widest text-accent hover:text-accent/80 transition-colors"
-                      >
-                        Change
-                      </button>
-                      <button
-                        onClick={() => setForgotPinOpen(true)}
-                        className="text-xs font-bold uppercase tracking-widest text-brand-secondary/40 hover:text-brand-secondary/70 transition-colors"
-                      >
-                        Forgot it?
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => setPinSetupOpen(true)}
-                      className="text-xs font-bold uppercase tracking-widest text-accent hover:text-accent/80 transition-colors"
-                    >
-                      Set up
-                    </button>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* Email Recipients */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between px-1">
-            <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-              Saved Recipients
-            </h3>
-            <button
-              onClick={() => setAddEmailModalOpen(true)}
-              className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-accent hover:text-accent/80 transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Add Recipient
-            </button>
-          </div>
-          <div className="card-glass p-0 overflow-hidden">
-            {isEmailLoading ? (
-              <div className="divide-y divide-white/4">
-                {[1, 2].map((i) => (
-                  <div
-                    key={i}
-                    className="p-5 flex items-center justify-between"
-                  >
-                    <div className="flex items-center gap-4 min-w-0 w-full">
-                      <div className="w-10 h-10 bg-white/5 rounded-2xl shrink-0 animate-pulse" />
-                      <div className="space-y-2 flex-1">
-                        <div className="h-4 w-32 bg-white/10 rounded animate-pulse" />
-                        <div className="h-3 w-24 bg-white/10 rounded animate-pulse" />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : emailContacts.length === 0 ? (
-              <div className="p-8 text-center space-y-3">
-                <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center mx-auto border border-white/8">
-                  <AtSign className="w-6 h-6 text-brand-secondary/20" />
-                </div>
-                <p className="text-xs font-bold uppercase tracking-widest text-brand-secondary/30">
-                  No saved recipients
-                </p>
-                <button
-                  onClick={() => setAddEmailModalOpen(true)}
-                  className="text-[10px] font-black uppercase tracking-widest text-accent hover:text-accent/80 transition-colors"
-                >
-                  + Add your first recipient
-                </button>
-              </div>
-            ) : (
-              <div className="divide-y divide-white/4">
-                {emailContacts.map((contact) => (
-                  <div
-                    key={contact.id}
-                    className="p-5 flex items-center justify-between hover:bg-white/2 transition-colors"
-                  >
-                    <div className="flex items-center gap-4 min-w-0">
-                      <div className="w-10 h-10 bg-accent/10 rounded-2xl flex items-center justify-center shrink-0 border border-accent/10">
-                        <AtSign className="w-5 h-5 text-accent" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="font-bold text-sm text-brand-secondary truncate">
-                          {contact.name}
-                        </p>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-brand-secondary/30 truncate">
-                          {contact.email}
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() =>
-                        setEmailContactToDelete({
-                          id: contact.id,
-                          name: contact.name,
-                        })
-                      }
-                      className="p-2 text-brand-secondary/20 hover:text-red-400 transition-colors rounded-xl hover:bg-red-400/10 ml-4 shrink-0"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Bank Contacts */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between px-1">
-            <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-              Saved Bank Accounts
-            </h3>
-            <button
-              onClick={handleOpenAddBankModal}
-              className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-accent hover:text-accent/80 transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Add Account
-            </button>
-          </div>
-          <div className="card-glass p-0 overflow-hidden">
-            {isBankLoading ? (
-              <div className="divide-y divide-white/4">
-                {[1, 2].map((i) => (
-                  <div
-                    key={i}
-                    className="p-5 flex items-center justify-between"
-                  >
-                    <div className="flex items-center gap-4 min-w-0 w-full">
-                      <div className="w-10 h-10 bg-white/5 rounded-2xl shrink-0 animate-pulse" />
-                      <div className="space-y-2 flex-1">
-                        <div className="h-4 w-40 bg-white/10 rounded animate-pulse" />
-                        <div className="h-3 w-32 bg-white/10 rounded animate-pulse" />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : bankContacts.length === 0 ? (
-              <div className="p-8 text-center space-y-3">
-                <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center mx-auto border border-white/8">
-                  <Landmark className="w-6 h-6 text-brand-secondary/20" />
-                </div>
-                <p className="text-xs font-bold uppercase tracking-widest text-brand-secondary/30">
-                  No saved bank accounts
-                </p>
-                <button
-                  onClick={handleOpenAddBankModal}
-                  className="text-[10px] font-black uppercase tracking-widest text-accent hover:text-accent/80 transition-colors"
-                >
-                  + Add your first account
-                </button>
-              </div>
-            ) : (
-              <div className="divide-y divide-white/4">
-                {bankContacts.map((contact) => (
-                  <div
-                    key={contact.id}
-                    className="p-5 flex items-center justify-between hover:bg-white/2 transition-colors"
-                  >
-                    <div className="flex items-center gap-4 min-w-0">
-                      <div className="w-10 h-10 bg-accent/10 rounded-2xl flex items-center justify-center shrink-0 border border-accent/10">
-                        <Landmark className="w-5 h-5 text-accent" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="font-bold text-sm text-brand-secondary truncate">
-                          {contact.account_name}
-                        </p>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-brand-secondary/30 truncate">
-                          {contact.bank_name} • {contact.account_number}
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() =>
-                        setContactToDelete({
-                          id: contact.id,
-                          name: contact.account_name,
-                        })
-                      }
-                      className="p-2 text-brand-secondary/20 hover:text-red-400 transition-colors rounded-xl hover:bg-red-400/10 ml-4 shrink-0"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="pt-4">
-          <button
-            onClick={() => logout()}
-            className="w-full flex items-center justify-between p-6 card-glass border-red-500/20 hover:bg-red-500/5 group transition-all"
+          {/* Anchored as "identity" too: the limit modal links straight here. */}
+          <DocSection
+            id="verification"
+            number={2}
+            title="Verification"
+            description="A one-time identity check. Sending, receiving and adding money never need it; it only lifts the limit on cashing out."
           >
-            <div className="flex items-center gap-5 text-red-400">
-              <div className="w-12 h-12 bg-red-500/10 rounded-2xl flex items-center justify-center border border-red-500/20">
-                <LogOut className="w-6 h-6" />
-              </div>
-              <span className="font-bold uppercase tracking-widest text-xs">
-                Sign out of Sendzz
-              </span>
+            <div id="identity" className="scroll-mt-24 space-y-5">
+              {isKycLoading ? (
+                <div className="space-y-3">
+                  <Skeleton tone="page" className="h-4 w-1/3" />
+                  <Skeleton tone="page" className="h-2" />
+                </div>
+              ) : (
+                <>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-[17px]">
+                      Status: <span className="font-semibold">{kycLabel}</span>
+                    </p>
+                    {kycStatus !== "approved" && kycStatus !== "in_review" && (
+                      <button
+                        id="settings-kyc-verify-btn"
+                        type="button"
+                        onClick={() => setKycModalOpen(true)}
+                        className="lp-on-green inline-flex h-[46px] items-center rounded-full px-[22px] text-[15px] font-semibold text-[var(--lp-ink)] transition-transform duration-150 hover:-translate-y-px"
+                      >
+                        {kycStatus === "declined" ? "Try again" : "Verify my identity"}
+                      </button>
+                    )}
+                  </div>
+                  {kycData && <LimitsMeter allowance={kycData.allowance} isVerified={verified} />}
+                </>
+              )}
             </div>
-            <ChevronRight className="w-4 h-4 text-red-500/30 group-hover:text-red-500 transition-colors" />
-          </button>
-        </div>
+          </DocSection>
+
+          <DocSection id="security" number={3} title="Security" description="What approves money leaving your account. Your PIN approves every payment; the rest add a second check to large withdrawals.">
+            <DocRows>
+              {isSecurityLoading ? (
+                skeletonRows(4)
+              ) : (
+                <>
+                  {/* No "remove" for the PIN: it gates every outgoing transaction, so taking it away
+                      would leave the account unable to send at all. Change it, or reset it by email. */}
+                  <SettingsRow
+                    title="Transaction PIN"
+                    description={pinEnabled ? "Asked for every time money goes out." : "Not set up yet. Nothing can be sent without it."}
+                    control={
+                      pinEnabled ? (
+                        <>
+                          <RowAction onClick={() => setForgotPinOpen(true)} tone="danger">
+                            Forgot it?
+                          </RowAction>
+                          <RowAction onClick={() => setPinSetupOpen(true)}>Change</RowAction>
+                        </>
+                      ) : (
+                        <RowAction onClick={() => setPinSetupOpen(true)} tone="primary">
+                          Set up
+                        </RowAction>
+                      )
+                    }
+                  />
+                  <SettingsRow
+                    title="Check large withdrawals"
+                    description="Ask for a second check above your limit."
+                    control={
+                      <Switch
+                        label="Check large withdrawals"
+                        checked={twoFaEnabled}
+                        disabled={isUpdatingSecurity}
+                        onChange={withStepUp({
+                          title: twoFaEnabled ? "Turn off verification" : "Turn on verification",
+                          description: twoFaEnabled
+                            ? "Large withdrawals will stop asking for a second check. Confirm this first."
+                            : "Large withdrawals will ask for a second check. Confirm this first.",
+                          confirmLabel: twoFaEnabled ? "Turn off" : "Turn on",
+                          destructive: twoFaEnabled,
+                          control: "two_fa",
+                          run: (authorization) => {
+                            const checked = !twoFaEnabled;
+                            setTwoFaEnabled(checked);
+                            updateSecurityPrefs(checked, twoFaThreshold, authorization);
+                          },
+                        })}
+                      />
+                    }
+                  />
+                  <SettingsRow
+                    title="Your limit"
+                    description={twoFaEnabled ? "Withdrawals above this ask for the second check." : "Turn on the check above to set a limit."}
+                    muted={!twoFaEnabled}
+                    control={
+                      <button
+                        type="button"
+                        disabled={!twoFaEnabled}
+                        onClick={withStepUp({
+                          title: "Change verification threshold",
+                          description:
+                            "Raising the threshold means more can be withdrawn without a second check. Confirm this first.",
+                          confirmLabel: "Continue",
+                          control: "threshold",
+                          run: (authorization) => {
+                            setThresholdAuthorization(authorization);
+                            setThresholdValue(twoFaThreshold);
+                            setThresholdModalOpen(true);
+                          },
+                        })}
+                        className="lp-display inline-flex h-10 items-center rounded-full bg-[var(--lp-surface)] px-4 text-[18px] tabular-nums tracking-[-0.02em] shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)] transition-shadow hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.3)] disabled:opacity-50"
+                      >
+                        ${twoFaThreshold}
+                      </button>
+                    }
+                  />
+                  <SettingsRow
+                    title="Authenticator app"
+                    description={totpEnabled ? "On. Codes from your app approve the second check." : "Use a code from an app instead of email."}
+                    control={
+                      totpEnabled ? (
+                        <RowAction
+                          tone="danger"
+                          onClick={withStepUp({
+                            title: "Remove authenticator app",
+                            description:
+                              "Codes from your authenticator app will no longer be accepted. You can pair an app again at any time.",
+                            confirmLabel: "Remove app",
+                            destructive: true,
+                            control: "totp",
+                            run: handleDisableTotp,
+                          })}
+                        >
+                          Remove
+                        </RowAction>
+                      ) : (
+                        <RowAction
+                          tone="primary"
+                          onClick={withStepUp({
+                            title: "Add authenticator app",
+                            description: "Confirm it is you before adding a new way to approve withdrawals.",
+                            confirmLabel: "Continue",
+                            control: "totp",
+                            run: () => setTotpSetupOpen(true),
+                          })}
+                        >
+                          Set up
+                        </RowAction>
+                      )
+                    }
+                  />
+                  <SettingsRow
+                    title="Passkey"
+                    description={passkeyEnabled ? "On. Your face or fingerprint approves the second check." : "Approve with your face or fingerprint."}
+                    control={
+                      passkeyEnabled ? (
+                        <RowAction
+                          tone="danger"
+                          onClick={withStepUp({
+                            title: "Remove passkey",
+                            description:
+                              "Every passkey on your account is removed. Withdrawals will fall back to your other methods.",
+                            confirmLabel: "Remove passkey",
+                            destructive: true,
+                            control: "passkey",
+                            run: handleDisablePasskey,
+                          })}
+                        >
+                          Remove
+                        </RowAction>
+                      ) : (
+                        <RowAction
+                          tone="primary"
+                          onClick={withStepUp({
+                            title: "Add passkey",
+                            description: "Confirm it is you before adding a new way to approve withdrawals.",
+                            confirmLabel: "Continue",
+                            control: "passkey",
+                            run: () => setPasskeySetupOpen(true),
+                          })}
+                        >
+                          Set up
+                        </RowAction>
+                      )
+                    }
+                  />
+                </>
+              )}
+            </DocRows>
+          </DocSection>
+
+          <DocSection
+            id="recipients"
+            number={4}
+            title="Saved recipients"
+            description="Suggested when you send by email."
+            action={addButton("Add", () => setAddEmailModalOpen(true))}
+          >
+            <DocRows>
+              {isEmailLoading
+                ? skeletonRows(2)
+                : emailContacts.length === 0
+                  ? emptyRow("No saved recipients yet.", "Add your first one", () => setAddEmailModalOpen(true))
+                  : emailContacts.map((c) =>
+                      personRow(c.id, c.name || c.email, c.name || c.email, c.email, () => setEmailContactToDelete({ id: c.id, name: c.name || c.email })),
+                    )}
+            </DocRows>
+          </DocSection>
+
+          <DocSection
+            id="banks"
+            number={5}
+            title="Bank accounts"
+            description="Ready to pick when you cash out."
+            action={addButton("Add", handleOpenAddBankModal)}
+          >
+            <DocRows>
+              {isBankLoading
+                ? skeletonRows(2)
+                : bankContacts.length === 0
+                  ? emptyRow("No saved bank accounts yet.", "Add your first one", handleOpenAddBankModal)
+                  : bankContacts.map((c) =>
+                      personRow(c.id, c.account_name, c.account_name, `${c.bank_name} · ${c.account_number}`, () =>
+                        setContactToDelete({ id: c.id, name: c.account_name }),
+                      ),
+                    )}
+            </DocRows>
+          </DocSection>
+
+          <DocSection id="preferences" number={6} title="Preferences" description="How Sendzz looks and reaches you.">
+            <DocRows>
+              <SettingsRow
+                title="Dark mode"
+                description="Easier on the eyes at night. Saved on this device."
+                control={<ThemeSwitch />}
+              />
+              <SettingsRow
+                title="Hide balances"
+                description="Show •••• instead of amounts, for when someone is looking over your shoulder."
+                control={<Switch label="Hide balances" checked={hideBalance} onChange={toggleBalanceVisibility} />}
+              />
+              <SettingsRow title="Notifications" description="Choose what reaches your phone and your inbox." href="/dashboard/settings/notifications" />
+              <SettingsRow title="Devices" description="See where you are signed in and sign out a lost device." href="/dashboard/settings/devices" />
+              {/* Always offered while the app is not installed. The browser's own banner appears once
+                  and never returns once dismissed, so this is the only way back to it. */}
+              <SettingsRow title="Install Sendzz" description="Add it to your home screen and open it like an app." control={<InstallAppButton compact />} />
+              <SettingsRow title="Language" description="More languages are on the way." control={<span className="text-[15px] font-semibold">English (US)</span>} />
+            </DocRows>
+          </DocSection>
+
+          <DocSection id="sign-out" number={7} title="Signing out" description="Signs you out on this device. To sign out somewhere else, use Devices.">
+            <button
+              type="button"
+              onClick={() => logout()}
+              className="inline-flex h-[46px] items-center gap-2 rounded-full border border-[var(--lp-danger)]/35 px-[22px] text-[15px] font-semibold text-[var(--lp-danger)] transition-colors hover:bg-[var(--lp-danger-soft)]"
+            >
+              <LogOut className="size-4" /> Sign out of Sendzz
+            </button>
+          </DocSection>
+
+          <DocReadNext
+            title="Fees and questions"
+            body="What everything costs, and plain answers to what people ask most."
+            href="/dashboard/settings/fees"
+          />
+        </DocBody>
       </div>
 
       <AddContactModal
@@ -1183,67 +847,57 @@ export default function SettingsPage() {
         }}
       />
 
-      {/* Threshold Modal */}
-      <Dialog open={thresholdModalOpen} onOpenChange={setThresholdModalOpen}>
-        <DialogContent className="card-glass border-white/10 max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-xl text-brand-secondary">
-              Verification threshold
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4 py-2">
-            <p className="text-sm text-brand-secondary/70 leading-relaxed">
-              Withdrawals above this amount ask for a second check. Anything below
-              goes straight through, so a lower figure is the safer one.
-            </p>
-
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
-                Amount in USDC
-              </label>
-              <div className="relative">
-                <span className="absolute left-5 top-1/2 -translate-y-1/2 text-lg font-bold text-brand-secondary/35 pointer-events-none">
-                  $
-                </span>
-                <input
-                  type="number"
-                  value={thresholdValue}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value);
-                    if (val > 500) setThresholdValue("500");
-                    else if (val < 0) setThresholdValue("0");
-                    else setThresholdValue(e.target.value);
-                  }}
-                  max={500}
-                  min={0}
-                  className="input-elegant w-full pl-10 text-lg font-bold tabular-nums"
-                  placeholder="500"
-                />
-              </div>
-              <p className="text-[12px] text-brand-secondary/40">
-                The most you can set is $500.
-              </p>
-            </div>
+      {/* The limit, typed into its own small dialog once the change has been confirmed. */}
+      <FlowDialog
+        open={thresholdModalOpen}
+        onClose={() => setThresholdModalOpen(false)}
+        eyebrow="Large withdrawal check"
+        title="Set"
+        italic="your limit."
+        description="Withdrawals above this amount ask for a second check. Anything below goes straight through, so a lower figure is the safer one."
+      >
+          <div>
+            <AmountField
+              label="Limit"
+              value={thresholdValue}
+              onChange={(v) => {
+                const val = parseFloat(v);
+                if (val > 500) setThresholdValue("500");
+                else if (val < 0) setThresholdValue("0");
+                else setThresholdValue(v);
+              }}
+              symbol="$"
+              currency={<CurrencyPill>USDC</CurrencyPill>}
+              placeholder="500"
+              footer={
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {["100", "250", "500"].map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setThresholdValue(v)}
+                      className={cn(
+                        "h-8 rounded-full px-3 text-[13px] font-semibold",
+                        thresholdValue === v ? "bg-[var(--lp-ink)] text-[var(--lp-cream)]" : "bg-[var(--lp-cream)] hover:bg-[var(--lp-sand)]",
+                      )}
+                    >
+                      ${v}
+                    </button>
+                  ))}
+                  <span className="ml-auto text-[13px] text-[var(--lp-muted)]">The most is $500</span>
+                </div>
+              }
+            />
           </div>
-
-          <div className="flex flex-col-reverse sm:flex-row gap-3 pt-4">
-            <button
-              onClick={() => setThresholdModalOpen(false)}
-              className="btn-secondary w-full sm:w-auto"
-            >
+          <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row">
+            <FlowButton tone="quiet" onClick={() => setThresholdModalOpen(false)} className="sm:w-32">
               Cancel
-            </button>
-            <button
-              onClick={handleThresholdUpdate}
-              disabled={isUpdatingSecurity}
-              className="btn-primary w-full sm:w-auto sm:flex-1"
-            >
-              {isUpdatingSecurity ? "Saving..." : "Save threshold"}
-            </button>
+            </FlowButton>
+            <FlowButton onClick={handleThresholdUpdate} loading={isUpdatingSecurity} className="sm:flex-1">
+              Save limit
+            </FlowButton>
           </div>
-        </DialogContent>
-      </Dialog>
+      </FlowDialog>
 
       {/* One dialog for every change that weakens a protection. */}
       <SecurityStepUp request={stepUp} onClose={() => setStepUp(null)} />
@@ -1290,4 +944,3 @@ export default function SettingsPage() {
     </div>
   );
 }
-

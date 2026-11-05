@@ -81,7 +81,7 @@ export function confirmationNotice(plan: SigningPlan): string | null {
   if (count <= 1) return null;
 
   const word = count === 2 ? 'twice' : `${count} times`;
-  return `You'll be asked to confirm ${word} — each one is a separate step, and we'll tell you where you are.`;
+  return `You'll be asked to confirm ${word}. Each one is a separate step, and we'll tell you where you are.`;
 }
 
 /**

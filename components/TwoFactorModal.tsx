@@ -1,13 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
-import {
-  Loader2,
-  X,
-  RefreshCw,
-  Smartphone,
-  Mail,
-  Fingerprint,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Fingerprint, X } from "lucide-react";
+import { FlowButton, FlowDialogHeading, FlowTabs } from "@/components/flow/ui";
+import { PinPanel, PinPanelAction } from "@/components/security/PinPad";
 import { createPortal } from "react-dom";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { toast } from "sonner";
@@ -55,7 +49,6 @@ export function TwoFactorModal({
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [otpSent, setOtpSent] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const isFirstOpen = useRef(true);
 
   const startCountdown = () => {
@@ -93,10 +86,6 @@ export function TwoFactorModal({
         });
       }, 1000);
       timerRef.current = timer;
-      // Focus first input when modal opens
-      setTimeout(() => {
-        inputRefs.current[0]?.focus();
-      }, 100);
     } else {
       if (timerRef.current) clearInterval(timerRef.current);
       setCode("");
@@ -193,196 +182,96 @@ export function TwoFactorModal({
 
   if (!isOpen) return null;
 
+  const methodLabel: Record<VerificationMethod, string> = { email: "Email", totp: "App", passkey: "Passkey" };
+
+  // Portalled to <body> above the payment dialog it interrupts (deposit, withdraw, batch send),
+  // and outside any page's cream scope, so it brings that scope with it.
   const modalContent = (
-    <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4"
-      onClick={handleClose}
-    >
+    <div className="lp-root contents">
       <div
-        className="relative w-full max-w-md bg-[#0d0d0f] border border-white/10 rounded-2xl p-8 shadow-2xl animate-in fade-in zoom-in-95 duration-200 pointer-events-auto"
-        onClick={(e) => e.stopPropagation()}
+        className="fixed inset-0 z-[9999] flex items-end justify-center bg-[rgba(17,26,19,0.5)] p-0 backdrop-blur-sm sm:items-center sm:p-4"
+        onClick={handleClose}
       >
-        <button
-          onClick={handleClose}
-          disabled={loading}
-          className="absolute top-4 right-4 p-2 rounded-lg hover:bg-white/5 transition-colors disabled:opacity-50 z-10"
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="two-factor-title"
+          className="pointer-events-auto relative max-h-[calc(100dvh-1rem)] w-full max-w-[460px] overflow-y-auto rounded-t-[28px] bg-[var(--lp-cream)] p-6 shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.06),0_32px_80px_-24px_rgb(17_26_19/0.45)] animate-in fade-in slide-in-from-bottom-4 duration-200 sm:rounded-[32px] sm:p-8 sm:zoom-in-95"
+          onClick={(e) => e.stopPropagation()}
         >
-          <X className="w-5 h-5 text-white/50" />
-        </button>
+          <button
+            type="button"
+            onClick={handleClose}
+            disabled={loading}
+            aria-label="Close"
+            className="absolute right-4 top-4 grid size-9 place-items-center rounded-full text-[var(--lp-muted)] transition-colors hover:bg-[var(--lp-sand)] hover:text-[var(--lp-ink)] disabled:opacity-50"
+          >
+            <X className="size-4" />
+          </button>
 
-        <div className="flex flex-col items-center text-center space-y-6 mb-8">
-          <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-accent/20 to-accent/5 flex items-center justify-center border border-accent/30 shadow-lg shadow-accent/10">
-            {currentMethod === "totp" ? (
-              <Smartphone className="w-10 h-10 text-accent" />
-            ) : currentMethod === "passkey" ? (
-              <Fingerprint className="w-10 h-10 text-accent" />
+          <div id="two-factor-title">
+            <FlowDialogHeading
+              eyebrow="Large payment"
+              title="One more"
+              italic="check."
+            />
+          </div>
+          <p className="mt-3 text-[15px] leading-[1.55] text-[var(--lp-body)]">
+            {currentMethod === "totp"
+              ? "Enter the 6-digit code from your authenticator app to finish this payment."
+              : currentMethod === "passkey"
+                ? "Confirm with your face, fingerprint or device PIN to finish this payment."
+                : userEmail
+                  ? `We sent a 6-digit code to ${userEmail}. Enter it to finish this payment.`
+                  : "We emailed you a 6-digit code. Enter it to finish this payment."}
+          </p>
+
+          <div className="mt-5 space-y-5">
+            {availableMethods.length > 1 && (
+              <FlowTabs
+                label="How to confirm"
+                value={currentMethod}
+                onChange={handleMethodChange}
+                options={availableMethods.map((m) => ({ value: m, label: methodLabel[m] }))}
+              />
+            )}
+
+            {currentMethod === "passkey" ? (
+              <FlowButton onClick={handlePasskeyAuth} loading={isAuthenticating}>
+                <Fingerprint className="size-5" /> Confirm with passkey
+              </FlowButton>
             ) : (
-              <Mail className="w-10 h-10 text-accent" />
-            )}
-          </div>
-          <div className="space-y-2">
-            <h2 className="text-3xl font-black uppercase tracking-tighter text-white">
-              Security Check
-            </h2>
-            <p className="text-sm font-medium text-white/60 leading-relaxed">
-              {currentMethod === "totp"
-                ? "Enter the 6-digit code from your authenticator app"
-                : currentMethod === "passkey"
-                  ? "Use your passkey to verify"
-                  : "Enter the 6-digit code sent to your email to complete this transaction"}
-            </p>
-          </div>
-        </div>
-
-        {availableMethods.length > 1 && (
-          <div className="flex gap-2 justify-center mb-6">
-            {availableMethods.includes("email") && (
-              <button
-                onClick={() => handleMethodChange("email")}
-                className={cn(
-                  "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors",
-                  currentMethod === "email"
-                    ? "bg-accent text-black"
-                    : "bg-white/5 text-white/60 hover:bg-white/10",
-                )}
-              >
-                <Mail className="w-4 h-4" />
-                Email
-              </button>
-            )}
-            {availableMethods.includes("totp") && (
-              <button
-                onClick={() => handleMethodChange("totp")}
-                className={cn(
-                  "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors",
-                  currentMethod === "totp"
-                    ? "bg-accent text-black"
-                    : "bg-white/5 text-white/60 hover:bg-white/10",
-                )}
-              >
-                <Smartphone className="w-4 h-4" />
-                App
-              </button>
-            )}
-            {availableMethods.includes("passkey") && (
-              <button
-                onClick={() => handleMethodChange("passkey")}
-                className={cn(
-                  "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors",
-                  currentMethod === "passkey"
-                    ? "bg-accent text-black"
-                    : "bg-white/5 text-white/60 hover:bg-white/10",
-                )}
-              >
-                <Fingerprint className="w-4 h-4" />
-                Passkey
-              </button>
-            )}
-          </div>
-        )}
-
-        <div className="space-y-6">
-          {currentMethod !== "passkey" && (
-            <>
-              <div className="space-y-3">
-                <div className="flex gap-2 justify-center">
-                  {Array.from({ length: codeLength }, (_, i) => i).map((index) => (
-                    <input
-                      key={index}
-                      ref={(el) => {
-                        inputRefs.current[index] = el;
-                      }}
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={1}
-                      value={code[index] || ""}
-                      onChange={(e) => {
-                        const value = e.target.value.replace(/[^0-9]/g, "");
-                        const newCode = code.split("");
-                        newCode[index] = value;
-                        setCode(newCode.join(""));
-                        if (value && index < 5) {
-                          inputRefs.current[index + 1]?.focus();
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        if (
-                          e.key === "Backspace" &&
-                          !code[index] &&
-                          index > 0
-                        ) {
-                          inputRefs.current[index - 1]?.focus();
-                        }
-                      }}
-                      onPaste={(e) => {
-                        e.preventDefault();
-                        const pastedData = e.clipboardData
-                          .getData("text")
-                          .replace(/[^0-9]/g, "")
-                          .slice(0, codeLength);
-                        if (pastedData) {
-                          setCode(pastedData);
-                          const nextIndex = Math.min(pastedData.length, 5);
-                          inputRefs.current[nextIndex]?.focus();
-                        }
-                      }}
-                      className={cn(
-                        "w-12 h-14 text-center text-2xl font-bold bg-white/5 border-2 rounded-xl text-white placeholder:text-white/20 focus:outline-none transition-all",
-                        error
-                          ? "border-red-500/50 focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
-                          : "border-white/10 focus:border-accent focus:ring-2 focus:ring-accent/20",
-                      )}
-                      disabled={loading}
-                    />
-                  ))}
-                </div>
-                {error && (
-                  <p className="text-xs font-bold text-red-400 uppercase tracking-widest text-center">
-                    {error}
-                  </p>
-                )}
-              </div>
-            </>
-          )}
-
-          {currentMethod !== "passkey" && (
-            <button
-              onClick={handleSubmit}
-              disabled={loading || code.length < codeLength}
-              className="btn-primary w-full h-14 text-sm md:text-base font-bold tracking-wide"
-            >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <Loader2 className="animate-spin w-5 h-5" />
-                  Verifying...
-                </span>
-              ) : (
-                "Verify Code"
-              )}
-            </button>
-          )}
-
-          {currentMethod === "email" && (
-            <div className="text-center pt-2">
-              {canResend ? (
-                <button
-                  onClick={handleResend}
+              <>
+                <PinPanel
+                  length={6}
+                  label={currentMethod === "totp" ? "Code from your authenticator app" : "Code from your email"}
+                  action={
+                    currentMethod === "email" &&
+                    (canResend ? (
+                      <PinPanelAction onClick={handleResend} disabled={loading}>
+                        Send another
+                      </PinPanelAction>
+                    ) : (
+                      <>
+                        Send another in <span className="lp-mono tabular-nums">{countdown}s</span>
+                      </>
+                    ))
+                  }
+                  value={code}
+                  onChange={setCode}
+                  onComplete={handleSubmit}
+                  onEnter={() => code.length === codeLength && handleSubmit()}
                   disabled={loading}
-                  className="text-sm font-medium text-accent hover:text-accent/80 transition-colors flex items-center justify-center gap-2 mx-auto"
-                >
-                  <RefreshCw className="w-4 h-4" />
-                  Resend Code
-                </button>
-              ) : (
-                <p className="text-sm text-white/40">
-                  Resend available in{" "}
-                  <span className="font-mono font-bold text-white/60">
-                    {countdown}s
-                  </span>
-                </p>
-              )}
-            </div>
-          )}
+                  error={error}
+                  footer={
+                    <FlowButton tone="accent" onClick={handleSubmit} loading={loading} disabled={code.length < codeLength}>
+                      Confirm payment
+                    </FlowButton>
+                  }
+                />
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>

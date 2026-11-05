@@ -1,13 +1,9 @@
 import { Providers } from '@/components/providers';
 import type { Metadata } from 'next';
-import { JetBrains_Mono, Oswald } from 'next/font/google';
+import { brandFontVars } from '@/components/landing/fonts';
+import { THEME_SCRIPT } from '@/lib/theme-script';
 import './globals.css';
 
-const oswald = Oswald({ subsets: ['latin'], variable: '--font-oswald' });
-const jetbrains = JetBrains_Mono({
-  subsets: ['latin'],
-  variable: '--font-mono',
-});
 export const metadata: Metadata = {
   metadataBase: new URL('https://sendzz.io'),
   title: {
@@ -32,7 +28,7 @@ export const metadata: Metadata = {
         url: '/Sendz-512.png',
         width: 512,
         height: 512,
-        alt: 'Sendzz - Money Without Borders',
+        alt: 'Sendzz: Money Without Borders',
       },
     ],
   },
@@ -57,13 +53,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${oswald.variable} ${jetbrains.variable}`}>
+    <html lang="en" className={brandFontVars} suppressHydrationWarning>
       <head>
         <link rel="manifest" href="/manifest.json" />
-        <meta name="theme-color" content="#00e87a" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <link rel="apple-touch-icon" href="/Sendz-192.png" />
+        {/* Sets light or dark before the first paint, so a saved choice never flashes the other, and
+            writes the theme-color and iOS status bar tags for that mode (see lib/theme-script). */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
       <body className="antialiased min-h-screen bg-background text-foreground flex flex-col">
         <Providers>{children}</Providers>

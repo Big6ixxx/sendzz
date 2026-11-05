@@ -1,9 +1,14 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
+import { usePrivy } from "@privy-io/react-auth";
+import { useSignIn } from "@/components/auth/SignIn";
+import { ThemeToggle } from "@/components/brand/ThemeToggle";
+import { useRouter } from "next/navigation";
 import { TELEGRAM_URL, X_URL } from "@/lib/social";
+import { Wordmark } from "@/components/brand/Wordmark";
 
+// The landing page's own sections, so the links only appear there.
 const NAV = [
   { label: "Stories", href: "#stories" },
   { label: "How it works", href: "#how" },
@@ -11,41 +16,60 @@ const NAV = [
   { label: "Safety", href: "#safety" },
 ];
 
-export function LandingHeader({ onGetStarted }: { onGetStarted: () => void }) {
+export function LandingHeader({ onGetStarted, showNav = false }: { onGetStarted: () => void; showNav?: boolean }) {
   return (
-    <header className="sticky top-0 z-40 bg-[rgba(246,242,233,0.9)] backdrop-blur-[6px]">
-      <div className="mx-auto grid h-[72px] w-full max-w-[1360px] grid-cols-[1fr_auto] items-center px-4 md:h-[82.5px] md:grid-cols-[1fr_auto_1fr] md:px-7">
+    <header className="sticky top-0 z-40 bg-[var(--lp-cream)]/90 backdrop-blur-[6px]">
+      <div
+        className={`mx-auto grid h-[72px] w-full max-w-[1360px] grid-cols-[1fr_auto] items-center px-4 md:h-[82.5px] md:px-7 ${showNav ? "md:grid-cols-[1fr_auto_1fr]" : ""}`}
+      >
         <Link href="/" aria-label="Sendzz home" className="justify-self-start">
-          <Image src="/landing/logo.svg" alt="Sendzz" width={101.4} height={30} priority />
+          <Wordmark width={101.4} height={30} />
         </Link>
 
-        <nav className="hidden items-center gap-7 md:flex" aria-label="Main">
-          {NAV.map((n) => (
-            <a
-              key={n.href}
-              href={n.href}
-              className="text-[15px] font-medium leading-[22.5px] transition-colors duration-150 hover:text-[#00a857]"
-            >
-              {n.label}
-            </a>
-          ))}
-        </nav>
+        {showNav && (
+          <nav className="hidden items-center gap-7 md:flex" aria-label="Main">
+            {NAV.map((n) => (
+              <a
+                key={n.href}
+                href={n.href}
+                className="text-[15px] font-medium leading-[22.5px] transition-colors duration-150 hover:text-[var(--lp-link)]"
+              >
+                {n.label}
+              </a>
+            ))}
+          </nav>
+        )}
 
-        <button
-          type="button"
-          onClick={onGetStarted}
-          className="h-[46.5px] justify-self-end rounded-full bg-[var(--lp-green)] px-[22px] text-[15px] font-semibold leading-[22.5px] transition-[scale] duration-150 active:scale-[0.97]"
-        >
-          Get started
-        </button>
+        <div className="flex items-center gap-2 justify-self-end">
+          <ThemeToggle />
+          <button
+            type="button"
+            onClick={onGetStarted}
+            className="lp-on-green h-[46.5px] rounded-full px-[22px] text-[15px] font-semibold leading-[22.5px] text-[var(--lp-ink)] transition-[scale] duration-150 active:scale-[0.97]"
+          >
+            Get started
+          </button>
+        </div>
       </div>
     </header>
   );
 }
 
+/**
+ * The header for every other public page (Explore, Privacy, Terms, 404), without the section
+ * links: "Get started"
+ * opens the dashboard when signed in and sign-in otherwise. The landing page wires its own,
+ * richer flow.
+ */
+export function PublicHeader() {
+  const { authenticated } = usePrivy();
+  const { signIn } = useSignIn();
+  const router = useRouter();
+  return <LandingHeader onGetStarted={() => (authenticated ? router.push("/dashboard") : signIn())} />;
+}
+
 const FOOTER_LINKS = [
-  { label: "Security", href: "/security" },
-  { label: "Terms", href: "/privacy" },
+  { label: "Terms", href: "/terms" },
   { label: "Privacy", href: "/privacy" },
 ];
 
@@ -66,19 +90,13 @@ const SOCIAL = [
 ];
 
 // A 44px tap area on touch screens; text-height on desktop, where a pointer is precise.
-const linkTone = "inline-flex items-center transition-colors duration-150 hover:text-[#00a857] max-md:min-h-11";
+const linkTone = "inline-flex items-center transition-colors duration-150 hover:text-[var(--lp-link)] max-md:min-h-11";
 
 export function LandingFooter() {
   return (
-    <footer className="border-t border-[#ddd6c7]">
+    <footer className="border-t border-[var(--lp-rule)]">
       <div className="mx-auto flex w-full max-w-[1360px] flex-col items-center gap-6 px-4 pb-28 pt-10 md:grid md:min-h-[107px] md:grid-cols-[1fr_auto_1fr] md:gap-0 md:px-7 md:py-0">
-        <Image
-          src="/landing/logo.svg"
-          alt="Sendzz"
-          width={87.88}
-          height={26}
-          className="md:justify-self-start"
-        />
+        <Wordmark width={87.88} height={26} className="md:justify-self-start" />
         <nav
           className="flex flex-wrap items-center justify-center gap-x-6 gap-y-0 text-[14px] leading-5 text-[var(--lp-body)] md:gap-y-2"
           aria-label="Footer"
@@ -97,9 +115,6 @@ export function LandingFooter() {
               </a>
             ))}
           </span>
-          <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className={linkTone}>
-            Support
-          </a>
         </nav>
         <p className="text-[14px] leading-5 text-[var(--lp-body)] md:justify-self-end">
           Copyright © {new Date().getFullYear()} Stallions Lab Global Limited

@@ -12,8 +12,9 @@ import {
   getCurrencyFlag,
 } from '@/lib/currency-config';
 import { useCurrencies, type CurrencyScope } from '@/lib/hooks/useCurrencies';
-import { ChevronDown, Loader2, Search } from 'lucide-react';
+import { ChevronDown, Search } from 'lucide-react';
 import * as React from 'react';
+import { Skeleton } from '@/components/ui/skeleton';
 
 // When includeUsd is true, onChange can receive 'USD' | FiatCurrencyCode
 // When includeUsd is false, onChange only receives FiatCurrencyCode
@@ -67,17 +68,7 @@ export function CurrencySelector({
 
   if (isLoading && !currencies) {
     return (
-      <div
-        className="flex items-center justify-center rounded-full"
-        style={{
-          width: isSmall ? 60 : 70,
-          height: isSmall ? 24 : 28,
-          background: 'var(--muted)',
-          border: '1px solid var(--border)',
-        }}
-      >
-        <Loader2 className="w-3 h-3 animate-spin opacity-40" />
-      </div>
+      <Skeleton role="status" aria-label="Loading currencies" aria-hidden={false} className={isSmall ? 'h-8 w-16' : 'h-10 w-20'} />
     );
   }
 
@@ -87,47 +78,31 @@ export function CurrencySelector({
         <button
           type="button"
           title={`Select currency (currently ${selected})`}
-          className="flex items-center gap-1.5 rounded-full font-bold transition-all hover:opacity-80 active:scale-95 outline-none"
-          style={{
-            padding: isSmall ? '4px 10px 4px 8px' : '5px 12px 5px 10px',
-            fontSize: isSmall ? '11px' : '12px',
-            background: 'var(--muted)',
-            border: '1px solid var(--border)',
-            color: 'var(--foreground)',
-            lineHeight: 1,
-          }}
+          className={cn(
+            'flex items-center gap-2 rounded-full bg-[var(--lp-cream)] font-semibold text-[var(--lp-ink)] outline-none transition-[scale,background-color] duration-150 hover:bg-[var(--lp-soft-2)] active:scale-95',
+            isSmall ? 'h-8 px-3 text-[13px]' : 'h-10 px-4 text-[15px]',
+          )}
         >
-          <span>{flag}</span>
-          <span className="uppercase tracking-wider">{selected}</span>
-          <ChevronDown
-            style={{
-              width: isSmall ? 12 : 14,
-              height: isSmall ? 12 : 14,
-              opacity: 0.4,
-            }}
-          />
+          <span className="text-[1.15em] leading-none">{flag}</span>
+          <span>{selected}</span>
+          <ChevronDown className="size-4 opacity-50" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        className="w-56 p-2 rounded-2xl bg-popover border-border shadow-2xl space-y-1"
-      >
-        <div className="relative mb-2">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+      <DropdownMenuContent align="end" className="w-64 space-y-1 p-2">
+        <label className="mb-1 flex h-10 items-center gap-2 rounded-full bg-[var(--lp-cream)] px-3">
+          <Search className="size-3.5 shrink-0 text-[var(--lp-muted)]" />
           <input
             autoFocus
-            placeholder="Search currencies..."
+            placeholder="Search currencies"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full h-9 pl-8 pr-3 bg-white/5 border border-white/5 rounded-xl text-base md:text-[11px] font-bold uppercase tracking-wider outline-none focus:border-white/10 transition-all"
+            className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-[var(--lp-muted)] md:text-[14px]"
           />
-        </div>
+        </label>
 
-        <div className="max-h-[240px] overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+        <div className="custom-scrollbar max-h-[260px] space-y-0.5 overflow-y-auto pr-1">
           {filteredOptions.length === 0 ? (
-            <p className="text-[10px] text-center py-4 font-bold uppercase tracking-widest opacity-30">
-              No results
-            </p>
+            <p className="py-5 text-center text-[14px] text-[var(--lp-muted)]">No currency matches that.</p>
           ) : (
             filteredOptions.map((opt) => (
               <DropdownMenuItem
@@ -140,26 +115,18 @@ export function CurrencySelector({
                   }
                 }}
                 className={cn(
-                  'flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all',
-                  selected === opt.code
-                    ? 'bg-accent/10 text-accent'
-                    : 'hover:bg-white/5',
+                  'flex cursor-pointer items-center justify-between gap-3 rounded-[14px] px-3 py-2.5 transition-colors',
+                  selected === opt.code ? 'bg-[var(--lp-cream)]' : 'hover:bg-[var(--lp-cream)]',
                 )}
               >
-                <div className="flex items-center gap-3">
-                  <span className="text-lg">{opt.flag}</span>
-                  <div className="flex flex-col">
-                    <span className="text-[11px] font-black uppercase tracking-wider leading-none">
-                      {opt.code}
-                    </span>
-                    <span className="text-[9px] font-bold opacity-40 uppercase tracking-widest mt-1">
-                      {opt.name}
-                    </span>
-                  </div>
-                </div>
-                {selected === opt.code && (
-                  <div className="w-1.5 h-1.5 rounded-full bg-accent shadow-[0_0_8px_rgba(0,232,122,0.5)]" />
-                )}
+                <span className="flex min-w-0 items-center gap-3">
+                  <span className="text-[20px] leading-none">{opt.flag}</span>
+                  <span className="min-w-0">
+                    <span className="block text-[14px] font-semibold leading-tight">{opt.code}</span>
+                    <span className="block truncate text-[12px] text-[var(--lp-muted)]">{opt.name}</span>
+                  </span>
+                </span>
+                {selected === opt.code && <span className="size-2 shrink-0 rounded-full bg-[var(--lp-link)]" />}
               </DropdownMenuItem>
             ))
           )}

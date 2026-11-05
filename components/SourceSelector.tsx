@@ -101,33 +101,31 @@ export function SourceSelector({
   };
 
   return (
-    <div className="rounded-2xl bg-white/3 border border-white/8 overflow-hidden">
+    <div className="overflow-hidden rounded-[22px] bg-[var(--lp-surface)] shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.08)]">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left"
+        className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left"
       >
         <div className="min-w-0">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-brand-secondary/35">
-            Source
-          </p>
-          <p className="text-sm font-semibold text-brand-secondary truncate">{summary}</p>
+          <p className="text-[14px] text-[var(--lp-muted)]">Pay from</p>
+          <p className="truncate text-[15px] font-semibold text-[var(--lp-ink)]">{summary}</p>
         </div>
         <ChevronDown
           className={cn(
-            'w-4 h-4 text-brand-secondary/40 transition-transform shrink-0',
+            'size-4 shrink-0 text-[var(--lp-ink)] transition-transform',
             open && 'rotate-180',
           )}
         />
       </button>
 
       {open && (
-        <div className="px-3 pb-3 space-y-1.5 border-t border-white/6 pt-2">
+        <div className="space-y-1 border-t border-[var(--lp-line)] px-2 pb-2 pt-2">
           {/* Auto */}
           <OptionRow
             selected={value.mode === 'auto'}
             onClick={() => onChange({ mode: 'auto' })}
-            icon={<Sparkles className="w-4 h-4 text-accent" />}
+            icon={<Sparkles className="size-4 text-[var(--lp-good)]" />}
             title="Automatic"
             subtitle="Let Sendzz choose the best route"
           />
@@ -138,7 +136,7 @@ export function SourceSelector({
             const bal = `$${(balances[c] ?? 0).toFixed(2)}`;
             const subtitle = eligible
               ? `${bal} available`
-              : `${bal} — not enough on its own`;
+              : `${bal}, not enough on its own`;
             return (
               <OptionRow
                 key={c}
@@ -156,10 +154,8 @@ export function SourceSelector({
           {allowConsolidate && allConsolidatable.length > 1 && (
             <div
               className={cn(
-                'rounded-xl border transition-colors',
-                value.mode === 'consolidate'
-                  ? 'border-accent/30 bg-accent/5'
-                  : 'border-white/8',
+                'rounded-[16px] transition-colors',
+                value.mode === 'consolidate' ? 'bg-[var(--lp-good-soft)]' : 'hover:bg-[var(--lp-cream)]',
               )}
             >
               <OptionRow
@@ -167,7 +163,7 @@ export function SourceSelector({
                 onClick={() =>
                   onChange({ mode: 'consolidate', from: allConsolidatable })
                 }
-                icon={<Layers className="w-4 h-4 text-brand-secondary/60" />}
+                icon={<Layers className="size-4 text-[var(--lp-ink)]" />}
                 title="Combine networks"
                 subtitle="Gather funds from the networks you pick"
                 flush
@@ -182,23 +178,23 @@ export function SourceSelector({
                         type="button"
                         key={c}
                         onClick={() => toggleConsolidateChain(c)}
-                        className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-white/5 transition-colors"
+                        className="flex w-full items-center gap-2.5 rounded-[12px] px-2 py-2 transition-colors hover:bg-[var(--lp-surface)]/60"
                       >
                         <span
                           className={cn(
-                            'w-4 h-4 rounded-[5px] border flex items-center justify-center shrink-0',
+                            'flex size-[18px] shrink-0 items-center justify-center rounded-[6px] border-2',
                             checked
-                              ? 'bg-accent border-accent'
-                              : 'border-white/20',
+                              ? 'border-[var(--lp-ink)] bg-[var(--lp-ink)]'
+                              : 'border-[rgb(var(--lp-hair)/0.35)] bg-[var(--lp-surface)]',
                           )}
                         >
-                          {checked && <Check className="w-3 h-3 text-background" />}
+                          {checked && <Check className="size-3 text-[var(--lp-cream)]" />}
                         </span>
                         <ChainLogo chain={c} size={16} />
-                        <span className="text-xs font-semibold text-brand-secondary flex-1 text-left">
+                        <span className="flex-1 text-left text-[14px] font-semibold text-[var(--lp-ink)]">
                           {NAME(c)}
                         </span>
-                        <span className="text-[11px] tabular-nums text-brand-secondary/40">
+                        <span className="text-[13px] tabular-nums text-[var(--lp-body)]">
                           ${balOf(c).toFixed(2)}
                         </span>
                       </button>
@@ -206,15 +202,13 @@ export function SourceSelector({
                   })}
                   <p
                     className={cn(
-                      'text-[10px] font-bold uppercase tracking-widest pt-1 px-2',
-                      selectedSum + 1e-9 >= requiredAmount
-                        ? 'text-accent/70'
-                        : 'text-amber-400/80',
+                      'px-2 pt-1 text-[13px] font-semibold',
+                      selectedSum + 1e-9 >= requiredAmount ? 'text-[var(--lp-good)]' : 'text-[var(--lp-warn)]',
                     )}
                   >
                     Selected: ${selectedSum.toFixed(2)}
                     {selectedSum + 1e-9 < requiredAmount &&
-                      ` — need $${requiredAmount.toFixed(2)}`}
+                      ` of the $${requiredAmount.toFixed(2)} needed`}
                   </p>
                 </div>
               )}
@@ -249,23 +243,23 @@ function OptionRow({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors',
-        !flush && (selected ? 'bg-accent/10 border border-accent/25' : 'border border-transparent hover:bg-white/5'),
-        disabled && 'opacity-40 cursor-not-allowed',
+        'flex w-full items-center gap-3 rounded-[16px] px-3 py-3 text-left transition-colors',
+        !flush && (selected ? 'bg-[var(--lp-good-soft)]' : 'hover:bg-[var(--lp-cream)]'),
+        disabled && 'cursor-not-allowed hover:bg-transparent',
       )}
     >
       <span className="shrink-0">{icon}</span>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-brand-secondary truncate">{title}</p>
-        <p className="text-[11px] text-brand-secondary/40 truncate">{subtitle}</p>
+        <p className={cn('truncate text-[15px] font-semibold', disabled ? 'text-[var(--lp-muted)]' : 'text-[var(--lp-ink)]')}>{title}</p>
+        <p className={cn('truncate text-[13px]', disabled ? 'text-[var(--lp-warn)]' : 'text-[var(--lp-body)]')}>{subtitle}</p>
       </div>
       <span
         className={cn(
-          'w-4 h-4 rounded-full border flex items-center justify-center shrink-0',
-          selected ? 'border-accent' : 'border-white/20',
+          'flex size-5 shrink-0 items-center justify-center rounded-full border-2',
+          selected ? 'border-[var(--lp-ink)]' : disabled ? 'border-[rgb(var(--lp-hair)/0.15)]' : 'border-[rgb(var(--lp-hair)/0.35)]',
         )}
       >
-        {selected && <span className="w-2 h-2 rounded-full bg-accent" />}
+        {selected && <span className="size-2.5 rounded-full bg-[var(--lp-ink)]" />}
       </span>
     </button>
   );

@@ -4,6 +4,7 @@ import { PrivyProvider } from '@privy-io/react-auth';
 import { createSolanaRpc, createSolanaRpcSubscriptions } from '@solana/kit';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
+import { SignInProvider } from '@/components/auth/SignIn';
 import { baseSepolia } from 'viem/chains';
 import { IS_TESTNET, NETWORK } from '@/lib/network';
 import { chain as homeChain } from '@/lib/web3/config';
@@ -70,8 +71,9 @@ export function Providers({ children }: { children: ReactNode }) {
         config={{
           loginMethods: ['email'],
           appearance: {
-            theme: 'dark',
-            accentColor: '#00e87a',
+            // The cream brand: cream ground, ink buttons (green on white text would not read).
+            theme: '#f6f2e9',
+            accentColor: '#111a13',
             showWalletLoginFirst: false,
           },
           embeddedWallets: {
@@ -133,16 +135,18 @@ export function Providers({ children }: { children: ReactNode }) {
       >
         <BalanceVisibilityProvider>
           <SessionActivityWatcher />
-          {children}
+          <SignInProvider>{children}</SignInProvider>
           <Toaster
             position="top-right"
             toastOptions={{
               style: {
-                background: 'rgba(10, 10, 11, 0.8)',
-                backdropFilter: 'blur(16px)',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
-                color: '#f8f8f6',
+                background: 'var(--lp-surface)',
+                border: 'none',
+                boxShadow: '0 0 0 1px rgb(var(--lp-hair) / 0.08), 0 20px 48px -16px rgb(17 26 19 / 0.35)',
+                color: 'var(--lp-ink)',
                 borderRadius: '20px',
+                fontFamily: 'var(--font-geist), system-ui, sans-serif',
+                fontSize: '14px',
               },
             }}
           />

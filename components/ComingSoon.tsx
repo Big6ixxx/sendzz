@@ -12,7 +12,7 @@
  * balances and earnings, and a feature that is not open should not be doing that work or
  * making those calls.
  */
-import { Clock } from 'lucide-react';
+import { ArrowLeft, Clock } from 'lucide-react';
 import Link from 'next/link';
 
 export function ComingSoon({
@@ -23,25 +23,21 @@ export function ComingSoon({
   body: string;
 }) {
   return (
-    <div className="flex items-center justify-center min-h-[60vh] px-4">
-      <div className="card-glass border border-white/10 rounded-2xl max-w-md w-full p-8 text-center space-y-5">
-        <div className="w-14 h-14 mx-auto rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center">
-          <Clock className="w-6 h-6 text-accent/70" />
-        </div>
-
-        <div className="space-y-2">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-accent/60">
-            Coming soon
-          </p>
-          <h1 className="text-2xl font-black tracking-tight text-brand-secondary">{title}</h1>
-        </div>
-
-        <p className="text-sm text-brand-secondary/55 leading-relaxed">{body}</p>
-
-        <Link href="/dashboard" className="btn-secondary inline-flex h-11 px-6 items-center">
-          Back to dashboard
+    <div className="flex min-h-[60vh] items-center justify-center">
+      <section className="lp-card w-full max-w-[480px] rounded-[32px] p-7 text-center sm:p-10">
+        <span className="mx-auto grid size-16 place-items-center rounded-full bg-[var(--lp-sand)] text-[var(--lp-ink)]">
+          <Clock className="size-7" />
+        </span>
+        <p className="lp-mono mt-6 text-[12px] uppercase text-[var(--lp-muted)]">Coming soon</p>
+        <h1 className="lp-display mt-2 text-[clamp(32px,7vw,44px)] leading-[0.95] tracking-[-0.045em]">{title}</h1>
+        <p className="mx-auto mt-4 max-w-[360px] text-[15px] leading-[1.55] text-[var(--lp-body)]">{body}</p>
+        <Link
+          href="/dashboard"
+          className="mt-7 inline-flex h-12 items-center gap-2 rounded-full bg-[var(--lp-ink)] px-6 text-[15px] font-semibold text-[var(--lp-cream)]"
+        >
+          <ArrowLeft className="size-4" /> Back to overview
         </Link>
-      </div>
+      </section>
     </div>
   );
 }

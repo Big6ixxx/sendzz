@@ -421,7 +421,7 @@ export function useTransfer({
       if (!recipientAddress) {
         pendingClaim = true;
         setIsPendingClaim(true);
-        setStatus("New to Sendzz — setting up a secure wallet for them…");
+        setStatus("They're new to Sendzz. Setting up a secure wallet for them…");
 
         const res = await fetch("/api/wallets/pre-generate", {
           method: "POST",

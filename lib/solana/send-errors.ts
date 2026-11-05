@@ -24,12 +24,12 @@ export interface SolanaSendError {
 
 export const SOLANA_SEND_MESSAGES: Record<SolanaSendErrorCode, string> = {
   blockhash_expired:
-    'This transfer took too long to confirm and expired. Nothing was sent — please try again.',
+    'This transfer took too long to confirm and expired. Nothing was sent, so please try again.',
   insufficient_usdc: "Your Solana USDC balance isn't enough for this transfer (including fees).",
   sponsor_unfunded:
-    "We couldn't cover the Solana network fee right now. Nothing was sent — please try again shortly.",
+    "We couldn't cover the Solana network fee right now. Nothing was sent, so please try again shortly.",
   already_landed:
-    "This transfer was already submitted. Please don't send it again — it will appear in your history shortly.",
+    "This transfer was already submitted. Please don't send it again; it will appear in your history shortly.",
 };
 
 export function classifySolanaSendError(raw: string): SolanaSendError | null {

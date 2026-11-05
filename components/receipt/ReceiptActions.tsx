@@ -9,20 +9,15 @@ import { useState } from 'react';
 interface ReceiptActionsProps {
   data: ReceiptData;
   className?: string;
-  variant?: 'dark' | 'light';
+  /** `cream`: rounded pills for the cream brand screens. Only the buttons change, never the receipt. */
 }
 
-export function ReceiptActions({ data, className, variant = 'dark' }: ReceiptActionsProps) {
+export function ReceiptActions({ data, className }: ReceiptActionsProps) {
   const [loadingPdf, setLoadingPdf] = useState(false);
   const [loadingImg, setLoadingImg] = useState(false);
 
-  const base =
-    'flex-1 h-10 rounded-xl flex items-center justify-center gap-1.5 font-bold text-[10px] uppercase tracking-widest transition-all outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50';
-
-  const dark = 'bg-white/6 text-brand-secondary border border-white/10 hover:bg-white/10';
-  const light = 'bg-muted text-foreground border border-border hover:bg-muted/60';
-
-  const cls = cn(base, variant === 'dark' ? dark : light);
+  const cls =
+    'flex-1 h-11 rounded-full flex items-center justify-center gap-2 bg-[var(--lp-surface)] text-[14px] font-semibold text-[var(--lp-ink)] shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.12)] transition-shadow hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.4)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--lp-ink)] disabled:opacity-50';
 
   const handlePDF = async () => {
     setLoadingPdf(true);

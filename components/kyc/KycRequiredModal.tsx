@@ -17,8 +17,9 @@
  * able to close this and type a smaller one.
  */
 
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FlowButton, FlowDialog } from "@/components/flow/ui";
 import { useRouter } from "next/navigation";
+import { formatMoney } from "@/lib/format-usdc";
 
 export interface KycBlock {
   /** The guard's own wording, already written for the user. */
@@ -27,9 +28,6 @@ export interface KycBlock {
   allowanceRemaining?: number;
   allowanceTotal?: number;
 }
-
-const money = (n: number) =>
-  n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export function KycRequiredModal({
   block,
@@ -66,86 +64,59 @@ export function KycRequiredModal({
   };
 
   return (
-    <Dialog open={!!block} onOpenChange={(v) => !v && onClose()}>
-      {/*
-        No X. "Not now" / "Change amount" is the same action stated in words, and two ways to
-        dismiss one dialog is one more than it needs — the icon only repeats what the button
-        already says, less clearly. Escape and clicking outside still close it, so nobody is
-        trapped by the button being the only visible exit.
-      */}
-      <DialogContent className="max-w-[26rem]" showCloseButton={false}>
-        <DialogHeader>
-          <DialogTitle className="text-lg font-semibold text-brand-secondary">
-            {isSpent ? "Verify to keep withdrawing" : "That is more than you have left"}
-          </DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-6">
-          {hasFigures && (
-            <div className="space-y-3">
-              {/* The one number that matters, set as the headline rather than a caption. */}
-              <div className="flex items-baseline gap-2">
-                <span
-                  className="font-display text-[2.75rem] leading-none font-bold tracking-tighter tabular-nums text-brand-secondary"
-                  style={{ color: isSpent ? "#ef4444" : undefined }}
-                >
-                  ${money(remaining)}
-                </span>
-                <span className="text-sm text-brand-secondary/40">
-                  of ${total} left
-                </span>
-              </div>
-
-              {/* A hairline, not a bar in a box: it states a proportion without becoming furniture. */}
+    // No X: "Not now" / "Change amount" says the same thing in words. Escape and clicking outside
+    // still close it, so nobody is trapped.
+    <FlowDialog
+      open={!!block}
+      onClose={onClose}
+      showClose={false}
+      eyebrow="Withdrawal limit"
+      title={isSpent ? "Verify to" : "That's more than"}
+      italic={isSpent ? "keep withdrawing." : "you have left."}
+    >
+      <div className="space-y-5">
+        {hasFigures && (
+          <div className="space-y-3">
+            {/* The one number that matters, set as the headline rather than a caption. */}
+            <p className="flex items-baseline gap-2">
+              <span className={`lp-display text-[48px] leading-none tracking-[-0.045em] tabular-nums ${isSpent ? "text-[var(--lp-danger)]" : ""}`}>
+                ${formatMoney(remaining)}
+              </span>
+              <span className="text-[15px] text-[var(--lp-muted)]">of ${total} left</span>
+            </p>
+            <div
+              className="h-2 w-full overflow-hidden rounded-full bg-[var(--lp-soft)]"
+              role="progressbar"
+              aria-valuenow={Math.round(pct)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label="Withdrawal allowance used"
+            >
               <div
-                className="h-px w-full bg-white/10 overflow-hidden"
-                role="progressbar"
-                aria-valuenow={Math.round(pct)}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-label="Withdrawal allowance used"
-              >
-                <div
-                  className="h-full transition-[width] duration-500 ease-out"
-                  style={{
-                    width: `${pct}%`,
-                    background: isSpent ? "#ef4444" : "#f59e0b",
-                  }}
-                />
-              </div>
+                className={`h-full rounded-full transition-[width] duration-500 ease-out ${isSpent ? "bg-[#a1462c]" : "bg-[#e0a526]"}`}
+                style={{ width: `${pct}%` }}
+              />
             </div>
-          )}
+          </div>
+        )}
 
-          <p className="text-sm text-brand-secondary/60 leading-relaxed">
-            {block?.message}
-          </p>
+        <p className="text-[15px] leading-[1.55] text-[var(--lp-body)]">{block?.message}</p>
+        <p className="text-[14px] leading-[1.55] text-[var(--lp-muted)]">
+          {isSpent
+            ? "The allowance is one-off, so it will not reset. Verifying is a single check that usually takes a few minutes, and it removes the limit for good."
+            : "You can withdraw a smaller amount now, or verify once and the limit stops applying at all."}
+        </p>
 
-          <p className="text-[13px] text-brand-secondary/40 leading-relaxed">
-            {isSpent
-              ? "The allowance is one-off, so it will not reset. Verifying is a single check that usually takes a few minutes, and it removes the limit for good."
-              : "You can withdraw a smaller amount now, or verify once and the limit stops applying at all."}
-          </p>
-        </div>
-
-        {/*
-          Not two matching buttons: verifying is the point of this dialog, dismissing is the way
-          out. Same height and pill shape as the primary so they read as a pair, but unfilled —
-          the weight difference is what states the priority. It was a bare text link, which is
-          the other failure: with no hit area and no hover surface it read as stray copy rather
-          than something to press.
-        */}
-        <div className="flex items-center gap-3 pt-2">
-          <button
-            onClick={onClose}
-            className="h-14 flex-1 rounded-full font-semibold text-brand-secondary/50 transition-all hover:text-brand-secondary hover:bg-white/[0.06] active:scale-[0.98]"
-          >
+        {/* Verifying is the point of this dialog; dismissing is the way out. Same shape, different weight. */}
+        <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row">
+          <FlowButton tone="quiet" onClick={onClose} className="sm:flex-1">
             {isSpent ? "Not now" : "Change amount"}
-          </button>
-          <button onClick={startVerification} className="btn-primary flex-[1.4]">
+          </FlowButton>
+          <FlowButton onClick={startVerification} className="sm:flex-[1.4]">
             Verify identity
-          </button>
+          </FlowButton>
         </div>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </FlowDialog>
   );
 }

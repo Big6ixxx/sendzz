@@ -4,8 +4,8 @@
   "description": "Send USDC instantly by email with zero gas fees.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#07070a",
-  "theme_color": "#00e87a",
+  "background_color": "#f6f2e9",
+  "theme_color": "#f6f2e9",
   "orientation": "portrait-primary",
   "scope": "/",
   "icons": [

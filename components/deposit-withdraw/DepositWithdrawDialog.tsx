@@ -1,21 +1,15 @@
 "use client";
 
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { ConnectedWallet } from "@privy-io/react-auth";
-import { ArrowDownLeft, ArrowUpRight, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { DepositForm } from "./DepositForm";
 import { ReceiveCryptoFlow } from "./ReceiveCryptoFlow";
 import { FlowType, useDepositWithdraw } from "./useDepositWithdraw";
 import { WithdrawForm } from "./WithdrawForm";
 import { TwoFactorModal } from "@/components/TwoFactorModal";
+import { FlowFrameProvider, FlowTabs } from "@/components/flow/ui";
 import { type ChainBalances, type SolanaSource } from "@/lib/web3/routing";
 
 type DepositTab = "fiat" | "usdc";
@@ -157,101 +151,58 @@ export function DepositWithdrawDialog({
           onEscapeKeyDown={(e) => {
             if (isBusy || withdrawHook.twoFaModalOpen) e.preventDefault();
           }}
-          className="sm:max-w-md p-0 overflow-hidden border-none rounded-4xl shadow-[0_32px_80px_rgba(0,0,0,0.5)] card-glass bg-brand-primary/90 backdrop-blur-3xl flex flex-col max-h-[90dvh]"
+          className={cn(
+            // Phones: a full-screen sheet. From sm up: a tall card, wide enough on desktop for the
+            // form beside its forest panel (see FlowFrame).
+            "gap-0 p-0 overflow-hidden flex flex-col",
+            "max-sm:inset-0 max-sm:top-0 max-sm:left-0 max-sm:translate-x-0 max-sm:translate-y-0 max-sm:max-w-none max-sm:h-dvh max-sm:max-h-none max-sm:rounded-none",
+            "sm:h-[min(800px,calc(100dvh-3rem))] sm:max-w-[600px]",
+            "lg:max-w-[1000px]",
+          )}
         >
-          <DialogHeader className="p-5 sm:p-8 pb-0 sm:pb-0 flex flex-row items-center justify-between gap-3">
-            <div className="space-y-1.5 min-w-0">
-              <DialogTitle className="text-2xl sm:text-4xl font-display font-bold tracking-tight text-brand-secondary flex items-center gap-3">
-                <div
-                  className={cn(
-                    "w-10 h-10 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center shrink-0",
-                    type === "deposit"
-                      ? "bg-accent/10 text-accent border border-accent/20"
-                      : "bg-blue-400/10 text-blue-400 border border-blue-400/20",
-                  )}
-                >
-                  {type === "deposit" ? (
-                    <ArrowDownLeft className="w-6 h-6" />
-                  ) : (
-                    <ArrowUpRight className="w-6 h-6" />
-                  )}
-                </div>
-                {type === "deposit" ? "Deposit" : "Transfer to Bank"}
-              </DialogTitle>
-              <DialogDescription className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-secondary/30">
-                {type === "deposit"
-                  ? "Fund your digital wallet"
-                  : "Send money to a bank account"}
-              </DialogDescription>
-            </div>
-            {/*
-              Round, borderless and quiet. It was a bordered rounded-square panel, which reads as
-              a peer of the primary action rather than a way out of it — a filled box competing
-              with the header beside it. Circular with no border is the shape people already read
-              as "close", and it leaves the emphasis on the flow.
-            */}
-            <button
-              onClick={handleClose}
-              aria-label="Close"
-              className="grid size-9 shrink-0 place-items-center rounded-full text-brand-secondary/35 transition-all hover:text-brand-secondary hover:bg-white/[0.07] active:scale-90 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent/50"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </DialogHeader>
+          {/* Radix wants a title and description for screen readers; the visible header is the
+              brand's (FlowFrame), so these stay for assistive tech only. */}
+          <DialogTitle className="sr-only">{type === "deposit" ? "Add money" : "Send money to a bank"}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {type === "deposit" ? "Fund your balance from a bank or a crypto wallet" : "Send money to a bank or mobile money account"}
+          </DialogDescription>
 
-          <div className="flex-1 flex flex-col min-h-0">
-            {type === "deposit" && (
-              <div className="px-5 sm:px-8 pt-5 sm:pt-8 pb-4 shrink-0">
-                {/* Tab Switcher */}
-                <div className="flex bg-white/5 p-1 rounded-2xl border border-white/5">
-                  <button
-                    onClick={() => setDepositTab("fiat")}
-                    className={cn(
-                      "flex-1 py-3 text-[10px] font-bold uppercase tracking-[0.2em] rounded-xl transition-all",
-                      depositTab === "fiat"
-                        ? "bg-accent text-[#07070a] shadow-lg"
-                        : "text-brand-secondary/40 hover:text-brand-secondary/60",
-                    )}
-                  >
-                    Local Bank
-                  </button>
-                  <button
-                    onClick={() => setDepositTab("usdc")}
-                    className={cn(
-                      "flex-1 py-3 text-[10px] font-bold uppercase tracking-[0.2em] rounded-xl transition-all",
-                      depositTab === "usdc"
-                        ? "bg-accent text-[#07070a] shadow-lg"
-                        : "text-brand-secondary/40 hover:text-brand-secondary/60",
-                    )}
-                  >
-                    USDC Deposit
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div
-              className={cn(
-                "px-5 sm:px-8 pb-5 sm:pb-8 overflow-y-auto flex-1",
-                type === "withdraw" && "pt-5 sm:pt-8",
-              )}
-            >
-              {type === "deposit" ? (
-                depositTab === "fiat" ? (
-                  <DepositForm hook={depositHook} />
-                ) : (
-                  <ReceiveCryptoFlow
-                    evmAddress={userAddress}
-                    solanaAddress={solanaAddress}
-                    stellarAddress={stellarAddress}
-                    stellarTrustlineReady={stellarTrustlineReady}
+          <FlowFrameProvider
+            value={{
+              eyebrow: type === "deposit" ? "Deposit" : "Withdraw",
+              title: type === "deposit" ? "Add money" : "Send money",
+              italic: type === "deposit" ? "to your balance." : "to a bank.",
+              onClose: handleClose,
+              closeDisabled: isBusy,
+              tabs:
+                type === "deposit" ? (
+                  <FlowTabs
+                    label="How you're adding money"
+                    options={[
+                      { label: "From your bank", value: "fiat" },
+                      { label: "From a crypto wallet", value: "usdc" },
+                    ]}
+                    value={depositTab}
+                    onChange={setDepositTab}
                   />
-                )
+                ) : undefined,
+            }}
+          >
+            {type === "deposit" ? (
+              depositTab === "fiat" ? (
+                <DepositForm hook={depositHook} />
               ) : (
-                <WithdrawForm hook={withdrawHook} />
-              )}
-            </div>
-          </div>
+                <ReceiveCryptoFlow
+                  evmAddress={userAddress}
+                  solanaAddress={solanaAddress}
+                  stellarAddress={stellarAddress}
+                  stellarTrustlineReady={stellarTrustlineReady}
+                />
+              )
+            ) : (
+              <WithdrawForm hook={withdrawHook} />
+            )}
+          </FlowFrameProvider>
         </DialogContent>
       </Dialog>
 

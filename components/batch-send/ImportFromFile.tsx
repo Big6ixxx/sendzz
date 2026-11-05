@@ -21,18 +21,16 @@ export function ImportFromFile({ onFileSelected }: ImportFromFileProps) {
       <button
         type="button"
         onClick={() => fileRef.current?.click()}
-        className="w-full p-4 rounded-2xl border border-border bg-muted/30 hover:bg-muted/50 transition-all flex items-center gap-4 group"
+        className="lp-card flex w-full items-center gap-3 rounded-[22px] p-4 text-left transition-shadow hover:shadow-[0_0_0_1px_rgb(var(--lp-hair)/0.2)]"
       >
-        <div className="w-12 h-12 bg-background rounded-xl border border-border flex items-center justify-center group-hover:shadow-sm transition-all">
-          <Upload className="w-5 h-5" />
-        </div>
-        <div className="flex-1 text-left">
-          <p className="font-bold text-sm">Import from File</p>
-          <p className="text-[10px] text-muted-foreground uppercase font-bold">
-            CSV or TXT supported
-          </p>
-        </div>
-        <FileText className="w-5 h-5 opacity-20" />
+        <span className="grid size-10 shrink-0 place-items-center rounded-full bg-[var(--lp-cream)]">
+          <Upload className="size-[18px]" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[15px] font-semibold">Import from a file</span>
+          <span className="block text-[13px] text-[var(--lp-muted)]">A CSV or text file with one email per line</span>
+        </span>
+        <FileText className="size-5 shrink-0 opacity-30" />
       </button>
       <input
         ref={fileRef}

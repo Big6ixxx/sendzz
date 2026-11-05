@@ -82,7 +82,7 @@ export function InstallAppPrompt() {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 16, transition: { duration: 0.18 } }}
           transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-          className="fixed bottom-[104px] left-4 right-4 z-50 rounded-[24px] bg-white text-[var(--lp-ink)] shadow-[0_24px_48px_-20px_rgb(17_26_19/0.35),0_0_0_1px_rgb(17_26_19/0.06)] md:bottom-6 md:left-6 md:right-auto md:w-[23rem]"
+          className="fixed bottom-[104px] left-4 right-4 z-50 rounded-[24px] bg-[var(--lp-surface)] text-[var(--lp-ink)] shadow-[0_24px_48px_-20px_rgb(17_26_19/0.35),0_0_0_1px_rgb(var(--lp-hair)/0.06)] md:bottom-6 md:left-6 md:right-auto md:w-[23rem]"
         >
           <button
             onClick={dismiss}
@@ -115,7 +115,7 @@ export function InstallAppPrompt() {
                   { icon: <Check className="size-3.5" />, text: "Tap Add" },
                 ].map((step, i) => (
                   <li key={i} className="flex items-center gap-3">
-                    <span className="grid size-7 shrink-0 place-items-center rounded-full bg-[var(--lp-ink)] text-[var(--lp-green)]">
+                    <span className="grid size-7 shrink-0 place-items-center rounded-full bg-[var(--lp-ink)] text-[var(--lp-on-ink)]">
                       {step.icon}
                     </span>
                     <span className="text-[14px] text-[var(--lp-body)]">{step.text}</span>

@@ -23,19 +23,25 @@ export function useRecipientList({ hook, senderEmail }: UseRecipientListProps) {
       .filter(Boolean);
   };
 
-  const commitInput = React.useCallback(() => {
-    setTimeout(() => {
-      const emails = parseRaw(inputVal);
-      if (emails.length) hook.addRecipients(emails);
-      setInputVal('');
-      setShowSuggestions(false);
-    }, 150);
+  const commitNow = React.useCallback(() => {
+    const emails = parseRaw(inputVal);
+    if (emails.length) hook.addRecipients(emails);
+    setInputVal('');
+    setShowSuggestions(false);
   }, [inputVal, hook]);
+
+  // On blur, a moment's grace: blur fires before the click on a suggestion lands, and committing
+  // at once would take the half-typed text instead of the contact being picked.
+  const commitInput = React.useCallback(() => {
+    setTimeout(commitNow, 150);
+  }, [commitNow]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' || e.key === ',') {
       e.preventDefault();
-      commitInput();
+      // At once, not on the blur delay: whatever is typed next would land in that gap and be
+      // wiped when the delayed commit cleared the field.
+      commitNow();
     } else if (
       e.key === 'Backspace' &&
       inputVal === '' &&

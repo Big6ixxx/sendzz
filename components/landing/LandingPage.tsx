@@ -4,6 +4,7 @@ import { MotionConfig } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
 import { usePrivy } from "@privy-io/react-auth";
+import { useSignIn } from "@/components/auth/SignIn";
 import { InstallAppPrompt } from "@/components/pwa/InstallAppPrompt";
 import { type CorridorFee, useCorridorFee } from "@/lib/hooks/useCorridorFee";
 import { redactEmail } from "@/lib/log";
@@ -73,7 +74,8 @@ function setAfterSignIn(path: string | null) {
 
 export function LandingPage() {
   const ngnFee = useCorridorFee("NGN");
-  const { ready, authenticated, login } = usePrivy();
+  const { ready, authenticated } = usePrivy();
+  const { signIn } = useSignIn();
   const router = useRouter();
 
   // Grab `?ref=` before anything else can navigate away from it — see lib/referrals/client.ts.
@@ -99,15 +101,15 @@ export function LandingPage() {
     if (authenticated) {
       router.push("/dashboard");
     } else {
-      console.log(`[Auto-Login] Pre-filling email in Privy: ${redactEmail(email)}`);
-      login({ prefill: { type: "email", value: email } });
+      console.log(`[Auto-Login] Pre-filling sign-in email: ${redactEmail(email)}`);
+      signIn({ email });
     }
-  }, [ready, authenticated, login, router]);
+  }, [ready, authenticated, signIn, router]);
 
   const handleAction = () => {
     if (authenticated) return router.push("/dashboard");
     setAfterSignIn(null);
-    login();
+    signIn();
   };
 
   // "Who will you send to first?": straight to a transfer to that email, signing up first if needed.
@@ -116,7 +118,7 @@ export function LandingPage() {
     const target = `/dashboard/transfer?to=${encodeURIComponent(email)}`;
     if (authenticated) return router.push(target);
     setAfterSignIn(target);
-    login();
+    signIn();
   };
 
   return (
@@ -125,7 +127,7 @@ export function LandingPage() {
         <DotField />
 
         <div className="relative">
-          <LandingHeader onGetStarted={handleAction} />
+          <LandingHeader onGetStarted={handleAction} showNav />
           <main>
             <Hero onAction={handleAction} />
             <CurrencyStrip />

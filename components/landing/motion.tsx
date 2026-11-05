@@ -17,6 +17,8 @@ export const MEDIA = {
   fine: "(hover: hover) and (pointer: fine)",
   // Large enough to pin a section and scrub through it without it feeling cramped.
   roomy: "(min-width: 1024px) and (min-height: 760px)",
+  // Tailwind's lg: where a flow's summary moves from under the form to its own column.
+  wide: "(min-width: 1024px)",
 };
 
 export function useMedia(query: string) {
