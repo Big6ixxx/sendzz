@@ -248,6 +248,9 @@ function mapState(state: string): RampOrderStatus {
  */
 const QUOTE_REUSE_MARGIN_MS = 3 * 60_000;
 
+/** How long Bitnob's country list is trusted: a corridor it switches off or on shows within this. */
+const COUNTRIES_CACHE_MS = 10 * 60_000;
+
 /** Is `quote` still usable to settle `amountUsdc` of `currency`? */
 export function isQuoteReusable(
   quote: BitnobPayoutQuote,
@@ -279,13 +282,21 @@ export class BitnobProvider implements RampProvider {
     // (read-only; safe to be primary)
   };
 
-  /** Cached supported-countries response (currency catalogue + corridor → country map). */
+  /**
+   * Cached supported-countries response (currency catalogue + corridor → country map), for
+   * COUNTRIES_CACHE_MS. It was kept for the life of the server, so when Bitnob switched Rwanda
+   * off and back on (2026-11-05) production went on serving the list without it until a restart.
+   */
   private countriesCache: Promise<{ countries: BitnobCountry[] }> | null = null;
+  private countriesAt = 0;
   /** Countries proven payable — see buildPayoutCountries. Cached because it costs a request per country. */
   private payoutCountriesCache: Promise<{ data: RampCountry[] }> | null = null;
+  private payoutCountriesAt = 0;
 
   private countries() {
+    if (this.countriesCache && Date.now() - this.countriesAt > COUNTRIES_CACHE_MS) this.countriesCache = null;
     if (!this.countriesCache) {
+      this.countriesAt = Date.now();
       this.countriesCache = getBitnobClient()
         .getSupportedCountries()
         .catch((e) => {
@@ -395,12 +406,12 @@ export class BitnobProvider implements RampProvider {
   }
 
   /** Build the rail-specific beneficiary from the account fields the app collects. */
-  private buildBeneficiary(
+  private async buildBeneficiary(
     destinationType: string,
     country: string,
     bank: CreateOffRampParams["bank"],
     userEmail?: string,
-  ): BitnobBeneficiary {
+  ): Promise<BitnobBeneficiary> {
     const base = { destination_type: destinationType, country, account_name: bank.accountName };
     switch (destinationType) {
       case "bank":
@@ -444,18 +455,28 @@ export class BitnobProvider implements RampProvider {
         else if (code.includes("QMONEY")) network = "qmoney";
         else if (code.includes("AFRI")) network = "afrimoney";
 
-        const senderName = userEmail ? userEmail.split("@")[0] : bank.accountName || "Sendzz User";
+        // The sender is our user. Bitnob uses these details to locate them (their answer,
+        // 2026-11-05), so they come from the user's verified identity: the name and country on
+        // their ID, and its address, or their country's name when the document shows none.
+        // A user with no verified identity keeps the old stand-in: email name and the payout
+        // country. The lookup failing must not block a payout, least of all a deferred one
+        // whose USDC has already landed, so it falls back the same way.
+        const { brailsSenderFor, countryName } = await import("../brails-sender");
+        const verified = userEmail ? await brailsSenderFor({ email: userEmail }).catch(() => null) : null;
+        const sender = verified
+          ? { account_name: verified.accountName, country: verified.country, address: verified.address }
+          : {
+              account_name: userEmail ? userEmail.split("@")[0] : bank.accountName || "Sendzz User",
+              country,
+              address: countryName(country),
+            };
         return {
           ...base,
           account_number:
             toInternationalMsisdn(bank.accountNumber, country) ?? bank.accountNumber,
           bank_code: bank.bankCode,
           network,
-          sender: {
-            account_name: senderName,
-            country: country,
-            address: `${country} Region`,
-          },
+          sender,
         };
       default:
         // swift/wire/ach/sepa/domestic_gbp need field schemas the app doesn't collect.
@@ -613,7 +634,7 @@ export class BitnobProvider implements RampProvider {
         quote_id: quote.quote_id,
         reference,
         payment_reason: params.bank.memo || "user_withdrawal",
-        beneficiary: this.buildBeneficiary(destinationType, country, params.bank, params.userEmail),
+        beneficiary: await this.buildBeneficiary(destinationType, country, params.bank, params.userEmail),
       });
       // Prefer an address returned by initialize (payout-bound); otherwise use the one above.
       receiveAddress = depositAddressOf(initialized) ?? address.address;
@@ -694,7 +715,7 @@ export class BitnobProvider implements RampProvider {
       quote_id: params.quoteId,
       reference: params.reference,
       payment_reason: params.bank.memo || "user_withdrawal",
-      beneficiary: this.buildBeneficiary(
+      beneficiary: await this.buildBeneficiary(
         corridor.destinationType,
         corridor.country,
         params.bank,
@@ -850,7 +871,9 @@ export class BitnobProvider implements RampProvider {
    * lookup and the beneficiary instead of being guessed from the currency.
    */
   async getPayoutCountries(): Promise<{ data: RampCountry[] }> {
+    if (this.payoutCountriesCache && Date.now() - this.payoutCountriesAt > COUNTRIES_CACHE_MS) this.payoutCountriesCache = null;
     if (!this.payoutCountriesCache) {
+      this.payoutCountriesAt = Date.now();
       this.payoutCountriesCache = this.buildPayoutCountries().catch((e) => {
         this.payoutCountriesCache = null; // allow retry on the next request
         throw e;

@@ -94,7 +94,7 @@ describe('corridors', () => {
     // Networks Brails does not accept in a country it does serve.
     for (const code of ['CM:OM', 'SN:FREE', 'SN:EXPRESSO']) expect(parseBrailsInstitution(code)).toBeNull();
     const { data } = await provider.getPayoutCountries();
-    expect(data.map((c) => c.code)).toEqual(['NG', 'GH', 'KE', 'UG', 'TZ', 'ZM', 'CM', 'CI', 'SN', 'TG', 'ET', 'GM']);
+    expect(data.map((c) => c.code)).toEqual(['NG', 'GH', 'KE', 'UG', 'TZ', 'ZM', 'CM', 'CI', 'SN', 'TG', 'ET', 'RW', 'GM']);
   });
 });
 

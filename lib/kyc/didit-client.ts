@@ -154,6 +154,9 @@ interface DiditDecision extends Partial<Record<(typeof DECISION_FEATURES)[number
     document_number?: string | null;
     personal_number?: string | null;
     nationality?: string | null;
+    /** As printed on the document, when it shows one; many (passports, NIN slips) do not. */
+    address?: string | null;
+    formatted_address?: string | null;
     verification_method?: string | null;
     id_lookup?: {
       source?: string | null;
@@ -218,6 +221,8 @@ export interface DiditVerifiedIdentity {
   personalNumber?: string;
   /** ISO 3166-1 alpha-3. */
   nationality?: string;
+  /** The holder's address, when the document shows one. */
+  address?: string;
   /**
    * Set when the user was verified by a registry lookup instead of a document (Didit's
    * Nigeria NIN/BVN lookup): the register queried, and the number it matched.
@@ -262,6 +267,7 @@ export async function getVerifiedIdentity(
     documentNumber: text(id.document_number),
     personalNumber: text(id.personal_number),
     nationality: text(id.nationality)?.toUpperCase(),
+    address: text(id.formatted_address) ?? text(id.address),
     ...(lookup ? { lookup } : {}),
   };
 }

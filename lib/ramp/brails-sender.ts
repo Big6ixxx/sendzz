@@ -1,8 +1,8 @@
 import 'server-only';
 
 /**
- * The sender Brails asks for on some corridors (the CFA franc countries, DR Congo, Ethiopia,
- * The Gambia, Guinea, Morocco): a first and last name and a country.
+ * The sender a payout partner asks for on some corridors: a first and last name, a country and,
+ * for some (Rwanda on Brails, every mobile money payout on Bitnob), an address.
  *
  * The sender is our user, and the only name we can stand behind is the one Didit verified from
  * their ID document — so the sender exists only for users who passed KYC. Everyone else gets
@@ -16,6 +16,21 @@ export interface BrailsSender {
   accountName: string;
   /** ISO 3166-1 alpha-2. */
   country: string;
+  /**
+   * The address on the ID document, or the sender's country name when it shows none (passports
+   * and NIN slips do not). Bitnob asked for an address that locates the sender; the country is
+   * what we can stand behind until we ask the user for one.
+   */
+  address: string;
+}
+
+/** "NG" → "Nigeria". The code itself if the runtime has no name for it. */
+export function countryName(alpha2: string): string {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'region' }).of(alpha2.toUpperCase()) ?? alpha2;
+  } catch {
+    return alpha2;
+  }
 }
 
 /**
@@ -28,5 +43,9 @@ export async function brailsSenderFor(user: { email?: string; id?: string }): Pr
   if (!identity) return null;
   const country = alpha2FromAlpha3(identity.issuingState);
   if (!country) return null;
-  return { accountName: `${identity.firstName} ${identity.lastName}`.replace(/\s+/g, ' '), country };
+  return {
+    accountName: `${identity.firstName} ${identity.lastName}`.replace(/\s+/g, ' '),
+    country,
+    address: identity.address ?? countryName(country),
+  };
 }

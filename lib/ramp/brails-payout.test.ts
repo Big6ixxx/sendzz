@@ -82,7 +82,7 @@ const vault = vi.hoisted(() => ({ readable: true }));
 vi.mock('@/lib/ramp/beneficiary-vault', () => ({
   openBeneficiary: () => (vault.readable ? { accountNumber: '0123456789', accountName: 'Ada Obi', bankName: 'Kuda' } : null),
 }));
-const sender = vi.hoisted(() => ({ value: null as null | { accountName: string; country: string } }));
+const sender = vi.hoisted(() => ({ value: null as null | { accountName: string; country: string; address?: string } }));
 vi.mock('@/lib/ramp/brails-sender', () => ({ brailsSenderFor: async () => sender.value }));
 vi.mock('@/lib/stellar/privy-wallet', () => ({ ledgerTransaction: async () => ({ state: 'unknown' }) }));
 vi.mock('@/lib/supabase/transactions', () => ({ triggerWithdrawalNotifications: async () => {} }));
@@ -131,11 +131,22 @@ describe('onBrailsDeposit', () => {
   it('gives Brails the phone in its own field where it asks for one (Ethiopia)', async () => {
     seed();
     Object.assign(db.rows[0], { fiat_currency: 'ETB', institution_code: 'ET:ETHIO' });
-    sender.value = { accountName: 'Ada Obi', country: 'NG' };
+    sender.value = { accountName: 'Ada Obi', country: 'NG', address: 'Nigeria' };
     await expect(onBrailsDeposit({ id: 'd1' })).resolves.toMatchObject({ ok: true });
     const { destination } = brails.createBeneficiary.mock.calls[0][0];
-    expect(destination).toMatchObject({ type: 'MOBILEMONEY', network: 'ETHIO', sender: sender.value });
+    // Ethiopia asks for no address, so none is sent.
+    expect(destination).toMatchObject({ type: 'MOBILEMONEY', network: 'ETHIO', sender: { accountName: 'Ada Obi', country: 'NG' } });
+    expect(destination.sender.address).toBeUndefined();
     expect(destination.phoneNumber).toBe(destination.accountNumber);
+  });
+
+  it("sends the sender's address where Brails asks for it (Rwanda)", async () => {
+    seed();
+    Object.assign(db.rows[0], { fiat_currency: 'RWF', institution_code: 'RW:MTN', amount_usdc: 1 });
+    sender.value = { accountName: 'Ada Obi', country: 'NG', address: 'Nigeria' };
+    await expect(onBrailsDeposit({ id: 'd1' })).resolves.toMatchObject({ ok: true });
+    const { destination } = brails.createBeneficiary.mock.calls[0][0];
+    expect(destination).toMatchObject({ network: 'MTN', sender: { accountName: 'Ada Obi', country: 'NG', address: 'Nigeria' } });
   });
 
   it('sends no phone field where Brails does not ask for one', async () => {

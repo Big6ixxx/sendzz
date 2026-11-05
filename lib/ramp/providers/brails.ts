@@ -24,8 +24,9 @@
  * with the USDC already at Brails. Some mobile money corridors (Côte d'Ivoire, Senegal, Togo,
  * Ethiopia, The Gambia) also need the sender's name and country, which come from the
  * user's Didit verification — so those are served only for verified users (`needsSender`), and
- * everyone else goes to the next provider. Rails needing more than that (South Africa and Egypt
- * banks; Rwanda's sender address) are not offered, nor is DR Congo: its published number rule
+ * everyone else goes to the next provider. Rwanda also needs the sender's address: the one on
+ * their ID, or their country's name when it shows none. Rails needing more than that (South
+ * Africa and Egypt banks) are not offered, nor is DR Congo: its published number rule
  * (`^243[02456]\d{8}$`) matches no real DRC mobile number, which all start 8 or 9.
  *
  * Institution codes are `COUNTRY:NETWORK` for mobile money (`GH:MTN`) and `COUNTRY:BANKCODE`
@@ -65,6 +66,8 @@ interface Corridor {
   networks: { code: string; name: string }[];
   /** Brails requires the sender's verified name and country here (see brails-sender). */
   needsSender?: boolean;
+  /** …and their address too (Rwanda). */
+  senderAddress?: boolean;
   /** Brails' own rule for the number, on international digits; it refuses the payout otherwise. */
   numberPattern?: RegExp;
   /** Brails wants the recipient's phone in its own field as well as the account number. */
@@ -191,6 +194,23 @@ const CORRIDORS: Record<string, Corridor> = {
       { code: "SAFARICOM", name: "M-PESA (Safaricom)" },
     ],
   },
+  RW: {
+    name: "Rwanda",
+    currency: "RWF",
+    rail: "mobile_money",
+    // Brails' Rwanda schema gives no limits. 1,000 to 1,000,000 RWF (about $0.70 to $690) is a
+    // cautious range until they confirm theirs: above Brails' real maximum, the payout would be
+    // refused after the USDC has landed.
+    minPayout: 1_000,
+    maxPayout: 1_000_000,
+    needsSender: true,
+    senderAddress: true,
+    numberPattern: /^250[27]\d{8}$/,
+    networks: [
+      { code: "MTN", name: "MTN Mobile Money" },
+      { code: "AIRTEL", name: "Airtel Money" },
+    ],
+  },
   GM: {
     name: "The Gambia",
     currency: "GMD",
@@ -260,6 +280,11 @@ export function brailsRecipientProblem(country: string, phone: string, accountNa
 /** Does Brails need the sender's name and country to pay this country? */
 export function brailsNeedsSender(country: string): boolean {
   return !!CORRIDORS[country.toUpperCase()]?.needsSender;
+}
+
+/** …and their address? Sent only where asked: Brails checks each corridor's sender fields. */
+export function brailsNeedsSenderAddress(country: string): boolean {
+  return !!CORRIDORS[country.toUpperCase()]?.senderAddress;
 }
 
 /** `GH:MTN` / `NG:100004` → its parts, or null when the code is not one of ours. */

@@ -18,7 +18,13 @@ import 'server-only';
  */
 import { getBrailsClient, type BrailsQuote, type BrailsTransaction } from '@/lib/brails/client';
 import { openBeneficiary } from '@/lib/ramp/beneficiary-vault';
-import { brailsNeedsPhoneField, brailsNeedsSender, brailsPhone, parseBrailsInstitution } from '@/lib/ramp/providers/brails';
+import {
+  brailsNeedsPhoneField,
+  brailsNeedsSender,
+  brailsNeedsSenderAddress,
+  brailsPhone,
+  parseBrailsInstitution,
+} from '@/lib/ramp/providers/brails';
 import { brailsSenderFor } from '@/lib/ramp/brails-sender';
 import { ledgerTransaction } from '@/lib/stellar/privy-wallet';
 import { supabaseAdmin } from '@/lib/supabase/adminClient';
@@ -306,7 +312,13 @@ async function attemptPayout(
                 accountNumber: brailsPhone(bank.accountNumber, inst.country),
                 accountName: bank.accountName,
                 ...(brailsNeedsPhoneField(inst.country) ? { phoneNumber: brailsPhone(bank.accountNumber, inst.country) } : {}),
-                ...(sender ? { sender } : {}),
+                ...(sender
+                  ? {
+                      sender: brailsNeedsSenderAddress(inst.country)
+                        ? sender
+                        : { accountName: sender.accountName, country: sender.country },
+                    }
+                  : {}),
               },
       });
       beneficiaryId = beneficiary.id;

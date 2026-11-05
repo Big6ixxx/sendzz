@@ -69,7 +69,7 @@ export interface BrailsBeneficiary {
     /** Required in Ethiopia and The Gambia, beside the account number. */
     phoneNumber?: string;
     /** Required on some mobile money corridors (CFA franc countries and others). */
-    sender?: { accountName: string; country: string };
+    sender?: { accountName: string; country: string; address?: string };
   };
 }
 
