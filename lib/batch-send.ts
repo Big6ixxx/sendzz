@@ -216,7 +216,8 @@ export async function batchSend({
         await recordTransfer({
           recipientEmail: p.email,
           amount: parseFloat(p.amountUSDC),
-          status: p.isNewUser ? 'pending_claim' : 'completed',
+          // Completed even for a recipient still to sign up: see recordTransfer.
+          status: 'completed',
           note,
           txHash,
           chain: group.chain,

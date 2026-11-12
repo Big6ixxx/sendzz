@@ -72,7 +72,14 @@ async function recoverMintTxHash(
 export async function recordTransfer(params: {
   recipientEmail: string;
   amount: number;
-  status: "completed" | "pending_claim";
+  /**
+   * Always 'completed', also for a recipient who has not signed up yet: their wallet is made
+   * before the send, so the USDC is theirs the moment it lands. The database refuses a
+   * 'pending_claim' row without a claim code (migration 001), and these sends have none, so
+   * asking for one lost the row, the sender's receipt with it. Whether the recipient still has
+   * to sign up is told by the emails, not by this status.
+   */
+  status: "completed";
   note?: string;
   txHash?: string;
   /** Network the transfer settled on (e.g. 'base', 'polygon'). Optional. */
@@ -130,6 +137,29 @@ export async function recordTransfer(params: {
       return;
     }
 
+    // Every movement that paid for this row, as one list: what the ledger stores and the
+    // duplicate checks key off.
+    const legs =
+      params.legs?.length
+        ? params.legs
+        : params.txHash && params.chain
+          ? [{ chain: params.chain, txHash: params.txHash, amount: params.amount }]
+          : [];
+    const legHashes = [...new Set([params.txHash, ...legs.map((l) => l.txHash)].filter(Boolean))] as string[];
+
+    // Recorded by this app already (a repeat call)? Then there is nothing to write and nobody to
+    // notify again, and no reason to read the chain. A deposit the arrival was credited as since
+    // the first call is still cleared: that cleanup belongs to the payment, not to the write.
+    const { alreadyRecorded, writeTransferRow } = await import("./transfer-row");
+    const recorded = await alreadyRecorded({ senderId: sender.id, recipientEmail, legHashes, appOnly: true });
+    if (recorded) {
+      if (recorded.recipientId) {
+        for (const hash of legHashes) await clearDuplicateDeposit(recorded.recipientId, hash);
+      }
+      console.log(`[Supabase] ${params.txHash?.slice(0, 14)} is already recorded; not writing it again.`);
+      return;
+    }
+
     // Check the claim against the chain before it becomes history.
     //
     // The sender is authenticated, so this is not about impersonation any more — it is about the
@@ -158,7 +188,10 @@ export async function recordTransfer(params: {
     }
 
     const { verifyTransferEvidence } = await import("@/lib/web3/verify-send");
+    // Each transaction is read once: this check and the delivery check below share the reads.
+    const reads: import("@/lib/web3/verify-send").MovementReads = new Map();
     const verdict = await verifyTransferEvidence({
+      reads,
       amount: params.amount,
       txHash: params.txHash,
       chain: params.chain,
@@ -186,43 +219,51 @@ export async function recordTransfer(params: {
       );
     }
 
-    const baseRow = {
-      sender_id: sender.id,
-      sender_email: senderEmail,
-      recipient_id: recipient?.id || null,
-      recipient_email: recipientEmail,
-      amount: params.amount,
-      status: params.status,
-      note: params.note || null,
-      tx_hash: params.txHash || null,
-      asset: "USDC" as const,
-    };
-
-    const { data: inserted, error: insertError } = await supabaseAdmin
-      .from("transfers")
-      .insert(
-        params.chain ? { ...baseRow, source_chain: params.chain } : baseRow,
-      )
-      .select("id")
-      .single();
-
-    let transferId = inserted?.id || "";
-
-    if (insertError && params.chain) {
-      // `source_chain` may not exist yet (migration 024 not applied) — retry without it
-      // so the ledger record still succeeds.
-      const { data: retryInserted, error: retryError } = await supabaseAdmin
-        .from("transfers")
-        .insert(baseRow)
-        .select("id")
-        .single();
-      if (retryError) {
-        console.error("[Supabase] Failed to record transfer:", retryError);
-      } else {
-        transferId = retryInserted?.id || "";
+    // Sent to a wallet address rather than an email: still a transfer to that person if the
+    // address is a Sendzz account's. Linking it is what stops their deposit scanner crediting
+    // the same arrival as a deposit (see accountForAddress). Sending to your own address stays
+    // unlinked, so it does not show as both sent and received on one account.
+    //
+    // Linked only once the chain shows the USDC reached that address. Linking writes into the
+    // recipient's history and notifies them, and the evidence check above pins the sender and
+    // amount, not where the money went — without this, any real send could be attached to any
+    // user's address. See deliveredToAddress.
+    let recipientAccount: { id: string; email: string } | null = recipient ?? null;
+    if (!recipientAccount && !recipientEmail.includes("@") && legs.length) {
+      const { accountForAddress } = await import("./address-owner");
+      const owner = await accountForAddress(recipientEmail);
+      if (owner && owner.id !== sender.id) {
+        const { deliveredToAddress } = await import("@/lib/web3/verify-send");
+        if (await deliveredToAddress({ recipient: recipientEmail, amount: params.amount, legs, reads })) {
+          recipientAccount = owner;
+        } else {
+          console.warn(
+            `[Supabase] ${params.txHash?.slice(0, 14)} is addressed to a Sendzz wallet, but the ` +
+              `chain does not show it arriving there. Recorded as an outside payment.`,
+          );
+        }
       }
-    } else if (insertError) {
-      console.error("[Supabase] Failed to record transfer:", insertError);
+    }
+
+    // One row per payment, whoever writes first. If the reconciler already recorded some of it
+    // from the chain, its rows become this one, with this call's amount, status and recipient.
+    const written = await writeTransferRow({
+      senderId: sender.id,
+      senderEmail,
+      recipientId: recipientAccount?.id || null,
+      recipientEmail,
+      amount: params.amount,
+      // Whatever the browser sent: see `status` above.
+      status: "completed",
+      note: params.note || null,
+      txHash: params.txHash || null,
+      sourceChain: params.chain ?? null,
+      legHashes,
+      recordedBy: "app",
+    });
+    const transferId = written?.id ?? "";
+    if (written?.outcome === "merged") {
+      console.log(`[Supabase] ${params.txHash?.slice(0, 14)} replaces the reconciler's record of it.`);
     }
 
     // ── Remove a deposit the same transaction may already have been credited as ─
@@ -237,14 +278,13 @@ export async function recordTransfer(params: {
     // which is the scanner/webhook's own marker. A real fiat deposit is never touched.
     // Every leg landed in the recipient's wallet as its own incoming transfer, so each may have
     // been credited — not only the one whose hash the row carries.
-    if (transferId && recipient?.id) {
-      const hashes = new Set([params.txHash, ...(params.legs ?? []).map((l) => l.txHash)]);
-      for (const hash of hashes) {
-        if (hash) await clearDuplicateDeposit(recipient.id, hash);
-      }
+    if (transferId && recipientAccount?.id) {
+      for (const hash of legHashes) await clearDuplicateDeposit(recipientAccount.id, hash);
     }
 
-    if (!insertError) {
+    // 'existing' here means the app's row landed between the look above and this write (two
+    // tabs, a retry): it was announced then, so it is not announced again.
+    if (written && written.outcome !== "existing") {
       console.log("[Supabase] Transfer recorded successfully");
 
       // Sending extends THIS device's session. The recipient's is untouched: receiving money is
@@ -272,11 +312,11 @@ export async function recordTransfer(params: {
       }
 
       // 2. Send in-app notification to recipient
-      if (recipient) {
+      if (recipientAccount) {
         try {
           const { createNotification } = await import("./notifications");
           await createNotification(
-            recipientEmail,
+            recipientAccount.email,
             "USDC Received",
             `You received ${params.amount} USDC from ${senderEmail}!`,
             "transfer",

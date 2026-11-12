@@ -7,8 +7,11 @@
  * into a different, usually invalid, address — and the history then shows, and links to, a
  * wallet that never received anything.
  */
+/** An EVM address, in any case. */
+export const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+
 export function normalizeRecipient(recipient: string): string {
   const trimmed = recipient.trim();
-  if (trimmed.includes('@') || /^0x[0-9a-fA-F]{40}$/.test(trimmed)) return trimmed.toLowerCase();
+  if (trimmed.includes('@') || EVM_ADDRESS.test(trimmed)) return trimmed.toLowerCase();
   return trimmed;
 }

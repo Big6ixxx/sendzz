@@ -13,10 +13,13 @@
 import 'server-only';
 
 import { supabaseAdmin } from './adminClient';
+import { accountForAddress } from './address-owner';
 import { clearDuplicateDeposit } from './deposit-dedup';
+import { alreadyRecorded, writeTransferRow } from './transfer-row';
 import { isEvmUsdcChain } from '@/lib/circle/gateway';
 import { STELLAR_HORIZON_URL } from '@/lib/stellar/config';
 import { redactEmail } from '@/lib/log';
+import { normalizeRecipient } from '@/lib/web3/recipient-key';
 
 /**
  * When a send can be declared impossible, which is the only moment it is safe to forget.
@@ -85,6 +88,18 @@ export async function clearPendingSend(id: string): Promise<void> {
 }
 
 /**
+ * Drop every intent filed under one transaction hash: for a send the chain rejected outright,
+ * where no recipient of it can ever be paid.
+ */
+export async function clearPendingSendsForHash(txHash: string): Promise<void> {
+  try {
+    await supabaseAdmin.from('pending_sends').delete().eq('tx_hash', txHash);
+  } catch (err) {
+    console.error('[PendingSends] clearPendingSendsForHash failed:', (err as Error).message);
+  }
+}
+
+/**
  * Write the ledger row for a send the chain has confirmed.
  *
  * Deliberately separate from `recordTransfer`, which derives its sender from the session. There
@@ -105,16 +120,28 @@ async function recordConfirmedSend(row: {
   amount: number;
   note: string | null;
 }): Promise<boolean> {
-  const { data: already } = await supabaseAdmin
-    .from('transfers')
-    .select('id')
-    .eq('tx_hash', row.tx_hash)
-    .eq('recipient_email', row.recipient.toLowerCase())
-    .maybeSingle();
-  if (already) return false;
+  // Stored the way recordTransfer stores it: Stellar and Solana addresses keep their case.
+  // Lowercasing them here is what made this miss the row the app had already written and record
+  // every Stellar send a second time.
+  const recipientKey = normalizeRecipient(row.recipient);
 
-  // The recipient may be a Sendzz user (identified by email) or an external address. Only look
-  // one up when it could be an email — an address is never an account.
+  // Usually the app recorded it long ago. Matched on any of the row's network hashes, not only
+  // its own: a send gathered from several networks is one row carrying the first network's
+  // hash, and this intent may be for another. record_transfer decides for certain; this only
+  // spares the chain read below.
+  const recorded = await alreadyRecorded({
+    senderId: row.user_id,
+    recipientEmail: recipientKey,
+    legHashes: [row.tx_hash],
+    appOnly: false,
+  });
+  if (recorded) {
+    if (recorded.recipientId) await clearDuplicateDeposit(recorded.recipientId, row.tx_hash);
+    return false;
+  }
+
+  // The recipient may be a Sendzz user, by email or by one of their wallet addresses, or an
+  // outside address.
   let recipientId: string | null = null;
   if (row.recipient.includes('@')) {
     const { data: r } = await supabaseAdmin
@@ -123,25 +150,43 @@ async function recordConfirmedSend(row: {
       .eq('email', row.recipient.toLowerCase())
       .maybeSingle();
     recipientId = r?.id ?? null;
+  } else {
+    // An address can still be a Sendzz account's, and then this is a transfer to that person,
+    // not a payment out. See accountForAddress.
+    // Linked only when the chain shows the USDC arrived there: the intent's recipient came from
+    // the browser, and linking writes into that person's history. See deliveredToAddress.
+    const owner = await accountForAddress(recipientKey);
+    if (owner && owner.id !== row.user_id) {
+      const { deliveredToAddress } = await import('@/lib/web3/verify-send');
+      const arrived = await deliveredToAddress({
+        recipient: recipientKey,
+        amount: row.amount,
+        legs: [{ chain: row.chain, txHash: row.tx_hash, amount: row.amount }],
+      });
+      if (arrived) recipientId = owner.id;
+    }
   }
 
-  const { error } = await supabaseAdmin.from('transfers').insert({
-    sender_id: row.user_id,
-    sender_email: row.sender_email,
-    recipient_id: recipientId,
-    recipient_email: row.recipient.toLowerCase(),
+  // Never overwrites: if the app recorded it in the meantime, this is 'existing' and nothing is
+  // written. If the app records it later, the app's row replaces this one.
+  const written = await writeTransferRow({
+    senderId: row.user_id,
+    senderEmail: row.sender_email,
+    recipientId,
+    recipientEmail: recipientKey,
     amount: row.amount,
     status: 'completed',
     note: row.note,
-    tx_hash: row.tx_hash,
-    asset: 'USDC',
-    source_chain: row.chain,
+    txHash: row.tx_hash,
+    sourceChain: row.chain,
+    legHashes: [row.tx_hash],
+    recordedBy: 'recovery',
   });
-
-  if (error) {
-    console.error(`[PendingSends] could not record ${row.tx_hash.slice(0, 12)}:`, error.message);
+  if (!written) {
+    console.error(`[PendingSends] could not record ${row.tx_hash.slice(0, 12)}.`);
     return false;
   }
+  if (written.outcome === 'existing') return false;
   if (recipientId) await clearDuplicateDeposit(recipientId, row.tx_hash);
 
   console.log(

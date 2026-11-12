@@ -410,8 +410,8 @@ export function useTransfer({
     setStatus("Looking up recipient…");
     setIsPendingClaim(false);
     // Read below, in this same call — state set here is not visible until the next render, so
-    // the closure's `isPendingClaim` would still say false and a send to a brand-new user was
-    // recorded as completed rather than awaiting claim.
+    // the closure's `isPendingClaim` would still say false and a brand-new recipient would get
+    // the wrong email and the wrong confirmation screen.
     let pendingClaim = false;
 
     try {
@@ -588,7 +588,8 @@ export function useTransfer({
       await recordTransfer({
         recipientEmail,
         amount: parseFloat(amountUsdc),
-        status: pendingClaim ? "pending_claim" : "completed",
+        // Completed even for a recipient still to sign up: see recordTransfer.
+        status: "completed",
         note: memo,
         txHash,
         chain: plan.legs[0]?.chain,

@@ -95,7 +95,21 @@ async function knownHashes(userId: string): Promise<Set<string>> {
       : Promise.resolve({ data: [] as { tx_hash: string | null }[] }),
     supabaseAdmin.from('bridge_transactions').select('mint_tx_hash').eq('user_id', userId).not('mint_tx_hash', 'is', null),
   ]);
+  // A send paid from several networks is one transfer row, but every network's transaction lands
+  // here as its own arrival; only the first is the row's `tx_hash`. The rest are on
+  // `leg_tx_hashes` (migration 066). Asked for separately so that, before the migration, the
+  // missing column costs only this extra knowledge and not the lookups above.
+  const legRows = await Promise.all([
+    supabaseAdmin.from('transfers').select('leg_tx_hashes').eq('recipient_id', userId),
+    me?.email
+      ? supabaseAdmin.from('transfers').select('leg_tx_hashes').eq('recipient_email', me.email.toLowerCase())
+      : Promise.resolve({ data: [] as { leg_tx_hashes: string[] }[], error: null }),
+  ]);
   const known = new Set<string>();
+  for (const { data, error } of legRows) {
+    if (error) continue;
+    for (const r of data ?? []) for (const h of r.leg_tx_hashes ?? []) known.add(h.toLowerCase());
+  }
   for (const r of deps ?? []) if (r.tx_hash) known.add(r.tx_hash.toLowerCase());
   for (const r of [...(recv ?? []), ...(recvByEmail ?? [])]) if (r.tx_hash) known.add(r.tx_hash.toLowerCase());
   for (const r of bridges ?? []) if (r.mint_tx_hash) known.add(r.mint_tx_hash.toLowerCase());

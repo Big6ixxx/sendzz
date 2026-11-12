@@ -569,6 +569,8 @@ export interface Database {
           note: string | null;
           tx_hash: string | null;
           source_chain: string | null;
+          leg_tx_hashes: string[];
+          recorded_by: 'app' | 'recovery';
           claim_token_hash: string | null;
           expires_at: string | null;
           created_at: string;
@@ -586,6 +588,8 @@ export interface Database {
           note?: string | null;
           tx_hash?: string | null;
           source_chain?: string | null;
+          leg_tx_hashes?: string[];
+          recorded_by?: 'app' | 'recovery';
           claim_token_hash?: string | null;
           expires_at?: string | null;
           created_at?: string;
@@ -603,6 +607,8 @@ export interface Database {
           note?: string | null;
           tx_hash?: string | null;
           source_chain?: string | null;
+          leg_tx_hashes?: string[];
+          recorded_by?: 'app' | 'recovery';
           claim_token_hash?: string | null;
           expires_at?: string | null;
           created_at?: string;
@@ -1215,6 +1221,26 @@ export interface Database {
       };
     };
     Functions: {
+      // One transfer row per payment, whichever writer gets there first (migration 066).
+      record_transfer: {
+        Args: {
+          p_sender_id: string;
+          p_sender_email: string;
+          p_recipient_id: string | null;
+          p_recipient_email: string;
+          p_amount: number;
+          p_status: TransferStatus;
+          p_note: string | null;
+          p_tx_hash: string | null;
+          p_source_chain: string | null;
+          p_leg_hashes: string[];
+          p_recorded_by: 'app' | 'recovery';
+        };
+        Returns: {
+          transfer_id: string;
+          outcome: 'existing' | 'inserted' | 'merged';
+        }[];
+      };
       // Extends a device session using Postgres `now()` (migration 048).
       consume_rate_limit: {
         Args: {

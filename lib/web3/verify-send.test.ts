@@ -15,7 +15,7 @@ vi.mock('@solana/web3.js', async (orig) => {
   };
 });
 
-const { solanaSentAmounts, stellarSentAmounts, verifyTransferEvidence, verifyUsdcSend } =
+const { deliveredToAddress, solanaSentAmounts, stellarSentAmounts, verifyTransferEvidence, verifyUsdcSend } =
   await import('./verify-send');
 
 const mint = NETWORK.solana.usdcMint;
@@ -247,5 +247,74 @@ describe('stellarSentAmounts', () => {
   it('ignores an asset that is only called USDC', async () => {
     horizon([{ asset_code: 'USDC', asset_issuer: 'G' + 'B'.repeat(55), from: g, amount: '5' }]);
     expect(await stellarSentAmounts('h', g)).toEqual([]);
+  });
+});
+
+describe('deliveredToAddress', () => {
+  const STELLAR_TO = 'GCMG3EVLUQ5WXQKXHMHLTHXF7HJ4UK2T6MLU3YQRSCUKNQ5RFCPHPDS7';
+  const stellarPayments = (to: string, amount: string) =>
+    vi.stubGlobal('fetch', async () =>
+      new Response(
+        JSON.stringify({
+          _embedded: { records: [{ asset_code: 'USDC', asset_issuer: STELLAR_USDC_ISSUER, to, amount }] },
+        }),
+        { status: 200 },
+      ),
+    );
+  const leg = { chain: 'stellar', txHash: 'a'.repeat(64), amount: 30 };
+
+  it('is true when the chain shows the amount arriving at that address', async () => {
+    stellarPayments(STELLAR_TO, '30.0000000');
+    const urls: string[] = [];
+    const real = globalThis.fetch;
+    vi.stubGlobal('fetch', async (url: string) => (urls.push(url), real(url)));
+    expect(await deliveredToAddress({ recipient: STELLAR_TO, amount: 30, legs: [leg] })).toBe(true);
+    // The whole transaction in one page: Horizon's default of 10 missed later payments.
+    expect(urls[0]).toMatch(/\/payments\?limit=200$/);
+    expect(await deliveredToAddress({ recipient: STELLAR_TO, amount: 30, legs: [leg] })).toBe(true);
+  });
+
+  it('is false for a real send that went somewhere else', async () => {
+    stellarPayments('GOTHER', '30.0000000');
+    expect(await deliveredToAddress({ recipient: STELLAR_TO, amount: 30, legs: [leg] })).toBe(false);
+  });
+
+  it('is false when less arrived than the row claims, or the chain cannot be read', async () => {
+    stellarPayments(STELLAR_TO, '1.0000000');
+    expect(await deliveredToAddress({ recipient: STELLAR_TO, amount: 30, legs: [leg] })).toBe(false);
+    vi.stubGlobal('fetch', async () => new Response('', { status: 503 }));
+    expect(await deliveredToAddress({ recipient: STELLAR_TO, amount: 30, legs: [leg] })).toBe(false);
+  });
+
+  it('reads each transaction once when the sender check already read it', async () => {
+    stellarPayments(STELLAR_TO, '30.0000000');
+    let calls = 0;
+    const real = globalThis.fetch;
+    vi.stubGlobal('fetch', async (url: string) => (calls++, real(url)));
+    const reads = new Map();
+    await verifyUsdcSend({ chain: 'stellar', txHash: leg.txHash, senderAddress: 'GSENDER', amount: 30, reads });
+    await deliveredToAddress({ recipient: STELLAR_TO, amount: 30, legs: [leg], reads });
+    expect(calls).toBe(1);
+  });
+
+  it('reads again when the shared read failed, rather than keeping the failure', async () => {
+    // One Horizon blip during the sender check must not leave the transfer unlinked for good.
+    const reads = new Map();
+    vi.stubGlobal('fetch', async () => new Response('', { status: 503 }));
+    await verifyUsdcSend({ chain: 'stellar', txHash: leg.txHash, senderAddress: 'GSENDER', amount: 30, reads });
+    stellarPayments(STELLAR_TO, '30.0000000');
+    expect(await deliveredToAddress({ recipient: STELLAR_TO, amount: 30, legs: [leg], reads })).toBe(true);
+  });
+
+  it('reads a Solana delivery into the recipient token account', async () => {
+    const recipientAta = getAssociatedTokenAddressSync(new PublicKey(mint), new PublicKey(other), true).toBase58();
+    getParsedTransaction.mockResolvedValue(
+      parsed([
+        { program: 'spl-token', parsed: { type: 'transferChecked', info: { source: senderAta, destination: recipientAta, authority: sender, mint, tokenAmount: { amount: '30000000' } } } },
+      ]),
+    );
+    const sol = { chain: 'solana', txHash: sig, amount: 30 };
+    expect(await deliveredToAddress({ recipient: other, amount: 30, legs: [sol] })).toBe(true);
+    expect(await deliveredToAddress({ recipient: sender, amount: 30, legs: [sol] })).toBe(false);
   });
 });

@@ -22,7 +22,7 @@ import {
   buildFeeBumpTransaction,
   stellarTxHash,
 } from '@/lib/stellar/privy-wallet';
-import { clearPendingSend, markSendPending } from '@/lib/supabase/pendingSends';
+import { clearPendingSendsForHash, markSendPending } from '@/lib/supabase/pendingSends';
 import { supabaseAdmin } from '@/lib/supabase/adminClient';
 import {
   buildUsdcPaymentTx,
@@ -270,7 +270,7 @@ export async function POST(req: Request) {
       // because there is nothing for the reconciler to recover.
       if (!result.successful) {
         console.error(`[Stellar/Send] Rejected on-chain: txHash=${result.hash}`);
-        await clearPendingSend(plannedHash);
+        await clearPendingSendsForHash(plannedHash);
         if (withdrawalRowId) await releaseWithdrawalSend(withdrawalRowId);
         return NextResponse.json(
           { error: 'The network rejected this transfer. Nothing was sent.' },

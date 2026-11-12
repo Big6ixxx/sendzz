@@ -232,11 +232,18 @@ export async function POST(req: Request) {
     // up as a transfer AND a deposit. The `deposits` unique index does not help: it stops a
     // duplicate row for the same (user, hash), and a fiat row carries a different provider.
     const hashes = rows.map((r) => r.tx_hash);
-    const [{ data: received }, { data: minted }, { data: ramped }] = await Promise.all([
+    const [{ data: received }, { data: receivedLegs }, { data: minted }, { data: ramped }] = await Promise.all([
       supabaseAdmin
         .from('transfers')
         .select('tx_hash, recipient_id')
         .in('tx_hash', hashes)
+        .not('recipient_id', 'is', null),
+      // The other networks of a send paid from several: one row, every network's hash on
+      // `leg_tx_hashes` (migration 066). Before that migration this errors and finds nothing.
+      supabaseAdmin
+        .from('transfers')
+        .select('leg_tx_hashes, recipient_id')
+        .overlaps('leg_tx_hashes', hashes)
         .not('recipient_id', 'is', null),
       supabaseAdmin
         .from('bridge_transactions')
@@ -252,6 +259,11 @@ export async function POST(req: Request) {
     const alreadyLedgered = new Set<string>();
     for (const r of received ?? []) {
       if (r.tx_hash && r.recipient_id) alreadyLedgered.add(`${r.recipient_id}:${r.tx_hash.toLowerCase()}`);
+    }
+    for (const r of receivedLegs ?? []) {
+      for (const h of r.leg_tx_hashes ?? []) {
+        if (r.recipient_id) alreadyLedgered.add(`${r.recipient_id}:${h.toLowerCase()}`);
+      }
     }
     for (const b of minted ?? []) {
       if (b.mint_tx_hash && b.user_id) alreadyLedgered.add(`${b.user_id}:${b.mint_tx_hash.toLowerCase()}`);
