@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { ShieldAlert, X, ArrowRight, Clock } from "lucide-react";
 import { KycModal } from "./KycModal";
@@ -28,42 +29,22 @@ interface KycBannerProps {
  * all — the first a user heard of the limit was a refused withdrawal.
  */
 export function KycBanner({ userEmail }: KycBannerProps) {
-  const [data, setData] = useState<KycData | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const [kycModalOpen, setKycModalOpen] = useState(false);
 
-  const fetchStatus = useCallback(async () => {
-    if (!userEmail) return;
-    try {
+  // A query rather than its own timer: shared with anything else asking, and paused while the
+  // app is in the background. A minute between looks is plenty for a verification status.
+  const { data = null, refetch } = useQuery<KycData>({
+    queryKey: ["kyc-status", userEmail],
+    queryFn: async () => {
       const res = await fetch(`/api/kyc/status?email=${encodeURIComponent(userEmail)}`);
-      if (!res.ok) return;
-      const json = await res.json();
-      setData(json);
-    } catch {
-      // silent — banner is non-critical
-    }
-  }, [userEmail]);
-
-  useEffect(() => {
-    if (!userEmail) return;
-    let isMounted = true;
-    const load = async () => {
-      try {
-        const res = await fetch(`/api/kyc/status?email=${encodeURIComponent(userEmail)}`);
-        if (!res.ok || !isMounted) return;
-        const json = await res.json();
-        if (isMounted) setData(json);
-      } catch {
-        // silent
-      }
-    };
-    void load();
-    const interval = setInterval(load, 60_000);
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
-  }, [userEmail]);
+      if (!res.ok) throw new Error(`kyc status ${res.status}`);
+      return res.json();
+    },
+    enabled: !!userEmail,
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+  });
 
   if (!data) return null;
 
@@ -221,7 +202,7 @@ export function KycBanner({ userEmail }: KycBannerProps) {
         onClose={() => {
           setKycModalOpen(false);
           // Re-fetch status after modal closes in case user completed KYC
-          setTimeout(fetchStatus, 1000);
+          setTimeout(() => void refetch(), 1000);
         }}
         userEmail={userEmail}
       />

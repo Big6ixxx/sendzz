@@ -225,6 +225,18 @@ describe('onBrailsDeposit', () => {
     expect(db.rpcCalls).toEqual(['finalize_withdrawal_failed']);
   });
 
+  it('retries, rather than refunds, a payout refused because Brails was not ready yet', async () => {
+    // 12 November: the payout went out a few seconds before Brails confirmed the beneficiary.
+    seed();
+    brails.sendPayout.mockRejectedValue(
+      Object.assign(new Error('transaction not properly initialized'), { status: 400 }),
+    );
+    brails.findPayoutByReference.mockResolvedValue(null);
+    await expect(onBrailsDeposit({ id: 'd1' })).resolves.toMatchObject({ ok: false, retry: false });
+    expect(db.rpcCalls).toEqual([]);
+    expect(meta()).toMatchObject({ payoutId: 'retrying', payoutAttempts: 1 });
+  });
+
   it('stays retryable when a refusal could not be recorded', async () => {
     seed();
     brails.createBeneficiary.mockRejectedValue(Object.assign(new Error('invalid account'), { status: 422 }));

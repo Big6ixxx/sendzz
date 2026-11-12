@@ -1,9 +1,9 @@
 'use client';
 
-import { getUserActivities } from '@/lib/supabase/transactions';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useActivities } from '@/hooks/useActivities';
+import { useQueryClient } from '@tanstack/react-query';
 import { ArrowDownLeft, CheckCircle2, RefreshCw } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { parseAppError } from '@/lib/errors/appErrors';
 
@@ -11,7 +11,6 @@ interface PendingTransfer {
   id: string;
   amount: number;
   sender_email: string;
-  sender_id: string | null;
   note: string | null;
 }
 
@@ -29,23 +28,21 @@ export function PendingIncomingPanel({
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
-  const { data: pendingTransfers } = useQuery({
-    queryKey: ['pending-incoming', userEmail],
-    queryFn: async (): Promise<PendingTransfer[]> => {
-      const data = await getUserActivities();
-      return (data.received || [])
-        .filter((t) => t.status === 'pending_claim' && t.sender_id !== userId)
-        .map((t) => ({
-          id: t.id,
-          amount: t.amount,
-          sender_email: t.sender_email,
-          sender_id: t.sender_id,
-          note: t.note,
-        }));
-    },
-    enabled: !!userEmail,
-    refetchInterval: 15_000,
-  });
+  // Read from the history the dashboard already loads, rather than loading the whole activity
+  // list a second time on its own 15 second timer just to pick out these few rows.
+  const { data: activities } = useActivities(userEmail, userId);
+  const pendingTransfers = useMemo<PendingTransfer[]>(
+    () =>
+      (activities ?? [])
+        .filter((a) => a.type === 'received' && a.status === 'pending_claim')
+        .map((a) => ({
+          id: a.id,
+          amount: a.amount,
+          sender_email: a.senderEmail ?? '',
+          note: a.note ?? null,
+        })),
+    [activities],
+  );
 
   async function handleAccept(transferId: string) {
     setAcceptingId(transferId);
@@ -60,7 +57,6 @@ export function PendingIncomingPanel({
         toast.error(parseAppError(data.error || 'Could not accept payment'));
       } else {
         toast.success('Payment accepted! Funds added to your balance');
-        queryClient.invalidateQueries({ queryKey: ['pending-incoming', userEmail] });
         queryClient.invalidateQueries({ queryKey: ['history', userEmail] });
         queryClient.invalidateQueries({ queryKey: ['balance'] });
       }

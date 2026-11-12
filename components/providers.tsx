@@ -1,6 +1,7 @@
 'use client';
 
-import { PrivyProvider } from '@privy-io/react-auth';
+import { PrivyProvider, useLogout } from '@privy-io/react-auth';
+import { clearClientCache } from '@/lib/client-cache';
 import { createSolanaRpc, createSolanaRpcSubscriptions } from '@solana/kit';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
@@ -33,6 +34,8 @@ import '@/hooks/usePwaInstall';
  */
 function SessionActivityWatcher() {
   useSessionActivity();
+  // Whichever screen signs out, what this device remembered for the dashboard goes with it.
+  useLogout({ onSuccess: clearClientCache });
   return null;
 }
 
@@ -41,14 +44,18 @@ export function Providers({ children }: { children: ReactNode }) {
   useNumberInputWheelGuard();
 
   useEffect(() => {
-    if ('serviceWorker' in navigator && typeof window !== 'undefined') {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker
-          .register('/sw.js')
-          .then((reg) => console.log('[PWA] Service Worker registered with scope:', reg.scope))
-          .catch((err) => console.error('[PWA] Service Worker registration failed:', err));
-      });
-    }
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+    // `updateViaCache: 'none'` so a new sw.js is picked up on the next visit rather than after
+    // the HTTP cache lets go of the old one: a stale worker is what an installed app keeps
+    // longest.
+    const register = () =>
+      navigator.serviceWorker
+        .register('/sw.js', { updateViaCache: 'none' })
+        .catch((err) => console.error('[PWA] Service Worker registration failed:', err));
+    // This effect usually runs after `load` has already fired, and a listener added then never
+    // runs: the worker was only registered on a slow first load.
+    if (document.readyState === 'complete') void register();
+    else window.addEventListener('load', () => void register(), { once: true });
   }, []);
 
   const [queryClient] = useState(
@@ -57,7 +64,9 @@ export function Providers({ children }: { children: ReactNode }) {
         defaultOptions: {
           queries: {
             refetchOnWindowFocus: true,
-            retry: 3,
+            // One retry for a blip; three backed-off ones kept a failing screen spinning for
+            // seconds. Polled queries try again on their next interval anyway.
+            retry: 1,
           },
         },
       }),

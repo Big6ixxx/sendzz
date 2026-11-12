@@ -10,6 +10,7 @@ import { kycGuard } from "@/lib/kyc/guard";
 import { reverificationUnderWay, verifiedIdentityOf, verifiedRecordOf } from "@/lib/kyc/verified-identity";
 import { buildOnRampCustomer, type OnRampKycNeed } from "@/lib/ramp/onramp-kyc";
 import { consumeAuthorization } from "@/lib/security/transaction-auth";
+import { bankAccountProblem } from "@/lib/ramp/bank-account";
 import { benefitBalances, resolveWithdrawalFee, spendBenefits } from "@/lib/referrals/benefits";
 import type { BenefitBalances } from "@/lib/referrals/benefit-math";
 import { supabaseAdmin } from "@/lib/supabase/adminClient";
@@ -480,76 +481,6 @@ export async function getOffRampQuoteForFiat(
 }
 
 /**
- * OFF-RAMP EXECUTION — sell USDC for fiat. Returns the order (incl. receive address).
- */
-export async function finalizeOffRamp(
-  amountUsdc: number,
-  accountNumber: string,
-  bankCode: string,
-  accountName: string,
-  userRefundAddress: string,
-  userEmail: string,
-  fiat: RampCurrency = "NGN",
-  fiatAmount?: number,
-  exchangeRate?: number,
-  inputMode: "fiat" | "usdc" = "usdc",
-  network: RampNetwork = "base",
-  /** True when funds were spread across chains and auto-bridged onto `network` first. */
-  consolidated: boolean = false,
-  memo?: string,
-): Promise<RampOrderResponse> {
-  try {
-    const order = await Ramp.createOffRampOrder({
-      amountUsdc,
-      fiatAmount,
-      inputMode,
-      bank: { accountNumber, bankCode, accountName, memo },
-      userRefundAddress,
-      userEmail,
-      fiatCurrency: fiat,
-      network,
-    });
-
-    const isFiat = inputMode === "fiat" && !!fiatAmount;
-    const finalAmountUsdc = isFiat ? Number(order.amount || amountUsdc) : amountUsdc;
-    // Same rule as executeOffRamp: the settling provider's own payout wins over any estimate.
-    const settled = await resolvePayoutFiat(order, order.provider, {
-      amountUsdc: finalAmountUsdc,
-      fiatCurrency: fiat,
-      network,
-      fiatAmount,
-      exchangeRate,
-    });
-
-    // Record in internal ledger
-    const { recordWithdrawal } = await import("@/lib/supabase/transactions");
-    await recordWithdrawal({
-      userEmail,
-      amountUsdc: finalAmountUsdc,
-      fiatCurrency: fiat,
-      fiatAmount: settled.fiatAmount,
-      exchangeRate: settled.exchangeRate,
-      bankAccountMasked: accountNumber.replace(/.(?=.{4})/g, "*"),
-      institutionCode: bankCode,
-      status: "processing",
-      paycrestOrderId: order.id,
-      sourceChain: network,
-      consolidated,
-      provider: order.provider,
-      bitnobQuoteId: order.providerRef,
-      bitnobDepositAddress: order.providerAccount?.receiveAddress,
-      memo,
-    });
-
-    return order;
-  } catch (error: unknown) {
-    const err = error as Error;
-    console.error(`Error finalizing off-ramp for ${fiat}:`, err.message || error);
-    throw error;
-  }
-}
-
-/**
  * Create an off-ramp order using the pinned-provider model with canonical bank identity.
  *
  * Tries off-ramp providers in order; for each it RESOLVES that provider's bank_code from
@@ -604,6 +535,14 @@ export async function executeOffRamp(params: {
   const session = await requireUserId(params.accessToken);
   const userId = session.userId;
   const userEmail = session.email;
+
+  // ── Account number shape ────────────────────────────────────────────────
+  //
+  // Before the PIN is spent and before any deposit address exists. A name enquiry can resolve a
+  // number the payout then refuses (a phone number typed as a Nigerian account number), and
+  // that refusal used to arrive only after the user had paid in. See lib/ramp/bank-account.
+  const accountProblem = bankAccountProblem(params.fiatCurrency, params.bank.accountNumber);
+  if (accountProblem) throw new Error(accountProblem);
 
   // ── PIN authorisation ───────────────────────────────────────────────────
   //
@@ -933,6 +872,14 @@ export async function verifyBankAccount(
   country?: string,
 ) {
   const fiat = currency ?? "NGN";
+
+  // Checked before any provider is asked: one that resolves a wrong-length number would show
+  // a verified name for an account the payout cannot pay. See lib/ramp/bank-account.
+  // The same currency the lookup below uses, default included: a call that names none is looked
+  // up as Nigerian, so it is held to the Nigerian length rule too. Checking one currency and
+  // looking up another is how a wrong-length number got a verified name.
+  const accountProblem = bankAccountProblem(fiat, accountNumber);
+  if (accountProblem) throw new Error(accountProblem);
 
   // The caller's pinned provider first (the withdraw flow resolved the bank code against it),
   // then everything else that supports this currency ON THIS CHAIN.

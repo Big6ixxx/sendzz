@@ -116,10 +116,15 @@ const ROUTE_GATES =
 /**
  * Routes that are deliberately open, each with a reason.
  *
- * Empty today. An entry here is a claim that the endpoint is safe to serve anonymously — not
- * that nobody has got round to it yet.
+ * An entry here is a claim that the endpoint is safe to serve anonymously — not that nobody
+ * has got round to it yet.
  */
-const OPEN_ROUTES: Record<string, string> = {};
+const OPEN_ROUTES: Record<string, string> = {
+  'app/api/session/clear/route.ts':
+    'Only expires the caller\'s own Privy cookies, the same as signing out. It exists for a ' +
+    'session too broken to pass a session check, so it cannot require one. Other sites are ' +
+    'refused by a required custom header and Sec-Fetch-Site.',
+};
 
 describe('every API route decides whether the caller may proceed', () => {
   const routes = walk('app/api').filter((f) => /route\.tsx?$/.test(f));

@@ -1,6 +1,7 @@
 'use client';
 
 import { RampInstitution } from '@/lib/ramp';
+import { useBankAccountHint } from '@/hooks/useBankAccountHint';
 import { cn } from '@/lib/utils';
 import { CheckCircle2, ChevronDown, Loader2 } from 'lucide-react';
 import * as React from 'react';
@@ -56,6 +57,7 @@ export function BankSelector({
   const [showSuggestions, setShowSuggestions] = React.useState(false);
   const [search, setSearch] = React.useState('');
   const [isAddingContact, setIsAddingContact] = React.useState(false);
+  const accountNumberHint = useBankAccountHint(fiatCurrency, accountNumber);
   const selectedBank = institutions.find((i) => (i.institutionCode || i.code) === selectedBankCode);
   const filtered = React.useMemo(() => {
     if (!search) return institutions;
@@ -120,6 +122,9 @@ export function BankSelector({
             }}
           />
         </div>
+        {accountNumberHint && (
+          <p className="mt-1.5 text-xs text-destructive">{accountNumberHint}</p>
+        )}
       </div>
 
       {/* Bank selector — second */}

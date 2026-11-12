@@ -1,5 +1,7 @@
 import * as React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { bankAccountProblem } from '@/lib/ramp/bank-account';
+import { useBankAccountHint } from '@/hooks/useBankAccountHint';
 import { ChevronDown, Loader2, Landmark, Plus, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { addBankContact } from '@/lib/supabase/bank-contacts';
@@ -33,6 +35,45 @@ export function AddBankContactModal({
   onSuccess,
 }: AddBankContactModalProps) {
   const [newAccountNumber, setNewAccountNumber] = React.useState(defaultAccountNumber);
+  const newAccountHint = useBankAccountHint(fiatCurrency, newAccountNumber);
+  /**
+   * Which number and bank the latest lookup was for. A slower answer for an earlier number must
+   * not put that number's holder against the one now in the field.
+   */
+  const lookupFor = React.useRef('');
+
+  /** Look the holder up, or clear the name when the number cannot be looked up. */
+  const lookUp = (
+    bankCode: string,
+    bankName: string,
+    accountNumber: string,
+    /** Accept a lookup with no holder name, naming the account after its bank. Typing only. */
+    allowUnnamed: boolean,
+  ) => {
+    // Whatever was verified belonged to the number before this one.
+    setNewAccountName('');
+    const key = `${bankCode}|${accountNumber}`;
+    lookupFor.current = key;
+    // A number that cannot be right is never sent: the server refuses it anyway.
+    if (accountNumber.length < 8 || bankAccountProblem(fiatCurrency, accountNumber)) {
+      setIsVerifyingNew(false);
+      return;
+    }
+    setIsVerifyingNew(true);
+    verifyBankAccount(bankCode, accountNumber, fiatCurrency, undefined, undefined, bankName)
+      .then((res) => {
+        if (lookupFor.current !== key) return;
+        const rawName = typeof res.data === 'string' ? res.data : res.data?.accountName;
+        const unnamed = !rawName || rawName.trim().toUpperCase() === 'OK';
+        setNewAccountName(unnamed ? (allowUnnamed ? `${bankName} (${accountNumber})` : '') : rawName);
+      })
+      .catch(() => {
+        if (lookupFor.current === key) setNewAccountName('');
+      })
+      .finally(() => {
+        if (lookupFor.current === key) setIsVerifyingNew(false);
+      });
+  };
   const [newAccountName, setNewAccountName] = React.useState('');
   const [newBank, setNewBank] = React.useState<{ code: string; name: string } | null>(null);
   const [newBankDropdownOpen, setNewBankDropdownOpen] = React.useState(false);
@@ -45,6 +86,10 @@ export function AddBankContactModal({
 
   React.useEffect(() => {
     setNewAccountNumber(defaultAccountNumber);
+    // A name verified for the previous number does not belong to this one.
+    lookupFor.current = '';
+    setNewAccountName('');
+    setIsVerifyingNew(false);
   }, [defaultAccountNumber]);
 
   const newBankFiltered = React.useMemo(() => {
@@ -140,16 +185,7 @@ export function AddBankContactModal({
                           setNewBankDropdownOpen(false);
                           setNewBankSearch('');
 
-                          if (newAccountNumber.length === 10) {
-                            setIsVerifyingNew(true);
-                            verifyBankAccount(inst.institutionCode || inst.code, newAccountNumber, fiatCurrency, undefined, undefined, inst.name)
-                              .then((res) => {
-                                const name = typeof res.data === 'string' ? res.data : res.data?.accountName;
-                                setNewAccountName(name || '');
-                              })
-                              .catch(() => setNewAccountName(''))
-                              .finally(() => setIsVerifyingNew(false));
-                          }
+                          lookUp(inst.institutionCode || inst.code, inst.name, newAccountNumber, false);
                         }}
                         className="w-full text-left px-4 py-3 text-sm font-normal hover:bg-muted transition-colors border-b border-border/50 last:border-0 text-foreground"
                       >
@@ -178,25 +214,15 @@ export function AddBankContactModal({
                 onChange={(e) => {
                   const val = e.target.value.replace(/\D/g, '');
                   setNewAccountNumber(val);
-                  if (val.length >= 8 && newBank) {
-                    setIsVerifyingNew(true);
-                    verifyBankAccount(newBank.code, val, fiatCurrency, undefined, undefined, newBank.name)
-                      .then((res) => {
-                        const rawName = typeof res.data === 'string' ? res.data : res.data?.accountName;
-                        const name = (!rawName || rawName.trim().toUpperCase() === 'OK')
-                          ? `${newBank.name} (${val})`
-                          : rawName;
-                        setNewAccountName(name);
-                      })
-                      .catch(() => setNewAccountName(''))
-                      .finally(() => setIsVerifyingNew(false));
-                  }
+                  if (newBank) lookUp(newBank.code, newBank.name, val, true);
+                  else setNewAccountName('');
                 }}
                 placeholder="0123456789"
                 className="input-elegant h-14 bg-white/5 tracking-widest font-mono"
               />
               {isVerifyingNew && <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 animate-spin text-accent" />}
             </div>
+            {newAccountHint && <p className="text-xs text-destructive">{newAccountHint}</p>}
           </div>
 
           {newAccountName && (

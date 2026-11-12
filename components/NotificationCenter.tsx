@@ -2,6 +2,7 @@
 
 import { Bell, Check, Mail, Repeat, ShieldAlert, ArrowDownCircle, ArrowUpCircle, ChevronRight } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -28,6 +29,12 @@ function urlBase64ToUint8Array(base64String: string) {
   return outputArray;
 }
 
+/**
+ * The account Web Push is set up, or being set up, for in this page load. Cleared again when an
+ * attempt does not finish, so the next mount tries again.
+ */
+let pushConfiguredFor: string | null = null;
+
 // Top-level pure helper for formatting notification timestamp
 function formatNotificationTime(dateStr: string, nowTimestamp: number): string {
   if (!nowTimestamp) {
@@ -44,9 +51,31 @@ function formatNotificationTime(dateStr: string, nowTimestamp: number): string {
 
 export function NotificationCenter({ userEmail }: { userEmail: string }) {
   const router = useRouter();
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const queryClient = useQueryClient();
+  // One shared query, not a poll per instance: the layout mounts this twice (sidebar and mobile
+  // header), and each used to poll on its own timer, in the background too. React Query also
+  // pauses the interval while the app is hidden.
+  const notificationsKey = ['notifications', userEmail];
+  const { data: notifications = [], dataUpdatedAt } = useQuery<NotificationItem[]>({
+    queryKey: notificationsKey,
+    queryFn: async () => {
+      const res = await fetch(`/api/notifications?email=${encodeURIComponent(userEmail)}`);
+      if (!res.ok) throw new Error(`notifications ${res.status}`);
+      const data = await res.json();
+      return data.notifications || [];
+    },
+    enabled: !!userEmail,
+    refetchInterval: 15_000,
+  });
+  // A poll already in flight was answered before this change reached the server, and landing
+  // after it would mark the item unread again in both bells. It is cancelled first.
+  const setNotifications = async (update: (prev: NotificationItem[]) => NotificationItem[]) => {
+    await queryClient.cancelQueries({ queryKey: notificationsKey });
+    queryClient.setQueryData<NotificationItem[]>(notificationsKey, (prev) => update(prev ?? []));
+  };
   const [isOpen, setIsOpen] = useState(false);
-  const [nowTimestamp, setNowTimestamp] = useState<number>(0);
+  // When the list was last fetched: relative times are measured from it.
+  const nowTimestamp = dataUpdatedAt;
   const dropdownRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -59,52 +88,35 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-  // 1. Poll/Fetch notifications on load and setup push subscriptions
-  useEffect(() => {
-    if (!userEmail) return;
-    let isMounted = true;
-
-    const loadNotifications = async () => {
-      try {
-        const res = await fetch(`/api/notifications?email=${encodeURIComponent(userEmail)}`);
-        if (res.ok && isMounted) {
-          const data = await res.json();
-          if (isMounted) {
-            setNotifications(data.notifications || []);
-            setNowTimestamp(Date.now());
-          }
-        }
-      } catch (err) {
-        console.error('Failed to fetch notifications:', err);
-      }
-    };
-
-    void loadNotifications();
-
-    const interval = setInterval(loadNotifications, 15000);
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
-  }, [userEmail]);
-
   // 2. Setup Web Push Notifications
   useEffect(() => {
     async function configurePush() {
       if (!userEmail || typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+      if (pushConfiguredFor === userEmail) return;
+      pushConfiguredFor = userEmail;
+      let done = false;
+      try {
+        done = await setUpPush();
+      } finally {
+        if (!done) pushConfiguredFor = null;
+      }
+    }
+
+    /** True once this device is subscribed and the server has the subscription. */
+    async function setUpPush(): Promise<boolean> {
 
       try {
         const registration = await navigator.serviceWorker.ready;
         if (!registration.pushManager) {
           console.warn('[PWA Push] Push manager not supported in this browser.');
-          return;
+          return false;
         }
 
         // Check existing permission status
         const permission = await Notification.requestPermission();
         if (permission !== 'granted') {
           console.log('[PWA Push] Notification permission not granted.');
-          return;
+          return false;
         }
 
         // Check if already subscribed
@@ -114,7 +126,7 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
           const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
           if (!vapidPublicKey) {
             console.error('[PWA Push] NEXT_PUBLIC_VAPID_PUBLIC_KEY is not configured.');
-            return;
+            return false;
           }
 
           const convertedKey = urlBase64ToUint8Array(vapidPublicKey);
@@ -125,7 +137,7 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
         }
 
         // Send subscription payload to backend
-        await fetch('/api/notifications/subscribe', {
+        const saved = await fetch('/api/notifications/subscribe', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -134,9 +146,12 @@ export function NotificationCenter({ userEmail }: { userEmail: string }) {
           }),
         });
 
+        if (!saved.ok) return false;
         console.log('[PWA Push] Web Push configured and subscribed successfully!');
+        return true;
       } catch (err) {
         console.error('[PWA Push] Failed to configure push notifications:', err);
+        return false;
       }
     }
 

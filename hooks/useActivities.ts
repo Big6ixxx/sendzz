@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useCallback } from 'react';
 import { getUserActivities } from '@/lib/supabase/transactions';
 import type { Activity, ActivityType } from '@/components/HistoryModule';
 
@@ -8,6 +9,12 @@ import type { Activity, ActivityType } from '@/components/HistoryModule';
  * detail page via the `['history', userEmail]` query key.
  */
 export function useActivities(userEmail: string, userId: string) {
+  // Stable per user, so React Query filters once per fetch rather than on every render.
+  const withoutSelfSends = useCallback(
+    (all: Activity[]) =>
+      userId ? all.filter((a) => !(a.type === 'received' && a.senderId === userId)) : all,
+    [userId],
+  );
   return useQuery<Activity[]>({
     queryKey: ['history', userEmail],
     queryFn: async () => {
@@ -29,10 +36,10 @@ export function useActivities(userEmail: string, userId: string) {
           sourceChain: t.source_chain ?? undefined,
         })),
         ...(data.received || [])
-          .filter((t) => t.sender_id !== userId)
           .map((t) => ({
             id: t.id,
             type: 'received' as ActivityType,
+            senderId: t.sender_id ?? undefined,
             amount: t.amount,
             status: t.status,
             timestamp: t.created_at,
@@ -119,7 +126,14 @@ export function useActivities(userEmail: string, userId: string) {
 
       return unified;
     },
+    // The cache holds the list as the server sent it; each caller drops its own sends to itself
+    // here. Filtering inside the fetch baked in whichever caller fetched first, and the detail
+    // page can fetch before it knows the user id, leaving self-sends in everyone's list.
+    select: withoutSelfSends,
     enabled: !!userEmail,
     refetchInterval: 15000,
+    // Shared by the history list, the waiting-for-you panel and the detail page: one load
+    // serves all of them for a few seconds instead of each mount loading it again.
+    staleTime: 10_000,
   });
 }

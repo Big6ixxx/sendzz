@@ -15,6 +15,7 @@ import {
 import { useRouter } from 'next/navigation';
 import { usePrivy } from '@privy-io/react-auth';
 import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 interface NotificationItem {
@@ -31,6 +32,7 @@ type FilterCategory = 'all' | 'withdrawal' | 'transfer' | 'bridge' | 'security';
 
 export default function DedicatedNotificationsPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { user } = usePrivy();
   const userEmail = user?.email?.address || '';
 
@@ -69,6 +71,8 @@ export default function DedicatedNotificationsPage() {
       });
       if (res.ok) {
         setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+        // The bell in the layout keeps its own copy: refresh it, or its badge lags behind.
+        void queryClient.invalidateQueries({ queryKey: ['notifications'] });
         toast.success('All notifications marked as read');
       }
     } catch (err) {
@@ -89,6 +93,7 @@ export default function DedicatedNotificationsPage() {
         setNotifications((prev) =>
           prev.map((n) => (n.id === id ? { ...n, read: true } : n))
         );
+        void queryClient.invalidateQueries({ queryKey: ['notifications'] });
       }
     } catch (err) {
       console.error(err);

@@ -226,6 +226,15 @@ interface PayoutRow {
  */
 const PAYOUT_RETRY_MINUTES = [1, 5, 15];
 
+/**
+ * A payout refusal that says Brails was not ready for it yet, rather than that it can never be
+ * paid. Retried instead of refunded. Matched on Brails' wording, so only refusals seen in
+ * production are listed.
+ */
+function notReadyYet(message: string): boolean {
+  return /not properly initiali[sz]ed/i.test(message);
+}
+
 /** A claim with no answer after this long belongs to a process that stopped mid-call. */
 const STALE_START_MS = 10 * 60_000;
 
@@ -369,6 +378,15 @@ async function attemptPayout(
         console.log(`[Brails] ${orderId}: payout ${existing.id} already exists — recorded instead of failing.`);
         return { ok: true, note: `payout ${existing.id} already exists` };
       }
+    }
+    if (refused && sending && notReadyYet(message)) {
+      // Refused because something on Brails' side was not set up yet, not because the payout
+      // is wrong. The beneficiary is created a second before the payout and Brails confirms it
+      // asynchronously (`beneficiary.status.success`, seconds later): on 12 November a payout
+      // sent before that confirmation was refused with "transaction not properly initialized",
+      // and failing it refunded a withdrawal that a minute later would have paid. Nothing was
+      // sent, so it is retried on the usual schedule; out of attempts, it is refunded as before.
+      return scheduleRetry(w.id, orderId, payUsd, `not ready at Brails: ${message}`, httpStatus, false);
     }
     if (refused) {
       // Brails refused it outright (below the corridor minimum, bad number, unsupported

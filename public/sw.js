@@ -6,10 +6,9 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-self.addEventListener('fetch', (event) => {
-  // Standard fetch handler required for PWA installability criteria
-  event.respondWith(fetch(event.request));
-});
+// No fetch handler, on purpose: the old pass-through one cached nothing, delayed every request
+// until this worker woke, and turned a flaky network into failed requests. Browsers no longer
+// need one to offer installation.
 
 // Web Push event listener
 self.addEventListener('push', (event) => {

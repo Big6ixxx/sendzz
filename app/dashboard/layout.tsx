@@ -6,6 +6,7 @@ import { KycBanner } from "@/components/kyc/KycBanner";
 import { PinAuthorizationProvider } from "@/components/security/PinAuthorizationProvider";
 import { PinRequiredGate, usePinStatus } from "@/components/security/PinRequiredGate";
 import { usePrivy } from "@privy-io/react-auth";
+import { clearClientCache, clearLocalStorageByPrefix } from "@/lib/client-cache";
 import { useEnsureSolanaWallet } from "@/hooks/useEnsureSolanaWallet";
 import { Menu } from "lucide-react";
 import Image from "next/image";
@@ -14,6 +15,30 @@ import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { motion } from "framer-motion";
+
+/** How long the sign-in restore may take before the user is offered a way out. */
+const SLOW_START_MS = 12_000;
+
+/**
+ * Drop this device's stored sign-in and start again. Privy cannot sign out while it is stuck
+ * restoring, so its saved session is removed directly: the same end state as signing out.
+ * Cookies are expired by the server, which can also reach the HttpOnly ones.
+ */
+async function startOver() {
+  clearClientCache();
+  clearLocalStorageByPrefix('privy:');
+  try {
+    const res = await fetch('/api/session/clear', {
+      method: 'POST',
+      cache: 'no-store',
+      headers: { 'x-sendzz-clear': '1' },
+    });
+    if (!res.ok) console.error('[Dashboard] could not clear sign-in cookies:', res.status);
+  } catch {
+    // Offline: what could be cleared here is cleared; the reload still happens.
+  }
+  window.location.replace('/');
+}
 
 export default function DashboardLayout({
   children,
@@ -24,6 +49,15 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  // Privy restores the session before anything renders, and on a phone it can hang there for
+  // ever. After a while, offer the two things that clear it.
+  const [slowStart, setSlowStart] = useState(false);
+  useEffect(() => {
+    if (ready) return;
+    const t = setTimeout(() => setSlowStart(true), SLOW_START_MS);
+    return () => clearTimeout(t);
+  }, [ready]);
 
   // Asked for once, here, rather than per screen: the PIN gates every outgoing path, so the
   // dashboard as a whole is what requires one. `hasPin` stays null until the answer is known,
@@ -54,7 +88,7 @@ export default function DashboardLayout({
 
   if (!ready) {
     return (
-      <div className="min-h-screen w-screen flex items-center justify-center relative overflow-hidden" style={{ background: '#07070a' }}>
+      <div className="min-h-screen w-screen flex flex-col items-center justify-center relative overflow-hidden" style={{ background: "#07070a" }}>
         {/* Ambient background blobs */}
         <div className="fixed inset-0 pointer-events-none overflow-hidden" aria-hidden>
           <div
@@ -100,6 +134,31 @@ export default function DashboardLayout({
             </div>
           </div>
         </div>
+        {slowStart && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="relative z-10 mt-10 flex flex-col items-center gap-4 px-6 text-center"
+          >
+            <p className="text-sm text-white/60 max-w-xs">
+              This is taking longer than usual. Reload, or sign in again if it keeps happening.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => window.location.reload()}
+                className="px-5 py-2.5 rounded-xl text-sm font-semibold bg-accent text-black"
+              >
+                Reload
+              </button>
+              <button
+                onClick={() => void startOver()}
+                className="px-5 py-2.5 rounded-xl text-sm font-semibold border border-white/15 text-white/80"
+              >
+                Sign in again
+              </button>
+            </div>
+          </motion.div>
+        )}
         <motion.p
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}

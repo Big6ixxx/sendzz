@@ -35,6 +35,8 @@ export interface Activity {
   asset: string;
   txHash?: string;
   senderEmail?: string;
+  /** Sender's account id on a received transfer, to tell a send to yourself apart. */
+  senderId?: string;
   note?: string;
   fiatAmount?: number;
   fiatCurrency?: string;
@@ -110,7 +112,6 @@ export function HistoryModule({
         toast.success('Payment accepted! Funds added to your balance');
         queryClient.invalidateQueries({ queryKey: ['history', userEmail] });
         queryClient.invalidateQueries({ queryKey: ['balance'] });
-        queryClient.invalidateQueries({ queryKey: ['pending-incoming', userEmail] });
       }
     } catch (err) {
       toast.error(parseAppError(err));

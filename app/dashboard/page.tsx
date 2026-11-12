@@ -39,10 +39,17 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { readCache, writeCache } from "@/lib/client-cache";
 import { type ChainBalances } from "@/lib/web3/routing";
 import { useBalanceVisibility } from "@/components/providers/BalanceVisibilityProvider";
 import { AnimatedBalance } from "@/components/ui/AnimatedBalance";
+
+/**
+ * Retries at deriving the smart account, 2s, 4s, 8s, 16s and 32s apart. Without them one failed
+ * chain call left `smartAddress` empty for the visit: the balance showed, every send failed.
+ */
+const INIT_RETRIES = 5;
 
 export default function Dashboard() {
   const { ready, authenticated, user } = usePrivy();
@@ -59,6 +66,20 @@ export default function Dashboard() {
       : null;
 
   const [smartAddress, setSmartAddress] = useState<string>("");
+  const embeddedEvmAddress = wallets.find((w) => w.walletClientType === "privy")?.address;
+  // Deriving the smart account address waits for the embedded wallet and a chain call, and the
+  // balance waited behind it on every visit. The address never changes for a wallet, so the one
+  // this device derived last time starts the balance loading at once. Display only: anything
+  // that signs or sends still uses the freshly derived `smartAddress`.
+  const rememberedSmartAddress = useMemo(
+    () => readCache<string>(user?.id, "smart-address", 90 * 24 * 60 * 60 * 1000) ?? "",
+    [user?.id],
+  );
+  const portfolioAddress = smartAddress || rememberedSmartAddress;
+  /** The addresses registered (or being registered) with the server, so it happens once. */
+  const registeredRef = useRef("");
+  /** Bumped to derive the smart account again after a failure (see INIT_RETRIES). */
+  const [initAttempt, setInitAttempt] = useState(0);
   // Lookup only (Stellar is opt-in) — see hooks/useStellarWallet.
   const { data: stellarWallet } = useStellarWallet();
   const stellarAddress = stellarWallet?.address ?? "";
@@ -81,22 +102,27 @@ export default function Dashboard() {
     data: portfolio,
     isLoading: isPortfolioLoading,
     isFetching: isPortfolioFetching,
+    isRemembered: isPortfolioRemembered,
+    isError: isPortfolioError,
     refetch: refetchPortfolio,
-  } = usePortfolio(smartAddress, embeddedSolWallet?.address, stellarAddress || undefined);
+  } = usePortfolio(portfolioAddress, embeddedSolWallet?.address, stellarAddress || undefined, user?.id);
 
   const portfolioTotal = portfolio?.total ?? "0.00";
   const fundedChains = portfolio?.byChain.filter((c) => c.hasBalance) ?? [];
+  // What may be spent comes from the live balance only. The remembered one is for showing while
+  // it loads: it can be days old, and MAX or a route built on it offers money that has gone.
+  const livePortfolio = isPortfolioRemembered ? undefined : portfolio;
 
   // EVM per-chain balances + their sum — the amount currently spendable via routing
   // (transfers + batch). Excludes Solana, which routing doesn't source from yet.
   const evmChainBalances: ChainBalances = useMemo(() => {
     const map: ChainBalances = {};
-    for (const c of portfolio?.byChain ?? []) {
+    for (const c of livePortfolio?.byChain ?? []) {
       if (c.chain === "solana" || c.chain === "stellar") continue;
       map[c.chain] = parseFloat(c.balance) || 0;
     }
     return map;
-  }, [portfolio]);
+  }, [livePortfolio]);
   const evmSpendable = Object.values(evmChainBalances).reduce(
     (s, n) => s + (n ?? 0),
     0,
@@ -107,7 +133,7 @@ export default function Dashboard() {
   const { bridgeToBase, settleOffRamp } = useSolanaBridge();
   const solanaBalance =
     parseFloat(
-      portfolio?.byChain.find((c) => c.chain === "solana")?.balance ?? "0",
+      livePortfolio?.byChain.find((c) => c.chain === "solana")?.balance ?? "0",
     ) || 0;
   const solanaSource =
     bridgeToBase && solanaBalance > 0
@@ -120,7 +146,7 @@ export default function Dashboard() {
   const solanaSpendable = solanaSource ? solanaBalance : 0;
   const stellarBalance =
     parseFloat(
-      portfolio?.byChain.find((c) => c.chain === "stellar")?.balance ?? "0",
+      livePortfolio?.byChain.find((c) => c.chain === "stellar")?.balance ?? "0",
     ) || 0;
 
   /**
@@ -150,7 +176,13 @@ export default function Dashboard() {
         const provider = await embeddedWallet.getEthereumProvider();
         const address = await getCircleAddress(provider);
         setSmartAddress(address);
+        writeCache(user?.id, "smart-address", address);
+        const registration = `${user?.email?.address ?? ""}|${address}|${embeddedSolWallet?.address ?? ""}`;
+        if (registeredRef.current === registration) return;
         if (user?.email?.address) {
+          // Claimed before the call, so a re-render while it is in flight does not send it
+          // again, and released if it fails, so the next render retries.
+          registeredRef.current = registration;
           // The referral code this browser picked up from a `?ref=` link, handed over at the
           // first moment there is an account to attribute it to. Cleared either way: if it
           // was not honoured now it never will be, and retrying the same decision on every
@@ -166,10 +198,16 @@ export default function Dashboard() {
             .then(() => {
               if (referralCode) clearReferral();
             })
-            .catch(console.error);
+            .catch((err) => {
+              if (registeredRef.current === registration) registeredRef.current = "";
+              console.error(err);
+            });
         }
       } catch (err) {
         console.error("[Dashboard] INIT ACCOUNT FATAL ERROR:", err);
+        if (initAttempt < INIT_RETRIES) {
+          setTimeout(() => setInitAttempt((n) => n + 1), 2_000 * 2 ** initAttempt);
+        }
       }
     }
 
@@ -194,11 +232,15 @@ export default function Dashboard() {
       }
     }
 
-    if (ready && authenticated && wallets.length > 0) {
+    if (ready && authenticated && embeddedEvmAddress) {
       initAccount();
       fetchSecurityPrefs();
     }
-  }, [ready, authenticated, wallets, user, embeddedSolWallet?.address]);
+    // Keyed on the addresses and email, not on the `wallets` and `user` objects: those are new
+    // objects on many renders, and each one re-derived the smart account (a chain call),
+    // re-registered it and refetched the security settings.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, authenticated, embeddedEvmAddress, user?.email?.address, embeddedSolWallet?.address, initAttempt]);
 
   if (!ready || !authenticated || !user) {
     return (
@@ -317,6 +359,14 @@ export default function Dashboard() {
                       isLoading={isPortfolioLoading}
                     />
                   </h2>
+                  {isPortfolioRemembered && (
+                    // Last visit's figure: sending uses the live one, which is still loading.
+                    <span className="pb-2 text-xs" style={{ color: "rgba(248,248,246,0.4)" }}>
+                      {isPortfolioError
+                        ? "Couldn't update your balance. Tap refresh to try again."
+                        : "Updating balance…"}
+                    </span>
+                  )}
                   <div className="flex items-center gap-1.5 pb-1">
                     <span
                       className="text-base sm:text-xl font-bold uppercase tracking-tighter shrink-0"
@@ -326,7 +376,7 @@ export default function Dashboard() {
                     </span>
                     <button
                       onClick={() => refetchPortfolio()}
-                      disabled={isPortfolioLoading || !smartAddress}
+                      disabled={isPortfolioLoading || !portfolioAddress}
                       className="p-1.5 rounded-full transition-all disabled:opacity-50 hover:bg-white/5 shrink-0"
                       style={{ color: "rgba(248,248,246,0.25)" }}
                     >

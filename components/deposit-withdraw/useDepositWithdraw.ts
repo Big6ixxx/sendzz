@@ -1,5 +1,6 @@
 "use client";
 
+import { bankAccountProblem } from "@/lib/ramp/bank-account";
 import {
   executeOffRamp,
   getInstitutions,
@@ -618,7 +619,10 @@ export function useDepositWithdraw(
   const handleVerifyBank = useCallback(async (details: BankDetails) => {
     if (
       details.accountNumber.length < 8 ||
-      !details.bankCode
+      !details.bankCode ||
+      // A wrong-length Nigerian number is never looked up: some lookups still find a name for
+      // it, and the payout then refuses it after the deposit. See lib/ramp/bank-account.
+      bankAccountProblem(fiatCurrency, details.accountNumber)
     )
       return;
 

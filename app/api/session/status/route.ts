@@ -14,10 +14,11 @@
  * just-woken tab still holds the old token. The answer was "expired", the client believed it
  * meant the inactivity rule, and it called logout — on a session hours away from any limit.
  *
- * So `unauthenticated` is reported plainly and the client ignores it. Either the SDK refreshes
- * the token a moment later and nothing happened, or the session really is dead and Privy ends
- * it itself. Nothing is weakened by waiting: `getSessionUser` refuses every API call in the
- * meantime, which is the boundary that actually protects the account.
+ * So `unauthenticated` is reported plainly and the client never treats it as a verdict. It
+ * asks Privy for a token instead, which refreshes a stale one, and when Privy has none to give
+ * twice in a row it offers the user "Sign in again" (hooks/useSessionActivity.ts). It never
+ * signs anyone out over this answer. Nothing is weakened by waiting: `getSessionUser` refuses every API call in the meantime,
+ * which is the boundary that actually protects the account.
  */
 
 import { NextResponse } from 'next/server';

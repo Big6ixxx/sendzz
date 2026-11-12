@@ -21,10 +21,11 @@
  *
  * ─── Which refusals this acts on ─────────────────────────────────────────────
  *
- * Only `revoked` and `expired` — the two rules the app owns. A third answer,
- * `unauthenticated`, means the access token did not verify, and is deliberately ignored: Privy
- * refreshes tokens in the background, and a woken tab is checked at exactly the moment it still
- * holds the old one. Treating that as a verdict signed people out roughly hourly.
+ * Only `revoked` and `expired`, the two rules the app owns, end a session here. A third answer,
+ * `unauthenticated`, means the access token did not verify. A woken tab is checked at exactly
+ * the moment it still holds the old one, and treating that as a verdict signed people out
+ * roughly hourly. So it never signs anyone out: Privy is asked for a token, which refreshes a
+ * stale one, and if it keeps having none the user is offered "Sign in again".
  *
  * ─── Why this is still only a convenience ────────────────────────────────────
  *
@@ -61,11 +62,30 @@ const CHECK_AFTER_IDLE_MS = 5 * 60 * 1000;
  */
 const STRIKES = 2;
 
+/** The prompt shown when Privy keeps having no token; see the `unauthenticated` branch. */
+const STALE_SESSION_TOAST = 'stale-session';
+
+/** How long to wait before asking Privy again after it had no token. */
+const NO_TOKEN_RECHECK_MS = 10_000;
+
 /** Deliberate human input. Scroll is excluded — it can be programmatic. */
 const INTERACTION_EVENTS = ['pointerdown', 'keydown', 'touchstart'] as const;
 
 export function useSessionActivity(): void {
-  const { authenticated, logout } = usePrivy();
+  const { authenticated, logout, getAccessToken } = usePrivy();
+  // Refs, not effect dependencies: new Privy function identities would re-run the effect and
+  // reset the strike counts before a second strike could land.
+  const logoutRef = useRef(logout);
+  const getAccessTokenRef = useRef(getAccessToken);
+  useEffect(() => {
+    logoutRef.current = logout;
+    getAccessTokenRef.current = getAccessToken;
+  });
+  /** Times in a row Privy had no token for a session the server refused. */
+  const noTokenStrikes = useRef(0);
+  /** Until when only the scheduled recheck may ask; see the `unauthenticated` branch. */
+  const recheckAt = useRef(0);
+
   const lastCheck = useRef(0);
   const strikes = useRef(0);
   const endedRef = useRef(false);
@@ -77,11 +97,17 @@ export function useSessionActivity(): void {
     let cancelled = false;
     endedRef.current = false;
     strikes.current = 0;
+    // A new sign-in starts clean: strikes from the session that just ended must not carry over.
+    noTokenStrikes.current = 0;
+    recheckAt.current = 0;
     interacted.current = true;
 
-    const check = async () => {
+    const check = async (recheck = false) => {
       if (cancelled || endedRef.current) return;
-      if (Date.now() - lastCheck.current < MIN_GAP_MS) return;
+      // While waiting to ask Privy again, only that scheduled recheck may run: a tap or a focus
+      // event in the meantime would otherwise take the second strike straight away.
+      if (!recheck && Date.now() < recheckAt.current) return;
+      if (!recheck && Date.now() - lastCheck.current < MIN_GAP_MS) return;
       lastCheck.current = Date.now();
 
       // Claimed only when the user actually did something, and cleared as it is sent so the
@@ -104,6 +130,8 @@ export function useSessionActivity(): void {
 
       if (res.ok) {
         strikes.current = 0;
+        noTokenStrikes.current = 0;
+        toast.dismiss(STALE_SESSION_TOAST);
         return;
       }
       if (res.status !== 401) return;
@@ -112,9 +140,40 @@ export function useSessionActivity(): void {
         reason?: 'revoked' | 'expired' | 'unauthenticated';
       };
 
-      // Privy's business, not ours. Its SDK will refresh the token, or end the session itself.
+      // Usually an old token in a just-woken tab. Asking Privy for one refreshes it and the
+      // cookie; waiting for the SDK to do that itself is what left an installed app with a
+      // dashboard that never loaded. Never a sign-out: an empty answer can also be a refresh
+      // that failed on a weak connection, so the user is asked instead (see the file header).
       if (reason === 'unauthenticated') {
         strikes.current = 0;
+        let fresh: string | null;
+        try {
+          fresh = await getAccessTokenRef.current();
+        } catch {
+          // Unreachable right now: not evidence that the session is over.
+          return;
+        }
+        if (cancelled) return;
+        if (fresh) {
+          noTokenStrikes.current = 0;
+          return;
+        }
+        // Privy can come back empty while it is still waking up or mid refresh, so one empty
+        // answer is checked again a little later. Two in a row, the second well after any
+        // wake-up, mean it has nothing to refresh this session with.
+        noTokenStrikes.current += 1;
+        if (noTokenStrikes.current < STRIKES) {
+          recheckAt.current = Date.now() + NO_TOKEN_RECHECK_MS;
+          setTimeout(() => void check(true), NO_TOKEN_RECHECK_MS);
+          return;
+        }
+        // Kept until acted on or a later check passes; the id stops copies stacking.
+        toast.info("We couldn't refresh your session.", {
+          id: STALE_SESSION_TOAST,
+          description: 'If your balance or history will not load, sign in again.',
+          duration: Infinity,
+          action: { label: 'Sign in again', onClick: () => void logoutRef.current() },
+        });
         return;
       }
 
@@ -127,7 +186,7 @@ export function useSessionActivity(): void {
           ? 'This device was signed out from another device. Please sign in again.'
           : 'Signed out after a week of inactivity. Please sign in again.',
       );
-      void logout();
+      void logoutRef.current();
     };
 
     const onInteract = () => {
@@ -161,5 +220,5 @@ export function useSessionActivity(): void {
       window.removeEventListener('online', onForeground);
       for (const e of INTERACTION_EVENTS) window.removeEventListener(e, onInteract);
     };
-  }, [authenticated, logout]);
+  }, [authenticated]);
 }

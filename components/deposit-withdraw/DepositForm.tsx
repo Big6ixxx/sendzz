@@ -240,6 +240,7 @@ export function DepositForm({ hook }: DepositFormProps) {
             isVerifying={hook.verifyingBank}
             contacts={hook.bankContacts}
             userEmail={hook.userEmail}
+            fiatCurrency={hook.fiatCurrency}
             onContactsChanged={hook.refreshBankContacts}
             // Without these the field was a controlled input whose value never changed and
             // whose onChange went nowhere — it looked editable and swallowed every keystroke.
