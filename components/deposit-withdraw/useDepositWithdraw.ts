@@ -94,6 +94,24 @@ function knownHighest(results: PromiseSettledResult<number>[]): number {
   return highest(known);
 }
 
+/** How long a provider that refused an account's order is left out of that account's prices. */
+const REFUSAL_MEMORY_MS = 10 * 60_000;
+/** Session storage, so a reload does not bring the refused price back. Per tab, gone on close. */
+const REFUSAL_STORAGE_KEY = "sendzz:refused-providers";
+const NO_REFUSALS: RampProviderName[] = [];
+
+type Refusal = { key: string; providers: RampProviderName[]; at: number };
+
+function readRefusal(): Refusal | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const saved = JSON.parse(window.sessionStorage.getItem(REFUSAL_STORAGE_KEY) ?? "null") as Refusal | null;
+    return saved && Date.now() - saved.at < REFUSAL_MEMORY_MS ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
 export function useDepositWithdraw(
   type: FlowType,
   userAddress: string,
@@ -317,6 +335,36 @@ export function useDepositWithdraw(
    * labels the change inline on the summary that stays on screen, and the summary already shows
    * the new figure. Silently swapping a money amount is the one thing not to do.
    */
+  /** The review screen is re-pricing after the quoting provider could not take the order. */
+  const [repricing, setRepricing] = useState(false);
+  /** The figures on the review screen were re-priced; cleared by the next fresh quote. */
+  const [repriced, setRepriced] = useState(false);
+  /**
+   * Providers that refused this account's order, remembered for a while so that going back and
+   * pricing again does not show the refused price a second time only for Send to refuse it again.
+   */
+  const [refused, setRefused] = useState<Refusal | null>(readRefusal);
+  useEffect(() => {
+    try {
+      if (refused) window.sessionStorage.setItem(REFUSAL_STORAGE_KEY, JSON.stringify(refused));
+      else window.sessionStorage.removeItem(REFUSAL_STORAGE_KEY);
+    } catch {
+      // Storage blocked: the memory still holds for this page.
+    }
+  }, [refused]);
+  const refusalKey = `${fiatCurrency}:${bankDetails.bankCode || bankDetails.bankName}:${bankDetails.accountNumber}`;
+  // Stable when nothing is refused, so typing an account number does not re-fetch the live quote.
+  const refusedNow = useMemo(
+    () => (refused && refused.key === refusalKey ? refused.providers : NO_REFUSALS),
+    [refused, refusalKey],
+  );
+  // Forgotten when its time is up, even with the page left open.
+  useEffect(() => {
+    if (!refused) return;
+    const t = setTimeout(() => setRefused(null), Math.max(0, refused.at + REFUSAL_MEMORY_MS - Date.now()));
+    return () => clearTimeout(t);
+  }, [refused]);
+
   const [payoutAdjusted, setPayoutAdjusted] = useState<
     { from: number; reason: "rate" | "provider" } | null
   >(null);
@@ -792,7 +840,7 @@ export function useDepositWithdraw(
     let cancelled = false;
     setLiveQuoteLoading(true);
     const id = setTimeout(() => {
-      getOffRampQuote(typed, fiatCurrency, withdrawChain)
+      getOffRampQuote(typed, fiatCurrency, withdrawChain, { exclude: refusedNow })
         .then((q) => {
           if (!cancelled) setLiveQuote({ ...q, forAmountUsdc: typed });
         })
@@ -809,7 +857,7 @@ export function useDepositWithdraw(
       clearTimeout(id);
       setLiveQuoteLoading(false);
     };
-  }, [type, step, amount, inputMode, fiatCurrency, withdrawChain]);
+  }, [type, step, amount, inputMode, fiatCurrency, withdrawChain, refusedNow]);
 
   /**
    * What this withdrawal actually costs, benefits included.
@@ -830,7 +878,42 @@ export function useDepositWithdraw(
     [feeBreakdown, corridorFee],
   );
 
+  /** Who is being paid, so the price comes from a provider that can pay them. */
+  const quoteTarget = (exclude: RampProviderName[] = []) => ({
+    bank: bankDetails.bankName || bankDetails.bankCode
+      ? { code: bankDetails.bankCode, name: bankDetails.bankName || bankDetails.bankCode }
+      : undefined,
+    payoutCountry: payoutCountry ?? undefined,
+    exclude: [...refusedNow, ...exclude],
+  });
+
+  /**
+   * Price the reviewed withdrawal again, without the provider that just refused its order, and
+   * show the new figure on the review screen. Nothing has been sent: the user sees the new
+   * amount and presses Send again, so they never pay at a price they did not see.
+   */
+  const reprice = async (unavailable: RampProviderName): Promise<number> => {
+    const previous = quote?.payoutAmount;
+    if (inputMode === "fiat") {
+      const solved = await getOffRampQuoteForFiat(parseFloat(amount), fiatCurrency, withdrawChain, quoteTarget([unavailable]));
+      if (!solved) throw new Error("Withdrawals to this account are unavailable right now. Please try again shortly.");
+      setQuoteUsdcAmount(solved.amountUsdc.toFixed(6));
+      setQuote(solved);
+      // The payout stays what was typed; the USDC it costs is what moved.
+      setPayoutAdjusted(null);
+      return solved.amountUsdc;
+    }
+    const base = parseFloat(quoteUsdcAmount);
+    const fresh = await getOffRampQuote(base, fiatCurrency, withdrawChain, quoteTarget([unavailable]));
+    setQuote(fresh);
+    setPayoutAdjusted(
+      previous != null && Math.abs(previous - fresh.payoutAmount) > 0.01 ? { from: previous, reason: "rate" } : null,
+    );
+    return base;
+  };
+
   const handleWithdrawQuote = async () => {
+    setRepriced(false);
     if (!feesLoaded) {
       toast.error("Still loading the fees for this destination. Please try again in a moment.");
       return;
@@ -1000,7 +1083,7 @@ export function useDepositWithdraw(
       if (inputMode === "fiat") {
         // The user named what the RECIPIENT must receive. Solve for the USDC that delivers it
         // at the provider's own rate, rather than converting at the display rate and hoping.
-        const solved = await getOffRampQuoteForFiat(typed, fiatCurrency, settlementChain);
+        const solved = await getOffRampQuoteForFiat(typed, fiatCurrency, settlementChain, quoteTarget());
         if (!solved) {
           toast.error("Couldn't price that amount right now. Please try again.");
           return;
@@ -1024,9 +1107,9 @@ export function useDepositWithdraw(
       // USDC mode: the input is the base. Reuse the quote already struck for this exact amount
       // on step 1 — that is what makes the two screens agree by construction, not coincidence.
       setQuoteUsdcAmount(val.toFixed(6));
-      const reusable =
-        liveQuote && Math.abs(liveQuote.forAmountUsdc - val) < 1e-9 ? liveQuote : null;
-      setQuote(reusable ?? (await getOffRampQuote(val, fiatCurrency, settlementChain)));
+      // Priced again rather than reusing the first screen's estimate: that one was struck
+      // without the bank, so it can come from a provider that cannot pay it.
+      setQuote(await getOffRampQuote(val, fiatCurrency, settlementChain, quoteTarget()));
       setStep(2);
     } catch (err) {
       toast.error(parseFriendlyError(err));
@@ -1236,10 +1319,18 @@ export function useDepositWithdraw(
           solana: solanaSource?.balance ?? 0,
           stellar: stellarBalance ?? 0,
         };
+        // What is already on the target chain, read live: the cached figure predates any
+        // gathering this withdrawal already did (a press that was then re-priced), and would
+        // gather the whole amount a second time.
+        if (targetChain !== "solana" && targetChain !== "stellar") {
+          allBalances[targetChain] = await readSettlementBalance(targetChain, allBalances[targetChain] ?? 0);
+        }
         const sourceBalances: ChainBalances & { solana?: number; stellar?: number } = consolidateFrom
           ? Object.fromEntries(
               (Object.keys(allBalances) as (keyof typeof allBalances)[])
-                .filter((c) => consolidateFrom.includes(c as SourceChainKey))
+                // The target chain is kept: not as a source, but because gathering subtracts what
+                // is already there. Dropped, it gathered the whole amount every time.
+                .filter((c) => c === targetChain || consolidateFrom.includes(c as SourceChainKey))
                 .map((c) => [c, allBalances[c]]),
             )
           : allBalances;
@@ -1295,7 +1386,7 @@ export function useDepositWithdraw(
       // Submit via the pinned-provider flow using the CANONICAL bank identity (name, not
       // a raw code). executeOffRamp resolves the right bank_code per provider and falls
       // back (re-resolving) if the first provider can't create the order.
-      const { order: res } = await executeOffRamp({
+      const placed = await executeOffRamp({
         amountUsdc: parseFloat(quoteUsdcAmount),
         fiatAmount: inputMode === "fiat" ? parseFloat(amount) : quote?.payoutAmount,
         exchangeRate: quote?.rate,
@@ -1327,6 +1418,30 @@ export function useDepositWithdraw(
         // different account or a different figure does not open this door.
         authorization,
       });
+      if ("requote" in placed) {
+        setRepricing(true);
+        const unavailable = placed.unavailable;
+        setRefused((r) => ({
+          key: refusalKey,
+          providers: [...(r?.key === refusalKey ? r.providers : []), unavailable],
+          at: Date.now(),
+        }));
+        try {
+          const base = await reprice(unavailable);
+          setRepriced(true);
+          // Funds gathered for the old price are on the settlement chain now. Gather again on
+          // the next press only if the new price needs more than is there, and then only the
+          // shortfall (the gathering step reads that chain live).
+          if (mustConsolidate) {
+            const here = await readSettlementBalance(withdrawChain, 0);
+            if (here + 1e-9 >= totalRequired(base)) setMustConsolidate(false);
+          }
+        } finally {
+          setRepricing(false);
+        }
+        return;
+      }
+      const res = placed.order;
       setOrder(res);
 
       // Adopt the order's own quoted payout as THE figure from here on. It is what the ledger
@@ -1393,10 +1508,8 @@ export function useDepositWithdraw(
     fallback: number,
   ): Promise<number> => {
     try {
-      // EVM only: Solana and Stellar balances come from sources that are already read live,
-      // so neither goes stale behind a bridge the way the EVM query cache does.
-      if (chain === "solana" || chain === "stellar") return fallback;
-
+      // Every chain, Stellar and Solana included: right after gathering funds onto one, the
+      // figures held here predate the bridge.
       const params = new URLSearchParams({ address: userAddress });
       if (stellarAddress) params.set("stellarAddress", stellarAddress);
 
@@ -1884,7 +1997,9 @@ export function useDepositWithdraw(
     setPayoutCountry,
     institutions,
     institutionsLoading,
-    rate,
+    // The live quote's rate when there is one: it comes from the provider that would pay, with
+    // any provider that refused this account left out, so the rate shown and the payout agree.
+    rate: type === "withdraw" && liveQuote?.rate ? liveQuote.rate : rate,
     rateLoading,
     bankDetails,
     setBankDetails,
@@ -1904,6 +2019,8 @@ export function useDepositWithdraw(
     liveQuote,
     liveQuoteLoading,
     payoutAdjusted,
+    repricing,
+    repriced,
     transferError,
     /** Retry the transfer for the order that already exists — never create a second one. */
     retryTransfer: () => executeTransfer(),

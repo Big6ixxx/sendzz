@@ -310,11 +310,36 @@ export async function getDisplayOffRampRate(fiat: string = "NGN"): Promise<numbe
   }
 }
 
+/** The sell rate from the provider a withdrawal would be paid by (Brails first). */
 export async function getOffRampRate(fiat: string = "NGN"): Promise<number> {
-  const rates = await Ramp.getRates(1, fiat);
-  const sellRate = rates.data.sell?.rate;
-  if (!sellRate) throw new Error(`Could not fetch offramp rate for ${fiat}`);
-  return Number(sellRate);
+  const priced = await Ramp.offRampRate(fiat);
+  if (!priced) throw new Error(`Could not fetch offramp rate for ${fiat}`);
+  return priced.rate;
+}
+
+/** Who the payout is for, so a quote only comes from a provider that can pay them. */
+export interface QuoteTarget {
+  bank?: { code?: string; name: string };
+  payoutCountry?: string;
+  /** Providers to leave out: the one that just refused this withdrawal's order. */
+  exclude?: RampProviderName[];
+}
+
+/**
+ * May `provider` price this withdrawal? Never an excluded one, and with a bank given, only one
+ * whose list has that bank: pricing at a provider that then cannot take the order is what used
+ * to switch providers between the quote and the payout. A list that could not be fetched does
+ * not count against it; if it truly cannot pay, the order says so and the screen re-prices.
+ * Asked one provider at a time, so the first that prices is the only one checked.
+ */
+async function canPrice(provider: RampProviderName, fiat: string, target?: QuoteTarget): Promise<boolean> {
+  if (target?.exclude?.includes(provider)) return false;
+  if (!target?.bank?.name) return true;
+  try {
+    return !!(await Ramp.resolveBank(provider, target.bank, fiat, target.payoutCountry));
+  } catch {
+    return true;
+  }
 }
 
 /**
@@ -334,6 +359,7 @@ export async function getOffRampQuote(
   amountUsdc: number,
   fiat: string = "NGN",
   network: RampNetwork = "base",
+  target?: QuoteTarget,
 ): Promise<{
   rate: number;
   payoutAmount: number;
@@ -350,16 +376,13 @@ export async function getOffRampQuote(
   reference?: string;
   expiresAt?: string;
 }> {
-  const [preferred] = await Ramp.offRampProviderOrder(fiat, network).catch(
-    () => [] as RampProviderName[],
-  );
-
-  if (preferred) {
-    const quote = await Ramp.quoteOffRampFor(preferred, {
-      amountUsdc,
-      fiatCurrency: fiat,
-      network,
-    });
+  // Each provider in withdrawal order, first to price it wins: its binding quote, or else its
+  // own indicative rate. One that gives neither is down for this corridor, and the next is asked.
+  // The provider returned here is the one the order is then created with (see executeOffRamp).
+  const order = await Ramp.offRampProviderOrder(fiat, network).catch(() => [] as RampProviderName[]);
+  for (const provider of order) {
+    if (!(await canPrice(provider, fiat, target))) continue;
+    const quote = await Ramp.quoteOffRampFor(provider, { amountUsdc, fiatCurrency: fiat, network });
     if (quote) {
       return {
         rate: quote.rate,
@@ -372,29 +395,16 @@ export async function getOffRampQuote(
         expiresAt: quote.expiresAt,
       };
     }
-    console.warn(
-      `[Action] getOffRampQuote: ${preferred} gave no binding quote for ${fiat} on ` +
-        `${network} — falling back to the indicative rate.`,
-    );
+    const rate = await Ramp.offRampRateFor(provider, fiat, network);
+    if (rate) {
+      return { rate, payoutAmount: amountUsdc * rate, provider, priceSource: provider, binding: false };
+    }
+    console.warn(`[Action] getOffRampQuote: ${provider} gave no ${fiat} price on ${network}, trying the next provider.`);
   }
-
-  try {
-    const rates = await Ramp.getRates(amountUsdc, fiat);
-    const rate = rates.data.sell?.rate || 0;
-    return {
-      rate,
-      payoutAmount: amountUsdc * rate,
-      // Still the provider that will serve the withdrawal — only the PRICE is indicative. The
-      // ownership claim stays accurate so the fallback check downstream keeps working.
-      provider: preferred,
-      priceSource: rates.data.sell?.provider_id || "ramp",
-      binding: false,
-    };
-  } catch (error: unknown) {
-    const err = error as Error;
-    console.error(`Error fetching off-ramp rates for ${fiat}:`, err.message || error);
-    throw error;
-  }
+  // Everyone left out was refused recently, maybe only for a moment's downtime: rather than no
+  // price at all, ask them again.
+  if (target?.exclude?.length) return getOffRampQuote(amountUsdc, fiat, network, { ...target, exclude: [] });
+  throw new Error(`Could not fetch an off-ramp price for ${fiat} on ${network}`);
 }
 
 /**
@@ -411,6 +421,7 @@ export async function getOffRampQuoteForFiat(
   targetFiat: number,
   fiat: string = "NGN",
   network: RampNetwork = "base",
+  target?: QuoteTarget,
 ): Promise<{
   rate: number;
   payoutAmount: number;
@@ -427,35 +438,35 @@ export async function getOffRampQuoteForFiat(
   // Each early return below is a "Couldn't price that amount" toast, so each says why here.
   const tag = `[Action] getOffRampQuoteForFiat ${targetFiat} ${fiat} on ${network}`;
 
-  const [preferred] = await Ramp.offRampProviderOrder(fiat, network).catch((err) => {
+  const order = await Ramp.offRampProviderOrder(fiat, network).catch((err) => {
     console.warn(`${tag}: provider lookup failed:`, err);
     return [] as RampProviderName[];
   });
-  if (!preferred) {
-    console.warn(`${tag}: no provider can pay out this corridor`);
-    return null;
-  }
 
-  // Only the starting guess. The solver replaces it with the provider's own rate immediately.
-  let seedRate = 0;
-  try {
-    const rates = await Ramp.getRates(1, fiat);
-    seedRate = Number(rates.data.sell?.rate) || 0;
-  } catch (err) {
-    console.warn(`${tag}: starting rate lookup failed:`, err);
-    return null;
-  }
-  if (!(seedRate > 0)) {
-    console.warn(`${tag}: rates response had no sell rate`);
-    return null;
-  }
-
+  // Each provider in withdrawal order, solving against its OWN rate and quotes: starting from
+  // another provider's rate overshot the target by up to 0.1%, since the solver only ever steps
+  // up from a guess that already cleared it. A provider that gives no rate or no quote is down
+  // for this corridor, and the next is asked. The one that answers is the one that pays.
   const { solveForFiatTarget } = await import("@/lib/ramp/fiat-target");
-  const solved = await solveForFiatTarget(targetFiat, seedRate, (amountUsdc) =>
-    Ramp.quoteOffRampFor(preferred, { amountUsdc, fiatCurrency: fiat, network }),
-  );
+  let solved: Awaited<ReturnType<typeof solveForFiatTarget>> = null;
+  let preferred: RampProviderName | undefined;
+  for (const provider of order) {
+    if (!(await canPrice(provider, fiat, target))) continue;
+    const seedRate = await Ramp.offRampRateFor(provider, fiat, network);
+    if (!seedRate) continue;
+    solved = await solveForFiatTarget(targetFiat, seedRate, (amountUsdc) =>
+      Ramp.quoteOffRampFor(provider, { amountUsdc, fiatCurrency: fiat, network }),
+    );
+    if (solved) {
+      preferred = provider;
+      break;
+    }
+    console.warn(`${tag}: ${provider} returned no usable quote, trying the next provider.`);
+  }
   if (!solved) {
-    console.warn(`${tag}: ${preferred} returned no usable quote`);
+    // As in getOffRampQuote: a recently refused provider beats no price at all.
+    if (target?.exclude?.length) return getOffRampQuoteForFiat(targetFiat, fiat, network, { ...target, exclude: [] });
+    console.warn(`${tag}: no provider could price this corridor`);
     return null;
   }
 
@@ -526,7 +537,11 @@ export async function executeOffRamp(params: {
    * /api/2fa/pin. Required — see the consumption below.
    */
   authorization?: string;
-}): Promise<{ order: RampOrderResponse; provider: RampProviderName }> {
+}): Promise<
+  | { order: RampOrderResponse; provider: RampProviderName }
+  /** The provider that priced the quote cannot take the order: price it again without it. */
+  | { requote: true; unavailable: RampProviderName }
+> {
   // ── Identity ────────────────────────────────────────────────────────────
   // Taken from the session, never from `params`. This action moves money and records it
   // against an account, so a caller-supplied userId/userEmail would let someone charge a
@@ -543,6 +558,15 @@ export async function executeOffRamp(params: {
   // that refusal used to arrive only after the user had paid in. See lib/ramp/bank-account.
   const accountProblem = bankAccountProblem(params.fiatCurrency, params.bank.accountNumber);
   if (accountProblem) throw new Error(accountProblem);
+
+  // Constrain to providers that can settle on the chosen network.
+  const eligible = await Ramp.offRampProviderOrder(params.fiatCurrency, params.network);
+  // The provider that priced the reviewed quote is the one that pays: switching here would pay
+  // the user at a rate they never saw. If it cannot take the order, the answer says so and the
+  // review screen re-prices without it, showing the new amount before anything is sent. Decided
+  // before the PIN below, so a price that is already unusable does not spend it.
+  const pinned = params.quotedBy;
+  if (pinned && !eligible.includes(pinned)) return { requote: true, unavailable: pinned };
 
   // ── PIN authorisation ───────────────────────────────────────────────────
   //
@@ -574,17 +598,15 @@ export async function executeOffRamp(params: {
       { reason: guard.reason },
     );
   }
-  // Constrain to providers that can settle on the chosen network
-  const providersToTry = await Ramp.offRampProviderOrder(params.fiatCurrency, params.network);
+  const providersToTry = pinned ? [pinned] : eligible;
   let lastError: unknown =
     providersToTry.length === 0
       ? new Error("Withdrawals to this currency aren't available right now. Please try again later.")
       : new Error("No off-ramp provider available");
 
   const skipped: string[] = [];
-  // The provider the reviewed quote was struck with — `getOffRampQuote` asks this same
-  // ordering, so it is the head of the list. Only it can reuse that quote.
-  const firstChoice = providersToTry[0];
+  // Only the provider the reviewed quote was struck with can reuse that quote.
+  const firstChoice = pinned ?? providersToTry[0];
 
   for (const provider of providersToTry) {
     try {
@@ -801,26 +823,33 @@ export async function executeOffRamp(params: {
       // balance intact until then would let a second withdrawal, started before this one
       // finished, be quoted against the same allowance. A failed withdrawal gets it back;
       // see releaseBenefits, wired into the payout webhooks.
-      if (benefit.waivedVolumeUsdc > 0 || benefit.creditAppliedUsdc > 0) {
-        const { data: row } = await supabaseAdmin
-          .from('withdrawals')
-          .select('id')
-          .eq('provider_order_id', created.id)
-          .maybeSingle();
+      //
+      // Nothing from here on may throw the order away: it exists and is recorded, so a failure
+      // here falling into the catch below would create a second order for the same money.
+      try {
+        if (benefit.waivedVolumeUsdc > 0 || benefit.creditAppliedUsdc > 0) {
+          const { data: row } = await supabaseAdmin
+            .from('withdrawals')
+            .select('id')
+            .eq('provider_order_id', created.id)
+            .maybeSingle();
 
-        if (row?.id) {
-          await spendBenefits({
-            userId,
-            withdrawalId: row.id,
-            waivedVolumeUsdc: benefit.waivedVolumeUsdc,
-            creditAppliedUsdc: benefit.creditAppliedUsdc,
-          });
+          if (row?.id) {
+            await spendBenefits({
+              userId,
+              withdrawalId: row.id,
+              waivedVolumeUsdc: benefit.waivedVolumeUsdc,
+              creditAppliedUsdc: benefit.creditAppliedUsdc,
+            });
+          }
         }
-      }
 
-      // A withdrawal is the clearest possible "the owner is here", so it extends THIS device's
-      // session — and only this one. Money arriving never does.
-      await markSessionTransacted(params.accessToken);
+        // A withdrawal is the clearest possible "the owner is here", so it extends THIS device's
+        // session — and only this one. Money arriving never does.
+        await markSessionTransacted(params.accessToken);
+      } catch (afterErr) {
+        console.error(`[Action] executeOffRamp: order ${created.id} created, but a follow-up step failed:`, afterErr);
+      }
 
       console.log(`[Action] executeOffRamp: order ${created.id} created on ${provider}`);
       return { order: created, provider };
@@ -828,6 +857,24 @@ export async function executeOffRamp(params: {
       lastError = e;
       console.error(`[Action] executeOffRamp: ${provider} failed, trying next:`, e);
     }
+  }
+  if (pinned) {
+    // Something the user can fix (wrong account, below a limit) is said, as before: re-pricing
+    // elsewhere would hide it and leave this provider out of their prices for no reason.
+    // Downtime (5xx, a timeout, "unavailable") is the provider's, and is re-priced.
+    const status = (lastError as { status?: number } | null)?.status ?? 0;
+    const raw = lastError instanceof Error ? lastError.message : String(lastError);
+    // So is a provider skipped before it was even asked (fee above the confirmed one, no fee
+    // treasury, bank not on its list): nothing the user can do, so price it elsewhere.
+    const down =
+      skipped.length > 0 ||
+      status >= 500 ||
+      (lastError as Error | null)?.name === "TimeoutError" ||
+      /unavailable|timed? ?out|try again later/i.test(raw);
+    const actionable = down ? null : toUserSafeMessage(raw);
+    if (actionable) throw new Error(actionable);
+    console.warn(`[Action] executeOffRamp: ${pinned} could not take the order; asking the client to re-price.`);
+    return { requote: true, unavailable: pinned };
   }
   // Every capable provider dropped out. Log why (config vs. genuine failure) so an
   // unconfigured corridor is distinguishable from a provider outage.

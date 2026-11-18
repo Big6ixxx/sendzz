@@ -696,6 +696,17 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
               {formatFiat(hook.quote.payoutAmount, hook.fiatCurrency)}
             </span>
           </div>
+          {/* Re-priced in place after the first price could not be used: nothing was sent, and
+              the figures here are the ones the next press pays. */}
+          {hook.repriced && (
+            <p className="text-[11px] text-amber-400/90 leading-snug">
+              Price updated
+              {hook.payoutAdjusted
+                ? ` from ${formatFiat(hook.payoutAdjusted.from, hook.fiatCurrency)}`
+                : ""}
+              . Check the amounts and press Send.
+            </p>
+          )}
           {hook.quote.binding === false && (
             <p className="text-[10px] text-muted-foreground leading-snug">
               Estimated from the live rate — the final payout is confirmed on the next screen
@@ -812,7 +823,12 @@ export function WithdrawForm({ hook }: WithdrawFormProps) {
           disabled={hook.loading || !hook.bankDetails.accountName}
           className="btn-primary w-full gap-2"
         >
-          {hook.loading ? (
+          {hook.repricing ? (
+            <>
+              <Loader2 className="w-5 h-5 animate-spin" />
+              Updating price
+            </>
+          ) : hook.loading ? (
             <Loader2 className="w-5 h-5 animate-spin" />
           ) : (
             `Send ${formatFiat(hook.quote.payoutAmount, hook.fiatCurrency)}`

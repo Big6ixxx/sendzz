@@ -89,7 +89,7 @@ vi.mock('@/lib/supabase/transactions', () => ({ triggerWithdrawalNotifications: 
 vi.mock('@/lib/referrals/accrue', () => ({ accrueReferralEarning: async () => {}, voidReferralEarning: async () => {} }));
 vi.mock('@/lib/referrals/benefits', () => ({ releaseBenefitsForOrder: async () => {} }));
 
-const { onBrailsDeposit, onBrailsPayout, reconcileBrailsPayouts, listUnfundedBrailsWithdrawals } = await import(
+const { onBrailsDeposit, onBrailsPayout, reconcileBrailsPayouts, listUnfundedBrailsWithdrawals, uncreditedFinding } = await import(
   './brails-payout'
 );
 
@@ -445,5 +445,29 @@ describe('listUnfundedBrailsWithdrawals', () => {
   it('leaves a funded one off the list', async () => {
     seed();
     await expect(listUnfundedBrailsWithdrawals()).resolves.toEqual([]);
+  });
+});
+
+describe('uncreditedFinding', () => {
+  const MEMO = '123456789012345678';
+  it('says a Stellar payment that landed without a memo went out without one', () => {
+    expect(uncreditedFinding('stellar', MEMO, { state: 'success', memoType: 'none' })).toBe('no_memo');
+    expect(uncreditedFinding('stellar', MEMO, { state: 'success', memo: '', memoType: 'text' })).toBe('no_memo');
+  });
+  it('tells a wrong memo from the right one', () => {
+    expect(uncreditedFinding('stellar', MEMO, { state: 'success', memo: '999', memoType: 'text' })).toBe('wrong_memo');
+    expect(uncreditedFinding('stellar', MEMO, { state: 'success', memo: MEMO, memoType: 'text' })).toBe('memo_ok');
+  });
+  it('calls a memo of another type wrong, and judges none without a recorded memo', () => {
+    expect(uncreditedFinding('stellar', MEMO, { state: 'success', memo: MEMO, memoType: 'hash' })).toBe('wrong_memo');
+    expect(uncreditedFinding('stellar', undefined, { state: 'success', memo: MEMO, memoType: 'text' })).toBe('unchecked');
+  });
+  it('says a hash that never succeeded on the ledger moved nothing', () => {
+    expect(uncreditedFinding('stellar', MEMO, { state: 'absent' })).toBe('not_on_ledger');
+    expect(uncreditedFinding('stellar', MEMO, { state: 'failed' })).toBe('not_on_ledger');
+  });
+  it('claims nothing it could not check', () => {
+    expect(uncreditedFinding('stellar', MEMO, { state: 'unknown' })).toBe('unchecked');
+    expect(uncreditedFinding('base', undefined, null)).toBe('unchecked');
   });
 });

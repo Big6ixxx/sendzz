@@ -58,6 +58,8 @@ export async function checkWithdrawalSend(params: {
   if (!meta.deposit_address || meta.deposit_address !== params.recipientAddress) {
     return { ok: false, reason: 'recipient is not the withdrawal’s deposit address' };
   }
+  // Brails tells Stellar customers apart by memo alone: without one the payment is held unattributed.
+  if (w.provider === 'brails' && !meta.deposit_memo) return { ok: false, reason: 'no memo for a Brails deposit' };
   if ((meta.deposit_memo ?? '') !== (params.memo ?? '')) return { ok: false, reason: 'memo does not match' };
 
   // Sent before, or being sent. Only an earlier send that can no longer land frees the order.

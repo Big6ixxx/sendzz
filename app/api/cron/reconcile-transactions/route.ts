@@ -230,7 +230,7 @@ export async function GET(req: Request) {
   //
   // Brails quotes live 90 seconds and are taken at payout time, so unlike Bitnob there is no
   // quote expiry to drive a stuck withdrawal to a refund. These are that clock.
-  const { reconcileBrailsDeposits, reconcileBrailsPayouts, listUnfundedBrailsWithdrawals } = await import(
+  const { reconcileBrailsDeposits, reconcileBrailsPayouts, listUnfundedBrailsWithdrawals, alertUncreditedBrailsDeposits } = await import(
     '@/lib/ramp/brails-payout'
   );
   // One budget for both, so together they leave room for the steps after them inside
@@ -247,6 +247,11 @@ export async function GET(req: Request) {
   });
   const brailsUnfunded = await listUnfundedBrailsWithdrawals().catch((e) => {
     console.error('[Reconcile Brails] unfunded check failed:', e instanceof Error ? e.message : e);
+    return [] as string[];
+  });
+  // Inside the same Brails budget, so a slow Brails cannot squeeze the steps after it.
+  const brailsUncredited = await alertUncreditedBrailsDeposits(brailsStopAt).catch((e) => {
+    console.error('[Reconcile Brails] uncredited check failed:', e instanceof Error ? e.message : e);
     return [] as string[];
   });
 
@@ -315,6 +320,7 @@ export async function GET(req: Request) {
     brails,
     brailsPayouts,
     brailsUnfunded,
+    brailsUncredited,
     deposits,
     stellar,
     solana,

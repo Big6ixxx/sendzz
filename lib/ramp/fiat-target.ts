@@ -43,30 +43,39 @@ export async function solveForFiatTarget(
   targetFiat: number,
   seedRate: number,
   quote: QuoteFn,
-  maxAttempts = 3,
+  maxAttempts = 4,
 ): Promise<FiatTargetSolution | null> {
   if (!(targetFiat > 0) || !(seedRate > 0)) return null;
 
   let amountUsdc = ceilUsdc(targetFiat / seedRate);
-  let best: FiatTargetSolution | null = null;
+  let met: FiatTargetSolution | null = null;
+  let short: FiatTargetSolution | null = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const q = await quote(amountUsdc);
-    if (!q || !(q.payoutAmount > 0)) return best;
+    if (!q || !(q.payoutAmount > 0)) break;
 
-    const meetsTarget = q.payoutAmount + 1e-9 >= targetFiat;
-    best = { quote: q, amountUsdc, meetsTarget };
-    if (meetsTarget) return best;
+    // What this quote actually paid per USDC: the provider's real rate, not the seed.
+    const next = ceilUsdc(targetFiat / (q.payoutAmount / amountUsdc));
 
-    // Short. Rescale on what this quote actually paid per USDC — the provider's real rate,
-    // not the seed. `ceilUsdc` guarantees the step is upward even when the gap is sub-cent,
-    // so this cannot stall repeating the same amount.
-    const impliedRate = q.payoutAmount / amountUsdc;
-    const next = ceilUsdc(targetFiat / impliedRate);
+    if (q.payoutAmount + 1e-9 >= targetFiat) {
+      met = { quote: q, amountUsdc, meetsTarget: true };
+      // Over the target by more than rounding (a pessimistic seed): come back down to the
+      // smallest amount that still meets it, unless that amount already came up short.
+      if (next >= amountUsdc || (short && next <= short.amountUsdc)) return met;
+      amountUsdc = next;
+      continue;
+    }
+
+    short = { quote: q, amountUsdc, meetsTarget: false };
+    // Stepped down and came up short: the last amount that met the target is the answer.
+    if (met) return met;
+    // `ceilUsdc` guarantees the step is upward even when the gap is sub-cent, so this cannot
+    // stall repeating the same amount.
     amountUsdc = next > amountUsdc ? next : ceilUsdc(amountUsdc + 1e-6);
   }
 
-  return best;
+  return met ?? short;
 }
 
 /** Inputs the server action needs to build a `QuoteFn` for one corridor. */

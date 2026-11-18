@@ -288,15 +288,16 @@ class BrailsClient {
    * whose webhook found no withdrawal can still be matched later.
    */
   async findDepositByHash(hash: string): Promise<BrailsTransaction | null> {
+    return (await this.findDepositsByHash(hash)).find((t) => t.status?.toLowerCase() === 'success') ?? null;
+  }
+
+  /** Every USD deposit Brails has for this on-chain hash, in whatever state. */
+  async findDepositsByHash(hash: string): Promise<BrailsTransaction[]> {
     const res = await this.request<{ transactions?: BrailsTransaction[] }>(
       'v2',
       `/transactions?limit=10&q=${encodeURIComponent(hash)}`,
     );
-    return (
-      res.transactions?.find(
-        (t) => t.action?.toUpperCase() === 'DEPOSIT_USD' && t.status?.toLowerCase() === 'success',
-      ) ?? null
-    );
+    return (res.transactions ?? []).filter((t) => t.action?.toUpperCase() === 'DEPOSIT_USD');
   }
 
   /**

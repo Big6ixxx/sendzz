@@ -529,3 +529,123 @@ export async function sendKycReviewAlert(alert: KycReviewAlert): Promise<void> {
     console.error("[AdminAlert] kyc-review alert threw:", err);
   }
 }
+
+/** Why a deposit sent to Brails went uncredited. See uncreditedFinding in lib/ramp/brails-payout. */
+export type UncreditedFinding =
+  | "no_memo"
+  | "wrong_memo"
+  | "memo_ok"
+  | "not_on_ledger"
+  | "credited"
+  | "settling"
+  | "unchecked";
+
+export interface UncreditedDepositAlert {
+  orderId: string;
+  userEmail: string | null;
+  amountUsdc: number;
+  fiatCurrency: string | null;
+  chain: string;
+  txHash: string;
+  depositAddress: string | null;
+  expectedMemo: string | null;
+  memoOnLedger: string | null;
+  finding: UncreditedFinding;
+  createdAt: string;
+}
+
+const UNCREDITED_VERDICT: Record<UncreditedFinding, string> = {
+  no_memo:
+    "The payment went out WITHOUT its memo, so Brails cannot tell whose it is. Ask Brails to credit it to this customer or return it, quoting the hash.",
+  wrong_memo:
+    "The payment went out with a different memo than this customer's. Ask Brails to credit it to this customer or return it, quoting the hash.",
+  memo_ok:
+    "The payment went out with the right memo and address, yet Brails has not credited it. Send Brails the hash and ask why.",
+  not_on_ledger:
+    "This hash is not a successful payment on the ledger: the money probably never left the user's wallet. Check the wallet, then close the withdrawal as failed.",
+  credited:
+    "Brails credited this deposit, but it was never matched to its withdrawal and no payout started. Start the payout or refund by hand.",
+  settling:
+    "Brails has received this deposit but has not settled it after six hours. Send Brails the hash and ask why.",
+  unchecked:
+    "Brails has not credited this deposit. Check the payment on the explorer and send Brails the hash.",
+};
+
+/**
+ * Tell the admins a withdrawal's USDC was sent to Brails and never paid out: the user's balance
+ * is down, the withdrawal sits at processing, and nothing else says money is owed. Sent once per
+ * withdrawal; the caller gates it. Never throws.
+ */
+export async function sendUncreditedDepositAlert(alert: UncreditedDepositAlert): Promise<boolean> {
+  try {
+    const to = parseAdminRecipients(process.env.ADMIN_EMAILS);
+    if (to.length === 0) {
+      console.error(
+        "[AdminAlert] Uncredited Brails deposit but NO admin recipients configured — set ADMIN_EMAILS. " +
+          `Order ${alert.orderId}, tx ${alert.txHash}.`,
+      );
+      return false;
+    }
+
+    const verdict = UNCREDITED_VERDICT[alert.finding];
+    const explorer = explorerTxUrl(alert.chain, alert.txHash);
+    const amount = `${alert.amountUsdc.toFixed(2)} USDC`;
+    const rows: [string, string][] = [
+      ["Order", alert.orderId],
+      ["User", alert.userEmail ?? "unknown"],
+      ["Amount", amount],
+      ["Payout", alert.fiatCurrency ?? "?"],
+      ["Chain", alert.chain],
+      ["Placed", alert.createdAt],
+      ["Tx hash", alert.txHash],
+      ["Sent to", alert.depositAddress ?? "unknown"],
+      ...(alert.chain === "stellar"
+        ? ([
+            ["Memo expected", alert.expectedMemo ?? "none recorded"],
+            ["Memo on ledger", alert.memoOnLedger ?? "none"],
+          ] as [string, string][])
+        : []),
+    ];
+
+    const html = baseTemplate(
+      statusEmailContent({
+        badge: "Money held",
+        badgeColor: "#B42318",
+        title: amount,
+        subtitle: "sent to Brails, never paid out",
+        intro: esc(verdict),
+        rows: rows.map(([label, value]) => [label, esc(value)]),
+        mono: ["Tx hash", "Sent to", "Memo expected", "Memo on ledger"],
+        button: explorer
+          ? { href: esc(explorer), label: "View the payment" }
+          : { href: esc(`${process.env.NEXT_PUBLIC_APP_URL || "https://sendzz.io"}/admin/transactions`), label: "Open admin" },
+        note: "The withdrawal stays at processing until it is closed by hand. This is the only email about it.",
+      }),
+    );
+
+    const text = [
+      `MONEY HELD AT BRAILS: ${amount} never paid out`,
+      ``,
+      verdict,
+      ``,
+      ...rows.map(([label, value]) => `${label}: ${value}`),
+      ...(explorer ? [``, explorer] : []),
+    ].join("\n");
+
+    const res = await sendEmail({
+      to,
+      subject: `[Action required] ${amount} sent to Brails was never paid out (order ${alert.orderId})`,
+      html,
+      text,
+    });
+    if (!res.success) {
+      console.error(`[AdminAlert] uncredited-deposit email failed: ${res.error}`);
+      return false;
+    }
+    console.log(`[AdminAlert] uncredited-deposit alert sent to ${to.length} admin(s) for order ${alert.orderId}`);
+    return true;
+  } catch (err) {
+    console.error("[AdminAlert] uncredited-deposit alert threw:", err);
+    return false;
+  }
+}

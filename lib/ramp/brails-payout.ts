@@ -33,6 +33,7 @@ import { accrueReferralEarning, voidReferralEarning } from '@/lib/referrals/accr
 import { releaseBenefitsForOrder } from '@/lib/referrals/benefits';
 import { redactEmail } from '@/lib/log';
 import type { Json } from '@/types/database';
+import type { UncreditedFinding } from '@/lib/email/admin-alerts';
 
 export interface BrailsEventData {
   id?: string;
@@ -408,6 +409,17 @@ async function attemptPayout(
     rate: quote.rate,
     targetMinor: quote.targetAmount,
   }));
+  // What the bank will receive is decided here, by the quote just locked, not by the estimate
+  // the order was created with: the receipt and history read these columns.
+  const { error: figureError } = await supabaseAdmin
+    .from('withdrawals')
+    .update({
+      fiat_amount: quote.targetAmount / 100,
+      // The quote's rate, or worked out from its two sides; never blanked when absent.
+      exchange_rate: Number(quote.rate) > 0 ? Number(quote.rate) : quote.targetAmount / quote.sourceAmount,
+    })
+    .eq('id', w.id);
+  if (figureError) console.error(`[Brails] ${orderId}: could not record the paid amount:`, figureError.message);
 
   console.log(
     `[Brails] Payout ${payout.id} sent for ${orderId}: ${quote.sourceAmount / 100} USD → ` +
@@ -666,6 +678,154 @@ export async function listUnfundedBrailsWithdrawals(): Promise<string[]> {
   return orders;
 }
 
+/** How long a sent deposit may go uncredited, from our first sighting, before an admin is told. */
+const UNCREDITED_AFTER_MS = 60 * 60_000;
+/** Orders younger than this are not looked at: Brails credits in minutes. */
+const FIRST_LOOK_AFTER_MS = 10 * 60_000;
+/** The same, for a deposit Brails credited but that never became a payout, or is still settling. */
+const UNMATCHED_AFTER_MS = 6 * 60 * 60_000;
+/** How far back reconcileBrailsDeposits looks for a credited deposit to match. */
+const RECONCILE_WINDOW_MS = 7 * 24 * 60 * 60_000;
+/** How often the scan runs. Rows already emailed about are filtered out before any network call. */
+const SCAN_EVERY_MS = 10 * 60_000;
+const FAILED_DEPOSIT = new Set(['failed', 'rejected', 'reversed', 'cancelled', 'canceled']);
+
+/**
+ * What a Stellar payment Brails never credited carried, so the alert says whose mistake it is
+ * before anyone writes to Brails: Brails tells Stellar customers apart by memo alone.
+ */
+export function uncreditedFinding(
+  chain: string,
+  expectedMemo: string | undefined,
+  onLedger: Awaited<ReturnType<typeof ledgerTransaction>> | null,
+): Exclude<UncreditedFinding, 'credited'> {
+  if (chain !== 'stellar' || !onLedger || onLedger.state === 'unknown') return 'unchecked';
+  if (onLedger.state !== 'success') return 'not_on_ledger';
+  const memo = onLedger.memoType === 'none' ? undefined : onLedger.memo;
+  if (!memo) return 'no_memo';
+  // Nothing recorded to compare with: say nothing about whose memo it was.
+  if (!expectedMemo) return 'unchecked';
+  return onLedger.memoType === 'text' && memo === expectedMemo ? 'memo_ok' : 'wrong_memo';
+}
+
+/**
+ * Email the admins, once per withdrawal, about USDC sent to Brails that never became a payout:
+ * not credited an hour after we first saw it missing, or credited or still settling at Brails
+ * six hours after. Without it nothing on our side says the money is held: the withdrawal just
+ * stays at processing.
+ *
+ * The clock starts at our first sighting (`brails-uncredited-seen:<id>`), not at the order: a
+ * user can send well after placing it, and an alert fired minutes after sending would be wrong
+ * and, being the only one, never corrected. Withdrawals still on the payout retry schedule are
+ * left to it; telling an admin to pay one by hand while it retries could pay it twice.
+ *
+ * "Once" is claimed before sending (`brails-uncredited:<id>`) and given back if the email did
+ * not go out, so a failed send is tried again and a delivered one is never repeated.
+ */
+export async function alertUncreditedBrailsDeposits(stopAt = Date.now() + 20_000): Promise<string[]> {
+  if (Date.now() > stopAt) return [];
+  const { claimAlertSlot } = await import('@/lib/ops/alert-cooldown');
+  if (!(await claimAlertSlot('brails-uncredited-scan', SCAN_EVERY_MS))) return [];
+
+  const now = Date.now();
+  const { data: rows } = await supabaseAdmin
+    .from('withdrawals')
+    .select('id, user_id, provider_order_id, amount_usdc, fiat_currency, tx_hash, created_at, provider_metadata')
+    .eq('provider', 'brails')
+    .eq('status', 'processing')
+    .not('tx_hash', 'is', null)
+    .is('provider_metadata->brails->>payoutId', null)
+    .lt('created_at', new Date(now - FIRST_LOOK_AFTER_MS).toISOString())
+    // Newest first: rows already emailed about and left open cannot hide a new one. Capped so
+    // both lookups below fit in one URL.
+    .order('created_at', { ascending: false })
+    .limit(50);
+  if (!rows?.length) return [];
+
+  const sentKey = (id: string) => `brails-uncredited:${id}`;
+  const seenKey = (id: string) => `brails-uncredited-seen:${id}`;
+  const { data: logged } = await supabaseAdmin
+    .from('ops_alert_log')
+    .select('key, last_sent_at')
+    .in('key', rows.flatMap((w) => [sentKey(w.id), seenKey(w.id)]));
+  const log = new Map((logged ?? []).map((r) => [r.key, Date.parse(r.last_sent_at)]));
+
+  const { isPlaceholderHash } = await import('@/lib/explorers');
+  const { sendUncreditedDepositAlert } = await import('@/lib/email/admin-alerts');
+  const alerted: string[] = [];
+  for (const w of rows) {
+    if (Date.now() > stopAt) break;
+    const hash = w.tx_hash!;
+    if (log.has(sentKey(w.id)) || isPlaceholderHash(hash)) continue;
+    const meta = (w.provider_metadata ?? {}) as {
+      network?: string;
+      deposit_address?: string;
+      deposit_memo?: string;
+      brails?: { retryAt?: string; corridorDownAt?: string; needsReview?: boolean };
+    };
+    // On the retry schedule, or already listed for review by reconcileBrailsPayouts.
+    if (meta.brails?.retryAt || meta.brails?.corridorDownAt || meta.brails?.needsReview) continue;
+    const orderId = w.provider_order_id ?? w.id;
+    try {
+      // `undefined` when Brails could not be asked: nothing is known, so nothing is said.
+      const deposits = await getBrailsClient().findDepositsByHash(hash).catch(() => undefined);
+      if (deposits === undefined) continue;
+      const credited = deposits.some((d) => d.status?.toLowerCase() === 'success');
+      const settling = deposits.some((d) => !FAILED_DEPOSIT.has(d.status?.toLowerCase() ?? '') && d.status?.toLowerCase() !== 'success');
+
+      const seenAt = log.get(seenKey(w.id));
+      if (seenAt === undefined) {
+        await supabaseAdmin.from('ops_alert_log').insert({ key: seenKey(w.id), last_sent_at: new Date(now).toISOString() });
+        continue;
+      }
+      // Credited or still settling: give reconcileBrailsDeposits and Brails longer.
+      if (now - seenAt < (credited || settling ? UNMATCHED_AFTER_MS : UNCREDITED_AFTER_MS)) continue;
+
+      const chain = (meta.network ?? '').toLowerCase();
+      const onLedger = chain === 'stellar' ? await ledgerTransaction(hash) : null;
+      const finding: UncreditedFinding = credited
+        ? 'credited'
+        : settling
+          ? 'settling'
+          : uncreditedFinding(chain, meta.deposit_memo, onLedger);
+
+      // Claimed before sending, so two runs or a failed write afterwards cannot email twice.
+      const { error: claimError } = await supabaseAdmin
+        .from('ops_alert_log')
+        .insert({ key: sentKey(w.id), last_sent_at: new Date().toISOString() });
+      if (claimError) {
+        if (claimError.code !== '23505') console.error(`[Reconcile Brails] ${orderId}: could not claim the alert:`, claimError.message);
+        continue;
+      }
+
+      const { data: user } = await supabaseAdmin.from('users').select('email').eq('id', w.user_id).maybeSingle();
+      console.error(`[Reconcile Brails] ⚠ ${orderId}: ${w.amount_usdc} USDC sent (${hash}), no payout at Brails: ${finding}.`);
+      const delivered = await sendUncreditedDepositAlert({
+        orderId,
+        userEmail: user?.email ?? null,
+        amountUsdc: Number(w.amount_usdc ?? 0),
+        fiatCurrency: w.fiat_currency ?? null,
+        chain: chain || 'unknown',
+        txHash: hash,
+        depositAddress: meta.deposit_address ?? null,
+        expectedMemo: meta.deposit_memo ?? null,
+        memoOnLedger: onLedger && 'memo' in onLedger ? onLedger.memo ?? null : null,
+        finding,
+        createdAt: w.created_at,
+      });
+      if (!delivered) {
+        // Given back, so the next scan tries again.
+        await supabaseAdmin.from('ops_alert_log').delete().eq('key', sentKey(w.id));
+        continue;
+      }
+      alerted.push(orderId);
+    } catch (e) {
+      console.error(`[Reconcile Brails] ${orderId}: uncredited check failed:`, e instanceof Error ? e.message : e);
+    }
+  }
+  return alerted;
+}
+
 /**
  * The backstop for a deposit whose webhook found no withdrawal.
  *
@@ -687,7 +847,7 @@ export async function reconcileBrailsDeposits(stopAt = Date.now() + 60_000): Pro
     // A week, not a day: a deposit matched late is still a payout, where unmatched it sits at
     // Brails with nothing to tell anyone it is there. Newest first, so hashes that will never
     // match (sent to the wrong place) cannot hold back a fresh deposit whose webhook was missed.
-    .gt('created_at', new Date(now - 7 * 24 * 60 * 60_000).toISOString())
+    .gt('created_at', new Date(now - RECONCILE_WINDOW_MS).toISOString())
     .order('created_at', { ascending: false })
     .limit(20);
 

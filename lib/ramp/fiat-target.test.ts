@@ -55,11 +55,31 @@ describe('solveForFiatTarget', () => {
     expect(fn.mock.calls.length).toBeLessThanOrEqual(2);
   });
 
-  it('stops at one quote when the first already meets the target', async () => {
+  it('stops at one quote when the seed is the real rate', async () => {
     const fn = vi.fn(atRate(1400));
-    const res = await solveForFiatTarget(5000, 1380, fn);
+    const res = await solveForFiatTarget(5000, 1400, fn);
     expect(fn).toHaveBeenCalledTimes(1);
     expect(res?.meetsTarget).toBe(true);
+  });
+
+  it('comes back down when a pessimistic seed overshoots, rather than overpaying', async () => {
+    // Seeded at another provider's worse rate: 15,000 at 1396.58 asks for 10.7405 USDC, which
+    // pays 15,016.64 at the real 1398.198. Users paid that extra on every naira withdrawal.
+    const res = await solveForFiatTarget(15000, 1396.581, atRate(1398.198));
+    expect(res?.meetsTarget).toBe(true);
+    expect(res!.amountUsdc).toBe(ceilUsdc(15000 / 1398.198));
+    expect(res!.quote.payoutAmount).toBeLessThan(15000.01);
+  });
+
+  it('keeps the amount that met the target when stepping down comes up short', async () => {
+    // Pays a little less per USDC on smaller amounts: the step down falls short, so it goes back.
+    const banded: QuoteFn = async (amountUsdc) => ({
+      provider: 'bitnob', rate: 0, binding: true,
+      payoutAmount: amountUsdc * (amountUsdc >= 3.6 ? 1400 : 1390),
+    });
+    const res = await solveForFiatTarget(5000, 1380, banded);
+    expect(res?.meetsTarget).toBe(true);
+    expect(res!.quote.payoutAmount).toBeGreaterThanOrEqual(5000);
   });
 
   it('still converges when the rate keeps drifting against us', async () => {

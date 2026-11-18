@@ -444,6 +444,32 @@ export const Ramp = {
     }
   },
 
+  /**
+   * `provider`'s own indicative sell rate for `currency`, or null when it gives none. A provider
+   * that cannot price a currency right now is treated as down for it.
+   */
+  async offRampRateFor(provider: RampProviderName, currency: RampCurrency, network?: string): Promise<number | null> {
+    try {
+      const rate = Number((await byName(provider).getRates(1, currency, network)).data.sell?.rate);
+      return rate > 0 ? rate : null;
+    } catch (e) {
+      console.warn(`[Ramp] ${provider} gave no ${currency} rate:`, e instanceof Error ? e.message : e);
+      return null;
+    }
+  },
+
+  /**
+   * The sell rate a withdrawal in `currency` would actually be paid at: from the first provider
+   * in withdrawal order that prices it, so the rate shown and the provider that pays are one.
+   */
+  async offRampRate(currency: RampCurrency, network?: string): Promise<{ rate: number; provider: RampProviderName } | null> {
+    for (const provider of await this.offRampProviderOrder(currency, network)) {
+      const rate = await this.offRampRateFor(provider, currency, network);
+      if (rate) return { rate, provider };
+    }
+    return null;
+  },
+
   settlementNetworksFor(provider: RampProviderName): Promise<string[]> {
     return byName(provider).getSettlementNetworks();
   },
