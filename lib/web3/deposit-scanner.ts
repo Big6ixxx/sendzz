@@ -157,12 +157,15 @@ async function withoutSendzzSenders(rows: DepositRow[]): Promise<DepositRow[]> {
  * no-op for the loser instead of an error that would drop the whole batch, including the rows
  * the other scan never found.
  */
+/** Arrivals older than this when recorded get no deposit email. */
+const DEPOSIT_EMAIL_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
 export async function insertDeposits(rows: DepositRow[]): Promise<number> {
   if (rows.length === 0) return 0;
   const { data, error } = await supabaseAdmin
     .from('deposits')
     .upsert(rows, { onConflict: 'user_id,tx_hash', ignoreDuplicates: true })
-    .select('id, user_id, amount_usdc, tx_hash, network');
+    .select('id, user_id, amount_usdc, tx_hash, network, created_at');
 
   // THROWS rather than returning 0: the caller must be able to tell a failure from "nothing
   // new", because it withholds the cursor on failure. Returning 0 for both is what let the
@@ -172,6 +175,9 @@ export async function insertDeposits(rows: DepositRow[]): Promise<number> {
   // Trigger deposit notification email for each newly inserted deposit
   if (data && data.length > 0) {
     for (const dep of data) {
+      // An arrival found long after it landed (a first scan of an old wallet, a backfilled
+      // address) is recorded quietly: an email now would announce money the user had days ago.
+      if (Date.now() - Date.parse(dep.created_at) > DEPOSIT_EMAIL_MAX_AGE_MS) continue;
       try {
         const { data: user } = await supabaseAdmin
           .from('users')
