@@ -25,6 +25,7 @@ import { transferAmountUsdc } from '@/lib/web3/deposit-amount';
 import {
   chainForWebhookId,
   isIncomingUsdc,
+  isScannedRail,
   toAlchemyTransfer,
   verifyAlchemySignature,
   webhookSecretEnv,
@@ -35,6 +36,7 @@ import {
   ZERO_ADDRESS,
   type DepositRow,
 } from '@/lib/web3/deposit-scanner';
+import { scanForRailEvent } from '@/lib/web3/rail-webhook';
 
 export const runtime = 'nodejs';
 
@@ -78,6 +80,12 @@ export async function POST(req: Request) {
     ) {
       console.error(`${tag} signature mismatch on ${chain} — rejected`);
       return new Response('Invalid signature', { status: 401 });
+    }
+
+    // Solana and Stellar: the event names who moved money, and the scanner reads the chain.
+    if (isScannedRail(chain)) {
+      const credited = await scanForRailEvent(chain, payload, tag);
+      return NextResponse.json({ ok: true, credited });
     }
 
     const eventId = payload.id ?? '(no id)';

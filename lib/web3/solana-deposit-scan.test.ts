@@ -4,6 +4,7 @@ import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 import {
   rawToUsdc,
   scanSolana,
+  solanaUsdcSenders,
   SOL_MAX_TX,
   SOL_SIG_PAGE,
   type SolanaScanRpc,
@@ -212,5 +213,44 @@ describe('amounts come from the raw integers, not uiAmount', () => {
     expect(rawToUsdc(123456789n, 6)).toBe(123.456789);
     expect(rawToUsdc(-2500000n, 6)).toBe(-2.5);
     expect(rawToUsdc(7n, 0)).toBe(7);
+  });
+});
+
+describe('the sender is recorded, so a Sendzz-to-Sendzz payment can be told apart', () => {
+  it('names the owner whose USDC went down', () => {
+    const SENDER = Keypair.generate().publicKey.toBase58();
+    const t = tx('0', '1000000');
+    const senderBal = (amount: string) => ({
+      accountIndex: 2,
+      mint: MINT.toBase58(),
+      owner: SENDER,
+      uiTokenAmount: { amount, decimals: 6, uiAmount: 0, uiAmountString: '0' },
+    });
+    t.meta!.preTokenBalances!.push(senderBal('5000000'));
+    t.meta!.postTokenBalances!.push(senderBal('4000000'));
+    expect(solanaUsdcSenders(t, MINT.toBase58())).toEqual([SENDER]);
+  });
+
+  it('names nobody on a mint', () => {
+    expect(solanaUsdcSenders(tx(null, '1000000', { mint: true }), MINT.toBase58())).toEqual([]);
+  });
+});
+
+describe('a webhook scan reads the newest transactions, not forward from the cursor', () => {
+  it('reaches the latest arrival even when the cursor is far behind', async () => {
+    // 200 transactions since the cursor: reading forward would stop at SOL_MAX_TX, long before
+    // the one the webhook was about.
+    const history = Array.from({ length: 200 }, (_, i) => info(i + 1));
+    const { rpc, sigCalls } = fakeRpc(history, async () => tx('0', '1000000'));
+    const scan = await scanSolana(rpc, {
+      userId: 'u1',
+      ownerAddress: OWNER,
+      usdcMint: MINT,
+      cursor: sig(1),
+      known: new Set(),
+      recent: 5,
+    });
+    expect(scan.rows.map((r) => r.tx_hash)).toEqual([196, 197, 198, 199, 200].map(sig));
+    expect(sigCalls).toEqual([{ until: undefined, before: undefined, limit: 5 }]);
   });
 });

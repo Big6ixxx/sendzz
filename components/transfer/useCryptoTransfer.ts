@@ -34,6 +34,7 @@ import {
 } from "@/lib/web3/routing";
 import { isAddress } from "viem";
 import { isStellarReady, useStellarWallet } from "@/hooks/useStellarWallet";
+import { privySolanaAddress } from '@/lib/solana/privy-address';
 
 export interface CrossChainSendInfo {
   /**
@@ -555,16 +556,7 @@ export function useCryptoTransfer({
 
   /** The user's Privy Solana wallet and its signer, or a thrown "no wallet". */
   const resolveSolanaWallet = () => {
-    const solAccount = user?.linkedAccounts.find(
-      (a) =>
-        a.type === 'wallet' &&
-        (a as { walletClientType?: string }).walletClientType === 'privy' &&
-        (a as { chainType?: string }).chainType === 'solana',
-    );
-    const solAddress =
-      solAccount && 'address' in solAccount
-        ? (solAccount as { address: string }).address
-        : undefined;
+    const solAddress = privySolanaAddress(user);
     const solWallet = solWallets.find((w) => w.address === solAddress) ?? null;
     if (!solAddress || !solWallet) {
       throw new Error("No Solana wallet found. Please link a Solana wallet first.");

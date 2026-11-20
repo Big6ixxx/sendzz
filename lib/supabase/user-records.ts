@@ -196,10 +196,14 @@ export async function writeUserAddresses(
   // Not awaited into the caller's failure path: registration is best-effort, and a user with no
   // wallet is a far worse outcome than a user whose first deposit is found by the cron instead.
   // The periodic sync re-registers anything that fails here.
-  if (addresses.smartAccountAddress) {
+  if (addresses.smartAccountAddress || addresses.solanaAddress || addresses.stellarAddress) {
     try {
-      const { watchAddress } = await import('@/lib/web3/alchemy-registry');
-      await watchAddress(addresses.smartAccountAddress);
+      const { watchAddress, watchRailAddresses } = await import('@/lib/web3/alchemy-registry');
+      await Promise.all([
+        addresses.smartAccountAddress ? watchAddress(addresses.smartAccountAddress) : undefined,
+        addresses.solanaAddress ? watchRailAddresses('solana', [addresses.solanaAddress]) : undefined,
+        addresses.stellarAddress ? watchRailAddresses('stellar', [addresses.stellarAddress]) : undefined,
+      ]);
     } catch (e) {
       console.error('[Users] Alchemy address registration failed (non-fatal):', e);
     }

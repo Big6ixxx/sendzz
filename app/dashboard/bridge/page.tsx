@@ -9,6 +9,7 @@ import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { useStellarWallet } from '@/hooks/useStellarWallet';
 import { Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { privySolanaAddress } from '@/lib/solana/privy-address';
 
 
 
@@ -17,13 +18,7 @@ export default function BridgePage() {
   const { wallets } = useWallets();
   const [smartAddress, setSmartAddress] = useState<string>('');
 
-  // Embedded Privy Solana wallet
-  const privySolAccount = user?.linkedAccounts.find(
-    (a) => a.type === 'wallet' && a.walletClientType === 'privy' && a.chainType === 'solana'
-  );
-  const privySolanaAddress = privySolAccount && 'address' in privySolAccount
-    ? (privySolAccount as { address: string }).address
-    : undefined;
+  const solanaAddress = privySolanaAddress(user);
 
   useEffect(() => {
     async function initAccount() {
@@ -62,14 +57,14 @@ export default function BridgePage() {
         {/* Burned-but-unclaimed transfers, surfaced above the form so they can't be missed. */}
         <PendingBridgeClaims
           userEmail={user.email?.address || ''}
-          solanaAddress={privySolanaAddress}
+          solanaAddress={solanaAddress}
           stellarWallet={stellarWallet}
         />
 
         <ChainBridgeModule
           smartAddress={smartAddress}
           userEmail={user.email?.address || ''}
-          solanaAddress={privySolanaAddress}
+          solanaAddress={solanaAddress}
           stellarWallet={stellarWallet}
         />
       </div>

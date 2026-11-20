@@ -3,6 +3,8 @@ import crypto from 'crypto';
 import {
   chainForWebhookId,
   isIncomingUsdc,
+  solanaPayloadAddresses,
+  stellarArrivalAddresses,
   toAlchemyTransfer,
   verifyAlchemySignature,
   type AlchemyActivity,
@@ -27,6 +29,8 @@ const sign = (body: string, key = KEY) =>
 beforeEach(() => {
   vi.stubEnv('ALCHEMY_WEBHOOK_ID_BASE', 'wh_base_123');
   vi.stubEnv('ALCHEMY_WEBHOOK_ID_ARC', 'wh_arc_456');
+  vi.stubEnv('ALCHEMY_WEBHOOK_ID_SOLANA', 'wh_sol_789');
+  vi.stubEnv('ALCHEMY_WEBHOOK_ID_STELLAR', 'wh_xlm_012');
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -67,6 +71,8 @@ describe('chainForWebhookId', () => {
   it('resolves ids we configured', () => {
     expect(chainForWebhookId('wh_base_123')).toBe('base');
     expect(chainForWebhookId('wh_arc_456')).toBe('arc');
+    expect(chainForWebhookId('wh_sol_789')).toBe('solana');
+    expect(chainForWebhookId('wh_xlm_012')).toBe('stellar');
   });
 
   it('refuses an id we did not configure', () => {
@@ -181,5 +187,55 @@ describe('toAlchemyTransfer — the decimals conversion', () => {
     // re-derive it.
     const a: AlchemyActivity = { hash: '0x1', value: 938136, category: 'external' };
     expect(transferAmountUsdc(toAlchemyTransfer(a))).toBeNull();
+  });
+});
+
+describe('stellarArrivalAddresses', () => {
+  const USER = 'GBB23JZLWLP2G7CNEVILUWWGAO7L4JR3PLB45SNVMXVMZXI7REZUND7J';
+  const OTHER = 'GCWX7TQ5GAPE3RWPHJGHG3YFXKM3F6CG5BE2KSS6RHVSNKXPBNTENMCK';
+  const usdc = { type: 'credit_alphanum4', code: 'USDC', issuer: 'GA5Z' };
+  const event = (activity: unknown[]) => ({ event: { network: 'STELLAR_MAINNET', activity } });
+
+  it('names the recipient of a USDC transfer', () => {
+    const payload = event([{ category: 'classic', fromAddress: OTHER, toAddress: USER, asset: usdc, success: true }]);
+    expect(stellarArrivalAddresses(payload)).toEqual([USER]);
+  });
+
+  it('ignores XLM and failed transfers', () => {
+    const payload = event([
+      { category: 'native', toAddress: USER, asset: { type: 'native', code: 'XLM' }, success: true },
+      { category: 'classic', toAddress: USER, asset: usdc, success: false },
+    ]);
+    expect(stellarArrivalAddresses(payload)).toEqual([]);
+  });
+
+  it('keeps Soroban events, which is how a CCTP delivery arrives', () => {
+    expect(stellarArrivalAddresses(event([{ category: 'soroban', toAddress: USER }]))).toEqual([USER]);
+  });
+
+  it('survives a payload with no activity', () => {
+    expect(stellarArrivalAddresses({})).toEqual([]);
+    expect(stellarArrivalAddresses(null)).toEqual([]);
+  });
+});
+
+describe('solanaPayloadAddresses', () => {
+  const WALLET = 'BZJHEzCTpBdh9cnQefdt7yeG175GTrgsSaBUapxHHqjP';
+  const ATA = '8APuhHvTZt4Xb8jvuzZnMFr8a3Wc4nY1F6dJsBxxW1sR';
+
+  it('finds keys wherever the payload nests them', () => {
+    const payload = {
+      event: {
+        transaction: [{ meta: [{ postTokenBalances: [{ owner: WALLET, accountIndex: 1 }] }] }],
+        accounts: { writable: [ATA] },
+      },
+    };
+    expect(solanaPayloadAddresses(payload).sort()).toEqual([ATA, WALLET].sort());
+  });
+
+  it('ignores strings that cannot be keys', () => {
+    // 0, O, I and l are not base58; amounts and short ids are too short.
+    const payload = { event: { a: '1000000', b: 'SOLANA_MAINNET', c: `${WALLET.slice(0, 40)}0OIl` } };
+    expect(solanaPayloadAddresses(payload)).toEqual([]);
   });
 });

@@ -44,6 +44,7 @@ import { readCache, writeCache } from "@/lib/client-cache";
 import { type ChainBalances } from "@/lib/web3/routing";
 import { useBalanceVisibility } from "@/components/providers/BalanceVisibilityProvider";
 import { AnimatedBalance } from "@/components/ui/AnimatedBalance";
+import { privySolanaAddress } from '@/lib/solana/privy-address';
 
 /**
  * Retries at deriving the smart account, 2s, 4s, 8s, 16s and 32s apart. Without them one failed
@@ -51,19 +52,17 @@ import { AnimatedBalance } from "@/components/ui/AnimatedBalance";
  */
 const INIT_RETRIES = 5;
 
+/** Waits before each re-registration of a Solana wallet Privy had not confirmed yet. */
+const SOLANA_REGISTRATION_RETRY_MS = [3_000, 10_000, 30_000];
+
 export default function Dashboard() {
   const { ready, authenticated, user } = usePrivy();
   const { wallets } = useWallets();
   const router = useRouter();
 
-  // Embedded Privy Solana wallet — look up via linkedAccounts (walletClientType is not exposed on ConnectedStandardSolanaWallet)
-  const privySolAccount = user?.linkedAccounts.find(
-    (a) => a.type === "wallet" && a.walletClientType === "privy" && a.chainType === "solana"
-  );
-  const embeddedSolWallet =
-    privySolAccount && "address" in privySolAccount
-      ? { address: (privySolAccount as { address: string }).address }
-      : null;
+  // The primary embedded Solana wallet, from linkedAccounts (see lib/solana/privy-address).
+  const primarySolAddress = privySolanaAddress(user);
+  const embeddedSolWallet = primarySolAddress ? { address: primarySolAddress } : null;
 
   const [smartAddress, setSmartAddress] = useState<string>("");
   const embeddedEvmAddress = wallets.find((w) => w.walletClientType === "privy")?.address;
@@ -195,8 +194,12 @@ export default function Dashboard() {
             solanaAddress: embeddedSolWallet?.address,
             referralCode,
           })
-            .then(() => {
+            .then(({ solanaPending }) => {
               if (referralCode) clearReferral();
+              // Privy had not confirmed the new Solana wallet yet; ask again shortly.
+              if (solanaPending && embeddedSolWallet?.address) {
+                void retrySolanaRegistration(address, embeddedSolWallet.address);
+              }
             })
             .catch((err) => {
               if (registeredRef.current === registration) registeredRef.current = "";
@@ -209,6 +212,20 @@ export default function Dashboard() {
           setTimeout(() => setInitAttempt((n) => n + 1), 2_000 * 2 ** initAttempt);
         }
       }
+    }
+
+    /** Re-sends the registration until the Solana wallet is confirmed, a few times at most. */
+    async function retrySolanaRegistration(address: string, solanaAddress: string) {
+      for (const delayMs of SOLANA_REGISTRATION_RETRY_MS) {
+        await new Promise((r) => setTimeout(r, delayMs));
+        try {
+          const { solanaPending } = await registerMyAddresses({ address, solanaAddress });
+          if (!solanaPending) return;
+        } catch (err) {
+          console.error("[Dashboard] Solana registration retry failed:", err);
+        }
+      }
+      // Still unconfirmed: the reconcile cron fills it in from Privy (lib/supabase/solana-address).
     }
 
     async function fetchSecurityPrefs() {

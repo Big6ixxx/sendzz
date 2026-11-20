@@ -270,7 +270,17 @@ export async function GET(req: Request) {
   const { pruneDeadSessions } = await import('@/lib/auth/session');
   const sessionsPruned = await pruneDeadSessions();
 
-  // ── Stellar and Solana deposits: every run, because nothing else watches them ──
+  // ── Users with no Solana address on their row ──────────────────────────────
+  //
+  // Without one their Solana deposits are never scanned or watched. Filled in from Privy, a few
+  // users per run; see lib/supabase/solana-address.
+  const { backfillSolanaAddresses } = await import('@/lib/supabase/solana-address');
+  const solanaBackfilled = await backfillSolanaAddresses().catch((e) => {
+    console.error('[Reconcile] Solana address backfill failed:', e instanceof Error ? e.message : e);
+    return 0;
+  });
+
+  // ── Stellar and Solana: swept every run until their webhook is set ─────────
   const [stellar, solana] = await Promise.all([sweepRail('stellar'), sweepRail('solana')]);
 
   // ── Full on-chain sweep: once per user per day ─────────────────────────────
@@ -326,6 +336,7 @@ export async function GET(req: Request) {
     solana,
     sends,
     sessionsPruned,
+    solanaBackfilled,
     refundsOutstanding: { count: owed?.length ?? 0, totalUsdc: owedTotal },
     stranded: stranded?.length ?? 0,
   });
@@ -349,7 +360,13 @@ export async function GET(req: Request) {
 const STELLAR_SWEEP_BATCH = 20;
 const SOLANA_SWEEP_BATCH = 20;
 
-/** The rails with no deposit webhook, which this cron sweeps on every run. */
+/** How often a rail with a webhook re-offers every address to Alchemy's watch list. */
+const WATCH_LIST_SYNC_EVERY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The rails this cron sweeps itself on every run, until that rail's Alchemy webhook is set.
+ * After that the webhook records deposits as they land and the daily full sweep is the net.
+ */
 type SweptRail = 'stellar' | 'solana';
 
 /**
@@ -400,6 +417,16 @@ async function touchSweep(userId: string, chain: SweptRail): Promise<void> {
  * Why these rails get their own pass at all: see the `rails` option in lib/web3/deposit-scanner.
  */
 async function sweepRail(rail: SweptRail): Promise<{ scanned: number; inserted: number }> {
+  const { webhookIdEnv } = await import('@/lib/web3/alchemy-webhook');
+  const hasWebhook = !!process.env[webhookIdEnv(rail)];
+  // With a webhook, deposits are scanned as they land (lib/web3/rail-webhook) and the daily full
+  // sweep is the net, so the only job left here is keeping the watch list complete, once a day.
+  // The first run after deploy claims the slot, so existing addresses are watched at once.
+  const syncWatchList =
+    hasWebhook &&
+    (await (await import('@/lib/ops/alert-cooldown')).claimAlertSlot(`watch-sync:${rail}`, WATCH_LIST_SYNC_EVERY_MS));
+  if (hasWebhook && !syncWatchList) return { scanned: 0, inserted: 0 };
+
   const column = rail === 'stellar' ? 'stellar_address' : 'solana_address';
   const batchSize = rail === 'stellar' ? STELLAR_SWEEP_BATCH : SOLANA_SWEEP_BATCH;
   const [{ data: rows, error }, { data: state }] = await Promise.all([
@@ -432,6 +459,20 @@ async function sweepRail(rail: SweptRail): Promise<{ scanned: number; inserted: 
   const { scanUsdcDeposits } = await import('@/lib/web3/deposit-scanner');
   let scanned = 0;
   let inserted = 0;
+
+  // Every address, not just a batch: covers ones saved before the webhook existed or whose
+  // registration failed. A few requests of 100 keys each; re-adding a watched one is a no-op.
+  if (syncWatchList) {
+    try {
+      const { watchRailAddresses } = await import('@/lib/web3/alchemy-registry');
+      await watchRailAddresses(rail, users.map((u) => u.address ?? '').filter(Boolean));
+    } catch (e) {
+      console.error(`[Reconcile ${rail}] watch list sync failed (non-fatal):`, e instanceof Error ? e.message : e);
+      // Not synced, so let the next run try instead of waiting a day.
+      await supabaseAdmin.from('ops_alert_log').delete().eq('key', `watch-sync:${rail}`);
+    }
+    return { scanned: 0, inserted: 0 };
+  }
 
   for (const u of due) {
     try {

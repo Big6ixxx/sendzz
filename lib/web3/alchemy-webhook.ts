@@ -53,7 +53,21 @@ export interface AlchemyWebhookPayload {
   event?: { activity?: AlchemyActivity[] };
 }
 
-const ENV_SUFFIX: Record<SupportedChain, string> = {
+/**
+ * A network with its own Address Activity webhook: each EVM chain, plus Solana and Stellar.
+ *
+ * Solana and Stellar events are not credited from the payload. They only say which of our
+ * addresses moved money, and the deposit scanner then reads the chain for those users at once
+ * (see lib/web3/rail-webhook). The scanner already knows how to tell a deposit from a bridge
+ * delivery or a send on those rails, and Alchemy's Solana payload is not documented, so the
+ * event is a doorbell, not a ledger entry.
+ */
+export type WebhookRail = SupportedChain | 'solana' | 'stellar';
+export type ScannedRail = 'solana' | 'stellar';
+
+const ENV_SUFFIX: Record<WebhookRail, string> = {
+  solana: 'SOLANA',
+  stellar: 'STELLAR',
   ethereum: 'ETHEREUM',
   arbitrum: 'ARBITRUM',
   avalanche: 'AVALANCHE',
@@ -63,8 +77,8 @@ const ENV_SUFFIX: Record<SupportedChain, string> = {
   arc: 'ARC',
 };
 
-export const webhookIdEnv = (chain: SupportedChain) => `ALCHEMY_WEBHOOK_ID_${ENV_SUFFIX[chain]}`;
-export const webhookSecretEnv = (chain: SupportedChain) =>
+export const webhookIdEnv = (chain: WebhookRail) => `ALCHEMY_WEBHOOK_ID_${ENV_SUFFIX[chain]}`;
+export const webhookSecretEnv = (chain: WebhookRail) =>
   `ALCHEMY_WEBHOOK_SECRET_${ENV_SUFFIX[chain]}`;
 
 /**
@@ -74,12 +88,66 @@ export const webhookSecretEnv = (chain: SupportedChain) =>
  * configuration mistake an operator fixes by setting a variable and restarting, and a cache
  * would make that look like the fix had not worked.
  */
-export function chainForWebhookId(webhookId: string | undefined): SupportedChain | null {
+export function chainForWebhookId(webhookId: string | undefined): WebhookRail | null {
   if (!webhookId) return null;
-  for (const chain of DEPOSIT_CHAINS) {
+  for (const chain of [...DEPOSIT_CHAINS, 'solana', 'stellar'] as const) {
     if (process.env[webhookIdEnv(chain)] === webhookId) return chain;
   }
   return null;
+}
+
+export const isScannedRail = (rail: WebhookRail): rail is ScannedRail =>
+  rail === 'solana' || rail === 'stellar';
+
+/** A Stellar activity entry, as documented for Alchemy's Stellar Address Activity webhook. */
+interface StellarActivity {
+  toAddress?: string;
+  fromAddress?: string;
+  category?: string;
+  success?: boolean;
+  asset?: { type?: string; code?: string; issuer?: string } | null;
+}
+
+/**
+ * Stellar accounts that may have just received USDC: the recipients of successful USDC
+ * transfers, plus Soroban events, which is how a CCTP delivery arrives. The scanner makes the
+ * real decision; this only keeps an outgoing payment or an XLM top up from triggering a scan.
+ */
+export function stellarArrivalAddresses(payload: unknown): string[] {
+  const activity = (payload as { event?: { activity?: StellarActivity[] } })?.event?.activity;
+  const out = new Set<string>();
+  for (const a of Array.isArray(activity) ? activity : []) {
+    if (!a?.toAddress || a.success === false) continue;
+    if (a.asset?.code === 'USDC' || a.category === 'soroban') out.add(a.toAddress);
+  }
+  return [...out];
+}
+
+const BASE58_KEY = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+/** More than any real transaction names; a payload past this is not worth walking further. */
+const MAX_SOLANA_KEYS = 200;
+
+/**
+ * Every string in a Solana event that could be an account: owners, token accounts, programs.
+ *
+ * Alchemy has not published the Solana payload's shape, so rather than read named fields this
+ * collects anything base58 that looks like a key. The caller keeps only the ones that are our
+ * users' wallets or their USDC token accounts, so extra keys cost a lookup and nothing else.
+ */
+export function solanaPayloadAddresses(payload: unknown): string[] {
+  const out = new Set<string>();
+  const walk = (v: unknown, depth: number) => {
+    if (out.size >= MAX_SOLANA_KEYS || depth > 12) return;
+    if (typeof v === 'string') {
+      if (BASE58_KEY.test(v)) out.add(v);
+    } else if (Array.isArray(v)) {
+      for (const x of v) walk(x, depth + 1);
+    } else if (v && typeof v === 'object') {
+      for (const x of Object.values(v)) walk(x, depth + 1);
+    }
+  };
+  walk((payload as { event?: unknown })?.event, 0);
+  return [...out];
 }
 
 /**

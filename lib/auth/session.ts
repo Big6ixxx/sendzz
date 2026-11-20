@@ -19,6 +19,7 @@ import { PrivyClient } from '@privy-io/node';
 import { cookies, headers } from 'next/headers';
 
 import { supabaseAdmin } from '@/lib/supabase/adminClient';
+import { byWalletIndex } from '@/lib/solana/privy-address';
 
 const privy = new PrivyClient({
   appId: process.env.NEXT_PUBLIC_PRIVY_APP_ID || '',
@@ -124,22 +125,61 @@ async function emailForPrivyUser(privyUserId: string): Promise<string | null> {
  */
 const solanaWalletCache = new Map<string, { addresses: string[]; at: number }>();
 
-export async function privySolanaWallets(privyUserId: string): Promise<string[]> {
+/**
+ * The Solana addresses among a Privy user's linked accounts that Privy itself holds, the
+ * PRIMARY one first.
+ *
+ * Primary means HD index 0. Some users have two embedded Solana wallets (one from Privy's
+ * create-on-login, one from useEnsureSolanaWallet racing it at signup), and Privy lists them in
+ * no fixed order. Every wallet that has ever moved money is index 0, so that is the one the app
+ * shows and the one we save; see lib/solana/privy-address for the client side of the same rule.
+ */
+function embeddedSolanaAddresses(linkedAccounts: readonly object[]): string[] {
+  return linkedAccounts
+    .filter(
+      (a) =>
+        'type' in a &&
+        a.type === 'wallet' &&
+        'chain_type' in a &&
+        a.chain_type === 'solana' &&
+        'wallet_client_type' in a &&
+        a.wallet_client_type === 'privy',
+    )
+    .map((a) => a as { address: string; wallet_index?: number | null })
+    .sort((x, y) => byWalletIndex(x.wallet_index, y.wallet_index))
+    .map((a) => a.address);
+}
+
+/**
+ * The embedded Solana wallets of the Privy user with this email, for server jobs that have an
+ * email and no session. Empty when Privy has no such user; throws when Privy cannot be asked.
+ */
+export async function privySolanaWalletsByEmail(email: string): Promise<string[]> {
+  try {
+    const privyUser = await privy.users().getByEmailAddress({ address: email });
+    return embeddedSolanaAddresses(privyUser.linked_accounts);
+  } catch (err) {
+    if ((err as { status?: number }).status === 404) return [];
+    throw err;
+  }
+}
+
+export async function privySolanaWallets(
+  privyUserId: string,
+  options?: {
+    /**
+     * Skip the cache. For saving the address: a list cached while a second wallet was still
+     * being created can name the wrong primary for the whole cache window.
+     */
+    fresh?: boolean;
+  },
+): Promise<string[]> {
   const hit = solanaWalletCache.get(privyUserId);
-  if (hit && Date.now() - hit.at < EMAIL_FRESH_MS) return hit.addresses;
+  if (!options?.fresh && hit && Date.now() - hit.at < EMAIL_FRESH_MS) return hit.addresses;
 
   try {
     const privyUser = await privy.users()._get(privyUserId);
-    const addresses = privyUser.linked_accounts
-      .filter(
-        (a) =>
-          a.type === 'wallet' &&
-          'chain_type' in a &&
-          a.chain_type === 'solana' &&
-          'wallet_client_type' in a &&
-          a.wallet_client_type === 'privy',
-      )
-      .map((a) => (a as { address: string }).address);
+    const addresses = embeddedSolanaAddresses(privyUser.linked_accounts);
 
     // An empty answer is not cached: a wallet created moments ago may not have reached Privy's
     // server yet, and remembering "none" would refuse that user for the whole cache window.

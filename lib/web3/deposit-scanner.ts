@@ -61,6 +61,12 @@ const STELLAR_BRIDGE_SENDERS = new Set(
 const EVM_MAX_PAGES = 5; // × 1000 transfers per chain per scan
 const STELLAR_MAX_PAGES = 5; // × 200 payment records per scan
 
+/**
+ * Newest transactions a webhook-triggered scan reads. It never moves the cursor, so it reads the
+ * latest activity instead of forward from a cursor that may be far behind the event.
+ */
+const WEBHOOK_RECENT = 25;
+
 // Warm-instance throttle so rapid history refetches don't hammer the RPCs. Keyed by address.
 const lastScan = new Map<string, number>();
 const THROTTLE_MS = 30_000;
@@ -114,6 +120,32 @@ async function knownHashes(userId: string): Promise<Set<string>> {
   for (const r of [...(recv ?? []), ...(recvByEmail ?? [])]) if (r.tx_hash) known.add(r.tx_hash.toLowerCase());
   for (const r of bridges ?? []) if (r.mint_tx_hash) known.add(r.mint_tx_hash.toLowerCase());
   return known;
+}
+
+/** The senders a scan recorded on a row: one address on Stellar, a list on Solana. */
+function rowSenders(row: DepositRow): string[] {
+  const from = (row.provider_metadata as { from?: unknown } | null)?.from;
+  if (typeof from === 'string') return [from];
+  return Array.isArray(from) ? from.filter((f): f is string => typeof f === 'string') : [];
+}
+
+/** Drop arrivals paid by another Sendzz account; see `trigger` on scanUsdcDeposits. */
+async function withoutSendzzSenders(rows: DepositRow[]): Promise<DepositRow[]> {
+  // Base58 and Stellar keys are alphanumeric; anything else is not an address and must not
+  // reach the filter string below.
+  const senders = [...new Set(rows.flatMap(rowSenders))].filter((s) => /^[A-Za-z0-9]+$/.test(s));
+  if (senders.length === 0) return rows;
+  const { data, error } = await supabaseAdmin
+    .from('users')
+    .select('solana_address, stellar_address')
+    .or(`solana_address.in.(${senders.join(',')}),stellar_address.in.(${senders.join(',')})`);
+  if (error) {
+    // Unsure who paid, so record nothing now; the sweep decides once the transfer has landed.
+    console.error('[DepositScan] sender lookup failed, leaving arrivals to the sweep:', error.message);
+    return [];
+  }
+  const ours = new Set(data.flatMap((u) => [u.solana_address, u.stellar_address]).filter(Boolean));
+  return rows.filter((r) => !rowSenders(r).some((s) => ours.has(s)));
 }
 
 /**
@@ -341,6 +373,7 @@ async function scanSolanaRail(
   ownerAddress: string,
   cursor: string | null,
   known: Set<string>,
+  recent?: number,
 ): Promise<ChainScan> {
   try {
     return await scanSolana(new Connection(SOLANA_RPC, 'confirmed'), {
@@ -349,6 +382,7 @@ async function scanSolanaRail(
       usdcMint: SOLANA_USDC_MINT,
       cursor,
       known,
+      recent,
     });
   } catch (e) {
     console.error('[DepositScan] solana:', e instanceof Error ? e.message : e);
@@ -427,16 +461,19 @@ async function scanStellar(
   address: string,
   cursor: string | null,
   known: Set<string>,
+  /** Read only the newest this-many payments, in one page; see WEBHOOK_RECENT. */
+  recent?: number,
 ): Promise<ChainScan> {
   // Sum per transaction: several payment operations can share one hash, and `tx_hash` is
   // what history dedupes on, so they have to land as a single deposit rather than the first.
   const byHash = new Map<string, DepositRow>();
   let pageCursor = cursor;
 
-  for (let page = 0; page < STELLAR_MAX_PAGES; page++) {
-    const url =
-      `${STELLAR_HORIZON_URL}/accounts/${address}/payments` +
-      `?order=asc&limit=200&include_failed=false${pageCursor ? `&cursor=${pageCursor}` : ''}`;
+  for (let page = 0; page < (recent ? 1 : STELLAR_MAX_PAGES); page++) {
+    const url = recent
+      ? `${STELLAR_HORIZON_URL}/accounts/${address}/payments?order=desc&limit=${recent}&include_failed=false`
+      : `${STELLAR_HORIZON_URL}/accounts/${address}/payments` +
+        `?order=asc&limit=200&include_failed=false${pageCursor ? `&cursor=${pageCursor}` : ''}`;
     const res = await fetch(url);
     // account not funded yet — nothing to scan
     if (res.status === 404) return { chain: 'stellar', rows: [], nextCursor: null };
@@ -504,15 +541,28 @@ export async function scanUsdcDeposits(params: {
   /**
    * Which rails to sweep.
    *
-   * 'all' is the daily backstop. 'stellar' is the frequent pass, and exists because Stellar has
-   * no deposit webhook — Alchemy does not cover it, so this sweep is the only thing that ever
-   * sees a Stellar payment. The EVM chains are left out of it deliberately: they ARE watched by
-   * a webhook, and every EVM chain in a sweep costs one billed `alchemy_getAssetTransfers` call.
+   * 'all' is the daily backstop. 'stellar' scans only Stellar: the frequent sweep, and the
+   * immediate scan an Alchemy Stellar event triggers (see lib/web3/rail-webhook). Those events
+   * carry no deposit we can trust on their own, so this scan is still what records a Stellar
+   * payment. The EVM chains are left out deliberately: their webhook credits directly, and every
+   * EVM chain in a sweep costs one billed `alchemy_getAssetTransfers` call.
    *
-   * 'solana' is the same idea for Solana, for the same reason: Alchemy's Address Activity
-   * webhook is registered for the EVM smart accounts only. It reads through lib/solana/rpc.
+   * 'solana' is the same idea for Solana. It reads through lib/solana/rpc.
    */
   rails?: 'all' | 'stellar' | 'solana';
+  /**
+   * 'webhook' when an Alchemy event says this address just moved money, so the scan runs now
+   * instead of waiting its turn in the sweep. Three differences from a sweep:
+   *
+   *   - the throttle is skipped, since two payments a few seconds apart are two real events;
+   *   - an arrival paid by another Sendzz account is left alone: the sender's app records it as
+   *     a transfer with its own emails, and the webhook usually lands before that record does
+   *     (the same rule the EVM webhook applies, see app/api/webhook/alchemy);
+   *   - it reads the newest transactions rather than forward from the cursor, and does not move
+   *     the cursor, so whatever this skips the next sweep still reads. Rows it does insert are
+   *     not inserted twice: the sweep's upsert ignores (user_id, tx_hash) duplicates.
+   */
+  trigger?: 'webhook';
 }): Promise<number> {
   const rails = params.rails ?? 'all';
   const { userId } = params;
@@ -529,8 +579,9 @@ export async function scanUsdcDeposits(params: {
       : rails === 'solana'
         ? `solana:${params.solanaAddress}`
         : address || params.solanaAddress || params.stellarAddress!;
+  const fromWebhook = params.trigger === 'webhook';
   const now = Date.now();
-  if (now - (lastScan.get(throttleKey) ?? 0) < THROTTLE_MS) return 0;
+  if (!fromWebhook && now - (lastScan.get(throttleKey) ?? 0) < THROTTLE_MS) return 0;
   lastScan.set(throttleKey, now);
 
   const [cursors, known] = await Promise.all([readCursors(userId), knownHashes(userId)]);
@@ -551,13 +602,13 @@ export async function scanUsdcDeposits(params: {
       : []),
     // Solana
     (rails === 'all' || rails === 'solana') && params.solanaAddress
-      ? scanSolanaRail(userId, params.solanaAddress, cursors.get('solana') ?? null, known)
+      ? scanSolanaRail(userId, params.solanaAddress, cursors.get('solana') ?? null, known, fromWebhook ? WEBHOOK_RECENT : undefined)
       : Promise.resolve(EMPTY('solana')),
     // Stellar
     (rails === 'all' || rails === 'stellar') && params.stellarAddress
       ? (async () => {
           try {
-            return await scanStellar(userId, params.stellarAddress!, cursors.get('stellar') ?? null, known);
+            return await scanStellar(userId, params.stellarAddress!, cursors.get('stellar') ?? null, known, fromWebhook ? WEBHOOK_RECENT : undefined);
           } catch (e) {
             console.error('[DepositScan] stellar:', e instanceof Error ? e.message : e);
             return EMPTY('stellar');
@@ -568,11 +619,22 @@ export async function scanUsdcDeposits(params: {
 
   // Dedupe across chains (same hash shouldn't appear twice) and insert.
   const seen = new Set<string>();
-  const rows = scans.flatMap((b) => b.rows).filter((r) => {
+  let rows = scans.flatMap((b) => b.rows).filter((r) => {
     if (seen.has(r.tx_hash)) return false;
     seen.add(r.tx_hash);
     return true;
   });
+
+  if (fromWebhook) {
+    rows = await withoutSendzzSenders(rows);
+    try {
+      return await insertDeposits(rows);
+    } catch (e) {
+      // The sweep reads the same window again, since this mode never moves a cursor.
+      console.error(`[DepositScan] webhook insert failed for ${userId}, left to the sweep:`, e instanceof Error ? e.message : e);
+      return 0;
+    }
+  }
 
   // ── Insert FIRST, advance cursors only after ────────────────────────────────
   //

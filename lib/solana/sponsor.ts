@@ -341,6 +341,23 @@ export async function handleSubmitRequest(req: Request, caller: SessionUser): Pr
       return json({ error: 'The transaction is not signed by your wallet.' }, 400);
     }
 
+    // A sender with no Solana address on their row gets it filled in (lib/supabase/solana-address).
+    // After the response, so the send never waits on it, and from a fresh list: a cached one can
+    // name the wrong primary for a user with two wallets.
+    if (caller.userId) {
+      const userId = caller.userId;
+      after(async () => {
+        try {
+          const fresh = await privySolanaWallets(caller.privyUserId, { fresh: true });
+          if (!fresh[0]) return;
+          const { saveSolanaAddressIfMissing } = await import('@/lib/supabase/solana-address');
+          await saveSolanaAddressIfMissing(userId, fresh[0]);
+        } catch (e) {
+          console.error(`${tag} Solana address backfill failed (non-fatal):`, e instanceof Error ? e.message : e);
+        }
+      });
+    }
+
     // A withdrawal hash is only ever attached to the caller's own withdrawal.
     if (withdrawalOrderId) {
       const { data: row } = caller.userId

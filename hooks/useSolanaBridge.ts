@@ -13,6 +13,7 @@ import type { SolanaSource } from '@/lib/web3/routing';
 import { NETWORK } from '@/lib/network';
 import { solanaRpcUrl } from '@/lib/solana/rpc';
 import { sendAndConfirmSigned } from '@/lib/solana/confirm';
+import { privySolanaAddress } from '@/lib/solana/privy-address';
 
 /**
  * Provides the capability to bridge the user's Solana USDC onto an EVM chain (Base by default), wiring up the
@@ -32,16 +33,7 @@ export function useSolanaBridge(): {
 
   const evmWallet = wallets.find((w) => w.walletClientType === 'privy');
 
-  const solAccount = user?.linkedAccounts.find(
-    (a) =>
-      a.type === 'wallet' &&
-      (a as { walletClientType?: string }).walletClientType === 'privy' &&
-      (a as { chainType?: string }).chainType === 'solana',
-  );
-  const solAddress =
-    solAccount && 'address' in solAccount
-      ? (solAccount as { address: string }).address
-      : undefined;
+  const solAddress = privySolanaAddress(user);
   const solWallet = solWallets.find((w) => w.address === solAddress) ?? null;
 
   return useMemo(() => {

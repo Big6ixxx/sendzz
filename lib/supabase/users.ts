@@ -56,12 +56,13 @@ export async function registerMyAddresses(input: {
    */
   referralCode?: string | null;
   accessToken?: string;
-}): Promise<void> {
+}): Promise<{ solanaPending: boolean }> {
   const { email, privyUserId } = await requireUser(input.accessToken);
+  const solana = await verifiedSolanaAddress(privyUserId, input.solanaAddress);
 
   const userId = await writeUserAddresses(email, {
     smartAccountAddress: input.address,
-    solanaAddress: await verifiedSolanaAddress(privyUserId, input.solanaAddress),
+    solanaAddress: solana.address,
     stellarAddress: input.stellarAddress,
     stellarWalletId: input.stellarWalletId,
     stellarSignerGranted: input.stellarSignerGranted,
@@ -72,29 +73,40 @@ export async function registerMyAddresses(input: {
   if (input.referralCode && userId) {
     await attributeReferral({ userId, code: input.referralCode });
   }
+
+  return { solanaPending: solana.pending };
 }
 
 /**
- * The Solana address to store, or undefined to leave the stored one alone.
+ * The Solana address to store (undefined leaves the stored one alone), and whether it was
+ * dropped only because it could not be confirmed YET.
  *
  * `solana_address` is what sends are verified against, where refunds go, and what deposit
  * scanning credits — so it is only written when Privy confirms the wallet is this user's own
  * embedded wallet. Anything else is dropped rather than thrown: registration runs on every
  * dashboard load, and failing it would break sign-in over a field most users never touch.
+ *
+ * `pending`: a wallet created seconds earlier is often not on Privy's server yet, so the
+ * caller asks again rather than treating the address as saved.
  */
 async function verifiedSolanaAddress(
   privyUserId: string,
   claimed: string | undefined,
-): Promise<string | undefined> {
-  if (!claimed) return undefined;
+): Promise<{ address?: string; pending: boolean }> {
+  if (!claimed) return { pending: false };
   try {
-    const wallets = await privySolanaWallets(privyUserId);
-    if (wallets.includes(claimed)) return claimed;
-    console.warn('[Users] Ignoring a Solana address that is not one of this user\'s Privy wallets.');
+    // Cached first, so an ordinary dashboard load costs no Privy call. Fresh only when the
+    // cached list lacks the wallet, which is the just-created case.
+    let wallets = await privySolanaWallets(privyUserId);
+    if (!wallets.includes(claimed)) wallets = await privySolanaWallets(privyUserId, { fresh: true });
+    // Saved is always Privy's primary, never the client's pick: an older client showing a
+    // user's second wallet would otherwise overwrite the right address on every load.
+    if (wallets.includes(claimed)) return { address: wallets[0], pending: false };
+    console.warn('[Users] Solana address not among this user\'s Privy wallets (yet); not saved.');
   } catch (err) {
-    console.warn('[Users] Could not verify Solana address; leaving it unchanged:', (err as Error).message);
+    console.warn('[Users] Could not verify Solana address; not saved this time:', (err as Error).message);
   }
-  return undefined;
+  return { pending: true };
 }
 
 /** Record the signed-in user's own Stellar wallet. */

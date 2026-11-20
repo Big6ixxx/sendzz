@@ -119,6 +119,15 @@ export function solanaUsdcDelta(tx: ParsedTransactionWithMeta, owner: string, us
   );
 }
 
+/** Owners whose USDC went down in this transaction: who paid. */
+export function solanaUsdcSenders(tx: ParsedTransactionWithMeta, usdcMint: string): string[] {
+  const owners = new Set<string>();
+  for (const b of [...(tx.meta?.preTokenBalances ?? []), ...(tx.meta?.postTokenBalances ?? [])]) {
+    if (b.mint === usdcMint && b.owner) owners.add(b.owner);
+  }
+  return [...owners].filter((o) => solanaUsdcDelta(tx, o, usdcMint) < 0n);
+}
+
 /**
  * Every signature on `address` newer than `until`, oldest first.
  *
@@ -166,15 +175,23 @@ export async function scanSolana(
     cursor: string | null;
     /** Lowercased hashes already on the ledger. */
     known: Set<string>;
+    /**
+     * Read only this many of the NEWEST signatures, ignoring the cursor. For a webhook-triggered
+     * scan: the transaction that set it off is the newest, and reading forward from a cursor
+     * that may be far behind could stop before reaching it.
+     */
+    recent?: number;
   },
 ): Promise<ChainScan> {
-  const { userId, ownerAddress, usdcMint, cursor, known } = params;
+  const { userId, ownerAddress, usdcMint, cursor, known, recent } = params;
   const owner = new PublicKey(ownerAddress);
   const ata = getAssociatedTokenAddressSync(usdcMint, owner, true);
   const ataStr = ata.toBase58();
   const mintStr = usdcMint.toBase58();
 
-  const chronological = await signaturesSince(rpc, ata, cursor);
+  const chronological = recent
+    ? (await rpc.getSignaturesForAddress(ata, { limit: recent })).reverse()
+    : await signaturesSince(rpc, ata, cursor);
   if (chronological.length === 0) return { chain: 'solana', rows: [], nextCursor: null };
   const batch = chronological.slice(0, SOL_MAX_TX); // chunk backfill across scans
 
@@ -218,7 +235,11 @@ export async function scanSolana(
       provider: 'onchain',
       status: 'confirmed',
       ...(info.blockTime ? { created_at: new Date(info.blockTime * 1000).toISOString() } : {}),
-      provider_metadata: { source: 'deposit-scan', token_account: ataStr },
+      provider_metadata: {
+        source: 'deposit-scan',
+        token_account: ataStr,
+        from: solanaUsdcSenders(tx, mintStr),
+      },
     });
   }
 

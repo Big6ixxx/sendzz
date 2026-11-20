@@ -17,6 +17,7 @@ import { useStellarWallet } from '@/hooks/useStellarWallet';
 import { ArrowRight, Loader2, ShieldCheck, Users } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
+import { privySolanaAddress } from '@/lib/solana/privy-address';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -45,16 +46,7 @@ function TransfersPageContent() {
   const stellarAddress = stellarWallet?.address ?? "";
 
   // Embedded Solana wallet address (for the portfolio total).
-  const solAccount = user?.linkedAccounts.find(
-    (a) =>
-      a.type === "wallet" &&
-      (a as { walletClientType?: string }).walletClientType === "privy" &&
-      (a as { chainType?: string }).chainType === "solana",
-  );
-  const solanaAddress =
-    solAccount && "address" in solAccount
-      ? (solAccount as { address: string }).address
-      : undefined;
+  const solanaAddress = privySolanaAddress(user);
 
   const { data: portfolio } = usePortfolio(smartAddress, solanaAddress, stellarAddress || undefined);
 

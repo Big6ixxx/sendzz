@@ -15,8 +15,11 @@
  * deposits are found by the cron a few minutes later.
  */
 
-import { webhookIdEnv } from './alchemy-webhook';
+import { PublicKey } from '@solana/web3.js';
+import { getAssociatedTokenAddressSync } from '@solana/spl-token';
+import { webhookIdEnv, type ScannedRail } from './alchemy-webhook';
 import { DEPOSIT_CHAINS, type SupportedChain } from '@/lib/circle/gateway';
+import { NETWORK } from '@/lib/network';
 
 const NOTIFY_URL = 'https://dashboard.alchemy.com/api/update-webhook-addresses';
 
@@ -100,4 +103,48 @@ export async function watchAddresses(addresses: string[]): Promise<void> {
 export async function watchAddress(address: string | null | undefined): Promise<void> {
   if (!address) return;
   await watchAddresses([address]);
+}
+
+/**
+ * The keys to watch for one Solana wallet: the wallet, and its USDC token account, which is
+ * the account a USDC transfer actually writes to.
+ */
+function solanaKeys(owner: string): string[] {
+  try {
+    const ata = getAssociatedTokenAddressSync(
+      new PublicKey(NETWORK.solana.usdcMint),
+      new PublicKey(owner),
+      true,
+    );
+    return [owner, ata.toBase58()];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Watch Solana or Stellar addresses on that rail's webhook.
+ *
+ * Kept apart from `watchAddresses`, which lowercases: base58 and Stellar keys are
+ * case-sensitive, so a lowercased one is a different (non-existent) account.
+ */
+export async function watchRailAddresses(rail: ScannedRail, addresses: string[]): Promise<void> {
+  const webhookId = process.env[webhookIdEnv(rail)];
+  const token = authToken();
+  if (!webhookId || !token) return; // push is off for this rail; the sweep still finds deposits
+
+  const keys = Array.from(
+    new Set(
+      addresses
+        .filter((a) => !!a)
+        .flatMap((a) => (rail === 'solana' ? solanaKeys(a) : /^G[A-Z2-7]{55}$/.test(a) ? [a] : [])),
+    ),
+  );
+  for (let i = 0; i < keys.length; i += CHUNK) {
+    try {
+      await patchAddresses(webhookId, keys.slice(i, i + CHUNK), [], token);
+    } catch (e) {
+      console.error(`[AlchemyRegistry] ${rail} registration error:`, e);
+    }
+  }
 }

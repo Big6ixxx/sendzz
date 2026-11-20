@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
-import { usePrivy } from '@privy-io/react-auth';
+import { usePrivy, useUser } from '@privy-io/react-auth';
 import { useCreateWallet, useWallets as useSolanaWallets } from '@privy-io/react-auth/solana';
+import { privySolanaAddress } from '@/lib/solana/privy-address';
 
 /**
  * Make sure the signed-in user has an embedded Solana wallet, creating one if not.
@@ -20,6 +21,15 @@ import { useCreateWallet, useWallets as useSolanaWallets } from '@privy-io/react
 
 type Status = 'unknown' | 'ready' | 'creating' | 'failed';
 
+/**
+ * How long to let Privy's own create-on-login finish before deciding the user has no wallet.
+ * Creating in the gap before the page sees that wallet is how users got a second one.
+ */
+const CREATE_ON_LOGIN_GRACE_MS = 4_000;
+
+/** Tries at re-reading the user before a wallet creation is given up as failed. */
+const REFRESH_ATTEMPTS = 3;
+
 const attempts = new Map<string, { status: Exclude<Status, 'unknown' | 'ready'>; promise: Promise<void> }>();
 const listeners = new Set<() => void>();
 const notify = () => listeners.forEach((l) => l());
@@ -27,19 +37,6 @@ const subscribe = (l: () => void) => {
   listeners.add(l);
   return () => listeners.delete(l);
 };
-
-/** The embedded Solana address on the Privy user, if any. */
-export function embeddedSolanaAddress(
-  user: ReturnType<typeof usePrivy>['user'],
-): string | undefined {
-  const account = user?.linkedAccounts.find(
-    (a) =>
-      a.type === 'wallet' &&
-      (a as { walletClientType?: string }).walletClientType === 'privy' &&
-      (a as { chainType?: string }).chainType === 'solana',
-  );
-  return account && 'address' in account ? (account as { address: string }).address : undefined;
-}
 
 export function useEnsureSolanaWallet(): {
   address: string | undefined;
@@ -50,8 +47,22 @@ export function useEnsureSolanaWallet(): {
   const { ready, authenticated, user } = usePrivy();
   const { ready: solanaReady } = useSolanaWallets();
   const { createWallet } = useCreateWallet();
+  const { refreshUser } = useUser();
 
-  const address = embeddedSolanaAddress(user);
+  // Not knowing is not "none": a wallet created without a fresh answer risks a second one, so
+  // a failed refresh is tried again before the attempt is given up as failed.
+  const refreshUserPatiently = useCallback(async () => {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await refreshUser();
+      } catch (err) {
+        if (attempt >= REFRESH_ATTEMPTS) throw err;
+        await new Promise((r) => setTimeout(r, 2_000 * attempt));
+      }
+    }
+  }, [refreshUser]);
+
+  const address = privySolanaAddress(user);
   const userId = user?.id;
   const attempt = useSyncExternalStore(
     subscribe,
@@ -59,13 +70,18 @@ export function useEnsureSolanaWallet(): {
     () => undefined,
   );
 
-  const start = useCallback(() => {
+  /** `grace`: only the automatic first attempt waits for Privy's create-on-login. */
+  const start = useCallback((grace = false) => {
     if (!userId) return;
     const existing = attempts.get(userId);
     if (existing && existing.status !== 'failed') return;
     const entry = {
       status: 'creating' as const,
-      promise: createWallet()
+      promise: (async () => {
+        if (grace) await new Promise((r) => setTimeout(r, CREATE_ON_LOGIN_GRACE_MS));
+        if (privySolanaAddress(await refreshUserPatiently())) return; // Privy's got there first
+        await createWallet();
+      })()
         .then(() => {
           // Privy updates `user.linkedAccounts` itself; the address appears from there. The
           // entry is kept, so the gap before it does cannot start a second (failing) create.
@@ -78,15 +94,15 @@ export function useEnsureSolanaWallet(): {
     };
     attempts.set(userId, entry);
     notify();
-  }, [userId, createWallet]);
+  }, [userId, createWallet, refreshUserPatiently]);
 
   const canKnow = ready && authenticated && solanaReady && !!userId;
 
   useEffect(() => {
     // Automatically once; a failure waits for an explicit retry rather than looping.
-    if (canKnow && !address && !attempts.has(userId!)) start();
+    if (canKnow && !address && !attempts.has(userId!)) start(true);
   }, [canKnow, address, userId, start]);
 
   const status: Status = address ? 'ready' : !canKnow ? 'unknown' : (attempt ?? 'creating');
-  return { address, status, retry: start };
+  return { address, status, retry: () => start() };
 }
